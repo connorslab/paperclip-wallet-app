@@ -1,6 +1,9 @@
 name: iOS proof of concept
 on:
   workflow_dispatch:
+  push:
+    branches: [feature/ios-wallet]
+    paths: ['mobile/**', '.github/workflows/ios-preview.yml', 'bark/**', 'bitcoin-ext/**']
 permissions:
   contents: read
 jobs:
