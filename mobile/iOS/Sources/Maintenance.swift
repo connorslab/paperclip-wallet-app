@@ -10,7 +10,7 @@ actor UnconnectedEngine: WalletEngine {
 }
 
 @MainActor final class Maintenance: ObservableObject {
-    static let shared = Maintenance()
+    static let shared = Maintenance(engine: NativeWallet.shared)
     static let refreshID = "xyz.paperclippool.wallet.preview.refresh"
     static let processingID = "xyz.paperclippool.wallet.preview.processing"
     @Published var message = "Native wallet connection is not configured. No funds are available in this preview."

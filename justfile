@@ -8,3 +8,6 @@ unit filter="":
 
 unit-wallet filter="":
 	cargo test --locked -p bark-wallet --features onchain-bdk --lib {{filter}}
+
+unit-mobile filter="":
+	cargo test --locked -p paperclip-mobile --lib {{filter}}

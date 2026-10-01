@@ -62,10 +62,12 @@ jobs:
             ~/.cargo/git
             target
           key: ios-rust-1.90-${{ hashFiles('Cargo.lock') }}-${{ github.sha }}
-          restore-keys: ios-rust-1.90-${{ hashFiles('Cargo.lock') }}-
+          restore-keys: |
+            ios-rust-1.90-${{ hashFiles('Cargo.lock') }}-
+            ios-rust-1.90-
       - name: Install Rust and native build dependencies
         run: |
-          brew install protobuf cmake
+          brew install protobuf cmake just
           rustup toolchain install 1.90.0 --profile minimal
           rustup target add --toolchain 1.90.0 aarch64-apple-ios aarch64-apple-ios-sim
       - name: Check the existing wallet engine for device and simulator
@@ -76,6 +78,13 @@ jobs:
         run: |
           cargo +1.90.0 build --locked -p paperclip-mobile --target aarch64-apple-ios
           cargo +1.90.0 build --locked -p paperclip-mobile --target aarch64-apple-ios-sim
+      - name: Test native wallet persistence and recovery
+        env:
+          RUSTUP_TOOLCHAIN: '1.90.0'
+          CARGO_BUILD_JOBS: '3'
+          CARGO_PROFILE_DEV_DEBUG: '0'
+          CARGO_INCREMENTAL: '0'
+        run: just unit-mobile
       - uses: actions/upload-artifact@v4
         with:
           name: paperclip-rust-ios-simulator

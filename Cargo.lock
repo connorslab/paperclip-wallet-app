@@ -2465,8 +2465,13 @@ dependencies = [
 name = "paperclip-mobile"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "bark-wallet",
+ "base64 0.22.1",
  "bitcoin",
+ "rusqlite",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]

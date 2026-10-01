@@ -6,9 +6,11 @@ This is an **unfunded prototype**, not an installable production wallet or TestF
 The SwiftUI app includes Paperclip styling, reduced-motion support, automatic
 refresh preferences, foreground checks, BGAppRefreshTask/BGProcessingTask registration,
 cancellation, and local expiry reminders. The Rust bridge links the existing wallet
-engine and tests ephemeral regtest key derivation. It exports no payment, address,
-or seed-import interface. The preview's wallet engine is deliberately unconnected;
-it never represents a failed check as a successful refresh.
+engine. The wallet lab creates and reopens a regtest wallet, persists on-chain address
+indexes, and connects to an explicitly configured regtest ASP and indexed RPC backend.
+Mainnet is rejected by the bridge. Keys and connection credentials use device-only
+Keychain storage accessible after first unlock; database files use protected storage
+and are excluded from automatic device backups.
 
 ## Refresh design
 
@@ -38,9 +40,10 @@ Restore must target an empty wallet and validate native recovery state before co
 
 This is manual file backup, not automatic cloud synchronization. Files manages upload;
 saving a file does not confirm its upload completed. Backups do not prevent VTXO expiry.
-The preview disables export/restore until the native wallet adapter supplies a consistent
-snapshot and atomic restore. Encryption tests use fixtures; real-wallet recovery and
-physical-device iCloud round trips remain required before release.
+Native export uses a SQLite snapshot that includes committed WAL state. Restore validates
+the database and key/network association in a staging directory before renaming it into
+an empty wallet location. A failed staging import is retained for diagnosis rather than
+overwriting existing data. Physical-device iCloud round trips remain required before release.
 
 ## Build verification
 
@@ -51,13 +54,12 @@ Local policy tests: `cd mobile && swift test`. Generate the project using XcodeG
 
 ## Still required before a funded mobile test
 
-- Wire a native session/FFI adapter for wallet creation, sync, refresh, and payment operations.
-- Store keys in Keychain and wallet/Ark recovery data in protected persistent storage;
-  implement full recovery export and restore. A mnemonic alone is insufficient.
-- Decide whether background key access after first unlock is enabled. Requiring biometric
-  presence for every key access prevents unattended signing while locked; never silently
-  weaken that preference to make background refresh work.
-- Add validated public chain-data access, custom RPC credentials, and embedded Tor routing.
+- Complete end-to-end regtest payment and recovery verification for the new native bridge.
+- Add a polished wallet dashboard, activity reconciliation, and direct on-chain payment
+  review. The current payment form spends Ark funds; on-chain destinations use offboarding.
+- Add an optional biometric policy. The test wallet explicitly uses after-first-unlock
+  access; biometric presence on every access prevents unattended refresh while locked.
+- Add validated public chain-data access and embedded Tor routing.
   Do not ship an unrestricted public Bitcoin RPC endpoint or leak onion DNS requests.
 - Verify kill/restart during every refresh phase, offline expiry handling, and backups on
   physical devices. Simulator tests cannot establish real background scheduling reliability.

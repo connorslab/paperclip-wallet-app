@@ -35,9 +35,15 @@ struct WalletView: View {
                     Label("PAPERCLIP", systemImage: "paperclip").font(.headline).foregroundStyle(orange)
                     Text("Your XBT.\nWithin reach.").font(.largeTitle.bold())
                     card {
+                        NavigationLink { WalletWorkbench() } label: {
+                            Label("Open wallet lab", systemImage: "wallet.pass").font(.headline)
+                        }.tint(orange).accessibilityIdentifier("wallet-lab")
+                        Text("Persistent native wallet · Regtest only").font(.caption)
+                    }
+                    card {
                         Label("iPhone proof of concept", systemImage: "iphone")
                             .font(.title3.bold())
-                        Text("No wallet is connected. This build cannot receive funds or make payments.")
+                        Text("Regtest development build. Do not send mainnet funds. Open the wallet lab to create or connect a test wallet.")
                             .foregroundStyle(.secondary)
                         Text(engineStatus).font(.caption).accessibilityIdentifier("engine-status")
                     }
@@ -57,7 +63,7 @@ struct WalletView: View {
                         Text(maintenance.notificationStatus).font(.caption)
                     }
                     card {
-                        NavigationLink { BackupView(engine: nil) } label: {
+                        NavigationLink { BackupView(engine: NativeWallet.shared) } label: {
                             Label("iCloud backup & restore", systemImage: "icloud.and.arrow.up").font(.headline)
                         }.tint(orange)
                         Text("Encrypted full-wallet files. Keep your recovery key separate.").font(.subheadline).foregroundStyle(.secondary)
