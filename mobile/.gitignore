@@ -1,0 +1,4 @@
+.build/
+iOS/*.xcodeproj/
+iOS/Generated-Info.plist
+DerivedData/

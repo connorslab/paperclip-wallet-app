@@ -1,0 +1,36 @@
+name: Paperclip
+options:
+  deploymentTarget:
+    iOS: '17.0'
+packages:
+  PaperclipMobile:
+    path: ..
+targets:
+  Paperclip:
+    type: application
+    platform: iOS
+    sources: [Sources]
+    dependencies:
+      - package: PaperclipMobile
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: xyz.paperclippool.wallet.preview
+        SWIFT_VERSION: '5.9'
+        MARKETING_VERSION: '0.1.0'
+        CURRENT_PROJECT_VERSION: '1'
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_UIBackgroundModes: [fetch, processing]
+    info:
+      path: Generated-Info.plist
+      properties:
+        CFBundleDisplayName: Paperclip Preview
+        UILaunchScreen: {}
+        UIBackgroundModes: [fetch, processing]
+        BGTaskSchedulerPermittedIdentifiers:
+          - xyz.paperclippool.wallet.preview.refresh
+          - xyz.paperclippool.wallet.preview.processing
+schemes:
+  Paperclip:
+    build:
+      targets:
+        Paperclip: all

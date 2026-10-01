@@ -1,0 +1,38 @@
+name: iOS proof of concept
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  ios:
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test refresh and notification policy
+        working-directory: mobile
+        run: swift test
+      - name: Generate app project
+        run: brew install xcodegen && cd mobile/iOS && xcodegen generate
+      - name: Build simulator app
+        run: xcodebuild -project mobile/iOS/Paperclip.xcodeproj -scheme Paperclip -sdk iphonesimulator -configuration Debug -derivedDataPath mobile/DerivedData CODE_SIGNING_ALLOWED=NO build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Paperclip-iOS-simulator-preview
+          path: mobile/DerivedData/Build/Products/Debug-iphonesimulator/Paperclip.app
+  rust-port:
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust and native build dependencies
+        run: |
+          brew install protobuf cmake
+          rustup toolchain install 1.90.0 --profile minimal
+          rustup target add --toolchain 1.90.0 aarch64-apple-ios aarch64-apple-ios-sim
+      - name: Check the existing wallet engine for device and simulator
+        env:
+          CARGO_BUILD_JOBS: '3'
+        run: |
+          cargo +1.90.0 check --locked -p bark-wallet --target aarch64-apple-ios --no-default-features --features rand,sqlite-bundled,native,tls-webpki-roots,onchain-bdk,bitcoind-rpc,socks5-proxy
+          cargo +1.90.0 check --locked -p bark-wallet --target aarch64-apple-ios-sim --no-default-features --features rand,sqlite-bundled,native,tls-webpki-roots,onchain-bdk,bitcoind-rpc,socks5-proxy
