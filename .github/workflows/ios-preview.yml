@@ -8,6 +8,7 @@ permissions:
   contents: read
 jobs:
   ios:
+    needs: rust-port
     runs-on: macos-15
     timeout-minutes: 45
     steps:
@@ -17,8 +18,12 @@ jobs:
         run: swift test
       - name: Generate app project
         run: brew install xcodegen && cd mobile/iOS && xcodegen generate
+      - uses: actions/download-artifact@v4
+        with:
+          name: paperclip-rust-ios-simulator
+          path: target/aarch64-apple-ios-sim/debug
       - name: Build simulator app
-        run: xcodebuild -project mobile/iOS/Paperclip.xcodeproj -scheme Paperclip -sdk iphonesimulator -configuration Debug -derivedDataPath mobile/DerivedData CODE_SIGNING_ALLOWED=NO build
+        run: xcodebuild -project mobile/iOS/Paperclip.xcodeproj -scheme Paperclip -sdk iphonesimulator -configuration Debug -derivedDataPath mobile/DerivedData CODE_SIGNING_ALLOWED=NO ARCHS=arm64 ONLY_ACTIVE_ARCH=NO build
       - uses: actions/upload-artifact@v4
         with:
           name: Paperclip-iOS-simulator-preview
@@ -37,5 +42,9 @@ jobs:
         env:
           CARGO_BUILD_JOBS: '3'
         run: |
-          cargo +1.90.0 check --locked -p bark-wallet --target aarch64-apple-ios --no-default-features --features rand,sqlite-bundled,native,tls-webpki-roots,onchain-bdk,bitcoind-rpc,socks5-proxy
-          cargo +1.90.0 check --locked -p bark-wallet --target aarch64-apple-ios-sim --no-default-features --features rand,sqlite-bundled,native,tls-webpki-roots,onchain-bdk,bitcoind-rpc,socks5-proxy
+          cargo +1.90.0 build --locked -p paperclip-mobile --target aarch64-apple-ios
+          cargo +1.90.0 build --locked -p paperclip-mobile --target aarch64-apple-ios-sim
+      - uses: actions/upload-artifact@v4
+        with:
+          name: paperclip-rust-ios-simulator
+          path: target/aarch64-apple-ios-sim/debug/libpaperclip_mobile.a

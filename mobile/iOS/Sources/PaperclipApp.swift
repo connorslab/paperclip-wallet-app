@@ -26,6 +26,7 @@ struct WalletView: View {
     @EnvironmentObject var maintenance: Maintenance
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage("automaticRefresh") private var automatic = true
+    @State private var engineStatus = ""
     private let orange = Color(red: 1, green: 0.38, blue: 0.17)
     var body: some View {
         NavigationStack {
@@ -38,6 +39,7 @@ struct WalletView: View {
                             .font(.title3.bold())
                         Text("No wallet is connected. This build cannot receive funds or make payments.")
                             .foregroundStyle(.secondary)
+                        Text(engineStatus).font(.caption)
                     }
                     card {
                         Label("Keep Ark funds current", systemImage: "arrow.triangle.2.circlepath").font(.headline)
@@ -62,6 +64,7 @@ struct WalletView: View {
                 }.padding(24)
             }.background(Color(red: 0.07, green: 0.11, blue: 0.17))
                 .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: maintenance.busy)
+                .task { engineStatus = EngineProbe.run() }
         }
     }
     func card<Content: View>(@ViewBuilder content: () -> Content) -> some View {

@@ -10,7 +10,8 @@ members = [
   "bip321",
   "bitcoin-ext",
   "lib",
-  "server-rpc"
+  "server-rpc",
+  "mobile/rust"
 ]
 
 resolver = "2"

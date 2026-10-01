@@ -1,0 +1,12 @@
+[package]
+name = "paperclip-mobile"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+
+[lib]
+crate-type = ["staticlib"]
+
+[dependencies]
+bark-wallet = { path = "../../bark", default-features = false, features = ["rand", "sqlite-bundled", "native", "tls-webpki-roots", "onchain-bdk", "bitcoind-rpc", "socks5-proxy"] }
+bitcoin.workspace = true
