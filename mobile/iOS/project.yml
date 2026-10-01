@@ -19,6 +19,7 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: xyz.paperclippool.wallet.preview
         SWIFT_VERSION: '5.9'
         SWIFT_OBJC_BRIDGING_HEADER: Sources/Bridge.h
+        LIBRARY_SEARCH_PATHS: ['$(inherited)', '$(SRCROOT)/../../target/aarch64-apple-ios-sim/debug']
         OTHER_LDFLAGS: ['$(inherited)', '-lc++', '-lsqlite3', '-framework', 'Security', '-framework', 'SystemConfiguration']
         MARKETING_VERSION: '0.1.0'
         CURRENT_PROJECT_VERSION: '1'
