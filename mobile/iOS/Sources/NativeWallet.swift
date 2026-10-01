@@ -160,12 +160,16 @@ actor NativeWallet: WalletEngine, WalletBackupEngine {
             vtxos: try JSONDecoder().decode([VTXO].self, from: JSONSerialization.data(withJSONObject: vtxos)))
     }
     func refreshEligible() async throws { _ = try await call(["op": "refresh"]) }
-    func quote(destination: String, amount: UInt64) async throws -> [String: Any] {
+    func activity() async throws -> [String: Any] {
         try await ensureConnected()
-        return try await call(["op": "quote", "destination": destination, "amount_sat": amount])
+        return try await call(["op": "activity"])
     }
-    func send(destination: String, amount: UInt64, total: UInt64) async throws -> [String: Any] {
-        try await call(["op": "send", "destination": destination, "amount_sat": amount, "total_sat": total])
+    func quote(destination: String, amount: UInt64, onchain: Bool = false) async throws -> [String: Any] {
+        try await ensureConnected()
+        return try await call(["op": onchain ? "quote_onchain" : "quote", "destination": destination, "amount_sat": amount])
+    }
+    func send(destination: String, amount: UInt64, total: UInt64, onchain: Bool = false) async throws -> [String: Any] {
+        try await call(["op": onchain ? "send_onchain" : "send", "destination": destination, "amount_sat": amount, "total_sat": total])
     }
     func exportRecoveryArchive() async throws -> RecoveryArchive {
         _ = try await open()

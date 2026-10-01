@@ -23,6 +23,7 @@ pub struct Session {
 	_lock: Box<dyn LockManager>,
 	fingerprint: String,
 	quote: Option<(String, u64, u64, Instant)>,
+	onchain_quote: Option<(String, u64, bitcoin::Psbt, Instant)>,
 }
 
 #[cfg(test)]
@@ -135,7 +136,7 @@ pub fn dispatch(state: &mut Option<Session>, request: Value, seed: [u8; 64]) -> 
 			OnchainWallet::load_or_create(Network::Regtest, seed, db.clone()).await
 		})?;
 		*state = Some(Session { runtime, dir, db, onchain: Arc::new(tokio::sync::RwLock::new(onchain)),
-			wallet: None, _lock: lock, fingerprint: fingerprint.to_string(), quote: None });
+			wallet: None, _lock: lock, fingerprint: fingerprint.to_string(), quote: None, onchain_quote: None });
 		return Ok(json!({"fingerprint": fingerprint.to_string()}));
 	}
 	let session = state.as_mut().context("open a wallet first")?;
@@ -153,7 +154,7 @@ pub fn dispatch(state: &mut Option<Session>, request: Value, seed: [u8; 64]) -> 
 		std::fs::remove_file(path)?;
 		return result;
 	}
-	let Session { runtime, wallet, db, onchain, quote, .. } = session;
+	let Session { runtime, wallet, db, onchain, quote, onchain_quote, .. } = session;
 	runtime.block_on(async {
 		if op == "address_onchain" {
 			return Ok(json!({"address": OnchainWalletTrait::address(&mut *onchain.write().await).await?.to_string()}));
@@ -170,9 +171,23 @@ pub fn dispatch(state: &mut Option<Session>, request: Value, seed: [u8; 64]) -> 
 		if op == "config_template" { return Ok(serde_json::to_value(Config::network_default(Network::Regtest))?); }
 		let w = wallet.as_ref().context("connect to the test backend first")?;
 		match op {
+			"check_payment" => {
+				use bark::actions::lightning::pay::LightningSendState;
+				let state = w.check_lightning_payment(text(&request, "payment_hash")?.parse()?, false).await?;
+				Ok(json!({"state": match state {
+					LightningSendState::Unknown => "unknown", LightningSendState::InProgress(_) => "pending",
+					LightningSendState::Paid(_) => "paid",
+				}}))
+			},
+			"activity" => Ok(json!({"movements": db.get_all_movements().await?,
+				"onchain": onchain.read().await.list_transaction_infos()?.iter().map(|tx| json!({
+					"txid": tx.txid.to_string(), "change_sat": tx.balance_change.to_sat(),
+					"confirmed": tx.confirmation.is_some()
+				})).collect::<Vec<_>>() })),
 			"sync" => {
 				w.chain().invalidate_caches().await;
 				w.refresh_server().await?;
+				w.chain().update_fee_rates(w.config().fallback_fee_rate).await?;
 				w.sync_onchain().await?;
 				w.sync_pending_rounds().await?;
 				w.sync_pending_arkoor_sends().await?;
@@ -182,16 +197,43 @@ pub fn dispatch(state: &mut Option<Session>, request: Value, seed: [u8; 64]) -> 
 				w.sync_mailbox().await?;
 				let balance = w.balance().await?;
 				let tip = w.chain().tip().await?;
-				let vtxos = w.spendable_vtxos().await?;
+				let vtxos = w.vtxos().await?;
 				Ok(json!({"tip": tip, "ark_sat": balance.spendable.to_sat(), "pending_sat": balance.pending().to_sat(),
 					"onchain_sat": onchain.read().await.balance().total().to_sat(),
-					"vtxos": vtxos.iter().map(|v| json!({"id": v.id().to_string(), "expiryHeight": v.expiry_height(), "spendable": true})).collect::<Vec<_>>() }))
+					"vtxos": vtxos.iter().map(|v| json!({"id": v.id().to_string(), "expiryHeight": v.expiry_height(),
+						"spendable": v.state.kind() == bark::vtxo::VtxoStateKind::Spendable})).collect::<Vec<_>>() }))
 			},
 			"address_ark" => Ok(json!({"address": w.new_address().await?.to_string()})),
 			"refresh" => {
 				w.sync_pending_rounds().await?;
 				let scheduled = w.maybe_schedule_maintenance_refresh_delegated().await?.is_some();
 				Ok(json!({"scheduled": scheduled}))
+			},
+			"quote_onchain" => {
+				*onchain_quote = None;
+				let destination = text(&request, "destination")?;
+				let address = destination.parse::<bitcoin::Address<_>>()?.require_network(Network::Regtest)?;
+				let amount = request["amount_sat"].as_u64().context("amount required")?;
+				ensure!(amount > 0, "amount must be positive");
+				w.chain().update_fee_rates(w.config().fallback_fee_rate).await?;
+				let rate = w.chain().fee_rates().await.regular;
+				let psbt = onchain.write().await.prepare_tx(&[(address, Amount::from_sat(amount))], rate).await?;
+				let fee = psbt.fee()?.to_sat();
+				*onchain_quote = Some((destination.into(), amount, psbt, Instant::now()));
+				Ok(json!({"amount_sat": amount, "fee_sat": fee, "total_sat": amount.checked_add(fee).context("amount overflow")?}))
+			},
+			"send_onchain" => {
+				let (destination, amount, psbt, time) = onchain_quote.take().context("review a new on-chain quote")?;
+				ensure!(time.elapsed() < Duration::from_secs(60), "quote expired");
+				ensure!(text(&request, "destination")? == destination && request["amount_sat"].as_u64() == Some(amount)
+					&& request["total_sat"].as_u64() == amount.checked_add(psbt.fee()?.to_sat()), "payment changed");
+				let mut onchain = onchain.write().await;
+				let unspent: std::collections::HashSet<_> = onchain.list_unspent().iter().map(|u| u.outpoint).collect();
+				ensure!(psbt.unsigned_tx.input.iter().all(|input| unspent.contains(&input.previous_output)), "inputs changed; review a new quote");
+				let tx = onchain.finish_psbt(psbt).await?.extract_tx()?;
+				let txid = tx.compute_txid();
+				let broadcast = w.chain().broadcast_tx(&tx).await.is_ok();
+				Ok(json!({"state": if broadcast {"submitted"} else {"pending_broadcast"}, "txid": txid.to_string()}))
 			},
 			"quote" => {
 				*quote = None;
@@ -217,7 +259,7 @@ pub fn dispatch(state: &mut Option<Session>, request: Value, seed: [u8; 64]) -> 
 				let result = w.send_payment(&option.method, Some(Amount::from_sat(amount)), None::<&str>, false).await?;
 				Ok(match result {
 					PaymentInitOutput::Ark => json!({"state": "completed"}),
-					PaymentInitOutput::Lightning(invoice) => json!({"state": "pending", "invoice": invoice.to_string()}),
+					PaymentInitOutput::Lightning(invoice) => json!({"state": "pending", "invoice": invoice.to_string(), "payment_hash": invoice.payment_hash().to_string()}),
 					PaymentInitOutput::Onchain(txid) => json!({"state": "submitted", "txid": txid.to_string()}),
 				})
 			},

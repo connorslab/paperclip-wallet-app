@@ -11,6 +11,8 @@ struct WalletWorkbench: View {
     @State private var password = ""
     @State private var destination = ""
     @State private var amount = ""
+    @State private var onchain = false
+    @State private var activity: [String] = []
     @State private var quotedTotal: UInt64?
     @State private var quoteText = ""
     @State private var confirming = false
@@ -45,14 +47,18 @@ struct WalletWorkbench: View {
                 Button("New Ark address") { perform { address = try await wallet.address(ark: true) } }
                 if !address.isEmpty { Text(address).font(.caption.monospaced()).textSelection(.enabled).accessibilityIdentifier("receive-address") }
             }
-            Section("Pay from Ark") {
-                TextField("Ark address, Lightning invoice or offer", text: $destination, axis: .vertical)
+            Section("Send") {
+                Picker("Pay from", selection: $onchain) {
+                    Text("Ark").tag(false)
+                    Text("On-chain").tag(true)
+                }.pickerStyle(.segmented)
+                TextField(onchain ? "Regtest on-chain address" : "Ark address, Lightning invoice or offer", text: $destination, axis: .vertical)
                     .textInputAutocapitalization(.never).autocorrectionDisabled()
                 TextField("Amount in sats", text: $amount).keyboardType(.numberPad)
                 Button("Review payment") { perform {
                     quotedTotal = nil
                     guard let sats = UInt64(amount), sats > 0 else { throw WalletFailure(message: "Enter a positive whole-sat amount.") }
-                    let quote = try await wallet.quote(destination: destination, amount: sats)
+                    let quote = try await wallet.quote(destination: destination, amount: sats, onchain: onchain)
                     quotedTotal = (quote["total_sat"] as? NSNumber)?.uint64Value
                     quoteText = "Recipient: \(sats) sats\nTotal including fees and reserves: \(quotedTotal ?? 0) sats"
                 } }
@@ -61,18 +67,33 @@ struct WalletWorkbench: View {
                     Button("Confirm payment") { confirming = true }.tint(.orange)
                 }
             }
+            Section("Activity") {
+                Button("Update activity") { perform {
+                    let result = try await wallet.activity()
+                    activity = (result["movements"] as? [[String: Any]] ?? []).reversed().map {
+                        "Ark · \($0["status"] ?? "unknown") · \($0["effective_balance"] ?? 0) sats"
+                    }
+                    activity += (result["onchain"] as? [[String: Any]] ?? []).map {
+                        "On-chain · \(($0["confirmed"] as? Bool == true) ? "confirmed" : "pending") · \($0["change_sat"] ?? 0) sats\n\($0["txid"] ?? "")"
+                    }
+                } }
+                ForEach(Array(activity.enumerated()), id: \.offset) { _, item in
+                    Text(item).font(.caption).textSelection(.enabled)
+                }
+            }
             Section { if busy { ProgressView() }; Text(message).accessibilityIdentifier("wallet-operation-status") }
         }
         .navigationTitle("Wallet lab")
         .disabled(busy)
         .onChange(of: destination) { _, _ in quotedTotal = nil }
         .onChange(of: amount) { _, _ in quotedTotal = nil }
+        .onChange(of: onchain) { _, _ in quotedTotal = nil }
         .confirmationDialog("Send this regtest payment?", isPresented: $confirming) {
             Button("Send payment") { perform {
                 guard let total = quotedTotal, let sats = UInt64(amount) else { return }
                 quotedTotal = nil
                 do {
-                    let result = try await wallet.send(destination: destination, amount: sats, total: total)
+                    let result = try await wallet.send(destination: destination, amount: sats, total: total, onchain: onchain)
                     message = "Payment status: \(result["state"] as? String ?? "unknown"). Synchronize before another payment."
                 } catch {
                     message = "Payment was not confirmed: \(error.localizedDescription). Check activity before trying again."

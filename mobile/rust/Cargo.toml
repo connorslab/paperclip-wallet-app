@@ -5,7 +5,15 @@ edition = "2024"
 license = "MIT"
 
 [lib]
-crate-type = ["staticlib"]
+crate-type = ["staticlib", "rlib"]
+
+[features]
+test-harness = []
+
+[[bin]]
+name = "paperclip-mobile-lab"
+path = "src/lab.rs"
+required-features = ["test-harness"]
 
 [dependencies]
 bark-wallet = { path = "../../bark", default-features = false, features = ["rand", "sqlite-bundled", "native", "tls-webpki-roots", "onchain-bdk", "bitcoind-rpc", "socks5-proxy"] }
