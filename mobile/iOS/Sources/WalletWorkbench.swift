@@ -20,6 +20,7 @@ struct WalletWorkbench: View {
 
     var body: some View {
         Form {
+            Section { if busy { ProgressView() }; Text(message).accessibilityIdentifier("wallet-operation-status") }
             Section("Native wallet · Regtest only") {
                 Text("Keys stay in this device’s Keychain. Storage is accessible after the first unlock so background refresh can work. Keep an encrypted full-wallet backup.").font(.caption)
                 Button("Create test wallet") { perform { fingerprint = try await wallet.open(create: true); message = "Test wallet saved securely." } }
@@ -81,7 +82,6 @@ struct WalletWorkbench: View {
                     Text(item).font(.caption).textSelection(.enabled)
                 }
             }
-            Section { if busy { ProgressView() }; Text(message).accessibilityIdentifier("wallet-operation-status") }
         }
         .navigationTitle("Wallet lab")
         .disabled(busy)

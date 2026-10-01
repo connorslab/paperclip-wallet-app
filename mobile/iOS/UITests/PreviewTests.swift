@@ -15,7 +15,10 @@ final class PreviewTests: XCTestCase {
         app.buttons["wallet-lab"].tap()
         app.buttons["create-test-wallet"].tap()
         let identity = app.staticTexts["wallet-fingerprint"]
-        XCTAssertTrue(identity.waitForExistence(timeout: 30))
+        guard identity.waitForExistence(timeout: 30) else {
+            XCTFail("Wallet creation failed: \(app.staticTexts["wallet-operation-status"].label)")
+            return
+        }
         let fingerprint = identity.label
         app.swipeUp()
         app.buttons["new-onchain-address"].tap()
