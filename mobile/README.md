@@ -54,9 +54,13 @@ Local policy tests: `cd mobile && swift test`. Generate the project using XcodeG
 
 ## Still required before a funded mobile test
 
-- Complete end-to-end regtest payment and recovery verification for the new native bridge.
-- Add a polished wallet dashboard, activity reconciliation, and direct on-chain payment
-  review. The current payment form spends Ark funds; on-chain destinations use offboarding.
+- Complete interrupted-payment and interrupted-refresh recovery verification on iOS.
+  The native bridge has passed isolated regtest on-chain, Ark, BOLT11, and BOLT12
+  sends, duplicate-submit rejection, and persisted payment-status checks after reopening.
+  `integration/native-regtest.rs` contains that test for the paired ASP test harness.
+- Add a polished wallet dashboard and complete activity reconciliation. The test form
+  supports separately reviewed on-chain and Ark payments; an on-chain destination
+  selected with Ark funds uses offboarding.
 - Add an optional biometric policy. The test wallet explicitly uses after-first-unlock
   access; biometric presence on every access prevents unattended refresh while locked.
 - Add validated public chain-data access and embedded Tor routing.
