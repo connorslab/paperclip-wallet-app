@@ -33,8 +33,20 @@ targets:
         BGTaskSchedulerPermittedIdentifiers:
           - xyz.paperclippool.wallet.preview.refresh
           - xyz.paperclippool.wallet.preview.processing
+  PaperclipUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources: [UITests]
+    dependencies:
+      - target: Paperclip
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: xyz.paperclippool.wallet.preview.tests
 schemes:
   Paperclip:
     build:
       targets:
         Paperclip: all
+    test:
+      targets: [PaperclipUITests]

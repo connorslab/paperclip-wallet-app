@@ -39,7 +39,7 @@ struct WalletView: View {
                             .font(.title3.bold())
                         Text("No wallet is connected. This build cannot receive funds or make payments.")
                             .foregroundStyle(.secondary)
-                        Text(engineStatus).font(.caption)
+                        Text(engineStatus).font(.caption).accessibilityIdentifier("engine-status")
                     }
                     card {
                         Label("Keep Ark funds current", systemImage: "arrow.triangle.2.circlepath").font(.headline)

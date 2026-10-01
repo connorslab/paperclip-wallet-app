@@ -6,6 +6,9 @@ on:
     paths: ['mobile/**', '.github/workflows/ios-preview.yml', 'bark/**', 'bitcoin-ext/**']
 permissions:
   contents: read
+concurrency:
+  group: ios-preview-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   ios:
     needs: rust-port
@@ -24,6 +27,10 @@ jobs:
           path: target/aarch64-apple-ios-sim/debug
       - name: Build simulator app
         run: xcodebuild -project mobile/iOS/Paperclip.xcodeproj -scheme Paperclip -sdk iphonesimulator -configuration Debug -derivedDataPath mobile/DerivedData CODE_SIGNING_ALLOWED=NO ARCHS=arm64 ONLY_ACTIVE_ARCH=NO build
+      - name: Test native bridge in an iPhone simulator
+        run: |
+          DEVICE=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; print(next(d["udid"] for devices in json.load(sys.stdin)["devices"].values() for d in devices if "iPhone" in d["name"]))')
+          xcodebuild -project mobile/iOS/Paperclip.xcodeproj -scheme Paperclip -destination "platform=iOS Simulator,id=$DEVICE" -derivedDataPath mobile/DerivedData CODE_SIGNING_ALLOWED=NO test
       - uses: actions/upload-artifact@v4
         with:
           name: Paperclip-iOS-simulator-preview
@@ -33,6 +40,14 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ios-rust-1.90-${{ hashFiles('Cargo.lock') }}-${{ github.sha }}
+          restore-keys: ios-rust-1.90-${{ hashFiles('Cargo.lock') }}-
       - name: Install Rust and native build dependencies
         run: |
           brew install protobuf cmake
@@ -41,6 +56,8 @@ jobs:
       - name: Check the existing wallet engine for device and simulator
         env:
           CARGO_BUILD_JOBS: '3'
+          CARGO_PROFILE_DEV_DEBUG: '0'
+          CARGO_INCREMENTAL: '0'
         run: |
           cargo +1.90.0 build --locked -p paperclip-mobile --target aarch64-apple-ios
           cargo +1.90.0 build --locked -p paperclip-mobile --target aarch64-apple-ios-sim
