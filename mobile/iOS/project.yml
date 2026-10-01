@@ -17,6 +17,7 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: xyz.paperclippool.wallet.preview
+        'CODE_SIGN_ENTITLEMENTS[sdk=iphonesimulator*]': Simulator.entitlements
         SWIFT_VERSION: '5.9'
         SWIFT_OBJC_BRIDGING_HEADER: Sources/Bridge.h
         LIBRARY_SEARCH_PATHS: ['$(inherited)', '$(SRCROOT)/../../target/aarch64-apple-ios-sim/debug']
