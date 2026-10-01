@@ -28,7 +28,21 @@ it never represents a failed check as a successful refresh.
 - Denied notification permission must remain visible. Opening a reminder opens the app,
   which performs the same foreground check. No background-mode workaround is used.
 
-## Build and test
+## Encrypted iCloud Drive backup
+
+The prototype includes AES-256-GCM authenticated backup encoding and a Files export/import
+screen. Users choose iCloud Drive, save a separately generated recovery key outside iCloud,
+and re-enter it before export. The archive contains the seed and complete Ark recovery
+state, not just a mnemonic. Wrong keys and altered files are rejected before import.
+Restore must target an empty wallet and validate native recovery state before committing.
+
+This is manual file backup, not automatic cloud synchronization. Files manages upload;
+saving a file does not confirm its upload completed. Backups do not prevent VTXO expiry.
+The preview disables export/restore until the native wallet adapter supplies a consistent
+snapshot and atomic restore. Encryption tests use fixtures; real-wallet recovery and
+physical-device iCloud round trips remain required before release.
+
+## Build verification
 
 GitHub workflow: `iOS proof of concept`. It compiles the native wallet for iPhone and
 Apple-silicon simulator, runs Swift policy tests, builds the app, and runs a simulator

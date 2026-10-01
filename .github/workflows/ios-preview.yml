@@ -8,7 +8,7 @@ permissions:
   contents: read
 concurrency:
   group: ios-preview-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 jobs:
   ios:
     needs: rust-port
@@ -16,7 +16,7 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
-      - name: Test refresh and notification policy
+      - name: Test refresh, notifications, and encrypted backups
         working-directory: mobile
         run: swift test
       - name: Generate app project

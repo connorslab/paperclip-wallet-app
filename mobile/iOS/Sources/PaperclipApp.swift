@@ -57,6 +57,12 @@ struct WalletView: View {
                         Text(maintenance.notificationStatus).font(.caption)
                     }
                     card {
+                        NavigationLink { BackupView(engine: nil) } label: {
+                            Label("iCloud backup & restore", systemImage: "icloud.and.arrow.up").font(.headline)
+                        }.tint(orange)
+                        Text("Encrypted full-wallet files. Keep your recovery key separate.").font(.subheadline).foregroundStyle(.secondary)
+                    }
+                    card {
                         Label("Connections", systemImage: "network").font(.headline)
                         Text("Public XBT endpoint, custom RPC, and embedded Tor are planned. They are not connected in this preview.").font(.subheadline).foregroundStyle(.secondary)
                     }

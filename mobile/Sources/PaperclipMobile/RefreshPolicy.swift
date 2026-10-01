@@ -85,13 +85,13 @@ public actor RefreshCoordinator {
     private let engine: any WalletEngine
     private var running = false
     public init(engine: any WalletEngine) { self.engine = engine }
-    public func run(automatic: Bool, now: Date = Date()) async throws -> WalletSnapshot? {
+    public func run(automatic: Bool, now: Date? = nil) async throws -> WalletSnapshot? {
         guard !running else { return nil }
         running = true
         defer { running = false }
         try Task.checkCancellation()
         let before = try await engine.synchronize()
-        if automatic && !RefreshPolicy.eligible(before, now: now).isEmpty {
+        if automatic && !RefreshPolicy.eligible(before, now: now ?? Date()).isEmpty {
             try Task.checkCancellation()
             try await engine.refreshEligible()
             try Task.checkCancellation()
