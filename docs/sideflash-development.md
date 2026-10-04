@@ -48,7 +48,7 @@ endpoints and a receive card. Build `bark-cli` with
 `barkd-web-ui,experimental-sideflash`. Normal builds do not expose these endpoints.
 
 1. Create a separate wallet against the local test server. Do not copy a live wallet.
-2. Create its reusable offer and keep the daemon online.
+2. Request Sideflash identity or a receive address. The wallet creates a reusable offer if none exists, reuses an active offer, and refuses to re-enable a disabled offer. Keep the daemon online.
 3. `GET /api/v1/sideflash/info` returns the recipient key and server key.
 4. Add the recipient key to the test server's `sideflash_recipient_allowlist`.
 5. `POST /api/v1/sideflash/receive` requests and validates a compact binding.
