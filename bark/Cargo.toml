@@ -9,6 +9,7 @@ edition = "2024"
 readme = "README.md"
 
 [features]
+experimental-sideflash = []
 default = ["rand", "sqlite", "native", "tls-native-roots", "bitcoind-rpc"]
 
 onchain-bdk = ["bdk_wallet", "bark-bitcoin-ext/bdk"]

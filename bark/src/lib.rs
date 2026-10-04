@@ -385,6 +385,8 @@ pub use bark_common::secret;
 pub mod movement;
 pub mod onchain;
 pub mod payment_request;
+#[cfg(feature = "experimental-sideflash")]
+pub mod sideflash;
 pub mod persist;
 pub mod round;
 pub mod subsystem;
