@@ -12,7 +12,7 @@ use crate::Wallet;
 fn now() -> anyhow::Result<u64> { Ok(SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs()) }
 
 impl Wallet {
-	/// Prepare a recipient authorization for the current wallet-owned offer.
+	/// Prepare a compact v1 recipient authorization for the current wallet-owned offer.
 	/// This is not a usable receive address until the server acknowledges it.
 	/// Keep one native destination per persistent offer by using its stored key index.
 	pub async fn prepare_sideflash_receive(&self, revision: u64, expires: u64) -> anyhow::Result<(Binding, Signature)> {
@@ -29,7 +29,7 @@ impl Wallet {
 		Ok((binding, signature))
 	}
 
-	/// Accept only an acknowledged address for this wallet's current native destination
+	/// Accept v0 or v1 acknowledged addresses for this wallet's current native destination
 	/// and active reusable offer. No secret key is given to the server.
 	pub async fn validate_sideflash_receive(&self, text: &str) -> anyhow::Result<String> {
 		let offer = self.lightning_offer().await?.context("No reusable offer")?;

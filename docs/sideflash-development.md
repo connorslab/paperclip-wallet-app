@@ -4,6 +4,10 @@ The `feature/sideflash` branch adds the same address codec and frozen fixtures
 as the server branch. Enable the wallet library feature `experimental-sideflash`
 to compile its wallet methods. It is not enabled in normal app builds.
 
+New receive preparation uses compact v1. Send and ownership validation accept
+both v1 and legacy v0. The complete offer remains embedded; no lookup is needed.
+See [the v1 wire profile](sideflash-wire-v1.md).
+
 ## Available library methods
 
 - `prepare_sideflash_receive`: authorize a binding for the wallet's active
@@ -33,5 +37,5 @@ inside the Nix development environment. Run the shared codec tests with
 cross-server recovery tests remain required before release.
 
 Current validation: feature-enabled wallet compilation, default workspace checks
-and all five shared Sideflash codec tests pass in the isolated Linux environment.
+and all six shared Sideflash codec tests pass in the isolated Linux environment.
 This is not evidence that the wallet methods have completed a monetary test.
