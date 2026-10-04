@@ -48,6 +48,22 @@ impl Wallet {
 				return Ok(existing);
 			}
 		}
+		self.create_lightning_offer_locked(description, amount_sat).await
+	}
+
+	/// Provision an offer only when none exists. Never override an explicit disable.
+	pub(crate) async fn ensure_sideflash_offer(&self) -> anyhow::Result<LightningOffer> {
+		let _guard = self.inner.lock_manager.try_lock(OFFER_CHECKPOINT).await.context("offer update in progress")?;
+		if let Some(existing) = self.lightning_offer().await? {
+			ensure!(existing.active, "The reusable offer is disabled; enable receiving explicitly before using Sideflash");
+			return Ok(existing);
+		}
+		ensure!(!self.config().daemon_manual_sync, "reusable offers require background sync");
+		self.create_lightning_offer_locked("Sideflash receiving".to_owned(), None).await
+	}
+
+	/// Caller holds OFFER_CHECKPOINT for the entire creation and persistence operation.
+	async fn create_lightning_offer_locked(&self, description: String, amount_sat: Option<u64>) -> anyhow::Result<LightningOffer> {
 		let (mut srv, info) = self.require_server().await?;
 		ensure!(info.funded_lightning, "server has not enabled funded Lightning");
 		let relay = srv.client.get_lightning_offer_info(protos::Empty {}).await?.into_inner();

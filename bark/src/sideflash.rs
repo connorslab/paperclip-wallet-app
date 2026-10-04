@@ -17,6 +17,7 @@ fn now() -> anyhow::Result<u64> { Ok(SystemTime::now().duration_since(UNIX_EPOCH
 impl Wallet {
 	/// Create or reuse a short-lived test binding. Uses the existing offer receive flow.
 	pub async fn sideflash_receive(&self) -> anyhow::Result<String> {
+		self.ensure_sideflash_offer().await?;
 		let _guard = self.inner.lock_manager.try_lock(OFFER_CHECKPOINT).await.context("offer update in progress")?;
 		let mut offer = self.lightning_offer().await?.context("Create a reusable offer first")?;
 		ensure!(offer.active, "The reusable offer is disabled");
@@ -40,7 +41,7 @@ impl Wallet {
 	}
 
 	pub async fn sideflash_receive_info(&self) -> anyhow::Result<(String, String)> {
-		let offer = self.lightning_offer().await?.context("Create a reusable offer first")?;
+		let offer = self.ensure_sideflash_offer().await?;
 		let recipient = self.peek_keypair(offer.key_index).await?.public_key();
 		let server = self.require_ark_info().await?.server_pubkey;
 		Ok((recipient.to_string(), server.to_string()))

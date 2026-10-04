@@ -66,8 +66,15 @@ $('unlock').addEventListener('submit', event => { event.preventDefault(); run(ev
     if (existing.fingerprint !== null && typeof existing.fingerprint !== 'string') throw new Error('Unrecognized wallet status.');
     setupPending = false;
     if (existing.fingerprint === null) {
+      const response = await fetch('/api/config', {cache: 'no-store', redirect: 'error', headers: {Authorization: 'Bearer ' + token}});
+      if (!response.ok) throw new Error('Could not load the configured Ark server. Check app configuration and unlock again.');
+      const defaults = await response.json();
+      if (typeof defaults.arkServer !== 'string') throw new Error('Configured Ark server is missing.');
+      $('setup-asp').value = defaults.arkServer;
+      endpoint('setup-asp', ['http:', 'https:']);
+      if (['mainnet', 'regtest'].includes(defaults.network)) $('setup-network').value = defaults.network;
       $('login').hidden = true; $('setup').hidden = false;
-      status('Choose your XBT backend and ASP to create a wallet.');
+      status('Ark server loaded from app configuration. Review it and enter your node connection to create the wallet.');
       return;
     }
     await connectWallet();
