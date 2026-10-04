@@ -15,6 +15,7 @@ name = "paperclip-walletd"
 path = "src/bin/barkd/main.rs"
 
 [features]
+experimental-sideflash = ["bark-wallet/experimental-sideflash", "bark-rest/experimental-sideflash"]
 default = ["tls-native-roots", "barkd-swagger-ui"]
 
 # TLS certificate verification options (pick one)

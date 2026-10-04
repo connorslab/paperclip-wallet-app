@@ -34,3 +34,5 @@ body{background:radial-gradient(ellipse at 85% 0%,#f568350a,transparent 48%),#11
 #message-proof:not([hidden]){animation:message-reveal .2s ease-out}
 @keyframes message-reveal{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:translateY(0)}}
 @media(prefers-reduced-motion:reduce){#message-proof:not([hidden]){animation:none}}
+
+.sideflash-panel{border:1px solid var(--accent,#ff6932);animation:sideflash-enter .35s ease-out}.sideflash-panel pre{overflow-wrap:anywhere;white-space:pre-wrap;font-size:.8rem}@keyframes sideflash-enter{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}@media(prefers-reduced-motion:reduce){.sideflash-panel{animation:none}}

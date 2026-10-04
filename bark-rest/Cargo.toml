@@ -8,6 +8,7 @@ license = "MIT"
 description = "a REST server built on top of the bark-wallet crate"
 
 [features]
+experimental-sideflash = ["bark-wallet/experimental-sideflash"]
 default = ["native", "swagger-ui"]
 native = ["bark-wallet/native"]
 swagger-ui = ["dep:utoipa-swagger-ui"]

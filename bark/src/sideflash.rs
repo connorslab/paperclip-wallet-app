@@ -8,10 +8,44 @@ use ark::sideflash::{Binding, ChainContext, Route, SideflashAddress};
 use ark::lightning::Offer;
 use lightning::util::ser::Writeable;
 use crate::Wallet;
+use crate::actions::WalletActionCheckpoint;
+use crate::lightning::offers::OFFER_CHECKPOINT;
+use server_rpc::protos;
 
 fn now() -> anyhow::Result<u64> { Ok(SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs()) }
 
 impl Wallet {
+	/// Create or reuse a short-lived test binding. Uses the existing offer receive flow.
+	pub async fn sideflash_receive(&self) -> anyhow::Result<String> {
+		let _guard = self.inner.lock_manager.try_lock(OFFER_CHECKPOINT).await.context("offer update in progress")?;
+		let mut offer = self.lightning_offer().await?.context("Create a reusable offer first")?;
+		ensure!(offer.active, "The reusable offer is disabled");
+		if let Some(text) = &offer.sideflash {
+			if let Ok(validated) = self.validate_sideflash_receive(text).await { return Ok(validated); }
+		}
+		let (binding, signature) = self.prepare_sideflash_receive(1, now()?.checked_add(86400).context("expiry overflow")?).await?;
+		let (mut srv, _) = self.require_server().await?;
+		let response = srv.client.acknowledge_sideflash(protos::SideflashBindingRequest {
+			native_address: binding.address.to_string(), offer: binding.offer.clone(), revision: binding.revision,
+			not_before: binding.not_before, expires: binding.expires, recipient_signature: signature.as_ref().to_vec(),
+		}).await?.into_inner();
+		let verified = self.validate_sideflash_receive(&response.address).await?;
+		let received = SideflashAddress::decode(&verified)?;
+		ensure!(received.version() == 1 && received.binding().revision == binding.revision
+			&& received.binding().not_before == binding.not_before && received.binding().expires == binding.expires,
+			"Server changed the binding request");
+		offer.sideflash = Some(verified.clone());
+		self.inner.db.upsert_wallet_action_checkpoint(&OFFER_CHECKPOINT.into(), &WalletActionCheckpoint::LightningOffer(offer)).await?;
+		Ok(verified)
+	}
+
+	pub async fn sideflash_receive_info(&self) -> anyhow::Result<(String, String)> {
+		let offer = self.lightning_offer().await?.context("Create a reusable offer first")?;
+		let recipient = self.peek_keypair(offer.key_index).await?.public_key();
+		let server = self.require_ark_info().await?.server_pubkey;
+		Ok((recipient.to_string(), server.to_string()))
+	}
+
 	/// Prepare a compact v1 recipient authorization for the current wallet-owned offer.
 	/// This is not a usable receive address until the server acknowledges it.
 	/// Keep one native destination per persistent offer by using its stored key index.

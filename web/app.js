@@ -229,7 +229,7 @@ $('lock').onclick = () => {
   lockSession();
   $('ark-estimate').hidden = true; $('ark-estimate-values').textContent = '';
   lightningEnabled = false; $('ln-controls').disabled = true;
-  for (const id of ['ln-offer-output', 'ln-invoice', 'ln-result', 'chain-result', 'history', 'ark-balance', 'chain-balance']) $(id).textContent = '';
+  for (const id of ['sideflash-output', 'sideflash-identity', 'ln-offer-output', 'ln-invoice', 'ln-result', 'chain-result', 'history', 'ark-balance', 'chain-balance']) $(id).textContent = '';
   for (const id of ['offer-description', 'offer-amount', 'ln-destination', 'ln-amount', 'ln-receive-amount', 'ln-description', 'ln-identifier', 'chain-destination', 'chain-amount']) $(id).value = '';
 };
 $('deposit').onclick = event => run(event.target, async () => {
@@ -431,4 +431,17 @@ $('offer-disable').onclick = event => run(event.target, async () => {
   await api('lightning/offers', undefined, 'DELETE');
   if (!token || token !== session || $('wallet').hidden) return;
   PaperclipReceive.clear(); showOffer(null); status('Offer disabled. Existing payments remain tracked.');
+});
+
+$('sideflash-info').onclick = event => run(event.target, async () => {
+  const session = token, info = await api('sideflash/info');
+  if (session !== token) return;
+  $('sideflash-identity').textContent = 'Recipient key: ' + info.recipient_pubkey + '\nServer key: ' + info.server_pubkey;
+});
+$('sideflash-create').onclick = event => run(event.target, async () => {
+  const session = token, result = await api('sideflash/receive', {});
+  if (session !== token) return;
+  $('sideflash-output').textContent = result.address;
+  PaperclipReceive.show('sideflash-output', result.address, 'Sideflash test address');
+  $('sideflash-state').textContent = 'Valid until ' + new Date(result.expires * 1000).toLocaleString() + '. Keep the wallet online. Lightning settlement is tracked in Activity.';
 });

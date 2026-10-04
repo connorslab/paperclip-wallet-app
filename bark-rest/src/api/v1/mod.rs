@@ -1,3 +1,5 @@
+#[cfg(feature = "experimental-sideflash")]
+pub mod sideflash;
 pub mod exits;
 pub mod fees;
 pub mod history;
@@ -17,7 +19,7 @@ use crate::ServerState;
 use crate::auth::authed_router;
 
 pub fn router(state: &Arc<ServerState>) -> Router<Arc<ServerState>> {
-	Router::new()
+	let router = Router::new()
 		.nest("/lightning", authed_router(state, lightning::router()))
 		.nest("/onchain", authed_router(state, onchain::router()))
 		.nest("/boards", authed_router(state, boards::router()))
@@ -27,5 +29,8 @@ pub fn router(state: &Arc<ServerState>) -> Router<Arc<ServerState>> {
 		.nest("/message", authed_router(state, message::router()))
 		.nest("/wallet", authed_router(state, wallet::router()))
 		.nest("/bitcoin", authed_router(state, bitcoin::router()))
-		.nest("/notifications", notifications::router())
+		.nest("/notifications", notifications::router());
+	#[cfg(feature = "experimental-sideflash")]
+	let router = router.nest("/sideflash", authed_router(state, sideflash::router()));
+	router
 }

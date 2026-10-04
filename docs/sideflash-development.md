@@ -20,8 +20,9 @@ See [the v1 wire profile](sideflash-wire-v1.md).
   Ark send path for the same server, with an explicit maximum debit. Remote
   Sideflash sends fail before payment until safe server coordination exists.
 
-There is no completed receive-registration endpoint, app UI or remote payment
-flow yet. These library methods are integration foundations, not a shipping
+The original feature branch has no receive-registration endpoint, app UI or remote
+wallet payment flow. The local test additions below add receive acknowledgement
+and its UI; remote wallet sends remain disabled. These library methods are integration foundations, not a shipping
 Sideflash-enabled wallet. The caller must persist its registration request and
 verify the server response against that exact request before display; the
 ownership validator alone is not revision or request-response validation.
@@ -39,3 +40,45 @@ cross-server recovery tests remain required before release.
 Current validation: feature-enabled wallet compilation, default workspace checks
 and all six shared Sideflash codec tests pass in the isolated Linux environment.
 This is not evidence that the wallet methods have completed a monetary test.
+
+## Local Umbrel test build
+
+The local-only `test/sideflash-umbrel-local` branch adds authenticated receive
+endpoints and a receive card. Build `bark-cli` with
+`barkd-web-ui,experimental-sideflash`. Normal builds do not expose these endpoints.
+
+1. Create a separate wallet against the local test server. Do not copy a live wallet.
+2. Create its reusable offer and keep the daemon online.
+3. `GET /api/v1/sideflash/info` returns the recipient key and server key.
+4. Add the recipient key to the test server's `sideflash_recipient_allowlist`.
+5. `POST /api/v1/sideflash/receive` requests and validates a compact binding.
+   The wallet checks the complete destination and offer, both signatures, server
+   identity, revision and validity against its request before display.
+6. Share the address with the payer. Give the payer the trusted server key through
+   a separate authenticated channel. FLYNN uses `sideflash-pay` with an amount,
+   maximum fee and persistent payment ID.
+
+This test uses revision 1 and a maximum 24-hour validity. The wallet saves a
+successful address with the existing offer checkpoint and reuses it until expiry.
+An acknowledgement is not a payment; a lost acknowledgement reply can be retried.
+Disabling the underlying offer stops new invoice requests. It does not revoke an
+already issued invoice. No address-revision registry or offline receive promise
+is implemented. These remain test limitations.
+
+Lightning receives use the existing wallet-owned preimage, durable invoice and
+conditional claim flow. A payer's settled invoice alone is not evidence that the
+wallet has claimed its Ark output. Check both sides during the funded test.
+
+## Local verification (2026-10-04)
+
+The isolated Umbrel build creates the Sideflash card under **Send & receive**.
+The ASP and wallet use separate data and database state. The integration test
+verified disabled-by-default registration, recipient allowlisting, a signed
+820-character compact address, repeat retrieval of the saved address, and an
+unauthenticated API rejection. FLYNN verified the binding and fetched a valid
+10,000-sat BOLT12 invoice; no payment was sent in this preparation step.
+
+A private test channel requires an explicit Askrene layer on the sender. Pass
+`layers=["sideflash-local-test"]` to the test CLN plugin when using that topology.
+This does not publish the private channel or change its gossip announcement.
+Funded settlement, the recipient's Ark claim, and recovery remain to be verified.

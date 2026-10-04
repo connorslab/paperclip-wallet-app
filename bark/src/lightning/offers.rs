@@ -27,6 +27,8 @@ pub struct LightningOffer {
 	pub active: bool,
 	pub key_index: u32,
 	pub relay_pubkey: PublicKey,
+	#[serde(default)]
+	pub sideflash: Option<String>,
 }
 
 impl Wallet {
@@ -53,7 +55,7 @@ impl Wallet {
 		let relay_pubkey = PublicKey::from_slice(&relay.relay_pubkey)?;
 		let (key, key_index) = self.derive_store_next_keypair().await?;
 		let offer = bolt12_receive::create_offer(key.public_key(), relay_pubkey, self.network().await?, description.clone(), amount_sat)?;
-		let state = LightningOffer { offer: offer.to_string(), description, amount_sat, active: true, key_index, relay_pubkey };
+		let state = LightningOffer { offer: offer.to_string(), description, amount_sat, active: true, key_index, relay_pubkey, sideflash: None };
 		self.inner.db.upsert_wallet_action_checkpoint(&OFFER_CHECKPOINT.into(), &WalletActionCheckpoint::LightningOffer(state.clone())).await?;
 		Ok(state)
 	}
@@ -153,5 +155,24 @@ impl Wallet {
 				tx.send(response).await?;
 			}
 		}
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn sideflash_offer_checkpoint_reads_older_wallet_state() {
+		let old = serde_json::json!({
+			"offer": "fixture", "description": "test", "amount_sat": null,
+			"active": true, "key_index": 0,
+			"relay_pubkey": "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
+		});
+		let mut state: LightningOffer = serde_json::from_value(old).unwrap();
+		assert!(state.sideflash.is_none());
+		state.sideflash = Some("sfl1-test-only".into());
+		let restored: LightningOffer = serde_json::from_slice(&serde_json::to_vec(&state).unwrap()).unwrap();
+		assert_eq!(restored, state);
 	}
 }
