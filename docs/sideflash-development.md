@@ -82,3 +82,18 @@ A private test channel requires an explicit Askrene layer on the sender. Pass
 `layers=["sideflash-local-test"]` to the test CLN plugin when using that topology.
 This does not publish the private channel or change its gossip announcement.
 Funded settlement, the recipient's Ark claim, and recovery remain to be verified.
+
+### Funded delivery verification (2026-10-04)
+
+FLYNN paid 10,000 sats through `sideflash-pay` to the separate Umbrel wallet's
+compact Sideflash address. The local ASP delivered 5,880 spendable Ark sats:
+120 sats were the receive service fee and 4,000 sats the recovery allocation.
+The Lightning routing fee was 1.1 sats. Both payer and recipient recorded settlement.
+Repeating the identical payment ID returned the same result without another
+payment; restarting the wallet preserved its settled receive and spendable balance.
+
+The private route overlay must use the forwarding peer's alias (the receiving
+node's `alias.remote`), rather than the channel's real short-channel ID when
+`option_scid_alias` is negotiated. The first attempt with the real ID failed
+without sending funds. This test verifies delivery and persistence; it does not
+constitute a new unilateral recovery test or authorize a production release.
