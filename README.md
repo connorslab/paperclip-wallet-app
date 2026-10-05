@@ -1,5 +1,7 @@
 # Paperclip Wallet · Beta
 
+> Experimental covenant branch: test coins only. The [offline refresh laboratory](experiments/covenants/README.md) does not migrate normal Ark balances or provide a production refresh service.
+
 A self-hosted Bitcoin Blake2b (XBT) wallet based on Bark by Second and the Bark
 contributors. This edition presets new wallets to **https://ark.paperclippool.xyz**.
 Existing wallet configuration is preserved. Wallet keys stay on your device.

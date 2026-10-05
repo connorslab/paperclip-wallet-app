@@ -150,6 +150,12 @@ enum MessageCommand {
 
 #[derive(clap::Subcommand)]
 enum Command {
+	/// Isolated covenant laboratory; reads test-only JSON from stdin, never a wallet database.
+	#[cfg(feature = "experimental-covenants")]
+	CovenantLab {
+		#[arg(long, required = true)]
+		experimental_signet: bool,
+	},
 	/// Create a new wallet
 	///
 	/// Configuration will pass in default values when --signet is used, but will
@@ -402,6 +408,12 @@ enum Command {
 
 
 async fn inner_main(cli: Cli) -> anyhow::Result<()> {
+	#[cfg(feature = "experimental-covenants")]
+	if let Command::CovenantLab { experimental_signet } = &cli.command {
+		if !experimental_signet { anyhow::bail!("Requires --experimental-signet"); }
+		return bitcoin_ext::covenant_io::execute("wallet").map_err(anyhow::Error::msg);
+	}
+
 	let datadir = PathBuf::from_str(&cli.datadir).unwrap();
 
 	init_logging(cli.verbose, cli.quiet, &datadir, cli.logfile.clone(), cli.no_logfile);
@@ -446,6 +458,8 @@ async fn inner_main(cli: Cli) -> anyhow::Result<()> {
 	let net = wallet.network().await?;
 
 	match cli.command {
+		#[cfg(feature = "experimental-covenants")]
+		Command::CovenantLab { .. } => unreachable!("handled before loading production configuration"),
 		Command::Create { .. } | Command::Dev(_) | Command::Message(MessageCommand::Verify { .. }) => {
 			unreachable!("handled earlier")
 		},

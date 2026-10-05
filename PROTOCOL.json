@@ -11,5 +11,12 @@
   "vtxo_encoding_version": 4,
   "anchor": "P2WSH OP_TRUE, funded, anyone-can-spend",
   "upstream_base_commit": "e107d09e7fd173fc5895a2b9eec500082f48d4cd",
-  "shared_manifest_sha256": "ce1f1fb26b3205365aec889c759919f911f6d7579ae0dcc9e14ad4a0371f47fb"
+  "shared_manifest_sha256": "0066434429b7f53d3e9af81b90f721d3fb321c6eeb22957613c2644bb869e083",
+  "experimental_covenants": {
+    "enabled_by_default": false,
+    "profile": "paperclip-signet-offline-refresh-v1",
+    "command": "covenant-lab --experimental-signet",
+    "production_migration": false,
+    "scope": "single-balance protocol laboratory; not autonomous production refresh"
+  }
 }

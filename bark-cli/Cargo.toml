@@ -15,6 +15,7 @@ name = "paperclip-walletd"
 path = "src/bin/barkd/main.rs"
 
 [features]
+experimental-covenants = ["bark-bitcoin-ext/experimental-covenants"]
 default = ["tls-native-roots", "barkd-swagger-ui"]
 
 # TLS certificate verification options (pick one)
