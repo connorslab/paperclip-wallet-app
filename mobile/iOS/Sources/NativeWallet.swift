@@ -158,7 +158,19 @@ actor NativeWallet: WalletEngine, WalletBackupEngine {
         config["socks5_proxy"] = settings.useTor ? settings.torProxy : NSNull()
         config["user_agent"] = "paperclip-ios/0.2.0"
         connected = false
-        _ = try await call(["op": "connect", "config": config])
+        var request: [String: Any] = ["op": "connect", "config": config]
+        if let rpc = settings.arkRPC {
+            // RPC cannot use the Rust backend's SOCKS transport. Never bypass a Tor request.
+            guard !settings.useTor else { throw ConnectionError.unsupportedTor }
+            var arkConfig = config
+            arkConfig["electrum_address"] = NSNull()
+            arkConfig["esplora_address"] = NSNull()
+            arkConfig["bitcoind_address"] = rpc.endpoint
+            arkConfig["bitcoind_user"] = rpc.username
+            arkConfig["bitcoind_pass"] = rpc.password
+            request["ark_config"] = arkConfig
+        }
+        _ = try await call(request)
         try WalletKeychain.saveConnection(JSONEncoder().encode(settings))
         connected = true
         _ = try await call(["op": "receive_listen", "enabled": foreground])

@@ -32,6 +32,25 @@ final class ConnectionTests: XCTestCase {
             XCTAssertFalse(SeedVerification.matches(phrase: phrase, confirmation: phrase))
         }
     }
+    func testSeparateArkRPCRequiresTLSAndNeverBypassesTor() throws {
+        var connection = WalletConnection()
+        var rpc = ArkRPCConnection()
+        rpc.endpoint = "http://rpc.example"
+        connection.arkRPC = rpc
+        XCTAssertThrowsError(try connection.validate())
+        rpc.endpoint = "https://rpc.example"
+        connection.arkRPC = rpc
+        XCTAssertNoThrow(try connection.validate())
+        XCTAssertEqual(connection.endpoint, "ssl://pool.paperclippool.xyz:50002")
+        connection.useTor = true
+        XCTAssertThrowsError(try connection.validate())
+        connection.useTor = false
+        let encoded = try JSONEncoder().encode(connection)
+        XCTAssertEqual(try JSONDecoder().decode(WalletConnection.self, from: encoded), connection)
+        var legacy = try JSONSerialization.jsonObject(with: encoded) as! [String: Any]
+        legacy.removeValue(forKey: "arkRPC")
+        XCTAssertNil(try JSONDecoder().decode(WalletConnection.self, from: JSONSerialization.data(withJSONObject: legacy)).arkRPC)
+    }
     func testLightningCredentialAndPinValidation() {
         var config = LightningConnection()
         config.endpoint = "https://node.example"

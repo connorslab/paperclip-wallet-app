@@ -12,8 +12,6 @@ targets:
     sources: [Sources]
     dependencies:
       - package: PaperclipMobile
-      - framework: ../../target/aarch64-apple-ios-sim/debug/libpaperclip_mobile.a
-        embed: false
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: xyz.paperclippool.wallet.preview
@@ -21,8 +19,9 @@ targets:
         SWIFT_VERSION: '5.9'
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         SWIFT_OBJC_BRIDGING_HEADER: Sources/Bridge.h
-        LIBRARY_SEARCH_PATHS: ['$(inherited)', '$(SRCROOT)/../../target/aarch64-apple-ios-sim/debug']
-        OTHER_LDFLAGS: ['$(inherited)', '-lc++', '-lsqlite3', '-framework', 'Security', '-framework', 'SystemConfiguration']
+        'LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]': ['$(inherited)', '$(SRCROOT)/../../target/aarch64-apple-ios-sim/debug']
+        'LIBRARY_SEARCH_PATHS[sdk=iphoneos*]': ['$(inherited)', '$(SRCROOT)/../../target/aarch64-apple-ios/debug']
+        OTHER_LDFLAGS: ['$(inherited)', '-lpaperclip_mobile', '-lc++', '-lsqlite3', '-framework', 'Security', '-framework', 'SystemConfiguration']
         MARKETING_VERSION: '0.2.0'
         CURRENT_PROJECT_VERSION: '1'
         GENERATE_INFOPLIST_FILE: YES

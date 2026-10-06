@@ -4,6 +4,8 @@ import PaperclipMobile
 struct ConnectionsView: View {
     @EnvironmentObject var store: WalletStore
     @State private var settings = WalletConnection()
+    @State private var separateRPC = false
+    @State private var arkRPC = ArkRPCConnection()
     var body: some View {
         Form {
             Section("On-chain") {
@@ -26,23 +28,29 @@ struct ConnectionsView: View {
             Section("Ark") {
                 TextField("Ark server", text: $settings.arkServer).textInputAutocapitalization(.never).autocorrectionDisabled()
                 Text("Paperclip default: ark.paperclippool.xyz").font(.caption)
-                Text("The current funded Ark profile requires Knots RPC for relay-policy checks and emergency-exit package relay. Electrum is available for on-chain payments. Select Knots RPC for boarding and emergency recovery.").font(.caption)
+                Toggle("Separate Ark RPC gateway", isOn: $separateRPC)
+                if separateRPC {
+                    TextField("https://your-rpc-gateway", text: $arkRPC.endpoint).textInputAutocapitalization(.never).autocorrectionDisabled()
+                    TextField("RPC username (if required)", text: $arkRPC.username).textInputAutocapitalization(.never).autocorrectionDisabled()
+                    SecureField("RPC password", text: $arkRPC.password)
+                }
+                Text("Funded Ark needs Knots RPC for relay policy and exit package relay. A separate HTTPS gateway lets on-chain payments keep using Electrum. Enter your deployed gateway here.").font(.caption)
             }
             Section("Tor") {
                 Toggle("Route through Tor", isOn: $settings.useTor)
                 if settings.useTor {
                     TextField("socks5h://host:port", text: $settings.torProxy).textInputAutocapitalization(.never).autocorrectionDisabled()
                     Text("Use a reachable Tor SOCKS proxy. This app does not start a Tor daemon. Onion names resolve through the proxy; connection failure does not fall back to a direct connection.").font(.caption)
-                    if settings.backend == .rpc { Text("Knots RPC over Tor is not available in this build.").foregroundStyle(.orange) }
+                    if settings.backend == .rpc || separateRPC { Text("Knots RPC over Tor is not available in this build.").foregroundStyle(.orange) }
                 }
             }
             Section {
-                Button("Save and connect") { store.run { try await store.engine.connect(settings); try await store.synchronize() } }.disabled(store.busy)
+                Button("Save and connect") { store.run { var connection = settings; connection.arkRPC = separateRPC ? arkRPC : nil; try await store.engine.connect(connection); try await store.synchronize() } }.disabled(store.busy)
                 if store.busy { ProgressView() }
                 Text(store.message).font(.caption)
             }
         }.navigationTitle("Connections").scrollContentBackground(.hidden).background(PaperclipTheme.navy)
-            .task { do { if let saved = try await store.engine.savedConnection() { settings = saved } } catch { store.message = error.localizedDescription } }
+            .task { do { if let saved = try await store.engine.savedConnection() { settings = saved; separateRPC = saved.arkRPC != nil; arkRPC = saved.arkRPC ?? ArkRPCConnection() } } catch { store.message = error.localizedDescription } }
     }
 }
 

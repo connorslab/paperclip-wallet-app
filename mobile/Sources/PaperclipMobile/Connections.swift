@@ -24,6 +24,7 @@ public enum ConnectionError: LocalizedError {
 }
 
 public struct WalletConnection: Codable, Equatable, Sendable {
+    public var arkRPC: ArkRPCConnection? = nil
     public var backend: ChainBackend = .electrum
     public var endpoint = "ssl://pool.paperclippool.xyz:50002"
     public var certificateSHA256 = ""
@@ -34,6 +35,8 @@ public struct WalletConnection: Codable, Equatable, Sendable {
     public var torProxy = "socks5h://127.0.0.1:9050"
     public init() {}
     public func validate() throws {
+        try arkRPC?.validate()
+        if arkRPC != nil && useTor { throw ConnectionError.unsupportedTor }
         _ = try EndpointPolicy.validate(arkServer, tor: useTor)
         _ = try EndpointPolicy.validate(endpoint, tor: useTor, electrum: backend == .electrum,
             credentials: backend == .rpc && (!username.isEmpty || !password.isEmpty))
@@ -41,6 +44,18 @@ public struct WalletConnection: Codable, Equatable, Sendable {
         if !certificateSHA256.isEmpty {
             guard certificateSHA256.count == 64, certificateSHA256.allSatisfy(\.isHexDigit) else { throw ConnectionError.invalidCredential }
         }
+    }
+}
+
+/// Separate relay-policy/package backend; credentials remain in device Keychain.
+public struct ArkRPCConnection: Codable, Equatable, Sendable {
+    public var endpoint = ""
+    public var username = ""
+    public var password = ""
+    public init() {}
+    public func validate() throws {
+        let url = try EndpointPolicy.validate(endpoint, tor: false, credentials: true)
+        guard url.scheme == "https" else { throw ConnectionError.insecureCredentials }
     }
 }
 

@@ -21,6 +21,7 @@ pub struct Session {
 	db: Arc<SqliteClient>,
 	onchain: Arc<tokio::sync::RwLock<OnchainWallet>>,
 	wallet: Option<Wallet>,
+	ark_wallet: Option<Wallet>,
 	// Retained independently of the async wallet for its whole lifetime.
 	_lock: Box<dyn LockManager>,
 	fingerprint: String,
@@ -180,7 +181,7 @@ pub fn dispatch(state: &mut Option<Session>, request: Value, seed: [u8; 64]) -> 
 			OnchainWallet::load_or_create(network, seed, db.clone()).await
 		})?;
 		*state = Some(Session { offer_task: None, receive_task: None, runtime, dir, db, onchain: Arc::new(tokio::sync::RwLock::new(onchain)),
-			wallet: None, _lock: lock, fingerprint: fingerprint.to_string(), network, quote: None, onchain_quote: None, board_quote: None });
+			wallet: None, ark_wallet: None, _lock: lock, fingerprint: fingerprint.to_string(), network, quote: None, onchain_quote: None, board_quote: None });
 		return Ok(json!({"fingerprint": fingerprint.to_string()}));
 	}
 	let session = state.as_mut().context("open a wallet first")?;
@@ -199,7 +200,7 @@ pub fn dispatch(state: &mut Option<Session>, request: Value, seed: [u8; 64]) -> 
 		return result;
 	}
 	let network = session.network;
-	let Session { runtime, wallet, db, onchain, quote, onchain_quote, board_quote, offer_task, receive_task, .. } = session;
+	let Session { runtime, wallet, ark_wallet, db, onchain, quote, onchain_quote, board_quote, offer_task, receive_task, .. } = session;
 	runtime.block_on(async {
 		if op == "address_onchain" {
 			return Ok(json!({"address": OnchainWalletTrait::address(&mut *onchain.write().await).await?.to_string()}));
@@ -210,15 +211,27 @@ pub fn dispatch(state: &mut Option<Session>, request: Value, seed: [u8; 64]) -> 
 			*quote = None;
 			*onchain_quote = None;
 			*board_quote = None;
+			*wallet = None;
+			*ark_wallet = None;
 			let config: Config = serde_json::from_value(request["config"].clone())?;
 			*wallet = Some(Wallet::open(network, WalletSeed::new_from_seed(network, &seed), config,
 				OpenWalletArgs { persister: Some(db.clone()), onchain: Some(onchain.clone()),
 					lock_manager: Some(Box::new(MemoryLockManager::new())), run_daemon: false,
 					create_if_not_exists: false, ..Default::default() }).await?);
+			if !request["ark_config"].is_null() {
+				let config: Config = serde_json::from_value(request["ark_config"].clone())?;
+				*ark_wallet = Some(Wallet::open(network, WalletSeed::new_from_seed(network, &seed), config,
+					OpenWalletArgs { persister: Some(db.clone()), onchain: Some(onchain.clone()),
+						lock_manager: Some(Box::new(MemoryLockManager::new())), run_daemon: false,
+						create_if_not_exists: false, ..Default::default() }).await?);
+			}
 			return Ok(json!({"connected": true}));
 		}
 		if op == "config_template" { return Ok(serde_json::to_value(Config::network_default(network))?); }
-		let w = wallet.as_ref().context("connect to the test backend first")?;
+		let chain_wallet = wallet.as_ref().context("connect to a backend first")?;
+		let w = if matches!(op, "sync_onchain" | "quote_onchain" | "send_onchain" | "activity") {
+			chain_wallet
+		} else { ark_wallet.as_ref().unwrap_or(chain_wallet) };
 		if op == "receive_listen" {
 			if let Some(task) = offer_task.take() { task.abort(); let _ = task.await; }
 			if let Some(task) = receive_task.take() { task.abort(); let _ = task.await; }
@@ -259,7 +272,7 @@ pub fn dispatch(state: &mut Option<Session>, request: Value, seed: [u8; 64]) -> 
 				w.chain().invalidate_caches().await;
 				w.refresh_server().await?;
 				w.chain().update_fee_rates(w.config().fallback_fee_rate).await?;
-				w.sync_onchain().await?;
+				chain_wallet.sync_onchain().await?;
 				w.sync_pending_rounds().await?;
 				w.sync_pending_arkoor_sends().await?;
 				w.sync_pending_lightning_send_vtxos().await?;
@@ -278,7 +291,7 @@ pub fn dispatch(state: &mut Option<Session>, request: Value, seed: [u8; 64]) -> 
 			},
 			"sync_onchain" => {
 				w.chain().invalidate_caches().await;
-				w.sync_onchain().await?;
+				chain_wallet.sync_onchain().await?;
 				Ok(json!({"onchain_sat": onchain.read().await.balance().total().to_sat(), "tip": w.chain().tip().await?}))
 			},
 			"quote_board" => {
@@ -356,7 +369,7 @@ pub fn dispatch(state: &mut Option<Session>, request: Value, seed: [u8; 64]) -> 
 				Ok(json!({"state": "registered"}))
 			},
 			"exit_progress" => {
-				w.sync_onchain().await?;
+				chain_wallet.sync_onchain().await?;
 				w.exit_mgr().progress_exits_with_cpfp(w, None).await?;
 				Ok(json!({"pending": w.exit_mgr().has_pending_exits().await,
 					"claimable_height": w.exit_mgr().all_claimable_at_height().await}))
@@ -372,9 +385,12 @@ pub fn dispatch(state: &mut Option<Session>, request: Value, seed: [u8; 64]) -> 
 				Ok(json!({"state": if submitted { "submitted" } else { "pending_broadcast" }, "txid": tx.compute_txid().to_string()}))
 			},
 			"recover" => {
-				let report = w.recover_from_mailbox().await?;
-				onchain.write().await.initial_wallet_scan(w.chain(), None).await?;
-				Ok(json!({"state": "recovered", "report": format!("{report:?}")}))
+				let balance = onchain.write().await.initial_wallet_scan(chain_wallet.chain(), None).await?;
+				match w.recover_from_mailbox().await {
+					Ok(report) => Ok(json!({"state": "recovered", "onchain_sat": balance.to_sat(), "report": format!("{report:?}")})),
+					Err(_) => Ok(json!({"state": "partial", "onchain_sat": balance.to_sat(),
+						"report": "On-chain scan completed. Ark mailbox recovery is unavailable; retry with the Ark server online or restore a full backup."})),
+				}
 			},
 			"address_ark" => Ok(json!({"address": w.new_address().await?.to_string()})),
 			"refresh" => {

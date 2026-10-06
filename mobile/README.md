@@ -58,7 +58,11 @@ transport does not support the proxy; it is never silently sent directly.
 The current Paperclip funded Ark profile requires Knots RPC to inspect relay policy
 before boarding and for package relay during emergency exit. Electrum supports
 on-chain synchronization, signing, and broadcast, but it cannot supply those RPC
-capabilities. Select a compatible Knots RPC backend for boarding and emergency exit.
+capabilities. Enable the separate Ark RPC gateway in Connections to keep using
+Electrum for on-chain payments while Ark uses an HTTPS Knots gateway. The gateway
+address and optional credentials are configurable; no undeployed gateway is assumed.
+Alternatively, select Knots RPC as the primary backend. Separate RPC with Tor is
+currently rejected rather than bypassing Tor.
 Do not remove these checks to make an endpoint appear compatible.
 
 ## Payments and recovery

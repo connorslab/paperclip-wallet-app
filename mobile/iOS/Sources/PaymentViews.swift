@@ -191,7 +191,8 @@ struct ArkToolsView: View {
                 Text("Scan on-chain history and the Ark recovery mailbox. Seed-only recovery may not recover every pending operation. Prefer a full encrypted backup when available.").font(.caption)
                 Button("Scan for recoverable XBT") { store.run {
                     let result = try await store.engine.operation("recover")
-                    recoveryRequired = false
+                    recoveryRequired = result["state"] as? String != "recovered"
+                    store.onchain = (result["onchain_sat"] as? NSNumber)?.uint64Value
                     status = "\(result["report"] ?? "Recovery scan completed.")"
                 } }
                 NavigationLink("Encrypted backup & restore") { BackupView(engine: store.engine) }
