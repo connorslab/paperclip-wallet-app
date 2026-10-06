@@ -19,17 +19,26 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: xyz.paperclippool.wallet.preview
         'CODE_SIGN_ENTITLEMENTS[sdk=iphonesimulator*]': Simulator.entitlements
         SWIFT_VERSION: '5.9'
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         SWIFT_OBJC_BRIDGING_HEADER: Sources/Bridge.h
         LIBRARY_SEARCH_PATHS: ['$(inherited)', '$(SRCROOT)/../../target/aarch64-apple-ios-sim/debug']
         OTHER_LDFLAGS: ['$(inherited)', '-lc++', '-lsqlite3', '-framework', 'Security', '-framework', 'SystemConfiguration']
-        MARKETING_VERSION: '0.1.0'
+        MARKETING_VERSION: '0.2.0'
         CURRENT_PROJECT_VERSION: '1'
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_UIBackgroundModes: [fetch, processing]
     info:
       path: Generated-Info.plist
       properties:
-        CFBundleDisplayName: Paperclip Preview
+        CFBundleDisplayName: Paperclip
+        NSFaceIDUsageDescription: Unlock your Paperclip wallet.
+        NSLocalNetworkUsageDescription: Connect to your XBT, Lightning, or Tor node on your local network.
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+          NSExceptionDomains:
+            onion:
+              NSIncludesSubdomains: true
+              NSExceptionAllowsInsecureHTTPLoads: true
         UILaunchScreen: {}
         UIBackgroundModes: [fetch, processing]
         BGTaskSchedulerPermittedIdentifiers:

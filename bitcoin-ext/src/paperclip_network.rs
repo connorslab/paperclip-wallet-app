@@ -3,7 +3,7 @@ use bitcoin::Network;
 
 /// This gate does not replace backend network, activation or index checks.
 pub fn enabled(network: Network) -> bool {
-	allowed(network, std::env::var("PAPERCLIP_XBT_MAINNET").as_deref() == Ok("1"))
+	allowed(network, cfg!(feature = "xbt-mainnet") || std::env::var("PAPERCLIP_XBT_MAINNET").as_deref() == Ok("1"))
 }
 
 fn allowed(network: Network, opt_in: bool) -> bool {

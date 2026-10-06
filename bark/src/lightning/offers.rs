@@ -116,6 +116,12 @@ impl Wallet {
 		Ok(receive.invoice.to_string())
 	}
 
+	/// Serve the saved offer while a mobile foreground task owns this future.
+	/// Dropping the future closes the relay stream. Pending receives remain durable.
+	pub async fn serve_lightning_offer_requests(&self) -> anyhow::Result<()> {
+		Self::serve_offer_weak(std::sync::Arc::downgrade(&self.inner), CancellationToken::new()).await
+	}
+
 	pub(crate) async fn serve_offer_weak(weak: Weak<WalletInner>, shutdown: CancellationToken) -> anyhow::Result<()> {
 		let (state, key, mut srv) = {
 			let wallet = Wallet { inner: weak.upgrade().context("wallet closed")? };

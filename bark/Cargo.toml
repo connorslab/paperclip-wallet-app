@@ -9,6 +9,7 @@ edition = "2024"
 readme = "README.md"
 
 [features]
+electrum = ["dep:bdk_electrum", "dep:rustls", "dep:webpki-roots"]
 default = ["rand", "sqlite", "native", "tls-native-roots", "bitcoind-rpc"]
 
 onchain-bdk = ["bdk_wallet", "bark-bitcoin-ext/bdk"]
@@ -50,6 +51,7 @@ name = "bark"
 path = "src/lib.rs"
 
 [dependencies]
+url = "2"
 base64.workspace = true
 
 # OWN
@@ -136,3 +138,19 @@ console_log = "1.0.0"
 # tempfile doesn't work on WASM (no filesystem), only include for native tests
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 tempfile = "3"
+
+[dependencies.bdk_electrum]
+version = "0.23.2"
+optional = true
+default-features = false
+features = ["use-rustls-ring"]
+
+[dependencies.rustls]
+version = "0.23"
+optional = true
+default-features = false
+features = ["ring", "std", "tls12"]
+
+[dependencies.webpki-roots]
+version = "1"
+optional = true

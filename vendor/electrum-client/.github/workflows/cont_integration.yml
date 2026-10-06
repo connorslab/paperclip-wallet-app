@@ -1,0 +1,74 @@
+on: [push, pull_request]
+
+name: CI
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    env:
+      TEST_ELECTRUM_SERVER: electrum.blockstream.info:50001
+    strategy:
+      matrix:
+        rust:
+          - stable # STABLE
+          - 1.75.0 # MSRV
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ github.job }}-${{ hashFiles('**/Cargo.toml','**/Cargo.lock') }}
+      - name: Install rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ matrix.rust }}
+      - name: Test
+        run: cargo test --verbose --all-features
+      - name: Setup iptables for the timeout test
+        run: sudo ip6tables -I INPUT 1 -p tcp -d ::1 --dport 60000 -j DROP
+      - name: Timeout test
+        run: cargo test -- --ignored test_local_timeout
+      - run: cargo check --verbose --features=use-openssl
+      - run: cargo check --verbose --no-default-features --features=proxy
+      - run: cargo check --verbose --no-default-features --features=minimal
+      - run: cargo check --verbose --no-default-features --features=minimal,debug-calls
+      - run: cargo check --verbose --no-default-features --features=proxy,use-openssl
+      - run: cargo check --verbose --no-default-features --features=proxy,use-rustls
+      - run: cargo check --verbose --no-default-features --features=proxy,use-rustls-ring
+      - run: cargo check --verbose --no-default-features --features=proxy,use-rustls,use-rustls-ring
+
+  fmt:
+    name: Rust fmt
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          components: rustfmt
+      - name: Check fmt
+        run: cargo fmt --all -- --config format_code_in_doc_comments=true --check
+
+  clippy_check:
+    name: Rust clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.84.0
+          components: clippy
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2.2.1
+      - uses: actions-rs/clippy-check@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          args: --all-features --all-targets -- -D warnings

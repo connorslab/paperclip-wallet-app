@@ -31,6 +31,9 @@ use bitcoind_async_client::error::ClientError as BitcoindClientError;
 #[cfg(feature = "bitcoind-rpc")]
 use bitcoind_async_client::traits::{Broadcaster, Reader};
 
+#[cfg(feature = "electrum")]
+use bdk_electrum::electrum_client::ElectrumApi;
+
 use crate::daemon::tip_watcher::{TipSource, TipWatcher};
 
 const FEE_RATE_TARGET_CONF_FAST: u16 = 1;
@@ -64,6 +67,8 @@ const MIN_BITCOIND_VERSION: usize = 290000;
 ///   and transaction history must come from txindex or the private pruned adapter.
 #[derive(Clone, Debug)]
 pub enum ChainSourceSpec {
+	#[cfg(feature = "electrum")]
+	Electrum { url: String, certificate_sha256: Option<String> },
 	Bitcoind {
 		/// RPC URL of the Bitcoin Core node (e.g. <http://127.0.0.1:8332>).
 		url: String,
@@ -82,6 +87,8 @@ pub enum ChainSourceSpec {
 impl ChainSourceSpec {
 	pub(crate) fn url(&self) -> &String {
 		match self {
+			#[cfg(feature = "electrum")]
+			ChainSourceSpec::Electrum { url, .. } => url,
 			ChainSourceSpec::Bitcoind { url, .. } => url,
 			ChainSourceSpec::Esplora { url } => url,
 		}
@@ -89,6 +96,8 @@ impl ChainSourceSpec {
 }
 
 pub enum ChainSourceClient {
+	#[cfg(feature = "electrum")]
+	Electrum(crate::electrum::Electrum),
 	/// Native bitcoind backend.
 	///
 	/// Carries an async client for everything the wallet does asynchronously
@@ -105,6 +114,9 @@ pub enum ChainSourceClient {
 impl ChainSourceClient {
 	async fn check_network(&self, expected: Network) -> anyhow::Result<()> {
 		match self {
+			#[cfg(feature = "electrum")]
+			ChainSourceClient::Electrum(client) => { let genesis = client.block_ref(0).await?;
+				ensure!(genesis.hash == genesis_block(expected).block_hash(), "Electrum network mismatch"); },
 			#[cfg(feature = "bitcoind-rpc")]
 			ChainSourceClient::Bitcoind { rpc, .. } => {
 				let network = rpc.network().await?;
@@ -117,6 +129,9 @@ impl ChainSourceClient {
 					.send().await?.text().await?;
 				let genesis_hash = BlockHash::from_str(&res)
 					.context("bad response from server (not a blockhash). Esplora client possibly misconfigured")?;
+				let tip_hash = client.get_tip_hash().await?;
+				let raw = client.client().get(format!("{}/block/{}/header", client.url(), tip_hash)).send().await?.error_for_status()?.text().await?;
+				ensure!(raw.trim().len() == 328, "Esplora must serve activated BLAKE2b XBT headers");
 				if genesis_hash != genesis_block(expected).block_hash() {
 					bail!("Network mismatch: expected {:?}, got {:?}", expected, genesis_hash);
 				}
@@ -285,10 +300,20 @@ impl ChainSource {
 	) -> anyhow::Result<Self> {
 		anyhow::ensure!(bitcoin_ext::paperclip_network::enabled(network),
 			"XBT mainnet requires explicit PAPERCLIP_XBT_MAINNET=1; only regtest is enabled by default");
-		anyhow::ensure!(!matches!(&spec, ChainSourceSpec::Esplora { .. }), "XBT requires a local Knots RPC backend; Esplora is not validated");
+
 		let (inner, zmq_endpoint) = match spec {
+			#[cfg(feature = "electrum")]
+			ChainSourceSpec::Electrum { url, certificate_sha256 } => {
+				#[cfg(feature = "socks5-proxy")]
+				let proxy = proxy.map(str::to_owned);
+				#[cfg(not(feature = "socks5-proxy"))]
+				let proxy = None;
+				(ChainSourceClient::Electrum(crate::electrum::Electrum::connect(url, proxy, certificate_sha256, network).await?), None)
+			},
 			#[cfg(feature = "bitcoind-rpc")]
 			ChainSourceSpec::Bitcoind { url, auth, zmq } => {
+				#[cfg(feature = "socks5-proxy")]
+				ensure!(proxy.is_none(), "Knots RPC Tor transport is unavailable; use Electrum over Tor for on-chain access");
 				// `bdk_bitcoind_rpc::Emitter` is sync-only upstream, so we keep
 				// a sync companion to drive it inside `spawn_blocking`. The async
 				// client is used everywhere else. `BitcoinRpcClient` (rather
@@ -359,6 +384,10 @@ impl ChainSource {
 
 	async fn fetch_fee_rates(&self) -> anyhow::Result<FeeRates> {
 		match self.inner() {
+			#[cfg(feature = "electrum")]
+			ChainSourceClient::Electrum(client) => { let fees = client.run(|c| Ok([c.inner.estimate_fee(1)?, c.inner.estimate_fee(3)?, c.inner.estimate_fee(6)?])).await?;
+				let rate = |v: f64| -> anyhow::Result<FeeRate> { ensure!(v.is_finite() && v > 0.0, "fee estimate unavailable"); Ok(FeeRate::from_amount_per_kvb_ceil(Amount::from_btc(v)?)) };
+				Ok(FeeRates { fast: rate(fees[0])?, regular: rate(fees[1])?, slow: rate(fees[2])? }) },
 			#[cfg(feature = "bitcoind-rpc")]
 			ChainSourceClient::Bitcoind { rpc, .. } => {
 				let get_fee_rate = async |target: u16| -> anyhow::Result<FeeRate> {
@@ -411,6 +440,8 @@ impl ChainSource {
 
 	async fn fetch_tip(&self) -> anyhow::Result<BlockHeight> {
 		match self.inner() {
+			#[cfg(feature = "electrum")]
+			ChainSourceClient::Electrum(client) => { Ok(client.tip().await?.into()) },
 			#[cfg(feature = "bitcoind-rpc")]
 			ChainSourceClient::Bitcoind { rpc, .. } => {
 				Ok(BlockHeight::new(rpc.get_block_count().await? as u32))
@@ -481,6 +512,8 @@ impl ChainSource {
 
 	pub async fn block_ref(&self, height: BlockHeight) -> anyhow::Result<BlockRef> {
 		match self.inner() {
+			#[cfg(feature = "electrum")]
+			ChainSourceClient::Electrum(client) => { client.block_ref(height.into()).await },
 			#[cfg(feature = "bitcoind-rpc")]
 			ChainSourceClient::Bitcoind { rpc, .. } => {
 				let hash = rpc.get_block_hash(height.into()).await?;
@@ -495,6 +528,8 @@ impl ChainSource {
 
 	pub async fn block(&self, hash: BlockHash) -> anyhow::Result<Option<Block>> {
 		match self.inner() {
+			#[cfg(feature = "electrum")]
+			ChainSourceClient::Electrum(_) => { bail!("Electrum does not serve full blocks") },
 			#[cfg(feature = "bitcoind-rpc")]
 			ChainSourceClient::Bitcoind { rpc, .. } => {
 				match rpc.get_block(&hash).await {
@@ -517,6 +552,8 @@ impl ChainSource {
 		// TODO: Determine if any line of descendant transactions increase the effective fee rate
 		//		 of the target txid.
 		match self.inner() {
+			#[cfg(feature = "electrum")]
+			ChainSourceClient::Electrum(_) => { bail!("Electrum does not provide verified mempool ancestry; use Knots RPC for fee bumping") },
 			#[cfg(feature = "bitcoind-rpc")]
 			ChainSourceClient::Bitcoind { rpc, .. } => {
 				let entry: rpc::json::GetMempoolEntryResult = rpc.call_raw(
@@ -583,6 +620,8 @@ impl ChainSource {
 	) -> anyhow::Result<TxsSpendingInputsResult> {
 		let mut res = TxsSpendingInputsResult::new();
 		match self.inner() {
+			#[cfg(feature = "electrum")]
+			ChainSourceClient::Electrum(client) => { for outpoint in outpoints { if let Some((txid, status)) = client.spending(outpoint).await? { res.add(outpoint, txid, status); } } },
 			#[cfg(feature = "bitcoind-rpc")]
 			ChainSourceClient::Bitcoind { sync, .. } => {
 				// We must offset the height to account for the fact we iterate using next_block()
@@ -681,6 +720,9 @@ impl ChainSource {
 
 	pub async fn broadcast_tx(&self, tx: &Transaction) -> anyhow::Result<()> {
 		match self.inner() {
+			#[cfg(feature = "electrum")]
+			ChainSourceClient::Electrum(client) => { let tx = tx.clone();
+				client.run(move |c| { c.inner.transaction_broadcast(&tx)?; Ok(()) }).await },
 			#[cfg(feature = "bitcoind-rpc")]
 			ChainSourceClient::Bitcoind { rpc, .. } => {
 				match rpc.send_raw_transaction(tx, None).await {
@@ -701,6 +743,8 @@ impl ChainSource {
 			.map(|t| t.borrow().compute_txid())
 			.collect::<Vec<_>>();
 		match self.inner() {
+			#[cfg(feature = "electrum")]
+			ChainSourceClient::Electrum(_) => { Err(BroadcastError::Other("Electrum does not support package relay; use Knots RPC for emergency exit".into())) },
 			#[cfg(feature = "bitcoind-rpc")]
 			ChainSourceClient::Bitcoind { rpc, .. } => {
 				let hexes: Vec<String> = txs.iter()
@@ -738,6 +782,8 @@ impl ChainSource {
 
 	pub async fn get_tx(&self, txid: &Txid) -> anyhow::Result<Option<Transaction>> {
 		match self.inner() {
+			#[cfg(feature = "electrum")]
+			ChainSourceClient::Electrum(client) => { Ok(Some(client.transaction(*txid).await?)) },
 			#[cfg(feature = "bitcoind-rpc")]
 			ChainSourceClient::Bitcoind { rpc, .. } => {
 				match rpc.get_raw_transaction_verbosity_zero(txid).await {
@@ -760,6 +806,8 @@ impl ChainSource {
 	/// Returns the status of the given transaction, including the block height if it is confirmed
 	pub async fn tx_status(&self, txid: Txid) -> anyhow::Result<TxStatus> {
 		match self.inner() {
+			#[cfg(feature = "electrum")]
+			ChainSourceClient::Electrum(client) => { client.status(txid).await },
 			#[cfg(feature = "bitcoind-rpc")]
 			ChainSourceClient::Bitcoind { rpc, .. } => Ok(bitcoind_tx_status(rpc, txid).await?),
 			ChainSourceClient::Esplora(esplora) => {
@@ -790,6 +838,8 @@ impl ChainSource {
 	#[allow(unused)]
 	pub async fn txout_value(&self, outpoint: &OutPoint) -> anyhow::Result<Amount> {
 		let tx = match self.inner() {
+			#[cfg(feature = "electrum")]
+			ChainSourceClient::Electrum(client) => { client.transaction(outpoint.txid).await? },
 			#[cfg(feature = "bitcoind-rpc")]
 			ChainSourceClient::Bitcoind { rpc, .. } => {
 				rpc.get_raw_transaction_verbosity_zero(&outpoint.txid).await
@@ -815,6 +865,8 @@ impl ChainSource {
 	/// apart from one whose transaction has yet to be mined.
 	pub async fn outpoint_spent_confirmed(&self, outpoint: OutPoint) -> anyhow::Result<bool> {
 		match self.inner() {
+			#[cfg(feature = "electrum")]
+			ChainSourceClient::Electrum(client) => { Ok(client.spending(outpoint).await?.is_some_and(|(_, status)| matches!(status, TxStatus::Confirmed(_)))) },
 			#[cfg(feature = "bitcoind-rpc")]
 			ChainSourceClient::Bitcoind { rpc, .. } => {
 				// `include_mempool: false` keeps a mempool-only spend out of the

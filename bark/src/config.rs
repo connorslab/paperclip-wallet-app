@@ -117,6 +117,12 @@ pub struct Config {
 	///
 	/// Either this or the `bitcoind_address` field has to be provided.
 	pub esplora_address: Option<String>,
+	#[cfg(feature = "electrum")]
+	#[serde(default)]
+	pub electrum_address: Option<String>,
+	#[cfg(feature = "electrum")]
+	#[serde(default)]
+	pub electrum_certificate_sha256: Option<String>,
 
 	/// The address of the bitcoind RPC server to use.
 	///
@@ -258,6 +264,10 @@ impl Config {
 			server_access_token: None,
 			user_agent: None,
 			esplora_address: None,
+			#[cfg(feature = "electrum")]
+			electrum_address: None,
+			#[cfg(feature = "electrum")]
+			electrum_certificate_sha256: None,
 			bitcoind_address: None,
 			bitcoind_cookiefile: None,
 			bitcoind_user: None,
@@ -320,6 +330,10 @@ impl Config {
 	/// Creates a [crate::chain::ChainSource] instance to communicate with a chain
 	/// backend from this [Config].
 	pub fn chain_source(&self) -> anyhow::Result<ChainSourceSpec> {
+		#[cfg(feature = "electrum")]
+		if let Some(ref url) = self.electrum_address {
+			return Ok(ChainSourceSpec::Electrum { url: url.clone(), certificate_sha256: self.electrum_certificate_sha256.clone() });
+		}
 		if let Some(ref url) = self.esplora_address {
 			Ok(ChainSourceSpec::Esplora {
 				url: url.clone(),

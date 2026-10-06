@@ -3,15 +3,22 @@ on:
   workflow_dispatch:
   push:
     branches: [feature/ios-wallet]
-    paths: ['mobile/**', '.github/workflows/ios-preview.yml', 'bark/**', 'bitcoin-ext/**']
+    paths: ['mobile/**', '.github/workflows/ios-preview.yml', 'bark/**', 'bitcoin-ext/**', 'vendor/electrum-client/**', 'Cargo.toml', 'Cargo.lock']
 permissions:
   contents: read
 concurrency:
   group: ios-preview-${{ github.ref }}
   cancel-in-progress: false
 jobs:
+  swift-tests:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test wallet policies, connections, and backups
+        working-directory: mobile
+        run: swift test
   ios:
-    needs: rust-port
+    needs: [rust-port, swift-tests]
     runs-on: macos-15
     timeout-minutes: 45
     steps:
@@ -89,7 +96,10 @@ jobs:
           CARGO_BUILD_JOBS: '3'
           CARGO_PROFILE_DEV_DEBUG: '0'
           CARGO_INCREMENTAL: '0'
-        run: just unit-mobile
+        run: |
+          just unit-mobile
+          just unit unified_
+          just unit-electrum
       - uses: actions/upload-artifact@v4
         with:
           name: paperclip-rust-ios-simulator

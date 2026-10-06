@@ -14,6 +14,8 @@ use bark::payment_request::PaymentInitOutput;
 use bark::persist::{BarkPersister, sqlite::SqliteClient};
 
 pub struct Session {
+	offer_task: Option<tokio::task::JoinHandle<()>>,
+	receive_task: Option<tokio::task::JoinHandle<()>>,
 	runtime: tokio::runtime::Runtime,
 	dir: PathBuf,
 	db: Arc<SqliteClient>,
@@ -22,13 +24,38 @@ pub struct Session {
 	// Retained independently of the async wallet for its whole lifetime.
 	_lock: Box<dyn LockManager>,
 	fingerprint: String,
+	network: Network,
 	quote: Option<(String, u64, u64, Instant)>,
 	onchain_quote: Option<(String, u64, bitcoin::Psbt, Instant)>,
+	board_quote: Option<(u64, u64, u64, bitcoin::Psbt, bitcoin::secp256k1::Keypair, bitcoin_ext::BlockHeight, Instant)>,
+}
+
+impl Drop for Session {
+	fn drop(&mut self) {
+		if let Some(task) = self.offer_task.take() { task.abort(); }
+		if let Some(task) = self.receive_task.take() { task.abort(); }
+	}
 }
 
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn mobile_seed_import_checks_length_checksum_and_derivation() {
+		let mut state = None;
+		let phrase = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
+		let result = dispatch(&mut state, json!({"op": "seed_derive", "phrase": phrase}), [0; 64]).unwrap();
+		let seed = STANDARD.decode(result["seed"].as_str().unwrap()).unwrap();
+		let expected = "5eb00bbddcf069084889a8ab9155568165f5c453ccb85e70811aaed6f6da5fc19a5ac40b389cd370d086206dec8aa6c43daea6690f20ad3d8d48b2d2ce9e38e4";
+		assert_eq!(seed.iter().map(|b| format!("{b:02x}")).collect::<String>(), expected);
+		let generated = dispatch(&mut state, json!({"op": "seed_generate"}), [0; 64]).unwrap();
+		assert_eq!(generated["phrase"].as_str().unwrap().split_whitespace().count(), 24);
+		assert!(dispatch(&mut state, json!({"op": "seed_derive", "phrase": generated["phrase"]}), [0; 64]).is_ok());
+		assert!(dispatch(&mut state, json!({"op": "seed_derive", "phrase": vec!["abandon"; 12].join(" ")}), [0; 64]).is_err());
+		let fifteen = bip39::Mnemonic::from_entropy(&[0; 20]).unwrap();
+		assert!(dispatch(&mut state, json!({"op": "seed_derive", "phrase": fifteen.to_string()}), [0; 64]).is_err());
+	}
 
 	#[test]
 	fn mobile_persistence_and_complete_backup_roundtrip() {
@@ -69,9 +96,26 @@ fn text<'a>(v: &'a Value, key: &str) -> anyhow::Result<&'a str> {
 
 pub fn dispatch(state: &mut Option<Session>, request: Value, seed: [u8; 64]) -> anyhow::Result<Value> {
 	let op = text(&request, "op")?;
+	if op == "seed_generate" {
+		let phrase = bip39::Mnemonic::generate(24)?;
+		return Ok(json!({"phrase": phrase.to_string()}));
+	}
+	if op == "seed_derive" {
+		let phrase = bip39::Mnemonic::parse(text(&request, "phrase")?)?;
+		ensure!([12, 24].contains(&phrase.word_count()), "use a 12 or 24 word seed phrase");
+		return Ok(json!({"seed": STANDARD.encode(phrase.to_seed(""))}));
+	}
+	let requested_network = || -> anyhow::Result<Network> {
+		match text(&request, "network")? {
+			"xbt-mainnet" => Ok(Network::Bitcoin),
+			"xbt-regtest" => Ok(Network::Regtest),
+			_ => bail!("unsupported XBT network"),
+		}
+	};
 	if op == "close" { *state = None; return Ok(json!({})); }
 	if op == "restore" {
-		ensure!(state.is_none() && request["network"] == "xbt-regtest", "restore requires an empty regtest session");
+		ensure!(state.is_none(), "restore requires an empty session");
+		let network = requested_network()?;
 		let dir = PathBuf::from(text(&request, "directory")?);
 		ensure!(dir.is_absolute() && !dir.exists(), "restore destination must not exist");
 		let data = STANDARD.decode(text(&request, "database")?)?;
@@ -92,9 +136,9 @@ pub fn dispatch(state: &mut Option<Session>, request: Value, seed: [u8; 64]) -> 
 		let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
 		runtime.block_on(async {
 			let properties = db.read_properties().await?.context("missing recovery properties")?;
-			ensure!(properties.network == Network::Regtest && properties.fingerprint == WalletSeed::new_from_seed(Network::Regtest, &seed).fingerprint(),
+			ensure!(properties.network == network && properties.fingerprint == WalletSeed::new_from_seed(network, &seed).fingerprint(),
 				"backup key or network mismatch");
-			OnchainWallet::load_or_create(Network::Regtest, seed, db.clone()).await?;
+			OnchainWallet::load_or_create(network, seed, db.clone()).await?;
 			anyhow::Ok(())
 		})?;
 		drop(db);
@@ -104,7 +148,7 @@ pub fn dispatch(state: &mut Option<Session>, request: Value, seed: [u8; 64]) -> 
 	}
 	if op == "create" || op == "open" {
 		ensure!(state.is_none(), "close the active wallet before opening another");
-		ensure!(request["network"] == "xbt-regtest", "this test build supports regtest only");
+		let network = requested_network()?;
 		let dir = PathBuf::from(text(&request, "directory")?);
 		ensure!(dir.is_absolute(), "wallet path must be absolute");
 		let dbpath = dir.join("db.sqlite");
@@ -116,7 +160,7 @@ pub fn dispatch(state: &mut Option<Session>, request: Value, seed: [u8; 64]) -> 
 			std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700))?;
 		}
 		let runtime = tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build()?;
-		let wallet_seed = WalletSeed::new_from_seed(Network::Regtest, &seed);
+		let wallet_seed = WalletSeed::new_from_seed(network, &seed);
 		let fingerprint = wallet_seed.fingerprint();
 		let lock = bark::lock_manager::platform_default(Some(&dir), Some(fingerprint))?;
 		let db = Arc::new(SqliteClient::open(&dbpath)?);
@@ -126,21 +170,21 @@ pub fn dispatch(state: &mut Option<Session>, request: Value, seed: [u8; 64]) -> 
 		}
 		let onchain = runtime.block_on(async {
 			if op == "create" {
-				let mut config = Config::network_default(Network::Regtest);
+				let mut config = Config::network_default(network);
 				config.server_address = "http://127.0.0.1:1".into();
-				Wallet::create(Network::Regtest, &wallet_seed, &config, &*db, &*lock, true).await?;
+				Wallet::create(network, &wallet_seed, &config, &*db, &*lock, true).await?;
 			}
 			let properties = db.read_properties().await?.context("wallet not initialized")?;
-			ensure!(properties.network == Network::Regtest && properties.fingerprint == fingerprint,
+			ensure!(properties.network == network && properties.fingerprint == fingerprint,
 				"recovery key or network does not match the wallet");
-			OnchainWallet::load_or_create(Network::Regtest, seed, db.clone()).await
+			OnchainWallet::load_or_create(network, seed, db.clone()).await
 		})?;
-		*state = Some(Session { runtime, dir, db, onchain: Arc::new(tokio::sync::RwLock::new(onchain)),
-			wallet: None, _lock: lock, fingerprint: fingerprint.to_string(), quote: None, onchain_quote: None });
+		*state = Some(Session { offer_task: None, receive_task: None, runtime, dir, db, onchain: Arc::new(tokio::sync::RwLock::new(onchain)),
+			wallet: None, _lock: lock, fingerprint: fingerprint.to_string(), network, quote: None, onchain_quote: None, board_quote: None });
 		return Ok(json!({"fingerprint": fingerprint.to_string()}));
 	}
 	let session = state.as_mut().context("open a wallet first")?;
-	ensure!(WalletSeed::new_from_seed(Network::Regtest, &seed).fingerprint().to_string() == session.fingerprint,
+	ensure!(WalletSeed::new_from_seed(session.network, &seed).fingerprint().to_string() == session.fingerprint,
 		"wallet key mismatch");
 	if op == "backup" {
 		let path = session.dir.join("snapshot.sqlite");
@@ -154,22 +198,49 @@ pub fn dispatch(state: &mut Option<Session>, request: Value, seed: [u8; 64]) -> 
 		std::fs::remove_file(path)?;
 		return result;
 	}
-	let Session { runtime, wallet, db, onchain, quote, onchain_quote, .. } = session;
+	let network = session.network;
+	let Session { runtime, wallet, db, onchain, quote, onchain_quote, board_quote, offer_task, receive_task, .. } = session;
 	runtime.block_on(async {
 		if op == "address_onchain" {
 			return Ok(json!({"address": OnchainWalletTrait::address(&mut *onchain.write().await).await?.to_string()}));
 		}
 		if op == "connect" {
-			ensure!(wallet.is_none(), "restart the session to change connections");
+			if let Some(task) = offer_task.take() { task.abort(); }
+			if let Some(task) = receive_task.take() { task.abort(); }
+			*quote = None;
+			*onchain_quote = None;
+			*board_quote = None;
 			let config: Config = serde_json::from_value(request["config"].clone())?;
-			*wallet = Some(Wallet::open(Network::Regtest, WalletSeed::new_from_seed(Network::Regtest, &seed), config,
+			*wallet = Some(Wallet::open(network, WalletSeed::new_from_seed(network, &seed), config,
 				OpenWalletArgs { persister: Some(db.clone()), onchain: Some(onchain.clone()),
 					lock_manager: Some(Box::new(MemoryLockManager::new())), run_daemon: false,
 					create_if_not_exists: false, ..Default::default() }).await?);
 			return Ok(json!({"connected": true}));
 		}
-		if op == "config_template" { return Ok(serde_json::to_value(Config::network_default(Network::Regtest))?); }
+		if op == "config_template" { return Ok(serde_json::to_value(Config::network_default(network))?); }
 		let w = wallet.as_ref().context("connect to the test backend first")?;
+		if op == "receive_listen" {
+			if let Some(task) = offer_task.take() { task.abort(); }
+			if let Some(task) = receive_task.take() { task.abort(); }
+			if request["enabled"] == true {
+				let offers = w.clone();
+				*offer_task = Some(tokio::spawn(async move {
+					loop {
+						let _ = offers.serve_lightning_offer_requests().await;
+						tokio::time::sleep(Duration::from_secs(5)).await;
+					}
+				}));
+				let receives = w.clone();
+				*receive_task = Some(tokio::spawn(async move {
+					loop {
+						let _ = receives.sync_pending_lightning_receives().await;
+						let _ = receives.try_claim_all_lightning_receives(false).await;
+						tokio::time::sleep(Duration::from_secs(5)).await;
+					}
+				}));
+			}
+			return Ok(json!({"listening_requested": request["enabled"] == true}));
+		}
 		match op {
 			"check_payment" => {
 				use bark::actions::lightning::pay::LightningSendState;
@@ -192,6 +263,8 @@ pub fn dispatch(state: &mut Option<Session>, request: Value, seed: [u8; 64]) -> 
 				w.sync_pending_rounds().await?;
 				w.sync_pending_arkoor_sends().await?;
 				w.sync_pending_lightning_send_vtxos().await?;
+				w.sync_pending_lightning_receives().await?;
+				w.try_claim_all_lightning_receives(false).await?;
 				w.sync_pending_boards().await?;
 				w.sync_pending_offboards().await?;
 				w.sync_mailbox().await?;
@@ -203,6 +276,106 @@ pub fn dispatch(state: &mut Option<Session>, request: Value, seed: [u8; 64]) -> 
 					"vtxos": vtxos.iter().map(|v| json!({"id": v.id().to_string(), "expiryHeight": v.expiry_height(),
 						"spendable": v.state.kind() == bark::vtxo::VtxoStateKind::Spendable})).collect::<Vec<_>>() }))
 			},
+			"sync_onchain" => {
+				w.chain().invalidate_caches().await;
+				w.sync_onchain().await?;
+				Ok(json!({"onchain_sat": onchain.read().await.balance().total().to_sat(), "tip": w.chain().tip().await?}))
+			},
+			"quote_board" => {
+				*board_quote = None;
+				let amount = request["amount_sat"].as_u64().context("amount required")?;
+				ensure!(amount > 0, "amount must be positive");
+				w.chain().require_funded_policy().await?;
+				w.chain().update_fee_rates(w.config().fallback_fee_rate).await?;
+				let estimate = w.estimate_board_offchain_fee(Amount::from_sat(amount)).await?;
+				let reserve = estimate.fee.max(ark::exit_policy::paperclip_funding().anchor())
+					.checked_add(ark::exit_policy::paperclip_funding().miner_fee()).context("reserve overflow")?.to_sat();
+				let net = amount.checked_sub(reserve).context("board amount below recovery reserve")?;
+				let (key, _) = w.derive_store_next_keypair().await?;
+				let (address, expiry) = w.board_funding_address(&key).await?;
+				let psbt = onchain.write().await.prepare_tx(&[(address, Amount::from_sat(amount))], w.chain().fee_rates().await.regular).await?;
+				let total = amount.checked_add(psbt.fee()?.to_sat()).context("amount overflow")?;
+				*board_quote = Some((amount, total, reserve, psbt, key, expiry, Instant::now()));
+				Ok(json!({"total_sat": total, "net_sat": net, "reserve_sat": reserve}))
+			},
+			"board" => {
+				let (amount, total, reserve, psbt, key, expiry, time) = board_quote.take().context("review a board first")?;
+				ensure!(time.elapsed() < Duration::from_secs(60), "board quote expired");
+				ensure!(request["amount_sat"].as_u64() == Some(amount) && request["total_sat"].as_u64() == Some(total), "board changed");
+				let current = w.estimate_board_offchain_fee(Amount::from_sat(amount)).await?;
+				ensure!(current.fee.max(ark::exit_policy::paperclip_funding().anchor()).checked_add(ark::exit_policy::paperclip_funding().miner_fee()).context("reserve overflow")?.to_sat() == reserve, "board fee changed");
+				let signed = {
+					let mut wallet = onchain.write().await;
+					let unspent: std::collections::HashSet<_> = wallet.list_unspent().iter().map(|u| u.outpoint).collect();
+					ensure!(psbt.unsigned_tx.input.iter().all(|i| unspent.contains(&i.previous_output)), "inputs changed; review again");
+					wallet.finish_psbt(psbt).await?
+				};
+				let board = w.board_psbt(signed, key, expiry).await?;
+				Ok(json!({"state": "pending", "amount_sat": board.amount.to_sat(), "txid": board.funding_tx.compute_txid().to_string()}))
+			},
+			"offer_create" => {
+				let description = text(&request, "description")?;
+				ensure!(description.len() <= 256, "description too long");
+				let offer = w.create_lightning_offer(description.into(), request["amount_sat"].as_u64()).await?;
+				Ok(json!({"offer": offer.offer, "active": offer.active, "amount_sat": offer.amount_sat, "description": offer.description}))
+			},
+			"offer_status" => Ok(match w.lightning_offer().await? {
+				Some(offer) => json!({"offer": offer.offer, "active": offer.active, "amount_sat": offer.amount_sat, "description": offer.description}),
+				None => json!({"active": false}),
+			}),
+			"offer_disable" => { w.disable_lightning_offer().await?; Ok(json!({"active": false})) },
+			"receive_status" => {
+				use bark::actions::lightning::receive::{LightningReceiveState, Progress};
+				let state = w.lightning_receive_state(text(&request, "payment_hash")?.parse()?).await?;
+				Ok(json!({"state": match state {
+					LightningReceiveState::Settled(_) => "settled",
+					LightningReceiveState::InProgress(recv) => match recv.progress {
+						Progress::AwaitingPayment => "awaiting_payment",
+						Progress::HtlcsReady(_) => "ready_to_claim",
+						Progress::PreimageRevealed(_) => "claim_pending",
+						Progress::Delivering(_) => "delivery_pending",
+					},
+				}}))
+			},
+			"receive_pending" => Ok(json!({"receives": w.pending_lightning_receives().await?.iter().map(|r| json!({
+				"payment_hash": r.payment_hash.to_string(), "invoice": r.invoice.to_string()
+			})).collect::<Vec<_>>()})),
+			"receive_lightning" => {
+				let amount = request["amount_sat"].as_u64().context("amount required")?;
+				ensure!(amount > 0, "amount must be positive");
+				let invoice = w.bolt11_invoice(Amount::from_sat(amount), Some("Paperclip wallet".into()), None).await?;
+				Ok(json!({"invoice": invoice.to_string(), "payment_hash": invoice.payment_hash().to_string()}))
+			},
+			"exit_status" => Ok(json!({"pending": w.exit_mgr().has_pending_exits().await,
+				"claimable_height": w.exit_mgr().all_claimable_at_height().await,
+				"claimable_count": w.exit_mgr().list_claimable().await.len(),
+				"exits": w.exit_mgr().get_exit_vtxo_ids().await.iter().map(ToString::to_string).collect::<Vec<_>>()})),
+			"exit_start" => {
+				ensure!(request["confirmed"] == true, "confirm emergency exit first");
+				w.exit_mgr().start_exit_for_entire_wallet().await?;
+				Ok(json!({"state": "registered"}))
+			},
+			"exit_progress" => {
+				w.sync_onchain().await?;
+				w.exit_mgr().progress_exits_with_cpfp(w, None).await?;
+				Ok(json!({"pending": w.exit_mgr().has_pending_exits().await,
+					"claimable_height": w.exit_mgr().all_claimable_at_height().await}))
+			},
+			"exit_claim" => {
+				ensure!(request["confirmed"] == true, "confirm exit claim first");
+				let address = text(&request, "destination")?.parse::<bitcoin::Address<_>>()?.require_network(network)?;
+				let claimable = w.exit_mgr().list_claimable().await;
+				ensure!(!claimable.is_empty(), "no claimable exits");
+				let tx = w.exit_mgr().drain_exits(&claimable, w, address, None).await?.extract_tx()?;
+				onchain.write().await.register_tx(&tx).await?;
+				let submitted = w.chain().broadcast_tx(&tx).await.is_ok();
+				Ok(json!({"state": if submitted { "submitted" } else { "pending_broadcast" }, "txid": tx.compute_txid().to_string()}))
+			},
+			"recover" => {
+				let report = w.recover_from_mailbox().await?;
+				onchain.write().await.initial_wallet_scan(w.chain(), None).await?;
+				Ok(json!({"state": "recovered", "report": format!("{report:?}")}))
+			},
 			"address_ark" => Ok(json!({"address": w.new_address().await?.to_string()})),
 			"refresh" => {
 				w.sync_pending_rounds().await?;
@@ -212,7 +385,7 @@ pub fn dispatch(state: &mut Option<Session>, request: Value, seed: [u8; 64]) -> 
 			"quote_onchain" => {
 				*onchain_quote = None;
 				let destination = text(&request, "destination")?;
-				let address = destination.parse::<bitcoin::Address<_>>()?.require_network(Network::Regtest)?;
+				let address = destination.parse::<bitcoin::Address<_>>()?.require_network(network)?;
 				let amount = request["amount_sat"].as_u64().context("amount required")?;
 				ensure!(amount > 0, "amount must be positive");
 				w.chain().update_fee_rates(w.config().fallback_fee_rate).await?;

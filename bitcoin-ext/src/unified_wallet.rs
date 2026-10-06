@@ -180,6 +180,12 @@ mod tests {
 				Execution { script_type: 2, script_code: None, annex: None, leaf: None }).unwrap();
 			let pubkey = bitcoin::secp256k1::XOnlyPublicKey::from_slice(&prevouts[idx].script_pubkey.as_bytes()[2..]).unwrap();
 			Secp256k1::new().verify_schnorr(&bitcoin::secp256k1::schnorr::Signature::from_slice(&sig[..64]).unwrap(), &hash.into(), &pubkey).unwrap();
+			// The same signature must not verify against SHA256 BTC's BIP341 digest.
+			let btc_hash = bitcoin::sighash::SighashCache::new(&signed.unsigned_tx)
+				.taproot_key_spend_signature_hash(idx, &bitcoin::sighash::Prevouts::All(&prevouts), bitcoin::TapSighashType::All).unwrap();
+			assert!(Secp256k1::new().verify_schnorr(
+				&bitcoin::secp256k1::schnorr::Signature::from_slice(&sig[..64]).unwrap(),
+				&btc_hash.into(), &pubkey).is_err());
 		}
 	}
 }

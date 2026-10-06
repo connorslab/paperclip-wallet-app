@@ -1,40 +1,35 @@
 import XCTest
 
 final class PreviewTests: XCTestCase {
-    func testNativeEngineAndUnfundedPreview() {
+    func testSeedImportAndPersistentReceiveAddress() {
         let app = XCUIApplication()
+        app.launchArguments = ["-ui-testing"]
         app.launch()
-        let engine = app.staticTexts["engine-status"]
-        XCTAssertTrue(engine.waitForExistence(timeout: 20))
-        XCTAssertTrue(engine.label.contains("key derivation passed"))
-        XCTAssertTrue(app.staticTexts["Regtest development build. Do not send mainnet funds. Open the wallet lab to create or connect a test wallet."].exists)
-    }
-    func testNativeWalletSurvivesAppRestart() {
-        let app = XCUIApplication()
-        app.launch()
-        app.buttons["wallet-lab"].tap()
-        app.buttons["create-test-wallet"].tap()
-        let identity = app.staticTexts["wallet-fingerprint"]
-        guard identity.waitForExistence(timeout: 30) else {
-            XCTFail("Wallet creation failed: \(app.staticTexts["wallet-operation-status"].label)")
-            return
+        let importButton = app.buttons["Import 12 or 24 seed words"]
+        if importButton.waitForExistence(timeout: 5) {
+            importButton.tap()
+            let words = app.textViews["import-seed"]
+            XCTAssertTrue(words.waitForExistence(timeout: 5))
+            words.tap()
+            words.typeText("abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about")
+            app.buttons["Import wallet"].tap()
         }
-        let fingerprint = identity.label
-        app.swipeUp()
-        app.buttons["new-onchain-address"].tap()
-        let address = app.staticTexts["receive-address"]
+        let receive = app.buttons["Receive"]
+        XCTAssertTrue(receive.waitForExistence(timeout: 30))
+        receive.tap()
+        app.buttons["Create receive address"].tap()
+        let address = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'bcrt1'")).firstMatch
         XCTAssertTrue(address.waitForExistence(timeout: 10))
         let first = address.label
-        XCTAssertTrue(first.hasPrefix("bcrt1"))
         app.terminate()
         app.launch()
-        app.buttons["wallet-lab"].tap()
-        app.buttons["Reopen saved wallet"].tap()
-        XCTAssertTrue(identity.waitForExistence(timeout: 30))
-        XCTAssertEqual(identity.label, fingerprint)
-        app.swipeUp()
-        app.buttons["new-onchain-address"].tap()
+        XCTAssertTrue(receive.waitForExistence(timeout: 30))
+        receive.tap()
+        app.buttons["Create receive address"].tap()
         XCTAssertTrue(address.waitForExistence(timeout: 10))
         XCTAssertNotEqual(address.label, first)
+        app.buttons["Done"].tap()
+        app.tabBars.buttons["Settings"].tap()
+        XCTAssertTrue(app.staticTexts["Unified sighash · 0x21"].exists)
     }
 }

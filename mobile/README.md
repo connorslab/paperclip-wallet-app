@@ -1,72 +1,103 @@
-# Paperclip iPhone proof of concept
+# Paperclip iOS wallet
 
-Development branch: `feature/ios-wallet`. Does not change public wallet releases.
-This is an **unfunded prototype**, not an installable production wallet or TestFlight release.
+Development branch: `feature/ios-wallet`.
 
-The SwiftUI app includes Paperclip styling, reduced-motion support, automatic
-refresh preferences, foreground checks, BGAppRefreshTask/BGProcessingTask registration,
-cancellation, and local expiry reminders. The Rust bridge links the existing wallet
-engine. The wallet lab creates and reopens a regtest wallet, persists on-chain address
-indexes, and connects to an explicitly configured regtest ASP and indexed RPC backend.
-Mainnet is rejected by the bridge. Keys and connection credentials use device-only
-Keychain storage accessible after first unlock; database files use protected storage
-and are excluded from automatic device backups.
+The native SwiftUI app uses the Paperclip web colors (`#111c2e` navy and `#f56835`
+orange), reduced-motion preferences, and Liquid Glass actions on iOS 26. Earlier
+versions use system material. It contains an on-chain and Ark wallet, a remote
+Lightning node client, transaction review, QR receive screens, activity, recovery,
+and encrypted iCloud Drive export/import.
 
-## Refresh design
+## Setup and storage
 
-- iOS chooses whether and when background tasks run. Foreground entry also requests a check.
-- Automatic renewal is enabled by default in the preview settings; users may turn it off.
-- Check fresh chain state before renewal. Do not refresh expired or locked inputs.
-- Production integration must use Bark's checkpointed round machinery, reconcile pending
-  work before resubmission, and report a scheduled round separately from confirmed renewal.
-- A canceled request may already have reached the ASP. Never infer failure or release
-  locked inputs merely because iOS ended the background task.
-- Reminder thresholds are estimated 432/144/72 blocks before expiry, plus a stale-data
-  check after six hours. These are reminders, not guaranteed deadlines. The engine must
-  supply the correct network block interval. Recompute after every successful sync.
-- Coalesce notifications by wallet urgency; never include balances, addresses, or VTXO IDs.
-- Retain existing OS-scheduled reminders on network failure. Only remove obsolete reminders
-  after successfully scheduling replacements from current state.
-- Denied notification permission must remain visible. Opening a reminder opens the app,
-  which performs the same foreground check. No background-mode workaround is used.
+New wallets generate 24 BIP39 words with the Rust engine's secure random generator.
+Setup hides the words and requires entry of all 24 words before creation. Import
+accepts 12 or 24 words and validates the BIP39 checksum. BIP39 passphrases are not
+supported. Seed import requires a recovery scan after connection. It cannot replace
+an existing wallet.
 
-## Encrypted iCloud Drive backup
+The seed, optional seed phrase, and connection credentials use device-only Keychain
+storage with `AfterFirstUnlockThisDeviceOnly`. This permits background Ark work after
+the device's first unlock. The foreground app requires device authentication by
+default. The app covers its contents when inactive and clears setup words on
+background entry. Database directories use protected storage and are excluded from
+normal device backups.
 
-The prototype includes AES-256-GCM authenticated backup encoding and a Files export/import
-screen. Users choose iCloud Drive, save a separately generated recovery key outside iCloud,
-and re-enter it before export. The archive contains the seed and complete Ark recovery
-state, not just a mnemonic. Wrong keys and altered files are rejected before import.
-Restore must target an empty wallet and validate native recovery state before committing.
+Encrypted backup files use AES-256-GCM with a separate random 256-bit recovery key.
+They contain the seed, seed phrase when available, and a consistent SQLite snapshot
+of the complete Ark state, including pending actions. Export requires re-entry of
+the recovery key. Save the file to iCloud Drive through Files and keep the key
+separate. Files manages upload; successful export does not prove upload completion.
+Old version-one archives without a seed phrase remain readable. Restore validates
+key/network association in a staging directory and refuses existing wallet data.
+Remote Lightning nodes need their own channel backups; they are not part of an Ark
+backup. A backup does not prevent Ark expiry.
 
-This is manual file backup, not automatic cloud synchronization. Files manages upload;
-saving a file does not confirm its upload completed. Backups do not prevent VTXO expiry.
-Native export uses a SQLite snapshot that includes committed WAL state. Restore validates
-the database and key/network association in a staging directory before renaming it into
-an empty wallet location. A failed staging import is retained for diagnosis rather than
-overwriting existing data. Physical-device iCloud round trips remain required before release.
+## Connections
 
-## Build verification
+- Default: `ssl://pool.paperclippool.xyz:50002` (operator is preparing this endpoint).
+- Alternative: `ssl://fulcrum.kilombino.com:17717`.
+- Custom Electrum TLS/TCP, Esplora HTTP(S), and authenticated XBT Knots RPC.
+- Ark default: `https://ark.paperclippool.xyz`.
+- Core Lightning CLNRest with a rune, or LND REST with a hex macaroon.
 
-GitHub workflow: `iOS proof of concept`. It compiles the native wallet for iPhone and
-Apple-silicon simulator, runs Swift policy tests, builds the app, and runs a simulator
-native-bridge smoke test. Artifacts are unsigned simulator apps, not device IPAs.
-Local policy tests: `cd mobile && swift test`. Generate the project using XcodeGen.
+Electrum verifies the genesis network and an activated 164-byte XBT header before
+use. The vendored Electrum client decodes variable-length headers, including mixed
+pre-activation and post-activation batches. TLS uses public trust roots unless the
+user supplies an exact SHA256 certificate pin. Pins must come from the operator
+through a trusted channel. A changed certificate fails closed. Esplora also checks
+network and extended headers, but still needs a compatible public deployment test.
 
-## Still required before a funded mobile test
+Tor routing requires a reachable SOCKS proxy configured as `socks5h://host:port`.
+The app does not embed a Tor daemon. Electrum sends the destination hostname through
+SOCKS. CLN/LND use the OS SOCKS configuration with direct failover disabled. Ark uses
+the engine's SOCKS transport. The engine deliberately bypasses Tor for literal
+loopback endpoints. Knots RPC over Tor is rejected because the upstream async RPC
+transport does not support the proxy; it is never silently sent directly.
 
-- Complete interrupted-payment and interrupted-refresh recovery verification on iOS.
-  The native bridge has passed isolated regtest on-chain, Ark, BOLT11, and BOLT12
-  sends, duplicate-submit rejection, and persisted payment-status checks after reopening.
-  `integration/native-regtest.rs` contains that test for the paired ASP test harness.
-- Add a polished wallet dashboard and complete activity reconciliation. The test form
-  supports separately reviewed on-chain and Ark payments; an on-chain destination
-  selected with Ark funds uses offboarding.
-- Add an optional biometric policy. The test wallet explicitly uses after-first-unlock
-  access; biometric presence on every access prevents unattended refresh while locked.
-- Add validated public chain-data access and embedded Tor routing.
-  Do not ship an unrestricted public Bitcoin RPC endpoint or leak onion DNS requests.
-- Verify kill/restart during every refresh phase, offline expiry handling, and backups on
-  physical devices. Simulator tests cannot establish real background scheduling reliability.
-- Add Apple organization signing credentials and provisioning for TestFlight.
+The current Paperclip funded Ark profile requires Knots RPC to inspect relay policy
+before boarding and for package relay during emergency exit. Electrum supports
+on-chain synchronization, signing, and broadcast, but it cannot supply those RPC
+capabilities. Select a compatible Knots RPC backend for boarding and emergency exit.
+Do not remove these checks to make an endpoint appear compatible.
 
-The existing ASP and live wallet data are not touched by this prototype.
+## Payments and recovery
+
+On-chain payments and Ark funding use the existing unified signer (`0x21`). There is
+no legacy SHA256 BTC signing fallback. A regression test verifies that signatures
+validate under the unified digest and fail under the BTC BIP341 digest.
+
+On-chain, Ark, and board payments require a fresh review. Quotes expire after 60
+seconds and are consumed once. Board review includes the funding transaction fee
+and the funded profile's recovery reserves. Native operations use the engine's
+persistent checkpoints. Lightning node attempts are recorded in Keychain before
+submission; another attempt is blocked until node history gives a terminal result.
+A timeout is not proof of failure.
+
+Ark tools expose BOLT11 invoices, reusable BOLT12 offers, receive status and claims,
+offboarding, seed/mailbox recovery,
+emergency-exit registration, progress, status, and claims. The app serves BOLT12 invoice requests while in the foreground and processes
+persistent BOLT11/BOLT12 claims. Background entry stops the listener; iOS does not
+guarantee always-on receipt. Disabling an offer preserves already issued invoices.
+Chain-only recovery does
+not require the Ark server to be online. Emergency exits require fee liquidity,
+confirmations, and timelocks. Background execution is opportunistic; open the app
+regularly. Expiry reminders never include balances, addresses, or VTXO IDs.
+
+## Build and verification
+
+- Install Rust 1.90, protobuf, CMake, XcodeGen, and full Xcode.
+- `cd mobile && swift test` tests policies, endpoint validation, and encrypted backups.
+- `just unit-mobile` tests the C ABI's persistence, seed derivation, and recovery.
+- `just unit unified_` tests unified sighash reference vectors and signer behavior.
+- `just checks` checks workspace targets.
+- Generate the app with `cd mobile/iOS && xcodegen generate`.
+- Build the native library for `aarch64-apple-ios-sim` before the simulator app.
+- The `iOS proof of concept` GitHub workflow builds device and simulator libraries,
+  runs tests, builds the app, and captures a simulator screenshot.
+
+Full Xcode is needed for XCTest and simulator execution. The command-line Swift
+installation can compile the shared library but does not include XCTest here.
+A device release still needs Apple signing/provisioning, physical-device Tor/iCloud
+and background tests, and funded integration tests against the deployed XBT services.
+The simulator artifact is not a signed device IPA or a TestFlight release.

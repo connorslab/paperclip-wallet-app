@@ -12,9 +12,10 @@ public struct RecoveryArchive: Codable, Sendable, Equatable {
     public let createdAt: Date
     public let seed: Data
     public let recoveryState: Data
-    public init(network: String, walletID: String, createdAt: Date, seed: Data, recoveryState: Data) {
+    public let seedPhrase: String?
+    public init(network: String, walletID: String, createdAt: Date, seed: Data, recoveryState: Data, seedPhrase: String? = nil) {
         self.version = 1; self.network = network; self.walletID = walletID
-        self.createdAt = createdAt; self.seed = seed; self.recoveryState = recoveryState
+        self.createdAt = createdAt; self.seed = seed; self.recoveryState = recoveryState; self.seedPhrase = seedPhrase
     }
     public func validate() throws {
         guard version == 1, ["xbt-mainnet", "xbt-regtest"].contains(network),

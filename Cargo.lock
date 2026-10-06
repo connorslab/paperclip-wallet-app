@@ -449,6 +449,7 @@ dependencies = [
  "base64 0.22.1",
  "bdk_bitcoind_rpc",
  "bdk_core",
+ "bdk_electrum",
  "bdk_esplora",
  "bdk_wallet",
  "bip321",
@@ -474,6 +475,7 @@ dependencies = [
  "rand 0.10.1",
  "rmp-serde",
  "rusqlite",
+ "rustls",
  "serde",
  "serde-wasm-bindgen",
  "serde_json",
@@ -483,10 +485,12 @@ dependencies = [
  "tokio-stream",
  "tokio-util",
  "tonic",
+ "url",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "wasm-bindgen-test",
  "web-sys",
+ "webpki-roots 1.0.7",
  "zeromq",
 ]
 
@@ -551,6 +555,16 @@ dependencies = [
  "bitcoin",
  "hashbrown 0.14.5",
  "serde",
+]
+
+[[package]]
+name = "bdk_electrum"
+version = "0.23.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b59a3f7fbe678874fa34354097644a171276e02a49934c13b3d61c54610ddf39"
+dependencies = [
+ "bdk_core",
+ "electrum-client",
 ]
 
 [[package]]
@@ -755,7 +769,7 @@ dependencies = [
  "rustls-webpki",
  "tokio",
  "tokio-rustls",
- "webpki-roots",
+ "webpki-roots 1.0.7",
 ]
 
 [[package]]
@@ -1230,6 +1244,21 @@ name = "either"
 version = "1.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "48c757948c5ede0e46177b7add2e67155f70e33c07fea8284df6576da70b3719"
+
+[[package]]
+name = "electrum-client"
+version = "0.24.1"
+dependencies = [
+ "bitcoin",
+ "byteorder",
+ "libc",
+ "log",
+ "rustls",
+ "serde",
+ "serde_json",
+ "webpki-roots 0.25.4",
+ "winapi",
+]
 
 [[package]]
 name = "email_address"
@@ -1750,7 +1779,7 @@ dependencies = [
  "tokio",
  "tokio-rustls",
  "tower-service",
- "webpki-roots",
+ "webpki-roots 1.0.7",
 ]
 
 [[package]]
@@ -2433,6 +2462,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "paperclip-mobile"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "ark-lib",
+ "bark-bitcoin-ext",
+ "bark-wallet",
+ "base64 0.22.1",
+ "bip39",
+ "bitcoin",
+ "rusqlite",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "parking"
 version = "2.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2459,19 +2504,6 @@ dependencies = [
  "redox_syscall",
  "smallvec",
  "windows-link",
-]
-
-[[package]]
-name = "paperclip-mobile"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "bark-wallet",
- "base64 0.22.1",
- "bitcoin",
- "rusqlite",
- "serde_json",
- "tokio",
 ]
 
 [[package]]
@@ -2973,7 +3005,7 @@ dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
- "webpki-roots",
+ "webpki-roots 1.0.7",
 ]
 
 [[package]]
@@ -3864,7 +3896,7 @@ dependencies = [
  "tower-layer",
  "tower-service",
  "tracing",
- "webpki-roots",
+ "webpki-roots 1.0.7",
  "zstd",
 ]
 
@@ -4183,7 +4215,7 @@ dependencies = [
  "socks",
  "ureq-proto",
  "utf8-zero",
- "webpki-roots",
+ "webpki-roots 1.0.7",
 ]
 
 [[package]]
@@ -4554,6 +4586,12 @@ dependencies = [
  "js-sys",
  "wasm-bindgen",
 ]
+
+[[package]]
+name = "webpki-roots"
+version = "0.25.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5f20c57d8d7db6d3b86154206ae5d8fba62dd39573114de97c2cb0578251f8e1"
 
 [[package]]
 name = "webpki-roots"

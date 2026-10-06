@@ -273,6 +273,20 @@ impl OnchainWallet {
 		trace!("Starting unconfirmed txs: {:?}", self.unconfirmed_txids().collect::<Vec<_>>());
 
 		match chain.inner() {
+			#[cfg(feature = "electrum")]
+			ChainSourceClient::Electrum(client) => {
+				let request = self.inner.start_sync_with_revealed_spks_at(bark_runtime::timestamp_secs())
+					.outpoints(self.list_unspent().iter().map(|o| o.outpoint)).build();
+				let mut update = client.run(move |c| Ok(c.sync(request, 20, true)?)).await?;
+				let now = bark_runtime::timestamp_secs();
+				let recent: HashSet<Txid> = self.inner.transactions().filter_map(|tx| match tx.chain_position {
+					ChainPosition::Unconfirmed { last_seen: Some(seen), .. } if now.saturating_sub(seen) < ONCHAIN_EVICTION_GRACE_SECS => Some(tx.tx_node.txid),
+					_ => None,
+				}).collect();
+				update.tx_update.evicted_ats.retain(|(txid, _)| !recent.contains(txid));
+				self.inner.apply_update(update)?;
+				self.persist().await?;
+			},
 			#[cfg(feature = "bitcoind-rpc")]
 			ChainSourceClient::Bitcoind { sync, .. } => {
 				let prev_tip = self.inner.latest_checkpoint();
@@ -572,6 +586,13 @@ impl OnchainWallet {
 		debug!("Starting balance: {}", self.inner.balance());
 
 		match chain.inner() {
+			#[cfg(feature = "electrum")]
+			ChainSourceClient::Electrum(client) => {
+				let request = self.inner.start_full_scan_at(bark_runtime::timestamp_secs()).build();
+				let update = client.run(move |c| Ok(c.full_scan(request, STOP_GAP, 20, true)?)).await?;
+				self.inner.apply_update(update)?;
+				self.persist().await?;
+			},
 			#[cfg(feature = "bitcoind-rpc")]
 			ChainSourceClient::Bitcoind { rpc, sync } => {
 				use bitcoind_async_client::traits::Reader;

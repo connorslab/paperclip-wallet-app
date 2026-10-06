@@ -11,6 +11,8 @@ edition = "2021"
 name = "bitcoin_ext"
 
 [features]
+# Explicit application build opt-in; server and CLI defaults retain the environment gate.
+xbt-mainnet = []
 default = ["bdk", "rpc", "all-related-utxos"]
 
 bdk = ["bdk_wallet", "log", "rand_core"]

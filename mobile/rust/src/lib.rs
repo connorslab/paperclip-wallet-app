@@ -1,4 +1,4 @@
-//! Serialized native wallet bridge. This development build permits regtest only.
+//! Serialized native XBT wallet bridge. The application explicitly enables mainnet.
 
 mod session;
 

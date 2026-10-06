@@ -452,7 +452,7 @@ use server_rpc::{protos, ServerConnection};
 use server_rpc::protos::VtxoSpendState;
 use server_rpc::client::{ConnectError, CreateEndpointError};
 
-use crate::chain::{ChainSource, ChainSourceSpec};
+use crate::chain::ChainSource;
 use crate::exit::Exit;
 use crate::lock_manager::LockManager;
 use crate::movement::{Movement, MovementId, PaymentMethod};
@@ -1339,28 +1339,7 @@ impl Wallet {
 			bail!("incorrect mnemonic")
 		}
 
-		let chain_source = if let Some(ref url) = config.esplora_address {
-			ChainSourceSpec::Esplora {
-				url: url.clone(),
-			}
-		} else if let Some(ref url) = config.bitcoind_address {
-			let auth = if let Some(ref c) = config.bitcoind_cookiefile {
-				bitcoin_ext::rpc::Auth::CookieFile(c.clone())
-			} else {
-				bitcoin_ext::rpc::Auth::UserPass(
-					config.bitcoind_user.clone().context("need bitcoind auth config")?,
-					config.bitcoind_pass.as_ref().context("need bitcoind auth config")?
-						.leak_ref().clone(),
-				)
-			};
-			ChainSourceSpec::Bitcoind {
-				url: url.clone(),
-				auth,
-				zmq: config.bitcoind_zmq_address.clone(),
-			}
-		} else {
-			bail!("Need to either provide esplora or bitcoind info");
-		};
+		let chain_source = config.chain_source()?;
 
 		#[cfg(feature = "socks5-proxy")]
 		let chain_proxy = proxy_for_url(&config.socks5_proxy, chain_source.url())?;
@@ -2692,3 +2671,6 @@ mod tests {
 	}
 
 }
+
+#[cfg(feature = "electrum")]
+pub mod electrum;
