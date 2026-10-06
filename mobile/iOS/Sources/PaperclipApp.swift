@@ -28,7 +28,14 @@ import PaperclipMobile
                 }
             }
             .tint(PaperclipTheme.orange).preferredColorScheme(.dark)
-            .task { await store.load(); if store.hasWallet && lockEnabled { await lock.unlock() } }
+            .task {
+                await store.load()
+                if store.hasWallet && lockEnabled { await lock.unlock() }
+                if store.hasWallet {
+                    await store.engine.setForeground(true)
+                    await maintenance.update(automatic: UserDefaults.standard.bool(forKey: "automaticRefresh"))
+                }
+            }
             .onChange(of: scene) { _, phase in
                 if phase == .active {
                     Task {

@@ -14,3 +14,6 @@ unit-mobile filter="":
 
 unit-electrum:
 	cargo test --locked -p electrum-client --lib xbt_header_tests
+
+unit-unified:
+	cargo test --locked -p bark-bitcoin-ext --lib unified_

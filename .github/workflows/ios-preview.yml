@@ -49,7 +49,7 @@ jobs:
           xcrun simctl boot "$DEVICE" || true
           xcrun simctl bootstatus "$DEVICE" -b
           xcrun simctl install "$DEVICE" mobile/DerivedData/Build/Products/Debug-iphonesimulator/Paperclip.app
-          xcrun simctl launch "$DEVICE" xyz.paperclippool.wallet.preview
+          xcrun simctl launch "$DEVICE" xyz.paperclippool.wallet.preview -ui-testing
           sleep 3
           mkdir -p mobile/screenshots
           xcrun simctl io "$DEVICE" screenshot mobile/screenshots/home.png
@@ -98,7 +98,7 @@ jobs:
           CARGO_INCREMENTAL: '0'
         run: |
           just unit-mobile
-          just unit unified_
+          just unit-unified
           just unit-electrum
       - uses: actions/upload-artifact@v4
         with:

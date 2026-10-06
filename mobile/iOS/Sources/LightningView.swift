@@ -112,17 +112,11 @@ struct LightningView: View {
             reviewedHash = nil
             guard let client, UInt64(maximumFee) != nil, payInvoice.lowercased().hasPrefix(store.network == "xbt-mainnet" ? "lnbc" : "lnbcrt"),
                   !payInvoice.contains(where: \.isWhitespace) else { throw WalletFailure(message: "Enter a BOLT11 invoice for this network and a whole-sat fee limit.") }
-            let decoded = try JSONSerialization.jsonObject(with: await client.decode(payInvoice)) as? [String: Any] ?? [:]
-            guard let hash = decoded["payment_hash"] as? String, hash.count == 64,
-                  decoded["valid"] as? Bool != false else { throw WalletFailure(message: "The node could not validate this invoice.") }
-            let millis: UInt64?
-            if connection.implementation == .cln {
-                if let n = decoded["amount_msat"] as? NSNumber { millis = n.uint64Value }
-                else { millis = UInt64((decoded["amount_msat"] as? String ?? "").replacingOccurrences(of: "msat", with: "")) }
-            } else { millis = UInt64(decoded["num_msat"] as? String ?? "") }
-            guard let millis, millis > 0 else { throw WalletFailure(message: "Use an invoice with a fixed positive amount.") }
+            let review = try LightningPaymentReview.decode(await client.decode(payInvoice), implementation: connection.implementation)
+            guard let fee = UInt64(maximumFee), fee <= UInt64.max / 1000 else { throw WalletFailure(message: "Fee limit is too large.") }
+            let millis = review.millisatoshis
             reviewAmount = "\(millis / 1000) sats\(millis % 1000 == 0 ? "" : " + \(millis % 1000) msat")"
-            reviewedHash = hash
+            reviewedHash = review.hash
         }
     }
     private func pay() {
@@ -140,18 +134,13 @@ struct LightningView: View {
     private func reconcile() {
         store.run {
             guard let client else { return }
-            let result = try JSONSerialization.jsonObject(with: await client.payments()) as? [String: Any] ?? [:]
-            let rows = result[connection.implementation == .cln ? "pays" : "payments"] as? [[String: Any]] ?? []
-            status = "\(rows.count) node payment records loaded."
-            guard let attempt = pending else { return }
-            guard let match = rows.last(where: { $0["payment_hash"] as? String == attempt.hash }) else {
-                status = "No record found for the saved attempt. Keep it pending and inspect the node."; return
-            }
-            let state = (match["status"] as? String ?? "unknown").lowercased()
-            status = "Saved payment: \(state)"
-            if ["complete", "succeeded", "failed"].contains(state) {
+            let data = try await client.payments()
+            guard let attempt = pending else { status = "Node payment history checked."; return }
+            if let terminal = try LightningPaymentState.terminalState(in: data, hash: attempt.hash, implementation: connection.implementation) {
                 try WalletKeychain.save(Data(), account: pendingAccount)
-                pending = nil
+                pending = nil; status = "Saved payment: \(terminal)"
+            } else {
+                status = "The saved attempt is still pending or absent from history. Inspect the node before another attempt."
             }
         }
     }

@@ -205,8 +205,8 @@ pub fn dispatch(state: &mut Option<Session>, request: Value, seed: [u8; 64]) -> 
 			return Ok(json!({"address": OnchainWalletTrait::address(&mut *onchain.write().await).await?.to_string()}));
 		}
 		if op == "connect" {
-			if let Some(task) = offer_task.take() { task.abort(); }
-			if let Some(task) = receive_task.take() { task.abort(); }
+			if let Some(task) = offer_task.take() { task.abort(); let _ = task.await; }
+			if let Some(task) = receive_task.take() { task.abort(); let _ = task.await; }
 			*quote = None;
 			*onchain_quote = None;
 			*board_quote = None;
@@ -220,8 +220,8 @@ pub fn dispatch(state: &mut Option<Session>, request: Value, seed: [u8; 64]) -> 
 		if op == "config_template" { return Ok(serde_json::to_value(Config::network_default(network))?); }
 		let w = wallet.as_ref().context("connect to the test backend first")?;
 		if op == "receive_listen" {
-			if let Some(task) = offer_task.take() { task.abort(); }
-			if let Some(task) = receive_task.take() { task.abort(); }
+			if let Some(task) = offer_task.take() { task.abort(); let _ = task.await; }
+			if let Some(task) = receive_task.take() { task.abort(); let _ = task.await; }
 			if request["enabled"] == true {
 				let offers = w.clone();
 				*offer_task = Some(tokio::spawn(async move {

@@ -89,7 +89,7 @@ regularly. Expiry reminders never include balances, addresses, or VTXO IDs.
 - Install Rust 1.90, protobuf, CMake, XcodeGen, and full Xcode.
 - `cd mobile && swift test` tests policies, endpoint validation, and encrypted backups.
 - `just unit-mobile` tests the C ABI's persistence, seed derivation, and recovery.
-- `just unit unified_` tests unified sighash reference vectors and signer behavior.
+- `just unit-unified` tests unified sighash reference vectors and signer behavior.
 - `just checks` checks workspace targets.
 - Generate the app with `cd mobile/iOS && xcodegen generate`.
 - Build the native library for `aarch64-apple-ios-sim` before the simulator app.
