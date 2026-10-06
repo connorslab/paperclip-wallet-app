@@ -1,0 +1,42 @@
+name: Security
+
+on:
+  pull_request:
+  merge_group:
+  push:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+
+permissions: {}
+
+jobs:
+  supply-chain:
+    name: Run `cargo-audit`
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Rust
+        run: |
+          rustup toolchain install 1.85.0 --profile minimal
+          rustup default 1.85.0
+
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2
+        with:
+          cache-on-failure: true
+
+      - name: Install cargo-audit
+        # NOTE: version 0.22.1 is the latest compatible with MSRV 1.85
+        run: cargo install cargo-audit --force --locked --version "0.22.1"
+
+      - name: Check for audit warnings
+        run: cargo audit -D warnings
+        continue-on-error: true
+
+      - name: Check for vulnerabilities
+        run: cargo audit

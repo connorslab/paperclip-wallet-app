@@ -1,4 +1,4 @@
-//! A SOCKS5 proxy transport for jsonrpc using ureq.
+//! TLS-capable JSON-RPC transport with optional SOCKS5 routing.
 //!
 //! This implements the [`jsonrpc::Transport`] trait by routing connections
 //! through a SOCKS5 proxy via ureq. This exists because the jsonrpc crate's
@@ -40,18 +40,20 @@ impl Socks5Transport {
 	/// Creates a new SOCKS5 transport.
 	///
 	/// * `url` — the target bitcoind RPC URL (e.g. `http://127.0.0.1:8332`)
-	/// * `proxy_url` — the SOCKS5 proxy URL (e.g. `socks5h://127.0.0.1:9050`)
+	/// * `proxy_url` — an optional SOCKS5 proxy URL (e.g. `socks5h://127.0.0.1:9050`)
 	/// * `auth` — optional (user, password) for HTTP Basic authentication
 	pub fn new(
 		url: &str,
-		proxy_url: &str,
+		proxy_url: Option<&str>,
 		auth: Option<(String, Option<String>)>,
 	) -> Result<Self, Error> {
-		let proxy = Proxy::new(proxy_url)
+		let proxy = proxy_url.map(Proxy::new).transpose()
 			.map_err(|e| Error::Proxy(e.to_string()))?;
 
 		let agent = Agent::config_builder()
-			.proxy(Some(proxy))
+			.proxy(proxy)
+			.max_redirects(0)
+			.http_status_as_error(false)
 			.timeout_global(Some(Duration::from_secs(60)))
 			.build()
 			.new_agent();
@@ -82,7 +84,7 @@ impl Socks5Transport {
 			.map_err(|e| jsonrpc::Error::Transport(e.into()))?;
 
 		let status = resp.status().as_u16();
-		if status < 200 || status >= 300 {
+		if !(200..300).contains(&status) && status != 500 {
 			return Err(jsonrpc::Error::Transport(
 				Box::new(Error::Http(status)),
 			));
@@ -106,7 +108,7 @@ impl jsonrpc::client::Transport for Socks5Transport {
 	}
 
 	fn fmt_target(&self, f: &mut fmt::Formatter) -> fmt::Result {
-		write!(f, "{} (via socks5 proxy)", self.url)
+		write!(f, "{} (TLS-capable RPC transport)", self.url)
 	}
 }
 
@@ -126,3 +128,45 @@ impl fmt::Display for Error {
 }
 
 impl std::error::Error for Error {}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use std::io::{Read, Write};
+	use std::net::TcpListener;
+
+	#[test]
+	fn rpc_https_starts_with_tls_not_plaintext_credentials() {
+		let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+		let address = listener.local_addr().unwrap();
+		let server = std::thread::spawn(move || {
+			let (mut socket, _) = listener.accept().unwrap();
+			socket.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+			let mut header = [0; 3];
+			socket.read_exact(&mut header).unwrap();
+			assert_eq!(header[0], 0x16); // TLS handshake record.
+			assert_eq!(header[1], 0x03);
+		});
+		let transport = Socks5Transport::new(&format!("https://{address}"), None,
+			Some(("wallet".into(), Some("secret".into())))).unwrap();
+		assert!(transport.request::<serde_json::Value>(serde_json::json!({"method": "getblockcount"})).is_err());
+		server.join().unwrap();
+	}
+
+	#[test]
+	fn rpc_transport_rejects_redirects() {
+		let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+		let address = listener.local_addr().unwrap();
+		let server = std::thread::spawn(move || {
+			let (mut socket, _) = listener.accept().unwrap();
+			socket.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+			let mut buffer = [0; 4096];
+			let _ = socket.read(&mut buffer).unwrap();
+			socket.write_all(b"HTTP/1.1 302 Found\r\nLocation: http://127.0.0.1:1\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").unwrap();
+		});
+		let transport = Socks5Transport::new(&format!("http://{address}"), None, None).unwrap();
+		let error = transport.request::<serde_json::Value>(serde_json::json!({})).unwrap_err();
+		assert!(error.to_string().contains("302"));
+		server.join().unwrap();
+	}
+}

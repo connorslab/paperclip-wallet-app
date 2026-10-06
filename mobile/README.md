@@ -54,13 +54,16 @@ SOCKS. CLN/LND use the OS SOCKS configuration with direct failover disabled. Ark
 the engine's SOCKS transport. The engine deliberately bypasses Tor for literal
 loopback endpoints. Knots RPC over Tor is rejected because the upstream async RPC
 transport does not support the proxy; it is never silently sent directly.
+RPC uses HTTPS-capable transports for both async operations and synchronous chain
+scans, with redirects disabled. The upstream async client requires a username and
+password; configure restricted gateway credentials rather than node admin access.
 
 The current Paperclip funded Ark profile requires Knots RPC to inspect relay policy
 before boarding and for package relay during emergency exit. Electrum supports
 on-chain synchronization, signing, and broadcast, but it cannot supply those RPC
 capabilities. Enable the separate Ark RPC gateway in Connections to keep using
 Electrum for on-chain payments while Ark uses an HTTPS Knots gateway. The gateway
-address and optional credentials are configurable; no undeployed gateway is assumed.
+address and RPC credentials are configurable; no undeployed gateway is assumed.
 Alternatively, select Knots RPC as the primary backend. Separate RPC with Tor is
 currently rejected rather than bypassing Tor.
 Do not remove these checks to make an endpoint appear compatible.

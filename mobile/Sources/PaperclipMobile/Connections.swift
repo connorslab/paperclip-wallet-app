@@ -35,6 +35,7 @@ public struct WalletConnection: Codable, Equatable, Sendable {
     public var torProxy = "socks5h://127.0.0.1:9050"
     public init() {}
     public func validate() throws {
+        if backend == .rpc && (username.isEmpty || password.isEmpty) { throw ConnectionError.invalidCredential }
         try arkRPC?.validate()
         if arkRPC != nil && useTor { throw ConnectionError.unsupportedTor }
         _ = try EndpointPolicy.validate(arkServer, tor: useTor)
@@ -54,6 +55,7 @@ public struct ArkRPCConnection: Codable, Equatable, Sendable {
     public var password = ""
     public init() {}
     public func validate() throws {
+        guard !username.isEmpty, !password.isEmpty else { throw ConnectionError.invalidCredential }
         let url = try EndpointPolicy.validate(endpoint, tor: false, credentials: true)
         guard url.scheme == "https" else { throw ConnectionError.insecureCredentials }
     }

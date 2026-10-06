@@ -17,3 +17,6 @@ unit-electrum:
 
 unit-unified:
 	cargo test --locked -p bark-bitcoin-ext --lib unified_
+
+unit-rpc-transport:
+	cargo test --locked -p bark-bitcoin-ext --features rpc-socks5-proxy --lib rpc::socks5_transport::tests

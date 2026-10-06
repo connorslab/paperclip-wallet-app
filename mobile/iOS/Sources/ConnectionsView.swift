@@ -31,7 +31,7 @@ struct ConnectionsView: View {
                 Toggle("Separate Ark RPC gateway", isOn: $separateRPC)
                 if separateRPC {
                     TextField("https://your-rpc-gateway", text: $arkRPC.endpoint).textInputAutocapitalization(.never).autocorrectionDisabled()
-                    TextField("RPC username (if required)", text: $arkRPC.username).textInputAutocapitalization(.never).autocorrectionDisabled()
+                    TextField("RPC username", text: $arkRPC.username).textInputAutocapitalization(.never).autocorrectionDisabled()
                     SecureField("RPC password", text: $arkRPC.password)
                 }
                 Text("Funded Ark needs Knots RPC for relay policy and exit package relay. A separate HTTPS gateway lets on-chain payments keep using Electrum. Enter your deployed gateway here.").font(.caption)

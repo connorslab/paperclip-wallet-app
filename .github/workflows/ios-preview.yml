@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
   push:
     branches: [feature/ios-wallet]
-    paths: ['mobile/**', '.github/workflows/ios-preview.yml', 'bark/**', 'bitcoin-ext/**', 'vendor/electrum-client/**', 'Cargo.toml', 'Cargo.lock']
+    paths: ['mobile/**', '.github/workflows/ios-preview.yml', 'bark/**', 'bitcoin-ext/**', 'vendor/electrum-client/**', 'vendor/bitcoind-async-client/**', 'Cargo.toml', 'Cargo.lock']
 permissions:
   contents: read
 concurrency:
@@ -100,6 +100,7 @@ jobs:
           just unit-mobile
           just unit-unified
           just unit-electrum
+          just unit-rpc-transport
       - uses: actions/upload-artifact@v4
         with:
           name: paperclip-rust-ios-simulator

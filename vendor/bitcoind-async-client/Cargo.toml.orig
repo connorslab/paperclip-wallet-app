@@ -1,0 +1,57 @@
+[package]
+name = "bitcoind-async-client"
+version = "0.15.0"
+edition = "2021"
+authors = [
+  "Jose Storopoli <jose@alpenlabs.io>",
+  "Bibek Pandey <bibek@alpenlabs.io>",
+  "Ashish Thapa <ashish@alpenlabs.io>",
+  "Prajwol Gyawali <prajwol@alpenlabs.io>",
+  "Rajil Bajracharya <rajil@alpenlabs.io>",
+  "Sapin Bajracharya <sapin@alpenlabs.io>",
+  "Trey Del Bonis <trey@alpenlabs.io>",
+]
+description = "BitcoinD JSON-RPC Async Client"
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+repository = "https://github.com/alpenlabs/bitcoind-async-client"
+categories = ["cryptography::cryptocurrencies"]
+keywords = ["crypto", "bitcoin"]
+
+[features]
+default = ["30_2"]
+29_0 = ["corepc-node/29_0"]
+30_2 = ["corepc-node/30_2"]
+raw_rpc = []
+
+[dependencies]
+base64 = "0.22.1"
+bitcoin = { version = "0.32.9", features = ["serde", "base64"] }
+bitreq = { version = "0.3.5", default-features = false, features = [
+  "async-https",
+] }
+corepc-types = "0.13.0" # try to keep in sync with corepc-node
+hex = { package = "hex-conservative", version = "0.2.1" } # for optimization keep in sync with bitcoin
+secp256k1 = { version = "0.29.1", features = [ # for optimization keep in sync with bitcoin
+  "global-context",
+] }
+serde = "1.0.228"
+serde_json = { version = "1.0.149", features = ["raw_value"] }
+thiserror = "2.0.18"
+tokio = { version = "1.52.3", features = ["macros", "rt-multi-thread"] }
+tracing = { version = "0.1.41", default-features = false }
+
+[dev-dependencies]
+anyhow = "1.0.102"
+corepc-node = { version = "0.12.0", features = [
+  "download",
+] } # try keep in sync with corepc-types
+proptest = { version = "1.11.0", default-features = false, features = ["std"] }
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+
+[profile.release]
+opt-level = "z"   # Optimized for size, use 3 for speed
+lto = true        # Enable Link Time Optimization
+codegen-units = 1 # Reduced to increase optimizations
+panic = "abort"   # Abort on panic
+strip = "symbols" # Strip symbols from binary

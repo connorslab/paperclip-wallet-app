@@ -35,6 +35,7 @@ final class ConnectionTests: XCTestCase {
     func testSeparateArkRPCRequiresTLSAndNeverBypassesTor() throws {
         var connection = WalletConnection()
         var rpc = ArkRPCConnection()
+        rpc.username = "wallet"; rpc.password = "test-credential"
         rpc.endpoint = "http://rpc.example"
         connection.arkRPC = rpc
         XCTAssertThrowsError(try connection.validate())
