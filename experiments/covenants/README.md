@@ -86,6 +86,10 @@ keys in an owner-only file. Use an owner-only parent directory as well.
 
 ## Tests
 
+The [native ASP/watchman service report](https://github.com/connorslab/paperclip-asp/blob/experiment/covenant-offline-refresh/experiments/covenants/reports/2026-10-05-services/REPORT.md)
+records private crash/reorg tests and two public-signet refreshes, followed by a
+confirmed 97,000-test-sat wallet recovery with both services stopped.
+
 The ASP experimental branch now also provides separate long-running scheduler
 and watchman modes. This wallet's existing `authorize` and `claim` commands work
 with their permit format. See the [ASP service instructions](https://github.com/connorslab/paperclip-asp/blob/experiment/covenant-offline-refresh/experiments/covenants/README.md#experimental-scheduler-and-watchman).
