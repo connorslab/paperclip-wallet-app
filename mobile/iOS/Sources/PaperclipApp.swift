@@ -36,6 +36,9 @@ import PaperclipMobile
                     await maintenance.update(automatic: UserDefaults.standard.bool(forKey: "automaticRefresh"))
                 }
             }
+            .onChange(of: store.hasWallet) { _, present in
+                if present && lockEnabled { Task { await lock.unlock() } }
+            }
             .onChange(of: scene) { _, phase in
                 if phase == .active {
                     Task {
