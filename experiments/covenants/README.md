@@ -86,6 +86,17 @@ keys in an owner-only file. Use an owner-only parent directory as well.
 
 ## Tests
 
+The ASP experimental branch now also provides separate long-running scheduler
+and watchman modes. This wallet's existing `authorize` and `claim` commands work
+with their permit format. See the [ASP service instructions](https://github.com/connorslab/paperclip-asp/blob/experiment/covenant-offline-refresh/experiments/covenants/README.md#experimental-scheduler-and-watchman).
+Run `just covenant-services` in the **ASP repository**, with this wallet binary
+specified by `COVENANT_WALLET`, for the private native-process lifecycle test.
+Normal wallet RPC/UI paths do not yet enroll or display these experimental balances.
+
+Claims require a P2TR or P2WPKH destination script. When obtaining a recovery
+address from a node wallet, request `address_type=bech32` explicitly; its default
+may be a legacy address that this laboratory correctly rejects.
+
 The [October 5 public signet report](https://github.com/connorslab/paperclip-asp/blob/experiment/covenant-offline-refresh/experiments/covenants/reports/2026-10-05-public-signet/REPORT.md)
 records two preauthorized refreshes, the offline command interval, invalid-spend
 checks and confirmed user recovery. It includes transaction links and raw
@@ -114,21 +125,19 @@ node restart, one-block reorg, server-absent recovery and no-refresh fallback.
 
 - One balance per tree and refund; no aggregation, multi-input consolidation,
   Arkoor transfers or Lightning in this protocol yet.
-- No autonomous production scheduler, refresh mailbox, persistent watchtower
-  or wallet UI integration. The test driver supplies those actions in a controlled
-  order. The new CLI commands are protocol tools, not a deployed Ark service.
+- No production scheduler, refresh mailbox or wallet UI integration. The ASP
+  branch offers opt-in test scheduler/watchman processes with a private journal;
+  these do not integrate with normal Ark APIs or databases.
 - The server must remain online to fund rounds and react to stale exits. An
   offline user needs monitoring and recovery data available independently of
   the server. Offline refresh is not indefinite offline safety.
 - Missing a refresh does not remove the original exit path. However, the user
   must unroll the tree before its server-reclaim expiry. A stopped ASP and an
   offline user are not automatically protected by this prototype.
-- Before accepting a permit in a future live service, verify the old funding
-  transaction, exact script and value, confirmations, unspent status, expiry,
-  and duplicate enrollment atomically. Before spending ASP funds, durably save
-  the signed funding transaction and recovery data; reorgs and retries must not
-  cause duplicate issuance. These are integration requirements, not features
-  supplied by a signature-verification call alone.
+- The ASP test service validates backing, scripts, value, confirmations, expiry
+  and duplicate enrollment, and journals signed transactions before broadcast.
+  Independent recovery delivery, normal database integration, fee bumping and
+  wider adversarial testing remain deployment requirements.
 - Fixed test budgets: 1,000 sats each for tree unroll, refund and final claim;
   at most 1,000 sats reduction per refresh. These are funded test fee reserves,
   not fee estimates or production pricing. Fee spikes/fee bumping are not solved.
@@ -139,6 +148,11 @@ node restart, one-block reorg, server-absent recovery and no-refresh fallback.
 - Only the experimental network activates these opcodes. On other chains,
   reserved tapscript opcodes can mean OP_SUCCESS. Never fund these scripts on
   mainnet or use a node without the pinned experimental rules.
+
+General CSFS scripts can carry arbitrary signed messages within existing size
+limits. The [private data-policy probes](https://github.com/connorslab/paperclip-asp/blob/experiment/covenant-offline-refresh/experiments/covenants/DATA-POLICY.md)
+also found that equivalent SHA256-only samples were smaller. These results do
+not establish spam resistance or complete a denial-of-service review.
 
 Normal Bark/Paperclip RPC messages, existing database formats, boarding,
 invoices and normal transaction paths are unchanged. This feature is not a fix
