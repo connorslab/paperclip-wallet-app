@@ -28,13 +28,17 @@ struct ConnectionsView: View {
             Section("Ark") {
                 TextField("Ark server", text: $settings.arkServer).textInputAutocapitalization(.never).autocorrectionDisabled()
                 Text("Paperclip default: ark.paperclippool.xyz").font(.caption)
-                Toggle("Separate Ark RPC gateway", isOn: $separateRPC)
+                Button("Check saved backend for Ark") { store.run {
+                    _ = try await store.engine.operation("ark_backend_check")
+                    store.message = "Backend reports the required Ark relay capabilities and policy."
+                } }.disabled(store.busy)
+                Toggle("Use a separate RPC backend for Ark", isOn: $separateRPC)
                 if separateRPC {
                     TextField("https://your-rpc-gateway", text: $arkRPC.endpoint).textInputAutocapitalization(.never).autocorrectionDisabled()
                     TextField("RPC username", text: $arkRPC.username).textInputAutocapitalization(.never).autocorrectionDisabled()
                     SecureField("RPC password", text: $arkRPC.password)
                 }
-                Text("Funded Ark needs Knots RPC for relay policy and exit package relay. A separate HTTPS gateway lets on-chain payments keep using Electrum. Enter your deployed gateway here.").font(.caption)
+                Text("Ark can use Electrum when the server exposes package relay and complete relay policy. RPC is optional for your own node. No public RPC endpoint is configured.").font(.caption)
             }
             Section("Tor") {
                 Toggle("Route through Tor", isOn: $settings.useTor)

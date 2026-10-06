@@ -58,15 +58,18 @@ RPC uses HTTPS-capable transports for both async operations and synchronous chai
 scans, with redirects disabled. The upstream async client requires a username and
 password; configure restricted gateway credentials rather than node admin access.
 
-The current Paperclip funded Ark profile requires Knots RPC to inspect relay policy
-before boarding and for package relay during emergency exit. Electrum supports
-on-chain synchronization, signing, and broadcast, but it cannot supply those RPC
-capabilities. Enable the separate Ark RPC gateway in Connections to keep using
-Electrum for on-chain payments while Ark uses an HTTPS Knots gateway. The gateway
-address and RPC credentials are configurable; no undeployed gateway is assumed.
-Alternatively, select Knots RPC as the primary backend. Separate RPC with Tor is
-currently rejected rather than bypassing Tor.
-Do not remove these checks to make an endpoint appear compatible.
+Ark can use an Electrum server with package-relay support. Before admitting new
+funded positions, the wallet requires `server.features.broadcast_package = true`
+and `mempool.get_info` to include `minrelaytxfee`, `mempoolminfee`, and
+`dustrelayfee`. Missing fields or excessive fees fail closed. Exit packages use
+`blockchain.transaction.broadcast_package`; ancestry fees are reconstructed from
+hash-checked transactions and their prevouts. There is no general RPC passthrough.
+See [the Electrum Ark contract](electrum-ark.md) for the operator requirements.
+
+No public RPC endpoint is configured. Users can select their own Knots RPC for
+on-chain and Ark, or enable a separate Ark RPC backend while retaining Electrum
+for on-chain payments. RPC credentials are stored in Keychain. Separate RPC with
+Tor is currently rejected rather than bypassing Tor.
 
 ## Payments and recovery
 

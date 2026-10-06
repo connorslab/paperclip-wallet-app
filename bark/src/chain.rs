@@ -195,6 +195,8 @@ impl ChainSource {
 	/// Recovery does not call this: existing signatures remain usable if policy changes.
 	pub async fn require_funded_policy(&self) -> anyhow::Result<()> {
 		match self.inner() {
+			#[cfg(feature = "electrum")]
+			ChainSourceClient::Electrum(client) => client.require_funded_policy().await,
 			#[cfg(feature = "bitcoind-rpc")]
 			ChainSourceClient::Bitcoind { rpc, .. } => {
 				let info: serde_json::Value = rpc.call_raw("getmempoolinfo", &[]).await?;
@@ -204,7 +206,7 @@ impl ChainSource {
 				}
 				Ok(())
 			},
-			_ => bail!("funded profile requires a Knots RPC backend to verify relay policy"),
+			_ => bail!("funded profile requires an Ark-capable Electrum or Knots RPC backend to verify relay policy"),
 		}
 	}
 
@@ -553,7 +555,7 @@ impl ChainSource {
 		//		 of the target txid.
 		match self.inner() {
 			#[cfg(feature = "electrum")]
-			ChainSourceClient::Electrum(_) => { bail!("Electrum does not provide verified mempool ancestry; use Knots RPC for fee bumping") },
+			ChainSourceClient::Electrum(client) => { return client.mempool_ancestor_info(txid).await; },
 			#[cfg(feature = "bitcoind-rpc")]
 			ChainSourceClient::Bitcoind { rpc, .. } => {
 				let entry: rpc::json::GetMempoolEntryResult = rpc.call_raw(
@@ -744,7 +746,11 @@ impl ChainSource {
 			.collect::<Vec<_>>();
 		match self.inner() {
 			#[cfg(feature = "electrum")]
-			ChainSourceClient::Electrum(_) => { Err(BroadcastError::Other("Electrum does not support package relay; use Knots RPC for emergency exit".into())) },
+			ChainSourceClient::Electrum(client) => {
+				let txs = txs.iter().map(|tx| tx.borrow().clone()).collect();
+				let response = client.broadcast_package(txs).await.map_err(|e| BroadcastError::Other(e.to_string()))?;
+				parse_electrum_package_result(&response, &package_order)
+			},
 			#[cfg(feature = "bitcoind-rpc")]
 			ChainSourceClient::Bitcoind { rpc, .. } => {
 				let hexes: Vec<String> = txs.iter()
@@ -1204,4 +1210,19 @@ mod test {
 		].into_iter(), &order);
 		assert!(matches!(res, BroadcastError::Other(ref s) if s.contains("package-mempool-limits")));
 	}
+}
+
+#[cfg(feature = "electrum")]
+pub fn parse_electrum_package_result(response: &serde_json::Value, order: &[Txid]) -> Result<(), BroadcastError> {
+	if response["success"].as_bool() == Some(true) && response.get("errors").is_none_or(|v| v.as_array().is_some_and(|a| a.is_empty())) {
+		return Ok(());
+	}
+	let rows = response["errors"].as_array().ok_or_else(|| BroadcastError::Other("invalid Electrum package response".into()))?;
+	let results: Result<Vec<_>, BroadcastError> = rows.iter().map(|row| {
+		let txid = row["txid"].as_str().and_then(|s| s.parse::<Txid>().ok()).filter(|id| order.contains(id))
+			.ok_or_else(|| BroadcastError::Other("invalid Electrum package transaction id".into()))?;
+		let error = row["error"].as_str().ok_or_else(|| BroadcastError::Other("invalid Electrum package error".into()))?;
+		Ok((txid, Some(error)))
+	}).collect();
+	Err(classify_submit_package_errors("Electrum package rejected", results?.into_iter(), order))
 }

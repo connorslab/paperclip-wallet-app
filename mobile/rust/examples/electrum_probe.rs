@@ -8,5 +8,7 @@ async fn main() -> anyhow::Result<()> {
 	let tip = client.tip().await?;
 	let reference = client.block_ref(tip).await?;
 	println!("XBT Electrum connected: height {tip}, block {}", reference.hash);
+	println!("Ark capability metadata: {}", client.ark_capabilities().await?);
+	match client.require_funded_policy().await { Ok(()) => println!("Ark admission policy: compatible"), Err(e) => println!("Ark admission policy: {e}") }
 	Ok(())
 }

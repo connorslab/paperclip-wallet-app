@@ -23,6 +23,8 @@ pub(crate) type Call = (String, Vec<Param>);
 #[serde(untagged)]
 /// A single parameter of a [`Request`](struct.Request.html)
 pub enum Param {
+    /// Nested parameters, used by version negotiation and package relay.
+    Array(Vec<Param>),
     /// Integer parameter
     U32(u32),
     /// Integer parameter

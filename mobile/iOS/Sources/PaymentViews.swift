@@ -204,7 +204,7 @@ struct ArkToolsView: View {
                 Button("Progress registered exits") { action = "exit_progress"; confirming = true }
                 TextField("Claim destination XBT address", text: $exitAddress).textInputAutocapitalization(.never).autocorrectionDisabled()
                 Button("Claim available exits") { action = "exit_claim"; confirming = true }.disabled(exitAddress.isEmpty)
-                Text("Use Knots RPC for package relay. You can change your chain backend in Connections without changing keys.").font(.caption)
+                Text("Use an Ark-capable Electrum server or your own Knots RPC for package relay. Change backends in Connections without changing keys.").font(.caption)
                 Text(status).font(.caption.monospaced()).textSelection(.enabled)
             }
             Section { if store.busy { ProgressView() }; Text(store.message).font(.caption) }

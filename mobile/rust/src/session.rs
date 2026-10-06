@@ -43,6 +43,40 @@ mod tests {
 	use super::*;
 
 	#[test]
+	fn electrum_ark_admission_requires_complete_safe_policy_and_package_relay() {
+		let good = json!({"features": {"broadcast_package": true}, "policy": {
+			"minrelaytxfee": 0.00001000, "mempoolminfee": 0.00001000, "dustrelayfee": 0.00003000,
+		}});
+		assert!(bark::electrum::validate_ark_capabilities(&good).is_ok());
+		for field in ["minrelaytxfee", "mempoolminfee", "dustrelayfee"] {
+			let mut missing = good.clone(); missing["policy"].as_object_mut().unwrap().remove(field);
+			assert!(bark::electrum::validate_ark_capabilities(&missing).is_err());
+			for bad in [json!(-1), json!(0.1), json!("0.000001"), Value::Null] {
+				let mut policy = good.clone(); policy["policy"][field] = bad;
+				assert!(bark::electrum::validate_ark_capabilities(&policy).is_err());
+			}
+		}
+		let mut unsupported = good.clone(); unsupported["features"] = json!({});
+		assert!(bark::electrum::validate_ark_capabilities(&unsupported).is_err());
+	}
+
+	#[test]
+	fn electrum_package_errors_preserve_recovery_classification() {
+		use bark::chain::{parse_electrum_package_result, BroadcastError};
+		let parent: bitcoin::Txid = "11".repeat(32).parse().unwrap();
+		let child: bitcoin::Txid = "22".repeat(32).parse().unwrap();
+		let order = [parent, child];
+		assert!(parse_electrum_package_result(&json!({"success": true}), &order).is_ok());
+		assert!(parse_electrum_package_result(&json!({}), &order).is_err());
+		let rejected = json!({"success": false, "errors": [
+			{"txid": child, "error": "bad-txns-inputs-missingorspent"},
+			{"txid": parent, "error": "insufficient fee, rejecting replacement"},
+		]});
+		assert_eq!(parse_electrum_package_result(&rejected, &order), Err(BroadcastError::InsufficientReplacementFee));
+		assert!(parse_electrum_package_result(&json!({"success": true, "errors": [{}]}), &order).is_err());
+	}
+
+	#[test]
 	fn mobile_seed_import_checks_length_checksum_and_derivation() {
 		let mut state = None;
 		let phrase = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
@@ -255,6 +289,7 @@ pub fn dispatch(state: &mut Option<Session>, request: Value, seed: [u8; 64]) -> 
 			return Ok(json!({"listening_requested": request["enabled"] == true}));
 		}
 		match op {
+			"ark_backend_check" => { w.chain().require_funded_policy().await?; Ok(json!({"compatible": true})) },
 			"check_payment" => {
 				use bark::actions::lightning::pay::LightningSendState;
 				let state = w.check_lightning_payment(text(&request, "payment_hash")?.parse()?, false).await?;
