@@ -139,12 +139,40 @@ struct ReceiveView: View {
     @State private var receiveStatus = ""
     @State private var offerDescription = "Paperclip wallet"
     @State private var offerActive = false
+    @State private var choosingMethod = false
+    private let methodNames = ["On-chain", "Ark transfer", "Lightning invoice", "Lightning offer"]
+    private let methodIcons = ["bitcoinsign.circle", "arrow.left.arrow.right", "bolt.fill", "bolt.circle"]
+    private let methodDetails = [
+        "Receive XBT from an exchange or another on-chain wallet. Funds arrive after network confirmation.",
+        "Receive directly from another Ark wallet into your Ark balance.",
+        "Request a specific amount with a BOLT11 invoice. Your payment arrives in Ark.",
+        "Share a reusable BOLT12 offer. Incoming Lightning payments arrive in Ark."
+    ]
     init(route: Int = 0) { _route = State(initialValue: route) }
     var body: some View {
         ScrollView {
             VStack(spacing: 24) {
-                WalletSection("Receive method") {
-                Picker("Receive to", selection: $route) { Text("On-chain").tag(0); Text("Ark").tag(1); Text("BOLT11 → Ark").tag(2); Text("BOLT12 → Ark").tag(3) }.pickerStyle(.menu)
+                WalletBrand()
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(value.isEmpty ? "Receive with Paperclip" : "Ready to receive")
+                        .font(.title2.bold())
+                    Text(value.isEmpty ? "Choose how you’d like to receive. We’ll prepare an address or payment request to share." : "Let the sender scan your code, or copy and share the request below.")
+                        .font(.subheadline).foregroundStyle(PaperclipTheme.muted)
+                }.frame(maxWidth: .infinity, alignment: .leading)
+                if value.isEmpty {
+                WalletSection {
+                    Button { choosingMethod = true } label: {
+                        WalletNavigationRow(methodNames[route], subtitle: "Change receive method", icon: methodIcons[route])
+                    }.buttonStyle(.plain).disabled(store.busy)
+                    Text(methodDetails[route]).font(.subheadline).foregroundStyle(PaperclipTheme.muted)
+                }
+                }
+                if value.isEmpty {
+                WalletSection(route >= 2 ? "Payment request" : "Your receiving address") {
+                if route < 2 {
+                    Text(route == 0 ? "Create an address controlled by your wallet. Only send XBT on the matching network." : "Create an Ark address to share with the sender.")
+                        .font(.subheadline).foregroundStyle(PaperclipTheme.muted)
+                }
                 if route >= 2 { TextField(route == 3 ? unit.amountPrompt + " (optional)" : unit.amountPrompt, text: $amount).keyboardType(.decimalPad).textFieldStyle(WalletInputStyle()) }
                 if route == 3 {
                     TextField("Offer description", text: $offerDescription).textFieldStyle(WalletInputStyle())
@@ -176,9 +204,26 @@ struct ReceiveView: View {
                 } }.buttonStyle(.borderedProminent).disabled(store.busy)
                 if route == 0 { NavigationLink("View on-chain addresses") { OnchainAddressesView() } }
                 }
-                if !value.isEmpty { WalletSection { ReceiveCode(value: value).frame(maxWidth: .infinity) } }
+                }
+                if !value.isEmpty {
+                    WalletSection {
+                        HStack {
+                            Label(methodNames[route], systemImage: methodIcons[route]).font(.headline)
+                            Spacer()
+                            Text(store.network == "xbt-mainnet" ? "XBT MAINNET" : "TEST NETWORK")
+                                .font(.caption2.bold()).foregroundStyle(PaperclipTheme.muted)
+                        }
+                        ReceiveCode(value: value).frame(maxWidth: .infinity)
+                        if route == 0 {
+                            Text("Only send XBT to this address. SHA256 Bitcoin (BTC) is a different network.")
+                                .font(.caption).foregroundStyle(PaperclipTheme.muted)
+                        }
+                    }
+                    Button("Create another request") { value = ""; paymentHash = ""; receiveStatus = "" }
+                        .disabled(store.busy)
+                }
                 if route >= 2 {
-                    Text("Keep Paperclip open and online to receive. iOS can suspend the app in the background. BOLT12 requests need the foreground listener; issued invoices remain tracked after you close the screen.").font(.caption)
+                    Label("Keep Paperclip open and connected while receiving Lightning payments into Ark. You can check issued invoices in Receive activity.", systemImage: "info.circle").font(.caption).foregroundStyle(PaperclipTheme.muted)
                     if !paymentHash.isEmpty {
                         Button("Check invoice status") { store.run {
                             let result = try await store.engine.operation("receive_status", fields: ["payment_hash": paymentHash])
@@ -191,7 +236,7 @@ struct ReceiveView: View {
                             value = ""; offerActive = false; receiveStatus = "Offer disabled. Issued invoices remain tracked."
                         } }
                     }
-                    NavigationLink("Pending Lightning receives") { ArkLightningReceivesView() }
+                    NavigationLink("Receive activity") { ArkLightningReceivesView() }
                     Text(receiveStatus).font(.caption)
                 }
                 if store.busy { ProgressView() }
@@ -199,6 +244,33 @@ struct ReceiveView: View {
             }.frame(maxWidth: .infinity).padding(24)
         }.frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(PaperclipTheme.navy.ignoresSafeArea()).navigationTitle("Receive XBT").toolbar { Button("Done") { dismiss() } }
+            .navigationBarTitleDisplayMode(.inline)
+            .sheet(isPresented: $choosingMethod) {
+                NavigationStack {
+                    ScrollView {
+                        VStack(spacing: 16) {
+                            Text("Where should your XBT arrive?").font(.title2.bold()).frame(maxWidth: .infinity, alignment: .leading)
+                            ForEach(0..<4) { method in
+                                Button {
+                                    route = method
+                                    choosingMethod = false
+                                } label: {
+                                    WalletCard {
+                                        HStack {
+                                            Label(methodNames[method], systemImage: methodIcons[method]).font(.headline)
+                                            Spacer()
+                                            if route == method { Image(systemName: "checkmark.circle.fill").foregroundStyle(PaperclipTheme.orange) }
+                                        }
+                                        Text(methodDetails[method]).font(.subheadline).foregroundStyle(PaperclipTheme.muted)
+                                    }
+                                }.buttonStyle(.plain)
+                            }
+                        }.padding(24)
+                    }.background(PaperclipTheme.navy).navigationTitle("Receive method")
+                        .navigationBarTitleDisplayMode(.inline)
+                        .toolbar { Button("Done") { choosingMethod = false } }
+                }.presentationDragIndicator(.visible)
+            }
             .onChange(of: unit) { old, new in amount = old.parse(amount).map { new.input($0) } ?? ""; value = "" }
             .onChange(of: route) { _, _ in value = ""; paymentHash = ""; receiveStatus = ""; offerActive = false }
             .onChange(of: amount) { _, _ in if route >= 2 { value = ""; paymentHash = "" } }
@@ -207,18 +279,22 @@ struct ReceiveView: View {
 
 struct ReceiveCode: View {
     let value: String
+    @State private var copied = false
     var body: some View {
         VStack(spacing: 20) {
             if let image = qr {
                 Image(uiImage: image).interpolation(.none).resizable().scaledToFit().frame(maxWidth: 280)
                     .padding(18).background(.white, in: RoundedRectangle(cornerRadius: 16)).accessibilityLabel("Receive QR code")
             }
-            Text(value).font(.caption.monospaced()).textSelection(.enabled)
+            DisclosureGroup("View full address or request") {
+                Text(value).font(.caption.monospaced()).textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }.font(.caption).tint(PaperclipTheme.muted)
             HStack {
-                Button("Copy") { UIPasteboard.general.setItems([[UIPasteboard.typeAutomatic: value]], options: [.localOnly: true, .expirationDate: Date().addingTimeInterval(120)]) }
+                Button(copied ? "Copied" : "Copy") { copied = true; UIPasteboard.general.setItems([[UIPasteboard.typeAutomatic: value]], options: [.localOnly: true, .expirationDate: Date().addingTimeInterval(120)]) }
                 ShareLink(item: value)
-            }.buttonStyle(.bordered)
-        }
+            }.buttonStyle(.bordered).controlSize(.large)
+        }.onChange(of: value) { _, _ in copied = false }
     }
     private var qr: UIImage? {
         let filter = CIFilter.qrCodeGenerator()
