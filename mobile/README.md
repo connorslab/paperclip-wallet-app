@@ -177,3 +177,15 @@ selected. Pending receives expose their state and a manual claim retry. An all-f
 claim batch now retains the underlying error, and that warning does not suppress
 otherwise successful balance synchronization. Claim errors still need investigation;
 this UI change does not prove that a pending payment settled.
+
+### Connection recovery and balance updates
+
+Electrum probes its socket before each operation and rebuilds closed connections
+with the same Tor routing, TLS verification, and XBT header checks. A failed
+operation is not replayed; the next request receives a fresh connection. The iOS
+bridge also invalidates its connection after a broken-pipe failure.
+
+The homepage reads cached Ark balances every five seconds while displayed, so
+foreground receive claims appear without a manual network sync. Manual refresh
+updates on-chain and Ark independently and retains prior balances on failure.
+Cached balance reads do not claim to establish fresh chain or server status.

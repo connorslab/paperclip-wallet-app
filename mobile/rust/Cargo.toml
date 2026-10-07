@@ -31,3 +31,4 @@ ark-lib = { path = "../../lib" }
 
 [dev-dependencies]
 bitcoind-async-client.workspace = true
+bdk_electrum = { version = "0.23.2", default-features = false, features = ["use-rustls-ring"] }

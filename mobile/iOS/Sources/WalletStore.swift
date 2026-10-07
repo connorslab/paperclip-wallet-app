@@ -28,9 +28,12 @@ import LocalAuthentication
         Task { defer { busy = false }; do { try await action() } catch { message = error.localizedDescription } }
     }
     func synchronize() async throws {
-        // Preserve the on-chain result even when the Ark server is offline.
-        let chain = try await engine.operation("sync_onchain")
-        onchain = (chain["onchain_sat"] as? NSNumber)?.uint64Value
+        // Refresh each balance independently; retain cached values on failure.
+        var chainWarning: String?
+        do {
+            let chain = try await engine.operation("sync_onchain")
+            onchain = (chain["onchain_sat"] as? NSNumber)?.uint64Value
+        } catch { chainWarning = "On-chain refresh: " + error.localizedDescription }
         do {
             let result = try await engine.balances()
             ark = (result["ark_sat"] as? NSNumber)?.uint64Value
@@ -38,9 +41,16 @@ import LocalAuthentication
             observed = Date()
             if let warning = result["receive_warning"] as? String {
                 message = "Wallet synchronized. Pending Ark receive: " + warning
-            } else { message = "Wallet synchronized." }
-        } catch { message = "On-chain synchronized. Ark: \(error.localizedDescription)" }
+            } else { message = chainWarning == nil ? "Wallet synchronized." : "Ark synchronized." }
+        } catch { message = "Ark refresh: \(error.localizedDescription)" }
+        if let chainWarning { message += "\n" + chainWarning }
         try await refreshActivity()
+    }
+    func refreshCachedArkBalance() async {
+        guard !busy else { return }
+        guard let result = try? await engine.operation("balance_cached") else { return }
+        ark = (result["ark_sat"] as? NSNumber)?.uint64Value
+        pending = (result["pending_sat"] as? NSNumber)?.uint64Value
     }
     func refreshActivity() async throws {
         let result = try await engine.activity()

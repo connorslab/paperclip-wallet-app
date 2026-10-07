@@ -121,6 +121,13 @@ struct DashboardView: View {
                 if let date = store.observed { Text("Ark last checked \(date.formatted(date: .omitted, time: .shortened))").font(.caption2).foregroundStyle(.secondary) }
             }.padding(22)
         }.background(PaperclipTheme.navy).navigationBarTitleDisplayMode(.inline)
+            .task {
+                store.run { try await store.synchronize() }
+                while !Task.isCancelled {
+                    await store.refreshCachedArkBalance()
+                    do { try await Task.sleep(for: .seconds(5)) } catch { return }
+                }
+            }
             .toolbar { Button { store.run { try await store.synchronize() } } label: { Image(systemName: "arrow.clockwise") }.disabled(store.busy).accessibilityLabel("Synchronize wallet") }
             .refreshable { guard !store.busy else { return }; store.run { try await store.synchronize() } }
             .animation(reduceMotion ? nil : .smooth(duration: 0.3), value: store.onchain)

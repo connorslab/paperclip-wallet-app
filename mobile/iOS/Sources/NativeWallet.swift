@@ -97,20 +97,29 @@ actor NativeWallet: WalletEngine, WalletBackupEngine {
         }
         let encoded = try JSONSerialization.data(withJSONObject: input)
         let request = String(decoding: encoded, as: UTF8.self)
-        return try await withCheckedThrowingContinuation { continuation in
-            queue.async {
-                do {
-                    let reply = request.withCString { request in
-                        key.withUnsafeBytes { bytes in paperclip_mobile_call(request, bytes.bindMemory(to: UInt8.self).baseAddress) }
-                    }
-                    guard let reply else { throw WalletFailure(message: "Native wallet did not respond.") }
-                    defer { paperclip_mobile_free(reply) }
-                    let value = try JSONSerialization.jsonObject(with: Data(String(cString: reply).utf8)) as? [String: Any]
-                    if let error = value?["error"] as? String { throw WalletFailure(message: error) }
-                    guard let output = value?["ok"] as? [String: Any] else { throw WalletFailure(message: "Invalid native response.") }
-                    continuation.resume(returning: output)
-                } catch { continuation.resume(throwing: error) }
+        do {
+            return try await withCheckedThrowingContinuation { continuation in
+                queue.async {
+                    do {
+                        let reply = request.withCString { request in
+                            key.withUnsafeBytes { bytes in paperclip_mobile_call(request, bytes.bindMemory(to: UInt8.self).baseAddress) }
+                        }
+                        guard let reply else { throw WalletFailure(message: "Native wallet did not respond.") }
+                        defer { paperclip_mobile_free(reply) }
+                        let value = try JSONSerialization.jsonObject(with: Data(String(cString: reply).utf8)) as? [String: Any]
+                        if let error = value?["error"] as? String { throw WalletFailure(message: error) }
+                        guard let output = value?["ok"] as? [String: Any] else { throw WalletFailure(message: "Invalid native response.") }
+                        continuation.resume(returning: output)
+                    } catch { continuation.resume(throwing: error) }
+                }
             }
+        } catch {
+            if error.localizedDescription.lowercased().contains("broken pipe") {
+                // Rebuild the backend on the next request, without replaying an
+                // operation that might already have reached the server.
+                connected = false
+            }
+            throw error
         }
     }
 
@@ -212,10 +221,10 @@ actor NativeWallet: WalletEngine, WalletBackupEngine {
     }
     func balances() async throws -> [String: Any] {
         try await ensureConnected()
-        return try await call(["op": "sync"])
+        return try await call(["op": "sync_ark"])
     }
     func synchronize() async throws -> WalletSnapshot {
-        let result = try await balances()
+        let result = try await operation("sync")
         guard let tip = result["tip"] as? Int, let vtxos = result["vtxos"] as? [[String: Any]] else {
             throw WalletFailure(message: "Incomplete wallet sync.")
         }

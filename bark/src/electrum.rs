@@ -18,7 +18,15 @@ impl<T: Read + Write + Send> Transport for T {}
 pub type Client = BdkElectrumClient<RawClient<Box<dyn Transport>>>;
 
 #[derive(Clone)]
-pub struct Electrum(pub Arc<Client>);
+pub struct Electrum(Arc<std::sync::Mutex<Connection>>);
+
+struct Connection {
+	client: Option<Client>,
+	url: String,
+	proxy: Option<String>,
+	pin: Option<String>,
+	network: Network,
+}
 
 #[derive(Debug)]
 struct CertificatePin(String);
@@ -43,54 +51,78 @@ impl ServerCertVerifier for CertificatePin {
 impl Electrum {
 	pub async fn connect(url: String, proxy: Option<String>, pin: Option<String>, network: Network) -> anyhow::Result<Self> {
 		tokio::task::spawn_blocking(move || {
-			let endpoint: url::Url = url.parse()?;
-			let host = endpoint.host_str().context("Electrum host required")?;
-			let port = endpoint.port().context("Electrum port required")?;
-			ensure!(["ssl", "tcp"].contains(&endpoint.scheme()) && endpoint.username().is_empty() && endpoint.password().is_none(), "invalid Electrum endpoint");
-			ensure!(!host.ends_with(".onion") || proxy.is_some(), "onion endpoint requires Tor");
-			let timeout = Duration::from_secs(20);
-			let stream = if let Some(proxy) = proxy {
-				let proxy: url::Url = proxy.parse()?;
-				ensure!(proxy.scheme() == "socks5h", "Tor requires proxy DNS");
-				let proxy_host = proxy.host_str().context("proxy host required")?;
-				let proxy_port = proxy.port().context("proxy port required")?;
-				// The target hostname is passed to SOCKS. It is never resolved locally.
-				bdk_electrum::electrum_client::socks::Socks5Stream::connect(
-					(proxy_host, proxy_port), (host, port), Some(timeout))?.into_inner()
-			} else {
-				let addresses = (host, port).to_socket_addrs()?;
-				let mut connected = None;
-				for address in addresses {
-					if let Ok(stream) = TcpStream::connect_timeout(&address, timeout) { connected = Some(stream); break; }
-				}
-				connected.context("could not connect to Electrum")?
-			};
-			stream.set_read_timeout(Some(timeout))?;
-			stream.set_write_timeout(Some(timeout))?;
-			let transport: Box<dyn Transport> = if endpoint.scheme() == "ssl" {
-				let builder = rustls::ClientConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
-					.with_safe_default_protocol_versions()?;
-				let config = if let Some(pin) = pin.filter(|p| !p.is_empty()) {
-					ensure!(pin.len() == 64 && pin.bytes().all(|c| c.is_ascii_hexdigit()), "invalid certificate SHA256");
-					builder.dangerous().with_custom_certificate_verifier(Arc::new(CertificatePin(pin.to_lowercase()))).with_no_client_auth()
-				} else {
-					let roots = rustls::RootCertStore::from_iter(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
-					builder.with_root_certificates(roots).with_no_client_auth()
-				};
-				let connection = rustls::ClientConnection::new(Arc::new(config), ServerName::try_from(host.to_owned())?)?;
-				Box::new(rustls::StreamOwned::new(connection, stream))
-			} else { Box::new(stream) };
-			let raw = RawClient::from(transport);
-			raw.raw_call("server.version", [bdk_electrum::electrum_client::Param::String("paperclip-ios".into()), bdk_electrum::electrum_client::Param::Array(vec![Param::String("1.4".into()), Param::String("1.6".into())])])?;
-			ensure!(raw.block_header(0)?.block_hash() == bitcoin::constants::genesis_block(network).block_hash(), "Electrum network mismatch");
-			let tip = raw.block_headers_subscribe_raw()?;
-			ensure!(tip.header.len() == 164, "Electrum must serve activated BLAKE2b XBT headers");
-			Ok(Self(Arc::new(BdkElectrumClient::new(raw))))
+			let client = Self::connect_blocking(url.clone(), proxy.clone(), pin.clone(), network)?;
+			Ok(Self(Arc::new(std::sync::Mutex::new(Connection {
+				client: Some(client), url, proxy, pin, network,
+			}))))
 		}).await?
 	}
+
+	fn connect_blocking(url: String, proxy: Option<String>, pin: Option<String>, network: Network) -> anyhow::Result<Client> {
+		let endpoint: url::Url = url.parse()?;
+		let host = endpoint.host_str().context("Electrum host required")?;
+		let port = endpoint.port().context("Electrum port required")?;
+		ensure!(["ssl", "tcp"].contains(&endpoint.scheme()) && endpoint.username().is_empty() && endpoint.password().is_none(), "invalid Electrum endpoint");
+		ensure!(!host.ends_with(".onion") || proxy.is_some(), "onion endpoint requires Tor");
+		let timeout = Duration::from_secs(20);
+		let stream = if let Some(proxy) = proxy {
+			let proxy: url::Url = proxy.parse()?;
+			ensure!(proxy.scheme() == "socks5h", "Tor requires proxy DNS");
+			let proxy_host = proxy.host_str().context("proxy host required")?;
+			let proxy_port = proxy.port().context("proxy port required")?;
+			// The target hostname is passed to SOCKS. It is never resolved locally.
+			bdk_electrum::electrum_client::socks::Socks5Stream::connect(
+				(proxy_host, proxy_port), (host, port), Some(timeout))?.into_inner()
+		} else {
+			let addresses = (host, port).to_socket_addrs()?;
+			let mut connected = None;
+			for address in addresses {
+				if let Ok(stream) = TcpStream::connect_timeout(&address, timeout) { connected = Some(stream); break; }
+			}
+			connected.context("could not connect to Electrum")?
+		};
+		stream.set_read_timeout(Some(timeout))?;
+		stream.set_write_timeout(Some(timeout))?;
+		let transport: Box<dyn Transport> = if endpoint.scheme() == "ssl" {
+			let builder = rustls::ClientConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
+				.with_safe_default_protocol_versions()?;
+			let config = if let Some(pin) = pin.filter(|p| !p.is_empty()) {
+				ensure!(pin.len() == 64 && pin.bytes().all(|c| c.is_ascii_hexdigit()), "invalid certificate SHA256");
+				builder.dangerous().with_custom_certificate_verifier(Arc::new(CertificatePin(pin.to_lowercase()))).with_no_client_auth()
+			} else {
+				let roots = rustls::RootCertStore::from_iter(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+				builder.with_root_certificates(roots).with_no_client_auth()
+			};
+			let connection = rustls::ClientConnection::new(Arc::new(config), ServerName::try_from(host.to_owned())?)?;
+			Box::new(rustls::StreamOwned::new(connection, stream))
+		} else { Box::new(stream) };
+		let raw = RawClient::from(transport);
+		raw.raw_call("server.version", [bdk_electrum::electrum_client::Param::String("paperclip-ios".into()), bdk_electrum::electrum_client::Param::Array(vec![Param::String("1.4".into()), Param::String("1.6".into())])])?;
+		ensure!(raw.block_header(0)?.block_hash() == bitcoin::constants::genesis_block(network).block_hash(), "Electrum network mismatch");
+		let tip = raw.block_headers_subscribe_raw()?;
+		ensure!(tip.header.len() == 164, "Electrum must serve activated BLAKE2b XBT headers");
+		Ok(BdkElectrumClient::new(raw))
+	}
 	pub async fn run<T: Send + 'static>(&self, call: impl FnOnce(&Client) -> anyhow::Result<T> + Send + 'static) -> anyhow::Result<T> {
-		let client = self.0.clone();
-		tokio::task::spawn_blocking(move || call(&client)).await?
+		let connection = self.0.clone();
+		tokio::task::spawn_blocking(move || {
+			let mut connection = connection.lock().map_err(|_| anyhow::anyhow!("Electrum connection lock poisoned"))?;
+			// Probe before invoking an operation: reconnecting must never replay a
+			// transaction broadcast whose response may have been lost.
+			if connection.client.as_ref().is_some_and(|client| client.inner.ping().is_err()) {
+				connection.client = None;
+			}
+			if connection.client.is_none() {
+				connection.client = Some(Self::connect_blocking(connection.url.clone(),
+					connection.proxy.clone(), connection.pin.clone(), connection.network)
+					.context("reconnecting to Electrum")?);
+			}
+			let result = call(connection.client.as_ref().expect("connected above"));
+			// Discard a potentially dead socket. The caller receives the original
+			// failure; the next operation gets a freshly validated connection.
+			if result.is_err() { connection.client = None; }
+			result
+		}).await?
 	}
 	/// Public Electrum metadata only; never calls daemon.passthrough.
 	pub async fn ark_capabilities(&self) -> anyhow::Result<serde_json::Value> {

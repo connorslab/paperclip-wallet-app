@@ -323,6 +323,10 @@ pub fn dispatch(state: &mut Option<Session>, request: Value, seed: [u8; 64]) -> 
 			return Ok(json!({"listening_requested": request["enabled"] == true}));
 		}
 		match op {
+			"balance_cached" => {
+				let balance = w.balance().await?;
+				Ok(json!({"ark_sat": balance.spendable.to_sat(), "pending_sat": balance.pending().to_sat()}))
+			},
 			"ark_backend_check" => { w.chain().require_funded_policy().await?; Ok(json!({"compatible": true})) },
 			"check_payment" => {
 				use bark::actions::lightning::pay::LightningSendState;
@@ -337,11 +341,11 @@ pub fn dispatch(state: &mut Option<Session>, request: Value, seed: [u8; 64]) -> 
 					"txid": tx.txid.to_string(), "change_sat": tx.balance_change.to_sat(),
 					"confirmed": tx.confirmation.is_some()
 				})).collect::<Vec<_>>() })),
-			"sync" => {
+			"sync" | "sync_ark" => {
 				w.chain().invalidate_caches().await;
-				w.refresh_server().await?;
-				w.chain().update_fee_rates(w.config().fallback_fee_rate).await?;
-				chain_wallet.sync_onchain().await?;
+				w.refresh_server().await.context("connecting to Ark server")?;
+				w.chain().update_fee_rates(w.config().fallback_fee_rate).await.context("reading chain backend fee rates")?;
+				if op == "sync" { chain_wallet.sync_onchain().await.context("synchronizing on-chain backend")?; }
 				w.sync_pending_rounds().await?;
 				w.sync_pending_arkoor_sends().await?;
 				w.sync_pending_lightning_send_vtxos().await?;
@@ -360,7 +364,7 @@ pub fn dispatch(state: &mut Option<Session>, request: Value, seed: [u8; 64]) -> 
 			},
 			"sync_onchain" => {
 				w.chain().invalidate_caches().await;
-				chain_wallet.sync_onchain().await?;
+				chain_wallet.sync_onchain().await.context("synchronizing on-chain backend")?;
 				Ok(json!({"onchain_sat": onchain.read().await.balance().total().to_sat(), "tip": w.chain().tip().await?}))
 			},
 			"quote_board" => {
@@ -368,7 +372,7 @@ pub fn dispatch(state: &mut Option<Session>, request: Value, seed: [u8; 64]) -> 
 				let amount = request["amount_sat"].as_u64().context("amount required")?;
 				ensure!(amount > 0, "amount must be positive");
 				w.chain().require_funded_policy().await?;
-				w.chain().update_fee_rates(w.config().fallback_fee_rate).await?;
+				w.chain().update_fee_rates(w.config().fallback_fee_rate).await.context("reading chain backend fee rates")?;
 				let estimate = w.estimate_board_offchain_fee(Amount::from_sat(amount)).await?;
 				let reserve = estimate.fee.max(ark::exit_policy::paperclip_funding().anchor())
 					.checked_add(ark::exit_policy::paperclip_funding().miner_fee()).context("reserve overflow")?.to_sat();
@@ -441,7 +445,7 @@ pub fn dispatch(state: &mut Option<Session>, request: Value, seed: [u8; 64]) -> 
 				Ok(json!({"state": "registered"}))
 			},
 			"exit_progress" => {
-				chain_wallet.sync_onchain().await?;
+				chain_wallet.sync_onchain().await.context("synchronizing on-chain backend")?;
 				w.exit_mgr().progress_exits_with_cpfp(w, None).await?;
 				Ok(json!({"pending": w.exit_mgr().has_pending_exits().await,
 					"claimable_height": w.exit_mgr().all_claimable_at_height().await}))
@@ -476,7 +480,7 @@ pub fn dispatch(state: &mut Option<Session>, request: Value, seed: [u8; 64]) -> 
 				let address = destination.parse::<bitcoin::Address<_>>()?.require_network(network)?;
 				let amount = request["amount_sat"].as_u64().context("amount required")?;
 				ensure!(amount > 0, "amount must be positive");
-				w.chain().update_fee_rates(w.config().fallback_fee_rate).await?;
+				w.chain().update_fee_rates(w.config().fallback_fee_rate).await.context("reading chain backend fee rates")?;
 				let rate = w.chain().fee_rates().await.regular;
 				let psbt = onchain.write().await.prepare_tx(&[(address, Amount::from_sat(amount))], rate).await?;
 				let fee = psbt.fee()?.to_sat();

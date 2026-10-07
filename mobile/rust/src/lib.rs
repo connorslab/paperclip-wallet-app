@@ -110,3 +110,6 @@ mod tests {
 
 #[cfg(test)]
 mod rpc_tor_tests;
+
+#[cfg(test)]
+mod electrum_reconnect_tests;

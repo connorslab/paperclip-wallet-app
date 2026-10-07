@@ -2469,6 +2469,7 @@ dependencies = [
  "bark-bitcoin-ext",
  "bark-wallet",
  "base64 0.22.1",
+ "bdk_electrum",
  "bip39",
  "bitcoin",
  "bitcoind-async-client",
