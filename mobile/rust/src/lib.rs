@@ -3,7 +3,34 @@
 mod session;
 
 use std::ffi::{c_char, CStr, CString};
-use std::sync::{Mutex, OnceLock};
+use std::sync::{mpsc, OnceLock};
+
+struct Operation {
+	request: serde_json::Value,
+	seed: [u8; 64],
+	reply: mpsc::Sender<anyhow::Result<serde_json::Value>>,
+}
+
+fn native_operation(request: serde_json::Value, seed: [u8; 64]) -> anyhow::Result<serde_json::Value> {
+	// iOS GCD workers have roughly 512 KiB stacks. The wallet futures require
+	// more in debug builds, so all session work lives on one owned Rust thread.
+	static WORKER: OnceLock<Result<mpsc::SyncSender<Operation>, String>> = OnceLock::new();
+	let worker = WORKER.get_or_init(|| {
+		let (sender, receiver) = mpsc::sync_channel::<Operation>(8);
+		std::thread::Builder::new().name("paperclip-wallet".into()).stack_size(8 * 1024 * 1024)
+			.spawn(move || {
+				let mut state = None;
+				for operation in receiver {
+					let result = session::dispatch(&mut state, operation.request, operation.seed);
+					let _ = operation.reply.send(result);
+				}
+			}).map(|_| sender).map_err(|e| e.to_string())
+	}).as_ref().map_err(|_| anyhow::anyhow!("could not start native wallet worker"))?;
+	let (reply, result) = mpsc::channel();
+	worker.send(Operation { request, seed, reply }).map_err(|_| anyhow::anyhow!("wallet worker stopped; restart and reconcile before retrying"))?;
+	result.recv().map_err(|_| anyhow::anyhow!("wallet worker stopped; restart and reconcile before retrying"))?
+}
+
 
 /// Execute one operation off the UI thread. Returned JSON is owned by Rust.
 /// # Safety
@@ -15,11 +42,8 @@ pub unsafe extern "C" fn paperclip_mobile_call(request: *const c_char, seed: *co
 		let text = unsafe { CStr::from_ptr(request) }.to_str()?;
 		anyhow::ensure!(text.len() < 48 * 1024 * 1024, "request too large");
 		let request = serde_json::from_str(text)?;
-		static STATE: OnceLock<Mutex<Option<session::Session>>> = OnceLock::new();
-		let mut state = STATE.get_or_init(|| Mutex::new(None)).lock()
-			.map_err(|_| anyhow::anyhow!("wallet session requires restart"))?;
 		let seed = unsafe { *(seed as *const [u8; 64]) };
-		session::dispatch(&mut state, request, seed)
+		native_operation(request, seed)
 	});
 	let value = match result {
 		Ok(Ok(value)) => serde_json::json!({"ok": value}),
@@ -51,4 +75,35 @@ pub unsafe extern "C" fn paperclip_mobile_probe(seed: *const u8, out: *mut u8) -
 		unsafe { std::ptr::copy_nonoverlapping(fingerprint.as_bytes().as_ptr(), out, 4); }
 	});
 	if result.is_ok() { 0 } else { -2 }
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn ffi_receive_address_runs_from_small_ios_style_stack() {
+		std::thread::Builder::new().stack_size(512 * 1024).spawn(|| {
+			let dir = std::env::temp_dir().join(format!("paperclip-small-stack-{}", std::process::id()));
+			assert!(!dir.exists());
+			let seed = [91; 64];
+			let invoke = |value: serde_json::Value| {
+				let request = CString::new(value.to_string()).unwrap();
+				unsafe {
+					let result = paperclip_mobile_call(request.as_ptr(), seed.as_ptr());
+					let value: serde_json::Value = serde_json::from_slice(CStr::from_ptr(result).to_bytes()).unwrap();
+					paperclip_mobile_free(result);
+					assert!(value.get("error").is_none(), "{value}");
+					value["ok"].clone()
+				}
+			};
+			invoke(serde_json::json!({"op": "create", "network": "xbt-regtest", "directory": dir}));
+			let first = invoke(serde_json::json!({"op": "address_onchain"}));
+			assert!(first["address"].as_str().unwrap().starts_with("bcrt1"));
+			let second = invoke(serde_json::json!({"op": "address_onchain"}));
+			assert_ne!(first, second);
+			invoke(serde_json::json!({"op": "close"}));
+			std::fs::remove_dir_all(dir).unwrap();
+		}).unwrap().join().unwrap();
+	}
 }
