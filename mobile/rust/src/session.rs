@@ -19,8 +19,21 @@ struct HardwareRequest {
 	signed: Option<bitcoin::Transaction>,
 }
 
+struct HardwareBoardRequest {
+	psbt: bitcoin::Psbt,
+	signed: Option<bitcoin::Psbt>,
+	key: bitcoin::secp256k1::Keypair,
+	expiry: bitcoin_ext::BlockHeight,
+	reserve: u64,
+	amount: u64,
+	time: Instant,
+	funding: crate::hardware::PublicFundingWallet,
+	backend: Arc<bark::chain::ChainSource>,
+}
+
 pub struct Session {
 	kind: String,
+	hardware_board: Option<HardwareBoardRequest>,
 	hardware_request: Option<HardwareRequest>,
 	offer_task: Option<tokio::task::JoinHandle<()>>,
 	receive_task: Option<tokio::task::JoinHandle<()>>,
@@ -118,7 +131,7 @@ mod tests {
 			let change = dispatch(&mut state, json!({"op": "addresses_onchain", "change": true}), [8; 64]).unwrap();
 			assert_eq!(change["shared_change_branch"], false);
 			assert_ne!(first["address"], change["addresses"][0]["address"]);
-			for op in ["send_onchain", "quote_onchain", "sign_message_onchain", "address_ark", "backup", "refresh"] {
+			for op in ["send_onchain", "quote_onchain", "sign_message_onchain", "address_ark", "backup", "refresh", "ark_hardware_prepare", "ark_hardware_commit", "public_wallet_address"] {
 				assert!(dispatch(&mut state, json!({"op": op}), [8; 64]).is_err(), "{kind} allowed {op}");
 			}
 			if kind == "watch" { assert!(dispatch(&mut state, json!({"op": "hardware_prepare"}), [8; 64]).is_err()); }
@@ -131,6 +144,21 @@ mod tests {
 			assert_ne!(first, second);
 			dispatch(&mut state, json!({"op": "close"}), [8; 64]).unwrap();
 		}
+		let hot = base.join("mobile-ark");
+		dispatch(&mut state, json!({"op": "create", "network": "xbt-regtest", "directory": hot}), [9; 64]).unwrap();
+		let source = json!({"directory": base.join("hardware"), "descriptor": descriptor, "identity": STANDARD.encode([8; 64])});
+		let hardware_receive = dispatch(&mut state, json!({"op": "public_wallet_address", "source": source}), [9; 64]).unwrap();
+		let hot_receive = dispatch(&mut state, json!({"op": "address_onchain"}), [9; 64]).unwrap();
+		assert_ne!(hardware_receive, hot_receive);
+		let mut wrong = source.clone(); wrong["identity"] = json!(STANDARD.encode([10; 64]));
+		assert!(dispatch(&mut state, json!({"op": "public_wallet_address", "source": wrong}), [9; 64]).is_err());
+		let mut watch = source.clone(); watch["directory"] = json!(base.join("watch"));
+		assert!(dispatch(&mut state, json!({"op": "public_wallet_address", "source": watch}), [9; 64]).is_err());
+		dispatch(&mut state, json!({"op": "close"}), [9; 64]).unwrap();
+		dispatch(&mut state, json!({"op": "open", "kind": "hardware", "descriptor": descriptor, "network": "xbt-regtest", "directory": base.join("hardware")}), [8; 64]).unwrap();
+		let page = dispatch(&mut state, json!({"op": "addresses_onchain"}), [8; 64]).unwrap();
+		assert!(page["addresses"].as_array().unwrap().iter().any(|entry| entry["address"] == hardware_receive["address"] && entry["revealed"] == true));
+		dispatch(&mut state, json!({"op": "close"}), [8; 64]).unwrap();
 		std::fs::remove_dir_all(base).unwrap();
 	}
 
@@ -300,7 +328,7 @@ pub fn dispatch(state: &mut Option<Session>, request: Value, seed: [u8; 64]) -> 
 		if op == "create" && let Some((receive, change)) = &public {
 			std::fs::write(&marker, serde_json::to_vec(&json!({"kind": kind, "receive": receive, "change": change}))?)?;
 		}
-		*state = Some(Session { kind: kind.into(), hardware_request: None, offer_task: None, receive_task: None, runtime, dir, db, onchain: Arc::new(tokio::sync::RwLock::new(onchain)),
+		*state = Some(Session { kind: kind.into(), hardware_board: None, hardware_request: None, offer_task: None, receive_task: None, runtime, dir, db, onchain: Arc::new(tokio::sync::RwLock::new(onchain)),
 			wallet: None, ark_wallet: None, _lock: lock, fingerprint: fingerprint.to_string(), network, quote: None, onchain_quote: None, board_quote: None });
 		return Ok(json!({"fingerprint": fingerprint.to_string()}));
 	}
@@ -324,7 +352,7 @@ pub fn dispatch(state: &mut Option<Session>, request: Value, seed: [u8; 64]) -> 
 		return result;
 	}
 	let network = session.network;
-	let Session { runtime, wallet, ark_wallet, db, onchain, quote, onchain_quote, board_quote, offer_task, receive_task, hardware_request, kind, .. } = session;
+	let Session { runtime, wallet, ark_wallet, db, onchain, quote, onchain_quote, board_quote, offer_task, receive_task, hardware_request, hardware_board, kind, .. } = session;
 	runtime.block_on(async {
 		if op == "sign_message_onchain" {
 			let address = text(&request, "address")?.parse::<bitcoin::Address<_>>()?.require_network(network)?;
@@ -352,6 +380,17 @@ pub fn dispatch(state: &mut Option<Session>, request: Value, seed: [u8; 64]) -> 
 		if op == "address_onchain" {
 			return Ok(json!({"address": OnchainWalletTrait::address(&mut *onchain.write().await).await?.to_string()}));
 		}
+		if op == "ark_hardware_cancel" {
+			if let Some(pending) = hardware_board.as_ref() {
+				if request["request_id"].as_str() == Some(&pending.psbt.unsigned_tx.compute_txid().to_string()) { *hardware_board = None; }
+			}
+			return Ok(json!({}));
+		}
+		if op == "public_wallet_address" {
+			let source = crate::hardware::open_funding_wallet(&request["source"], network).await?;
+			let address = OnchainWalletTrait::address(&mut *source.onchain.write().await).await?;
+			return Ok(json!({"address": address.to_string()}));
+		}
 		if op == "hardware_cancel" { *hardware_request = None; return Ok(json!({})); }
 		if op == "connect" {
 			if let Some(task) = offer_task.take() { task.abort(); let _ = task.await; }
@@ -359,6 +398,7 @@ pub fn dispatch(state: &mut Option<Session>, request: Value, seed: [u8; 64]) -> 
 			*quote = None;
 			*onchain_quote = None;
 			*board_quote = None;
+			*hardware_board = None;
 			*hardware_request = None;
 			*wallet = None;
 			*ark_wallet = None;
@@ -454,6 +494,71 @@ pub fn dispatch(state: &mut Option<Session>, request: Value, seed: [u8; 64]) -> 
 				chain_wallet.sync_onchain().await.context("synchronizing on-chain backend")?;
 				Ok(json!({"onchain_sat": onchain.read().await.balance().total().to_sat(), "tip": w.chain().tip().await?}))
 			},
+			"ark_hardware_prepare" => {
+				*hardware_board = None;
+				let amount = request["amount_sat"].as_u64().context("amount required")?;
+				ensure!(amount > 0, "amount must be positive");
+				w.chain().require_funded_policy().await?;
+				let funding = crate::hardware::open_funding_wallet(&request["source"], network).await?;
+				let config: Config = serde_json::from_value(request["source"]["config"].clone())?;
+				// Only open the source's chain backend. No Ark client or local signer is
+				// needed for a public funding wallet; preserve its explicit Tor route.
+				let backend = Arc::new(bark::chain::ChainSource::new(config.chain_source()?, network,
+					config.fallback_fee_rate, config.socks5_proxy.as_deref()).await?);
+				backend.require_version().await?;
+				backend.update_fee_rates(config.fallback_fee_rate).await?;
+				let estimate = w.estimate_board_offchain_fee(Amount::from_sat(amount)).await?;
+				let anchor = estimate.fee.max(ark::exit_policy::paperclip_funding().anchor());
+				let miner_fee = ark::exit_policy::paperclip_funding().miner_fee();
+				let reserve = anchor.checked_add(miner_fee).context("reserve overflow")?.to_sat();
+				let net = amount.checked_sub(reserve).context("deposit is below the Ark recovery reserve")?;
+				let (key, _) = w.derive_store_next_keypair().await?;
+				let (address, expiry) = w.board_funding_address(&key).await?;
+				let mut source = funding.onchain.write().await;
+				source.sync(&backend).await?;
+				let mut psbt = source.prepare_tx(&[(address.clone(), Amount::from_sat(amount))], backend.fee_rates().await.regular).await?;
+				drop(source);
+				crate::hardware::prepare_board(&mut psbt)?;
+				let fee = psbt.fee()?.to_sat();
+				let bytes = psbt.serialize();
+				ensure!(bytes.len() <= crate::hardware::MAX_TRANSFER, "Transaction is too large for QR signing");
+				let result = json!({"psbt": STANDARD.encode(bytes), "address": address.to_string(), "request_id": psbt.unsigned_tx.compute_txid().to_string(),
+					"amount_sat": amount, "total_sat": amount.checked_add(fee).context("amount overflow")?,
+					"network_fee_sat": fee, "reserve_sat": reserve, "net_sat": net,
+					"anchor_sat": anchor.to_sat(), "miner_fee_sat": miner_fee.to_sat()});
+				*hardware_board = Some(HardwareBoardRequest { psbt, signed: None, key, expiry, reserve, amount, time: Instant::now(), funding, backend });
+				Ok(result)
+			},
+			"ark_hardware_import" => {
+				let pending = hardware_board.as_mut().context("Prepare an Ark boarding request first")?;
+				ensure!(pending.time.elapsed() < Duration::from_secs(1800), "Boarding request expired; review a new request");
+				let encoded = text(&request, "signed")?;
+				ensure!(encoded.len() <= crate::hardware::MAX_TRANSFER * 2, "signed request too large");
+				let signed = crate::hardware::finalized_board(&pending.psbt, &STANDARD.decode(encoded)?)?;
+				let result = json!({"verified": true, "txid": signed.unsigned_tx.compute_txid().to_string()});
+				pending.signed = Some(signed);
+				Ok(result)
+			},
+			"ark_hardware_commit" => {
+				let pending = hardware_board.take().context("Prepare and sign an Ark boarding request first")?;
+				ensure!(pending.time.elapsed() < Duration::from_secs(1800), "Boarding request expired; review a new request");
+				let signed = pending.signed.context("Scan the hardware signature first")?;
+				ensure!(text(&request, "txid")? == signed.unsigned_tx.compute_txid().to_string(), "funding transaction changed");
+
+				let current = w.estimate_board_offchain_fee(Amount::from_sat(pending.amount)).await?;
+				ensure!(current.fee.max(ark::exit_policy::paperclip_funding().anchor()).checked_add(ark::exit_policy::paperclip_funding().miner_fee()).context("reserve overflow")?.to_sat() == pending.reserve, "Ark boarding fee changed; review a new request");
+				let mut source = pending.funding.onchain.write().await;
+				source.sync(&pending.backend).await?;
+				let unspent: std::collections::HashSet<_> = source.list_unspent().iter().map(|u| u.outpoint).collect();
+				ensure!(signed.unsigned_tx.input.iter().all(|i| unspent.contains(&i.previous_output)), "A funding input was spent; review a new request");
+				// board_psbt persists the signed recovery path and durable action BEFORE broadcasting.
+				// Never send this funding transaction through the ordinary hardware broadcast operation.
+				let tx = signed.clone().extract_tx()?;
+				let board = w.board_psbt(signed, pending.key, pending.expiry).await?;
+				let cached = source.register_tx(&tx).await.is_ok();
+				Ok(json!({"state": "pending", "amount_sat": board.amount.to_sat(), "txid": tx.compute_txid().to_string(), "source_cached": cached}))
+			},
+
 			"quote_board" => {
 				*board_quote = None;
 				let amount = request["amount_sat"].as_u64().context("amount required")?;

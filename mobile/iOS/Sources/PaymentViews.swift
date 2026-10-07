@@ -29,6 +29,17 @@ struct SendView: View {
                     Text(onchain ? "Send XBT to an on-chain address." : "Pay Lightning invoices, BOLT12 offers, Ark addresses, or withdraw to on-chain.").font(.subheadline).foregroundStyle(PaperclipTheme.muted)
                 }
                 WalletSection("Recipient") {
+                    if !onchain && !submitted {
+                        Menu {
+                            ForEach(store.profiles.filter { $0.kind == .hardware && $0.network == store.network }) { profile in
+                                Button(profile.name) { store.run {
+                                    destination = try await store.engine.hardwareReceiveAddress(walletID: profile.id)
+                                } }
+                            }
+                        } label: { Label("Withdraw to a saved QR wallet", systemImage: "qrcode") }
+                            .disabled(store.busy || !store.profiles.contains { $0.kind == .hardware && $0.network == store.network })
+                        Text("Offboarding to a hardware address does not need a hardware signature. Verify the receiving address on your signer, then review the withdrawal here.").font(.caption).foregroundStyle(PaperclipTheme.muted)
+                    }
                     Button { scanning = true } label: { Label("Scan QR code", systemImage: "qrcode.viewfinder") }
                         .disabled(store.busy || submitted)
                     TextField(onchain ? "XBT address" : "Paste an invoice, offer, or address", text: $destination, axis: .vertical)
@@ -332,6 +343,9 @@ struct ArkToolsView: View {
         ScrollView {
           VStack(spacing: 20) {
             if page == .boarding {
+            NavigationLink { HardwareBoardView() } label: {
+                WalletCard { WalletNavigationRow("Board from a QR wallet", subtitle: "Sign funding on Krux or SeedSigner", icon: "qrcode") }
+            }.buttonStyle(.plain)
             WalletSection("Board from on-chain") {
                 Text("Add XBT to your Ark balance") .font(.title3.bold())
                 Text("Enter the amount to move from on-chain into Ark. This is the deposit amount, not the spendable balance you will receive.").font(.subheadline)

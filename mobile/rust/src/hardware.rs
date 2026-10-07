@@ -1,6 +1,8 @@
 //! Public-only descriptor import and unified-sighash verification for QR signers.
 use std::collections::BTreeMap;
 use std::str::FromStr;
+use bark::persist::BarkPersister;
+use base64::Engine;
 
 use anyhow::{bail, ensure, Context};
 use bdk_wallet::miniscript::{Descriptor, DescriptorPublicKey, ForEachKey};
@@ -239,6 +241,49 @@ fn script_pushes(script: &ScriptBuf) -> anyhow::Result<Vec<Vec<u8>>> {
 	}).collect()
 }
 
+/// Keep the funding wallet's database lock while an Ark QR request is pending.
+/// Ark keys and recovery state remain in the selected mobile wallet.
+pub struct PublicFundingWallet {
+	pub onchain: std::sync::Arc<tokio::sync::RwLock<bark::onchain::OnchainWallet>>,
+	_lock: Box<dyn bark::lock_manager::LockManager>,
+}
+
+pub async fn open_funding_wallet(request: &serde_json::Value, network: Network) -> anyhow::Result<PublicFundingWallet> {
+	let directory = std::path::PathBuf::from(request["directory"].as_str().context("funding wallet directory required")?);
+	ensure!(directory.is_absolute() && directory.join("db.sqlite").is_file(), "funding wallet database missing");
+	let descriptor = request["descriptor"].as_str().context("funding descriptor required")?;
+	let (receive, change) = descriptors(descriptor, "segwit", "", network, true)?;
+	let marker: serde_json::Value = serde_json::from_slice(&std::fs::read(directory.join("public-wallet.json"))?)?;
+	ensure!(marker == serde_json::json!({"kind": "hardware", "receive": receive, "change": change}), "funding wallet descriptor mismatch");
+	let identity = base64::engine::general_purpose::STANDARD.decode(request["identity"].as_str().context("funding wallet identity required")?)?;
+	let identity: [u8; 64] = identity.try_into().map_err(|_| anyhow::anyhow!("invalid funding wallet identity"))?;
+	let seed = bark::WalletSeed::new_from_seed(network, &identity);
+	let lock = bark::lock_manager::platform_default(Some(&directory), Some(seed.fingerprint()))?;
+	let db = std::sync::Arc::new(bark::persist::sqlite::SqliteClient::open(directory.join("db.sqlite"))?);
+	let properties = db.read_properties().await?.context("funding wallet not initialized")?;
+	ensure!(properties.network == network && properties.fingerprint == seed.fingerprint(), "funding wallet identity or network mismatch");
+	let onchain = bark::onchain::OnchainWallet::load_or_create_public(network, &receive, &change, db.clone()).await?;
+	Ok(PublicFundingWallet { onchain: std::sync::Arc::new(tokio::sync::RwLock::new(onchain)), _lock: lock })
+}
+
+pub fn prepare_board(psbt: &mut Psbt) -> anyhow::Result<()> {
+	ensure!(prevouts(psbt)?.iter().all(|out| out.script_pubkey.is_p2wpkh() || out.script_pubkey.is_p2tr()),
+		"Ark QR boarding requires a native SegWit (BIP84) or Taproot (BIP86) account so its funding transaction ID stays stable");
+	prepare(psbt)
+}
+
+pub fn finalized_board(original: &Psbt, signed: &[u8]) -> anyhow::Result<Psbt> {
+	let mut original = original.clone();
+	prepare_board(&mut original)?;
+	let tx = signed_transaction(&original, signed)?;
+	ensure!(tx.compute_txid() == original.unsigned_tx.compute_txid(), "Ark funding transaction ID changed");
+	for (input, signed) in original.inputs.iter_mut().zip(tx.input) {
+		input.final_script_witness = Some(signed.witness);
+		input.final_script_sig = None;
+	}
+	Ok(original)
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
@@ -327,6 +372,30 @@ mod tests {
 		// Explicit opt-in exports only public test-key requests for the independent signer harness.
 		if let Ok(path) = std::env::var("PAPERCLIP_HARDWARE_FIXTURES") {
 			std::fs::write(path, serde_json::to_vec_pretty(&requests).unwrap()).unwrap();
+		}
+	}
+
+	#[test]
+	fn ark_finalization_requires_stable_txid_and_verified_unified_signatures() {
+		let fixtures: Vec<serde_json::Value> = serde_json::from_str(include_str!("../../Tests/PaperclipMobileTests/Fixtures/bdk-seedsigner.json")).unwrap();
+		for fixture in fixtures {
+			let original = Psbt::deserialize(&STANDARD.decode(fixture["original"].as_str().unwrap()).unwrap()).unwrap();
+			let signed = STANDARD.decode(fixture["signed"].as_str().unwrap()).unwrap();
+			if fixture["script"] == "legacy" || fixture["script"] == "nested" {
+				assert!(finalized_board(&original, &signed).unwrap_err().to_string().contains("native SegWit"));
+				continue;
+			}
+			let proposal = finalized_board(&original, &signed).unwrap();
+			let transaction = proposal.clone().extract_tx().unwrap();
+			assert_eq!(transaction.compute_txid(), original.unsigned_tx.compute_txid());
+			assert_eq!(proposal.fee().unwrap(), original.fee().unwrap());
+			assert!(transaction.input.iter().all(|input| input.script_sig.is_empty() && !input.witness.is_empty()));
+			// The durable board checkpoint serializes this PSBT; unknown sighash bytes
+			// must survive through final witnesses without typed-signature decoding.
+			let restored = Psbt::deserialize(&proposal.serialize()).unwrap();
+			assert_eq!(restored.extract_tx().unwrap(), transaction);
+			let mut changed = original.clone(); changed.unsigned_tx.output[0].value = bitcoin::Amount::from_sat(1);
+			assert!(finalized_board(&changed, &signed).is_err());
 		}
 	}
 

@@ -87,6 +87,33 @@ outputs, amounts, fees, input order, sequences, locktime, or a BTC sighash are r
 Requests expire after 30 minutes. A broadcast attempt saves the exact transaction before
 relay; an uncertain reply is not treated as permission to send a replacement payment.
 
+### Ark transfers with a QR wallet
+
+Select a mobile wallet in Settings → Your wallets, then open Ark → Add XBT from
+on-chain → Board from a QR wallet. Choose a saved BIP84 or BIP86 hardware account,
+review the deposit/network fee/recovery deduction, scan the request on Krux or SeedSigner,
+scan the signed result back, and confirm boarding. The funding wallet keeps its own chain
+connection and Tor settings. The Ark wallet retains its own server/backend and keys.
+Funding is never sent through the ordinary on-chain broadcast path: the existing Ark
+board action saves the cosigned recovery VTXO and funding PSBT before broadcast. A crash
+or failed initial relay is resumed by the mobile Ark wallet's normal synchronization.
+
+Ark requires an unchanged funding txid, so direct hardware boarding supports native
+SegWit and Taproot only. Legacy and nested SegWit remain supported for ordinary hardware
+payments and as offboarding destinations. QR requests expire after 30 minutes; current
+boarding fees, funded relay policy, and unspent inputs are checked before submission.
+Leaving the boarding page cancels its unfinished request. Switching wallets or reconnecting
+also invalidates it. Save an updated encrypted backup of the mobile wallet after boarding.
+
+In Pay from Ark, choose Withdraw to a saved QR wallet to derive and save a fresh address
+in that hardware wallet's database. Verify it on the signer, enter the amount, review the
+fees, and confirm. Receiving an offboard does not require a hardware signature. Watch-only
+wallets are excluded from this shortcut; ordinary address entry remains available.
+
+Ark keys remain on the iPhone: QR signers sign the funding transaction, not Ark's
+interactive off-chain operations. Keep on-chain funds in the mobile wallet for unilateral
+recovery fees. The hardware wallet's seed alone cannot recover this mobile Ark balance.
+
 Compatibility checked against:
 
 - `privkeyio/seedsigner` at `e135132033412901a957ddf5e6fea4883186a36b`, with its pinned

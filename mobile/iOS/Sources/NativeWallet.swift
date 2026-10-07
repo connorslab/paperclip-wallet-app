@@ -275,10 +275,8 @@ actor NativeWallet: WalletEngine, WalletBackupEngine {
         return address
     }
 
-    func connect(_ settings: WalletConnection) async throws {
-        try beginOperation(); defer { operations -= 1 }
+    private func chainConfiguration(_ settings: WalletConnection) async throws -> [String: Any] {
         try settings.validate()
-        _ = try await open()
         var config = try await call(["op": "config_template"])
         config["server_address"] = settings.arkServer
         config["esplora_address"] = settings.backend == .esplora ? settings.endpoint : NSNull()
@@ -289,6 +287,47 @@ actor NativeWallet: WalletEngine, WalletBackupEngine {
         config["bitcoind_pass"] = settings.password
         config["socks5_proxy"] = settings.useTor ? try await EmbeddedTor.shared.proxy(for: settings.torProxy) : NSNull()
         config["user_agent"] = "paperclip-ios/0.2.0"
+        return config
+    }
+    private func publicWalletFields(_ id: String, withConnection: Bool) async throws -> [String: Any] {
+        let catalog = try loadedCatalog()
+        guard catalog.selected?.supportsArk == true,
+              let profile = catalog.wallets.first(where: { $0.id == id }), profile.kind == .hardware,
+              profile.network == catalog.selected?.network, let descriptor = profile.descriptor,
+              let saved = try WalletKeychain.read(profile.keyAccount) else {
+            throw WalletFailure(message: "Choose a saved QR wallet on the same network as this mobile Ark wallet.")
+        }
+        let key = try JSONDecoder().decode(KeyRecord.self, from: saved)
+        let root = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        let path = root.appendingPathComponent("PaperclipWallets", isDirectory: true).appendingPathComponent(profile.id, isDirectory: true)
+        var fields: [String: Any] = ["directory": path.path, "descriptor": descriptor, "identity": key.seed.base64EncodedString()]
+        if withConnection {
+            let settings: WalletConnection
+            if let data = try WalletKeychain.read(profile.connectionAccount) { settings = try JSONDecoder().decode(WalletConnection.self, from: data) }
+            else { settings = WalletConnection() }
+            fields["config"] = try await chainConfiguration(settings)
+        }
+        return fields
+    }
+    func prepareHardwareBoard(sourceID: String, amount: UInt64) async throws -> [String: Any] {
+        try beginOperation(); defer { operations -= 1 }
+        try await ensureConnected()
+        let source = try await publicWalletFields(sourceID, withConnection: true)
+        return try await call(["op": "ark_hardware_prepare", "amount_sat": amount, "source": source])
+    }
+    func hardwareReceiveAddress(walletID: String) async throws -> String {
+        try beginOperation(); defer { operations -= 1 }
+        _ = try await open()
+        let source = try await publicWalletFields(walletID, withConnection: false)
+        let result = try await call(["op": "public_wallet_address", "source": source])
+        guard let address = result["address"] as? String else { throw WalletFailure(message: "Could not derive the hardware wallet address.") }
+        return address
+    }
+    func connect(_ settings: WalletConnection) async throws {
+        try beginOperation(); defer { operations -= 1 }
+        try settings.validate()
+        _ = try await open()
+        let config = try await chainConfiguration(settings)
         connected = false
         var request: [String: Any] = ["op": "connect", "config": config]
         if try loadedCatalog().selected?.supportsArk == true, let rpc = settings.arkRPC {
@@ -345,7 +384,7 @@ actor NativeWallet: WalletEngine, WalletBackupEngine {
     }
     func operation(_ op: String, fields: [String: Any] = [:]) async throws -> [String: Any] {
         try beginOperation(); defer { operations -= 1 }
-        if ["hardware_import", "hardware_cancel"].contains(op) { _ = try await open() }
+        if ["hardware_import", "hardware_cancel", "ark_hardware_import", "ark_hardware_cancel"].contains(op) { _ = try await open() }
         else { try await ensureConnected() }
         var input = fields; input["op"] = op
         return try await call(input)
