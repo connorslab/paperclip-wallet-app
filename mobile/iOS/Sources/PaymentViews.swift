@@ -248,14 +248,25 @@ struct ArkToolsView: View {
     @State private var boardNet: UInt64?
     @State private var boardReserve: UInt64?
     @State private var boardNetworkFee: UInt64?
+    @State private var boardDeposit: UInt64?
+    @State private var boardAnchor: UInt64?
+    @State private var boardMinerReserve: UInt64?
+    @State private var boardFeeThreshold: UInt64?
     var body: some View {
         ScrollView {
           VStack(spacing: 20) {
             if page == .boarding {
             WalletSection("Board from on-chain") {
                 Text("Add XBT to your Ark balance") .font(.title3.bold())
-                Text("Boarding uses an on-chain transaction. Its network fee is added to the amount you enter; the boarding fee and recovery funding are deducted from that amount before it becomes spendable on Ark.").font(.subheadline)
-                Text("Small boards can lose a significant share to these costs. The current app uses the backend’s regular fee estimate; a custom boarding fee rate is not available. Review the net amount before confirming.").font(.caption).foregroundStyle(PaperclipTheme.muted)
+                Text("Enter the amount to move from on-chain into Ark. This is the deposit amount, not the spendable balance you will receive.").font(.subheadline)
+                DisclosureGroup("How boarding fees work") {
+                    Text("1. Network fee: added to your deposit and paid from the on-chain wallet to get the funding transaction confirmed.")
+                    Text("2. Recovery funding: deducted from the deposit. It funds the recovery anchor and a reserved miner fee, so this portion is not available to spend in Ark.")
+                    Text("The recovery anchor is the larger of the server’s boarding fee and the protocol’s minimum anchor. The server fee is not charged again on top of that anchor.")
+                    Text("Small deposits can leave little spendable XBT because recovery funding has a minimum. The deduction is not all operator revenue. Later Ark payments and withdrawals may require additional recovery funding and fees.")
+                    Text("The app uses the backend’s regular network fee estimate. Custom fee rates and a guaranteed maximum spendable amount are not available. Review the actual amounts below; quotes expire after 60 seconds.")
+                }.font(.subheadline)
+                Text("On-chain debit = deposit + network fee. Spendable Ark = deposit − recovery funding.").font(.caption).foregroundStyle(PaperclipTheme.muted)
                 TextField(unit.amountPrompt, text: $amount).keyboardType(.decimalPad)
                 Button("Review board") { store.run {
                     boardTotal = nil
@@ -265,12 +276,29 @@ struct ArkToolsView: View {
                     boardNet = (quote["net_sat"] as? NSNumber)?.uint64Value
                     boardReserve = (quote["reserve_sat"] as? NSNumber)?.uint64Value
                     boardNetworkFee = (quote["network_fee_sat"] as? NSNumber)?.uint64Value
+                    boardDeposit = (quote["board_amount_sat"] as? NSNumber)?.uint64Value
+                    boardAnchor = (quote["recovery_anchor_sat"] as? NSNumber)?.uint64Value
+                    boardMinerReserve = (quote["recovery_miner_fee_sat"] as? NSNumber)?.uint64Value
+                    boardFeeThreshold = (quote["boarding_fee_sat"] as? NSNumber)?.uint64Value
                 } }
                 if let boardTotal {
-                    LabeledContent("Network fee (added)", value: unit.display(boardNetworkFee))
-                    LabeledContent("Boarding / recovery deduction", value: unit.display(boardReserve))
-                    LabeledContent("Total on-chain debit", value: unit.display(boardTotal))
-                    LabeledContent("Available on Ark after confirmation", value: unit.display(boardNet))
+                    Divider()
+                    LabeledContent("Deposit into Ark", value: unit.display(boardDeposit))
+                    LabeledContent("Network fee · added", value: unit.display(boardNetworkFee))
+                    LabeledContent("Leaves on-chain wallet", value: unit.display(boardTotal)).font(.headline)
+                    Divider()
+                    LabeledContent("Recovery funding · deducted", value: unit.display(boardReserve))
+                    LabeledContent("Spendable in Ark", value: unit.display(boardNet)).font(.headline)
+                    DisclosureGroup("Recovery funding breakdown") {
+                        LabeledContent("Funded recovery anchor", value: unit.display(boardAnchor))
+                        LabeledContent("Reserved recovery miner fee", value: unit.display(boardMinerReserve))
+                        LabeledContent("Server fee threshold · included", value: unit.display(boardFeeThreshold))
+                        Text("The server fee threshold is included in the anchor above, not an extra deduction. Recovery funding is not spendable Ark balance or a guaranteed refund.").font(.caption)
+                    }
+                    if let net = boardNet, boardTotal > 0 {
+                        Text("\(unit.display(boardTotal - min(net, boardTotal))) goes to network fees and reserved recovery funding (\(Int((Double(boardTotal - min(net, boardTotal)) / Double(boardTotal) * 100).rounded()))% of the on-chain debit).")
+                            .font(.caption).foregroundStyle(PaperclipTheme.muted)
+                    }
                     Text("Requires the server’s boarding confirmations. Quote expires after 60 seconds.").font(.caption)
                     Button("Confirm board") { action = "board"; confirming = true }
                 }

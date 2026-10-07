@@ -1,11 +1,6 @@
 import SwiftUI
 import PaperclipMobile
 
-private struct PendingNodePayment: Codable {
-    let invoice: String
-    let hash: String
-}
-
 struct LightningView: View {
     @AppStorage("displayUnit") private var unit: BitcoinUnit = .sats
     @EnvironmentObject var store: WalletStore
@@ -23,13 +18,19 @@ struct LightningView: View {
     @State private var balanceStatus = ""
     @State private var payInvoice = ""
     @State private var maximumFee = ""
+    @State private var payOffer = false
+    @State private var offerNeedsAmount = false
+    @State private var offerAmount = ""
+    @State private var resolvedInvoice: String?
+    @State private var reviewedPayment: LightningPaymentReview?
+    @State private var reviewDescription = ""
     @State private var reviewedHash: String?
     @State private var reviewAmount = ""
     @State private var confirming = false
-    @State private var pending: PendingNodePayment?
+    @ObservedObject private var payments = LightningPaymentMonitor.shared
+    private var pending: PendingNodePayment? { payments.pending }
     @State private var status = ""
     private let configAccount = "lightning-connection-v1"
-    private let pendingAccount = "lightning-pending-v1"
     var body: some View {
         ScrollView {
           VStack(spacing: 20) {
@@ -58,8 +59,14 @@ struct LightningView: View {
                         Button { page = .receive } label: { Label("Receive", systemImage: "arrow.down.left").frame(maxWidth: .infinity) }.modifier(GlassAction())
                     }
                 }
-                Button("Payment status & reconciliation") { page = .status }
-                if pending != nil { Label("A payment needs checking", systemImage: "clock").font(.caption) }
+                Button("Payment status") { page = .status }
+                if pending != nil { Label("Payment in progress · checking automatically", systemImage: "clock").font(.caption) }
+            }
+            if !payments.status.isEmpty {
+                WalletSection(pending == nil ? "Last payment" : "Current payment") {
+                    if payments.checking { ProgressView("Checking payment…") }
+                    Text(payments.status).font(.subheadline)
+                }
             }
             WalletSection { if store.busy { ProgressView() }; Text(store.message).font(.caption) }
           }.padding(22).textFieldStyle(WalletInputStyle())
@@ -82,21 +89,36 @@ struct LightningView: View {
                     .sheet(isPresented: $scanning) {
                         QRScannerView { value in
                             let normalized = PaymentInput.normalized(value)
-                            if PaymentInput.isBolt11(normalized) { payInvoice = normalized }
-                            else { status = "Scan a BOLT11 invoice to pay from your Lightning node." }
+                            if normalized.lowercased().hasPrefix("lno1"), connection.implementation == .cln {
+                                payOffer = true; payInvoice = normalized
+                            } else if PaymentInput.isBolt11(normalized) || (normalized.lowercased().hasPrefix("lni1") && connection.implementation == .cln) {
+                                payOffer = false; payInvoice = normalized
+                            } else { status = "Scan a Lightning invoice or a BOLT12 offer. Offers require Core Lightning." }
                         }
                     }
             }
             .task { await load() }
+            .onChange(of: payments.completedHash) { _, _ in
+                status = payments.status; resolvedInvoice = nil; reviewedHash = nil
+                Task { await refreshBalance() }
+            }
             .onChange(of: unit) { old, new in
                 amount = old.parse(amount).map { new.input($0) } ?? ""
+                offerAmount = old.parse(offerAmount).map { new.input($0) } ?? ""
                 maximumFee = old.parse(maximumFee).map { new.input($0) } ?? new.input(100)
                 reviewedHash = nil; receiveInvoice = ""
             }
             .onChange(of: receiveOffer) { _, _ in receiveInvoice = "" }
             .onChange(of: amount) { _, _ in receiveInvoice = "" }
             .onChange(of: offerDescription) { _, _ in receiveInvoice = "" }
-            .onChange(of: payInvoice) { _, _ in reviewedHash = nil }
+            .onChange(of: payInvoice) { _, value in
+                reviewedHash = nil; resolvedInvoice = nil; offerNeedsAmount = false
+                let request = PaymentInput.normalized(value).lowercased()
+                if request.hasPrefix("lno1") { payOffer = true }
+                else if request.hasPrefix("lni1") || PaymentInput.isBolt11(request) { payOffer = false }
+            }
+            .onChange(of: payOffer) { _, _ in reviewedHash = nil; resolvedInvoice = nil; offerNeedsAmount = false }
+            .onChange(of: offerAmount) { _, _ in reviewedHash = nil; resolvedInvoice = nil }
             .onChange(of: maximumFee) { _, _ in reviewedHash = nil }
             .onChange(of: connection) { old, _ in if !old.endpoint.isEmpty { client = nil; reviewedHash = nil; balance = nil; receiveInvoice = ""; receiveOffer = false } }
 
@@ -149,36 +171,49 @@ struct LightningView: View {
     }
     private var payCard: some View {
         WalletSection("Pay from your node") {
+                    if connection.implementation == .cln {
+                        Picker("Payment type", selection: $payOffer) {
+                            Text("Invoice").tag(false); Text("BOLT12 offer").tag(true)
+                        }.pickerStyle(.segmented).disabled(pending != nil)
+                    } else { Text("This LND connection supports BOLT11 payments. Use Core Lightning for BOLT12 offers.").font(.caption) }
                     Button { scanning = true } label: { Label("Scan QR code", systemImage: "qrcode.viewfinder") }.disabled(pending != nil)
-                    TextField("BOLT11 invoice", text: $payInvoice, axis: .vertical).textInputAutocapitalization(.never).autocorrectionDisabled()
+                    TextField(payOffer ? "BOLT12 offer (lno1…)" : "Lightning invoice", text: $payInvoice, axis: .vertical).textInputAutocapitalization(.never).autocorrectionDisabled()
+                    if payOffer {
+                        Text("Review requests an invoice from the offer issuer. No payment is sent until you confirm.").font(.caption)
+                        if offerNeedsAmount { TextField(unit.amountPrompt, text: $offerAmount).keyboardType(.decimalPad) }
+                    }
                     TextField("Maximum routing fee in \(unit.title)", text: $maximumFee).keyboardType(.decimalPad)
-                    Button("Review invoice") { review() }.disabled(pending != nil)
+                    Button(payOffer ? "Request invoice & review" : "Review invoice") { review() }.disabled(pending != nil)
                     if reviewedHash != nil {
+                        if !reviewDescription.isEmpty { Text(reviewDescription).font(.subheadline).textSelection(.enabled) }
                         LabeledContent("Amount", value: reviewAmount)
                         LabeledContent("Maximum fee", value: "\(maximumFee) \(unit.title)")
                         Button("Confirm Lightning payment") { confirming = true }.disabled(pending != nil)
                     }
-                    if !status.isEmpty { Text(status).font(.caption).textSelection(.enabled) }
+                    if pending != nil { Text(payments.status).font(.caption).textSelection(.enabled) }
+                    if !status.isEmpty && pending == nil { Text(status).font(.caption).textSelection(.enabled) }
                 }
     }
     private var statusCard: some View {
         WalletSection("Payment status") {
-                    if let pending { Text("An attempt is recorded for \(pending.hash). Check the node before another payment.").font(.caption.monospaced()) }
-                    Button("Reconcile node payments") { reconcile() }
-                    Text(status).font(.caption).textSelection(.enabled)
+                    if let pending { Text("Tracking payment \(pending.hash).").font(.caption.monospaced()) }
+                    Text(payments.status.isEmpty ? "No pending payment. Paperclip checks new payments automatically while open." : payments.status).font(.subheadline)
+                    if payments.checking { ProgressView("Checking with your node…") }
+                    if let checked = payments.lastChecked { Text("Last checked \(checked.formatted(date: .omitted, time: .shortened))").font(.caption) }
+                    Button("Check now") { Task { await payments.checkNow() } }.disabled(payments.checking || pending == nil)
                 }
     }
     private func load() async {
         if maximumFee.isEmpty { maximumFee = unit.input(100) }
         do {
             if let data = try WalletKeychain.read(configAccount) { connection = try JSONDecoder().decode(LightningConnection.self, from: data) }
-            if let data = try WalletKeychain.read(pendingAccount), !data.isEmpty { pending = try JSONDecoder().decode(PendingNodePayment.self, from: data) }
+            payments.load()
             if !connection.endpoint.isEmpty {
                 let selected = connection
                 let node = try await makeNode()
                 guard selected == connection else { return }
                 let info = try JSONSerialization.jsonObject(with: await node.info()) as? [String: Any] ?? [:]
-                client = node
+                client = node; payments.useNode(node)
                 nodeName = info["alias"] as? String ?? connection.implementation.title
                 await refreshBalance()
             }
@@ -208,46 +243,70 @@ struct LightningView: View {
                 guard chains.contains(where: { $0["chain"] == "bitcoin" && $0["network"] == (store.network == "xbt-mainnet" ? "mainnet" : "regtest") }) else { throw WalletFailure(message: "Node network does not match the wallet.") }
             }
             try WalletKeychain.save(JSONEncoder().encode(connection), account: configAccount)
-            client = node; nodeName = info["alias"] as? String ?? connection.implementation.title
+            client = node; payments.useNode(node); nodeName = info["alias"] as? String ?? connection.implementation.title
             page = nil; store.message = "Lightning node connected."
             await refreshBalance()
         }
     }
     private func review() {
+        let request = PaymentInput.normalized(payInvoice), feeText = maximumFee, selectedUnit = unit, chosenAmount = offerAmount
+        let isOffer = payOffer || request.lowercased().hasPrefix("lno1")
         store.run {
-            reviewedHash = nil
-            guard let client, unit.parse(maximumFee) != nil, payInvoice.lowercased().hasPrefix(store.network == "xbt-mainnet" ? "lnbc" : "lnbcrt"),
-                  !payInvoice.contains(where: \.isWhitespace) else { throw WalletFailure(message: "Enter a BOLT11 invoice for this network and a whole-sat fee limit.") }
-            let review = try LightningPaymentReview.decode(await client.decode(payInvoice), implementation: connection.implementation)
-            guard let fee = unit.parse(maximumFee), fee <= UInt64.max / 1000 else { throw WalletFailure(message: "Fee limit is too large.") }
-            let millis = review.millisatoshis
-            reviewAmount = "\(unit.display(millis / 1000))\(millis % 1000 == 0 ? "" : " + \(millis % 1000) msat")"
-            reviewedHash = review.hash
+            reviewedHash = nil; resolvedInvoice = nil; reviewedPayment = nil; status = ""
+            do {
+                guard let client, let fee = selectedUnit.parse(feeText), fee <= UInt64.max / 1000,
+                      !request.contains(where: \.isWhitespace) else { throw WalletFailure(message: "Enter a Lightning request and a valid fee limit.") }
+                var invoice = request
+                var expectedMsat: UInt64?
+                if isOffer {
+                    guard connection.implementation == .cln else { throw WalletFailure(message: "BOLT12 offers require Core Lightning.") }
+                    let offer = try LightningOfferReview.decode(await client.decode(request))
+                    expectedMsat = offer.amountMsat
+                    if expectedMsat == nil {
+                        offerNeedsAmount = true
+                        guard let sats = selectedUnit.parse(chosenAmount), sats > 0, sats <= UInt64.max / 1000 else {
+                            status = "This offer has no fixed amount. Enter an amount, then request an invoice."; return
+                        }
+                        expectedMsat = sats * 1000
+                    }
+                    invoice = try await client.fetchOfferInvoice(request, amountMsat: expectedMsat)
+                } else {
+                    guard request.lowercased().hasPrefix(store.network == "xbt-mainnet" ? "lnbc" : "lnbcrt") ||
+                          (connection.implementation == .cln && request.lowercased().hasPrefix("lni1")) else {
+                        throw WalletFailure(message: "Enter an invoice for this network, or choose BOLT12 offer.")
+                    }
+                }
+                let decoded = try await client.decode(invoice)
+                let review = try LightningPaymentReview.decode(decoded, implementation: connection.implementation)
+                if let expectedMsat, expectedMsat != review.millisatoshis {
+                    throw WalletFailure(message: "The fetched invoice amount differs from the offer or requested amount. No payment was sent.")
+                }
+                guard request == PaymentInput.normalized(payInvoice), feeText == maximumFee, selectedUnit == unit, chosenAmount == offerAmount else { return }
+                let fields = try JSONSerialization.jsonObject(with: decoded) as? [String: Any] ?? [:]
+                reviewDescription = fields["offer_description"] as? String ?? fields["description"] as? String ?? ""
+                let millis = review.millisatoshis
+                reviewAmount = "\(unit.display(millis / 1000))\(millis % 1000 == 0 ? "" : " + \(millis % 1000) msat")"
+                resolvedInvoice = invoice; reviewedPayment = review; reviewedHash = review.hash
+            } catch { status = error.localizedDescription }
         }
     }
     private func pay() {
         store.run {
-            guard let client, let hash = reviewedHash, let fee = unit.parse(maximumFee), pending == nil else { return }
-            let attempt = PendingNodePayment(invoice: payInvoice, hash: hash)
-            try WalletKeychain.save(JSONEncoder().encode(attempt), account: pendingAccount)
-            pending = attempt; reviewedHash = nil
+            guard let client, let hash = reviewedHash, let invoice = resolvedInvoice, let reviewedPayment,
+                  let fee = unit.parse(maximumFee), pending == nil else { return }
+            // Revalidate expiry and bind the saved attempt to the exact reviewed invoice.
+            let current = try LightningPaymentReview.decode(await client.decode(invoice), implementation: connection.implementation)
+            guard current == reviewedPayment else { throw WalletFailure(message: "Invoice changed or expired. Review again.") }
+            let attempt = PendingNodePayment(invoice: invoice, hash: hash)
+            try payments.record(attempt)
+            reviewedHash = nil
             do {
                 let result = try JSONSerialization.jsonObject(with: await client.pay(attempt.invoice, maximumFee: fee)) as? [String: Any] ?? [:]
-                status = result["status"] as? String ?? ((result["payment_error"] as? String ?? "").isEmpty ? "Submitted. Reconcile to confirm." : "Node reported a payment error. Reconcile before another attempt.")
-            } catch { status = "Payment outcome is unknown. Reconcile the saved attempt before another payment." }
-        }
-    }
-    private func reconcile() {
-        store.run {
-            guard let client else { return }
-            let data = try await client.payments()
-            guard let attempt = pending else { status = "Node payment history checked."; return }
-            if let terminal = try LightningPaymentState.terminalState(in: data, hash: attempt.hash, implementation: connection.implementation) {
-                try WalletKeychain.save(Data(), account: pendingAccount)
-                pending = nil; status = "Saved payment: \(terminal)"
-            } else {
-                status = "The saved attempt is still pending or absent from history. Inspect the node before another attempt."
-            }
+                status = result["status"] as? String ?? ((result["payment_error"] as? String ?? "").isEmpty ? "Submitted. Checking automatically." : "Node reported an error. Checking the final outcome automatically.")
+            } catch { status = "Payment outcome is not confirmed yet. Paperclip will check automatically without resending." }
+            payments.submissionFinished()
+            await payments.checkNow()
+            if pending == nil { status = payments.status }
         }
     }
 }

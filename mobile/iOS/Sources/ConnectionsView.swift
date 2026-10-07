@@ -89,6 +89,7 @@ struct ConnectionsView: View {
                         store.message = "Connection saved for your wallet."
                         dismiss()
                     } else {
+                        store.chainReachable = false; store.chainChecked = nil
                         try await store.engine.connect(connection)
                         try await store.synchronize()
                     }

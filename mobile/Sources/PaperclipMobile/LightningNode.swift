@@ -75,8 +75,10 @@ public actor LightningNode {
         }
         session = URLSession(configuration: configuration, delegate: NodeSessionDelegate(pin: connection.certificateSHA256), delegateQueue: nil)
     }
-    private func request(_ path: String, body: [String: Any]? = nil) async throws -> [String: Any] {
-        let url = URL(string: connection.endpoint)!.appendingPathComponent(path)
+    private func request(_ path: String, body: [String: Any]? = nil, query: [URLQueryItem] = []) async throws -> [String: Any] {
+        var components = URLComponents(url: URL(string: connection.endpoint)!.appendingPathComponent(path), resolvingAgainstBaseURL: false)!
+        if !query.isEmpty { components.queryItems = query }
+        guard let url = components.url else { throw ConnectionError.response }
         var request = URLRequest(url: url)
         request.httpMethod = body == nil ? "GET" : "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -116,6 +118,22 @@ public actor LightningNode {
         return ["amount": amount.map { "\($0 * 1000)msat" } ?? "any",
             "description": description, "label": "paperclip-" + UUID().uuidString]
     }
+    public func fetchOfferInvoice(_ offer: String, amountMsat: UInt64?) async throws -> String {
+        guard connection.implementation == .cln else {
+            throw LightningNodeError(message: "BOLT12 offer payments require a Core Lightning connection in this app.")
+        }
+        let result = try await request("v1/fetchinvoice", body: Self.fetchOfferParameters(offer, amountMsat: amountMsat))
+        guard let invoice = result["invoice"] as? String, invoice.lowercased().hasPrefix("lni1"),
+              !invoice.contains(where: \.isWhitespace) else { throw ConnectionError.response }
+        return invoice
+    }
+    nonisolated static func fetchOfferParameters(_ offer: String, amountMsat: UInt64?) throws -> [String: Any] {
+        guard offer.lowercased().hasPrefix("lno1"), !offer.contains(where: \.isWhitespace),
+              amountMsat.map({ $0 > 0 }) ?? true else { throw ConnectionError.response }
+        var fields: [String: Any] = ["offer": offer, "timeout": 45]
+        if let amountMsat { fields["amount_msat"] = "\(amountMsat)msat" }
+        return fields
+    }
     public func invoice(amount: UInt64) async throws -> String {
         guard amount > 0, amount <= UInt64.max / 1000 else { throw ConnectionError.response }
         let cln = connection.implementation == .cln
@@ -139,9 +157,32 @@ public actor LightningNode {
             : ["payment_request": invoice, "fee_limit": ["fixed": String(maximumFee)]])
         return try JSONSerialization.data(withJSONObject: result, options: [.sortedKeys, .prettyPrinted])
     }
-    public func payments() async throws -> Data {
-        let result = try await request(connection.implementation == .cln ? "v1/listpays" : "v1/payments",
-            body: connection.implementation == .cln ? [:] : nil)
-        return try JSONSerialization.data(withJSONObject: result, options: [.sortedKeys, .prettyPrinted])
+    public func payments(hash: String? = nil) async throws -> Data {
+        if let hash { guard hash.count == 64, hash.allSatisfy(\.isHexDigit) else { throw ConnectionError.response } }
+        if connection.implementation == .cln {
+            let fields: [String: Any] = hash.map { ["payment_hash": $0] } ?? [:]
+            return try JSONSerialization.data(withJSONObject: await request("v1/listpays", body: fields))
+        }
+        // Include failed and in-flight payments. Scan bounded pages backwards so
+        // old attempts survive restart without repeatedly downloading all history.
+        var offset = "0"
+        var rows: [[String: Any]] = []
+        for _ in 0..<20 {
+            let result = try await request("v1/payments", query: [
+                URLQueryItem(name: "include_incomplete", value: "true"),
+                URLQueryItem(name: "reversed", value: "true"),
+                URLQueryItem(name: "max_payments", value: "100"),
+                URLQueryItem(name: "index_offset", value: offset),
+            ])
+            guard let page = result["payments"] as? [[String: Any]] else { throw ConnectionError.response }
+            if let hash {
+                rows += page.filter { ($0["payment_hash"] as? String)?.lowercased() == hash.lowercased() }
+                if !rows.isEmpty { break }
+            } else { rows += page; break }
+            let next = (result["first_index_offset"] as? String) ?? (result["first_index_offset"] as? NSNumber)?.stringValue
+            guard !page.isEmpty, let next, next != "0", next != offset else { break }
+            offset = next
+        }
+        return try JSONSerialization.data(withJSONObject: ["payments": rows])
     }
 }

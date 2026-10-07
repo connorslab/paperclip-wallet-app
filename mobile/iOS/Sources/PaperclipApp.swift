@@ -6,6 +6,7 @@ import PaperclipMobile
     @StateObject private var maintenance = Maintenance.shared
     @StateObject private var store = WalletStore()
     @StateObject private var lock = WalletLock()
+    @StateObject private var nodePayments = LightningPaymentMonitor.shared
     @AppStorage("appearance") private var appearance = "system"
     @AppStorage("walletLock") private var lockEnabled = true
     init() {
@@ -37,6 +38,7 @@ import PaperclipMobile
                 }
                 #endif
                 await store.load()
+                nodePayments.setForeground(true)
                 if store.hasWallet && lockEnabled { await lock.unlock() }
                 if store.hasWallet {
                     await store.engine.setForeground(true)
@@ -48,12 +50,13 @@ import PaperclipMobile
             }
             .onChange(of: scene) { _, phase in
                 if phase == .active {
+                    nodePayments.setForeground(true)
                     Task {
                         await store.engine.setForeground(true)
                         if store.hasWallet && lockEnabled && !lock.unlocked { await lock.unlock() }
                         if store.hasWallet { await maintenance.update(automatic: UserDefaults.standard.bool(forKey: "automaticRefresh")) }
                     }
-                } else if phase == .background { lock.unlocked = false; maintenance.schedule(); Task { await store.engine.setForeground(false) } }
+                } else if phase == .background { nodePayments.setForeground(false); lock.unlocked = false; maintenance.schedule(); Task { await store.engine.setForeground(false) } }
             }
         }
     }
@@ -89,7 +92,12 @@ struct DashboardView: View {
             VStack(alignment: .leading, spacing: 22) {
                 WalletBrand()
                 HStack {
-                    Label(store.network == "xbt-mainnet" ? "XBT MAINNET" : "REGTEST", systemImage: "circle.fill").font(.caption2).tracking(2)
+                    Label {
+                        Text(store.network == "xbt-mainnet" ? "XBT MAINNET" : "REGTEST")
+                    } icon: {
+                        Image(systemName: "circle.fill").foregroundStyle(store.chainConnected ? Color.green : PaperclipTheme.muted)
+                    }.font(.caption2).tracking(2)
+                        .accessibilityLabel("\(store.network == "xbt-mainnet" ? "XBT mainnet" : "Regtest"). \(store.chainConnectionDescription)")
                     Spacer()
                     Button { hideBalance.toggle() } label: { Image(systemName: hideBalance ? "eye.slash" : "eye") }.accessibilityLabel("Toggle balance visibility")
                 }.foregroundStyle(PaperclipTheme.muted)

@@ -103,6 +103,7 @@ mod tests {
 		let mut state = None;
 		let create = json!({"op": "create", "network": "xbt-regtest", "directory": original});
 		dispatch(&mut state, create.clone(), seed).unwrap();
+		assert!(dispatch(&mut state, json!({"op": "chain_health"}), seed).is_err());
 		let overview = dispatch(&mut state, json!({"op": "overview_onchain"}), seed).unwrap();
 		assert_eq!(overview["confirmed_sat"], 0);
 		assert_eq!(overview["unconfirmed_sat"], 0);
@@ -307,7 +308,7 @@ pub fn dispatch(state: &mut Option<Session>, request: Value, seed: [u8; 64]) -> 
 		}
 		if op == "config_template" { return Ok(serde_json::to_value(Config::network_default(network))?); }
 		let chain_wallet = wallet.as_ref().context("connect to a backend first")?;
-		let w = if matches!(op, "sync_onchain" | "quote_onchain" | "send_onchain" | "activity") {
+		let w = if matches!(op, "chain_health" | "sync_onchain" | "quote_onchain" | "send_onchain" | "activity") {
 			chain_wallet
 		} else { ark_wallet.as_ref().unwrap_or(chain_wallet) };
 		if op == "receive_listen" {
@@ -372,6 +373,12 @@ pub fn dispatch(state: &mut Option<Session>, request: Value, seed: [u8; 64]) -> 
 					"vtxos": vtxos.iter().map(|v| json!({"id": v.id().to_string(), "expiryHeight": v.expiry_height(),
 						"spendable": v.state.kind() == bark::vtxo::VtxoStateKind::Spendable})).collect::<Vec<_>>() }))
 			},
+			"chain_health" => {
+				// Force a live backend read; cached balances must not imply connectivity.
+				chain_wallet.chain().invalidate_caches().await;
+				let tip = chain_wallet.chain().tip().await?;
+				Ok(json!({"connected": true, "tip": tip}))
+			},
 			"sync_onchain" => {
 				w.chain().invalidate_caches().await;
 				chain_wallet.sync_onchain().await.context("synchronizing on-chain backend")?;
@@ -392,7 +399,10 @@ pub fn dispatch(state: &mut Option<Session>, request: Value, seed: [u8; 64]) -> 
 				let psbt = onchain.write().await.prepare_tx(&[(address, Amount::from_sat(amount))], w.chain().fee_rates().await.regular).await?;
 				let total = amount.checked_add(psbt.fee()?.to_sat()).context("amount overflow")?;
 				*board_quote = Some((amount, total, reserve, psbt, key, expiry, Instant::now()));
-				Ok(json!({"total_sat": total, "net_sat": net, "reserve_sat": reserve, "network_fee_sat": total - amount}))
+				Ok(json!({"total_sat": total, "net_sat": net, "reserve_sat": reserve, "network_fee_sat": total - amount,
+					"board_amount_sat": amount, "boarding_fee_sat": estimate.fee.to_sat(),
+					"recovery_anchor_sat": estimate.fee.max(ark::exit_policy::paperclip_funding().anchor()).to_sat(),
+					"recovery_miner_fee_sat": ark::exit_policy::paperclip_funding().miner_fee().to_sat()}))
 			},
 			"board" => {
 				let (amount, total, reserve, psbt, key, expiry, time) = board_quote.take().context("review a board first")?;

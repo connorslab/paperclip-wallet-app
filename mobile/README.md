@@ -229,3 +229,39 @@ Boarding review separates the network fee added to the debit from the combined
 boarding/recovery deduction. The app currently uses the regular backend fee
 estimate, without a custom boarding fee-rate control. Small boards may incur a
 large relative cost; the net Ark amount is shown before confirmation.
+
+## BOLT12 payments from a Lightning node
+
+Lightning → Pay offers an Invoice / BOLT12 offer selector for Core Lightning.
+The client uses [`fetchinvoice`](https://docs.corelightning.org/reference/fetchinvoice)
+to obtain a single-payment invoice, checks its decoded amount and expiry, and shows
+its description for review. Fixed amounts come from the offer; an amountless offer
+requires user input. The app rechecks the invoice before saving a pending attempt,
+then uses CLN [`pay`](https://docs.corelightning.org/reference/pay) with a maximum
+routing fee. Only the fetched invoice is paid; the offer is never automatically
+resolved again during submission or reconciliation. Existing Tor routing applies.
+The node credential needs `decode`, `fetchinvoice`, `pay`, and `listpays` permission.
+LND offer payments and currency-priced, quantity, and recurring offers are not
+supported in this app. The UI reports these limitations before payment.
+
+Boarding review also exposes the deposit, network fee, actual funded anchor,
+reserved recovery miner fee, and server boarding-fee threshold. The deduction is
+`max(server boarding fee, minimum recovery anchor) + recovery miner fee`, not the
+sum of all three. The screen explains that recovery funding is not spendable Ark
+balance, not entirely operator revenue, and not a guaranteed refund. It shows the
+total on-chain debit and spendable Ark separately, including the percentage consumed
+by network fees and reserved funding. Later transfers can require additional funds.
+
+The app checks the configured on-chain backend every 30 seconds while the wallet
+screen is active. The network dot turns green only after a successful live read;
+failures or a result older than 75 seconds return it to neutral. Cached Ark balances
+do not establish on-chain connectivity.
+
+Lightning payment reconciliation runs app-wide every ten seconds while foregrounded,
+resumes saved attempts after restart, and checks immediately after submission. It
+never calls `pay` or resolves an offer again. Pending, missing, malformed, or failed
+network responses retain the durable attempt. A terminal node result clears it and
+refreshes the displayed capacity. CLN queries the exact payment hash; LND includes
+incomplete payments and scans up to twenty backwards pages of 100 payments. Older
+missing records remain uncertain and require node inspection. Background suspension
+pauses checking until Paperclip becomes active again.
