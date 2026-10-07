@@ -84,7 +84,6 @@ struct DashboardView: View {
     @AppStorage("displayUnit") private var unit: BitcoinUnit = .sats
     @EnvironmentObject var store: WalletStore
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var wallets = false
     @State private var sending = false
     @State private var receiving = false
     @State private var hideBalance = false
@@ -92,9 +91,6 @@ struct DashboardView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
                 WalletBrand()
-                Button { wallets = true } label: {
-                    WalletCard { WalletNavigationRow(store.selectedProfile?.name ?? "My wallet", subtitle: store.selectedProfile?.kind.title ?? "Mobile wallet", icon: store.selectedProfile?.kind.icon ?? "wallet.pass") }
-                }.buttonStyle(.plain).disabled(store.busy)
                 HStack {
                     Label {
                         Text(store.network == "xbt-mainnet" ? "XBT MAINNET" : "REGTEST")
@@ -147,7 +143,6 @@ struct DashboardView: View {
             .refreshable { guard !store.busy else { return }; store.run { try await store.synchronize() } }
             .animation(reduceMotion ? nil : .smooth(duration: 0.3), value: store.onchain)
             .sheet(isPresented: $sending) { NavigationStack { WalletSendView() } }
-            .sheet(isPresented: $wallets) { NavigationStack { WalletPickerView() } }
             .sheet(isPresented: $receiving) { NavigationStack { ReceiveView() } }
     }
     private var total: String {

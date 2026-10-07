@@ -62,7 +62,7 @@ backup. A backup does not prevent Ark expiry.
 
 ## Multiple wallets and QR hardware signing
 
-Tap the wallet card beneath the logo, or Settings → Your wallets, to switch, rename,
+Open Settings → Your wallets to switch, rename,
 or add a wallet. Existing installations migrate their catalog without moving the old
 Keychain entry or database. Each new wallet gets a separate database, key/identity entry,
 and on-chain/Ark connection settings. A switch closes the previous session and discards
