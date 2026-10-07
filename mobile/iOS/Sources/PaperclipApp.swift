@@ -169,10 +169,16 @@ struct ActivityView: View {
             }.pickerStyle(.segmented)
             if items.isEmpty { ContentUnavailableView("No activity loaded", systemImage: "clock", description: Text("Synchronize your wallet to load transactions.")) }
             ForEach(items) { item in
-                WalletCard {
-                    HStack { Text(item.title).font(.headline); Spacer(); Text(unit.signed(item.amountSat)).monospacedDigit() }
-                    Text(item.status).foregroundStyle(PaperclipTheme.orange)
-                    Text(item.detail).font(.caption2.monospaced()).textSelection(.enabled)
+                if !item.id.hasPrefix("ark-") {
+                    NavigationLink { OnchainTransactionView(transaction: item) } label: {
+                        WalletCard { OnchainTransactionRow(item: item) }
+                    }.buttonStyle(.plain)
+                } else {
+                    WalletCard {
+                        HStack { Text(item.title).font(.headline); Spacer(); Text(unit.signed(item.amountSat)).monospacedDigit() }
+                        Text(item.status).foregroundStyle(PaperclipTheme.orange)
+                        Text(item.detail).font(.caption2.monospaced()).textSelection(.enabled)
+                    }
                 }
             }
             Text(store.message).font(.caption)
@@ -211,13 +217,9 @@ struct OnchainOverviewView: View {
             WalletSection("On-chain transactions") {
                 if transactions.isEmpty { Text("No on-chain transactions in the saved wallet state.").foregroundStyle(.secondary) }
                 ForEach(transactions) { item in
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack { Text(item.status).foregroundStyle(PaperclipTheme.orange); Spacer(); Text(unit.signed(item.amountSat)).monospacedDigit() }
-                        Text(item.detail).font(.caption.monospaced()).textSelection(.enabled)
-                        Button("Copy transaction ID") {
-                            UIPasteboard.general.setItems([[UIPasteboard.typeAutomatic: item.id]], options: [.localOnly: true, .expirationDate: Date().addingTimeInterval(120)])
-                        }.buttonStyle(.borderless)
-                    }.padding(.vertical, 6)
+                    NavigationLink { OnchainTransactionView(transaction: item) } label: {
+                        OnchainTransactionRow(item: item)
+                    }.buttonStyle(.plain)
                 }
             }
           }.padding(22)
@@ -312,5 +314,71 @@ struct ArkOverviewView: View {
             store.message = (result["receive_warning"] as? String).map { "Pending receive: " + $0 } ?? "Ark synchronized."
             try await store.refreshActivity()
         }
+    }
+}
+
+struct OnchainTransactionRow: View {
+    @AppStorage("displayUnit") private var unit: BitcoinUnit = .sats
+    let item: ActivityItem
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: item.amountSat > 0 ? "arrow.down.left" : "arrow.up.right")
+                .foregroundStyle(PaperclipTheme.orange)
+            VStack(alignment: .leading, spacing: 5) {
+                Text(item.amountSat > 0 ? "Received" : item.amountSat < 0 ? "Sent" : "Wallet transaction").font(.headline)
+                Text(item.status).font(.caption).foregroundStyle(PaperclipTheme.muted)
+                Text(item.id).font(.caption2.monospaced()).lineLimit(1).truncationMode(.middle).foregroundStyle(PaperclipTheme.muted)
+            }
+            Spacer(minLength: 0)
+            Text(unit.signed(item.amountSat)).monospacedDigit()
+            Image(systemName: "chevron.right").font(.caption).foregroundStyle(PaperclipTheme.muted)
+        }.padding(.vertical, 6).contentShape(Rectangle())
+    }
+}
+
+struct OnchainTransactionView: View {
+    @EnvironmentObject var store: WalletStore
+    @AppStorage("displayUnit") private var unit: BitcoinUnit = .sats
+    let transaction: ActivityItem
+    @State private var copied = false
+    private var current: ActivityItem { store.activity.first { $0.id == transaction.id } ?? transaction }
+    private var explorerURL: URL? {
+        guard store.network == "xbt-mainnet", transaction.id.count == 64,
+              transaction.id.utf8.allSatisfy({ (48...57).contains($0) || (97...102).contains($0) || (65...70).contains($0) }) else { return nil }
+        return URL(string: "https://mempool.guide/tx/" + transaction.id)
+    }
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 22) {
+                WalletSection {
+                    Label("On-chain transaction", systemImage: "bitcoinsign.circle").foregroundStyle(PaperclipTheme.muted)
+                    Text(unit.signed(current.amountSat)).font(.largeTitle.bold()).minimumScaleFactor(0.6).lineLimit(1)
+                    Label(current.status, systemImage: current.status == "Confirmed" ? "checkmark.circle.fill" : "clock")
+                        .foregroundStyle(current.status == "Confirmed" ? .green : PaperclipTheme.orange)
+                    Text("Net change to your wallet balance, including any transaction fee paid by this wallet. Transfers between your own addresses may show only a fee.")
+                        .font(.caption).foregroundStyle(PaperclipTheme.muted)
+                }
+                WalletSection("Details") {
+                    LabeledContent("Network", value: store.network == "xbt-mainnet" ? "XBT mainnet" : "Test network")
+                    LabeledContent("Status", value: current.status)
+                    Text("Status reflects the last wallet synchronization.").font(.caption).foregroundStyle(PaperclipTheme.muted)
+                    Divider()
+                    Text("Transaction ID").font(.subheadline.bold())
+                    Text(transaction.id).font(.caption.monospaced()).textSelection(.enabled)
+                    Button(copied ? "Copied" : "Copy transaction ID") {
+                        UIPasteboard.general.setItems([[UIPasteboard.typeAutomatic: transaction.id]], options: [.localOnly: true, .expirationDate: Date().addingTimeInterval(120)])
+                        copied = true
+                    }.buttonStyle(.bordered)
+                }
+                if let explorerURL {
+                    WalletSection {
+                        Link(destination: explorerURL) {
+                            WalletNavigationRow("View on mempool.guide", subtitle: "Explore confirmations, inputs, outputs, and fees", icon: "arrow.up.right.square")
+                        }
+                        Text("Opens the public explorer in your browser.").font(.caption).foregroundStyle(PaperclipTheme.muted)
+                    }
+                }
+            }.padding(22)
+        }.background(PaperclipTheme.navy).navigationTitle("Transaction").navigationBarTitleDisplayMode(.inline)
     }
 }
