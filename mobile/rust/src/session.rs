@@ -271,7 +271,7 @@ pub fn dispatch(state: &mut Option<Session>, request: Value, seed: [u8; 64]) -> 
 				"immature_sat": balance.immature.to_sat(), "total_sat": balance.total().to_sat(),
 				"transactions": chain.list_transaction_infos()?.iter().map(|tx| json!({
 					"txid": tx.txid.to_string(), "change_sat": tx.balance_change.to_sat(),
-					"confirmed": tx.confirmation.is_some()
+					"confirmed": tx.confirmation.is_some(), "timestamp": tx.timestamp
 				})).collect::<Vec<_>>() }));
 		}
 		if op == "addresses_onchain" {
@@ -350,7 +350,7 @@ pub fn dispatch(state: &mut Option<Session>, request: Value, seed: [u8; 64]) -> 
 			"activity" => Ok(json!({"movements": db.get_all_movements().await?,
 				"onchain": onchain.read().await.list_transaction_infos()?.iter().map(|tx| json!({
 					"txid": tx.txid.to_string(), "change_sat": tx.balance_change.to_sat(),
-					"confirmed": tx.confirmation.is_some()
+					"confirmed": tx.confirmation.is_some(), "timestamp": tx.timestamp
 				})).collect::<Vec<_>>() })),
 			"sync" | "sync_ark" => {
 				w.chain().invalidate_caches().await;

@@ -244,8 +244,9 @@ struct OnchainOverviewView: View {
             transactions = (result["transactions"] as? [[String: Any]] ?? []).compactMap { row in
                 guard let txid = row["txid"] as? String, let amount = row["change_sat"] as? NSNumber else { return nil }
                 return ActivityItem(id: txid, title: "On-chain", status: row["confirmed"] as? Bool == true ? "Confirmed" : "Unconfirmed",
-                    amountSat: amount.int64Value, detail: txid)
+                    amountSat: amount.int64Value, detail: txid, date: ActivityItem.unixDate((row["timestamp"] as? NSNumber)?.doubleValue))
             }
+            transactions = ActivityItem.newestFirst(transactions)
         } catch { status = error.localizedDescription }
     }
     private func refresh() async {
@@ -327,6 +328,7 @@ struct OnchainTransactionRow: View {
             VStack(alignment: .leading, spacing: 5) {
                 Text(item.amountSat > 0 ? "Received" : item.amountSat < 0 ? "Sent" : "Wallet transaction").font(.headline)
                 Text(item.status).font(.caption).foregroundStyle(PaperclipTheme.muted)
+                if let date = item.date { Text(date.formatted(date: .abbreviated, time: .shortened)).font(.caption2).foregroundStyle(PaperclipTheme.muted) }
                 Text(item.id).font(.caption2.monospaced()).lineLimit(1).truncationMode(.middle).foregroundStyle(PaperclipTheme.muted)
             }
             Spacer(minLength: 0)
@@ -361,6 +363,7 @@ struct OnchainTransactionView: View {
                 WalletSection("Details") {
                     LabeledContent("Network", value: store.network == "xbt-mainnet" ? "XBT mainnet" : "Test network")
                     LabeledContent("Status", value: current.status)
+                    if let date = current.date { LabeledContent("Recorded", value: date.formatted(date: .abbreviated, time: .shortened)) }
                     Text("Status reflects the last wallet synchronization.").font(.caption).foregroundStyle(PaperclipTheme.muted)
                     Divider()
                     Text("Transaction ID").font(.subheadline.bold())

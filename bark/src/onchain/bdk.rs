@@ -395,6 +395,12 @@ impl OnchainWallet {
 				ChainPosition::Unconfirmed { .. } => None,
 			};
 
+			let timestamp = match canon.chain_position {
+				ChainPosition::Confirmed { anchor, transitively: None } => Some(anchor.confirmation_time),
+				ChainPosition::Unconfirmed { first_seen, .. } => first_seen,
+				_ => None,
+			}.filter(|time| *time > 0);
+
 			let (sent, received) = self.inner.sent_and_received(&tx);
 			let balance_change = received.to_signed().context("received overflow")?
 				- sent.to_signed().context("sent overflow")?;
@@ -413,6 +419,7 @@ impl OnchainWallet {
 				onchain_fees,
 				balance_change,
 				confirmation,
+				timestamp,
 				is_cpfp,
 			});
 		}
