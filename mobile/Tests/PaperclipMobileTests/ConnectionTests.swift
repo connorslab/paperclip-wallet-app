@@ -32,13 +32,13 @@ final class ConnectionTests: XCTestCase {
             XCTAssertFalse(SeedVerification.matches(phrase: phrase, confirmation: phrase))
         }
     }
-    func testSeparateArkRPCRequiresTLSAndNeverBypassesTor() throws {
+    func testSeparateArkRPCSupportsHTTPAndNeverBypassesTor() throws {
         var connection = WalletConnection()
         var rpc = ArkRPCConnection()
         rpc.username = "wallet"; rpc.password = "test-credential"
-        rpc.endpoint = "http://rpc.example"
+        rpc.endpoint = "http://192.168.1.10:8332"
         connection.arkRPC = rpc
-        XCTAssertThrowsError(try connection.validate())
+        XCTAssertNoThrow(try connection.validate())
         rpc.endpoint = "https://rpc.example"
         connection.arkRPC = rpc
         XCTAssertNoThrow(try connection.validate())
@@ -51,6 +51,23 @@ final class ConnectionTests: XCTestCase {
         var legacy = try JSONSerialization.jsonObject(with: encoded) as! [String: Any]
         legacy.removeValue(forKey: "arkRPC")
         XCTAssertNil(try JSONDecoder().decode(WalletConnection.self, from: JSONSerialization.data(withJSONObject: legacy)).arkRPC)
+    }
+    func testOnchainRPCHTTPStillValidatesCredentialsAndEndpoint() throws {
+        var connection = WalletConnection()
+        connection.backend = .rpc
+        connection.username = "wallet"
+        connection.password = "test-credential"
+        for endpoint in ["http://192.168.1.10:8332", "http://node.local:8332", "http://127.0.0.1:18443", "http://[::1]:18443", "https://rpc.example"] {
+            connection.endpoint = endpoint
+            XCTAssertNoThrow(try connection.validate())
+        }
+        for endpoint in ["http://user:password@node.local:8332", "http://node.local:8332?secret=value", "http://node.onion:8332"] {
+            connection.endpoint = endpoint
+            XCTAssertThrowsError(try connection.validate())
+        }
+        connection.endpoint = "http://node.local:8332"
+        connection.password = ""
+        XCTAssertThrowsError(try connection.validate())
     }
     func testLightningCredentialAndPinValidation() {
         var config = LightningConnection()

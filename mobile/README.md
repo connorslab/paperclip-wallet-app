@@ -36,7 +36,6 @@ backup. A backup does not prevent Ark expiry.
 ## Connections
 
 - Default: `ssl://pool.paperclippool.xyz:50002` (operator is preparing this endpoint).
-- Alternative: `ssl://fulcrum.kilombino.com:17717`.
 - Custom Electrum TLS/TCP, Esplora HTTP(S), and authenticated XBT Knots RPC.
 - Ark default: `https://ark.paperclippool.xyz`.
 - Core Lightning CLNRest with a rune, or LND REST with a hex macaroon.
@@ -54,8 +53,11 @@ SOCKS. CLN/LND use the OS SOCKS configuration with direct failover disabled. Ark
 the engine's SOCKS transport. The engine deliberately bypasses Tor for literal
 loopback endpoints. Knots RPC over Tor is rejected because the upstream async RPC
 transport does not support the proxy; it is never silently sent directly.
-RPC uses HTTPS-capable transports for both async operations and synchronous chain
-scans, with redirects disabled. The upstream async client requires a username and
+On-chain and separate Ark RPC accept explicit HTTP endpoints for local nodes and
+testing, as well as HTTPS. HTTP sends RPC credentials without encryption, so use
+it only on a trusted network. On an iPhone, use the node's LAN address; localhost
+refers to the phone itself. RPC uses HTTP(S) transports for async operations and
+synchronous chain scans, with redirects disabled. The upstream async client requires a username and
 password; configure restricted gateway credentials rather than node admin access.
 
 Ark can use an Electrum server with package-relay support. Before admitting new

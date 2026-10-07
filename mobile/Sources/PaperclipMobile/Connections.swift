@@ -40,7 +40,7 @@ public struct WalletConnection: Codable, Equatable, Sendable {
         if arkRPC != nil && useTor { throw ConnectionError.unsupportedTor }
         _ = try EndpointPolicy.validate(arkServer, tor: useTor)
         _ = try EndpointPolicy.validate(endpoint, tor: useTor, electrum: backend == .electrum,
-            credentials: backend == .rpc && (!username.isEmpty || !password.isEmpty))
+            credentials: backend == .rpc && (!username.isEmpty || !password.isEmpty), allowHTTP: true)
         if useTor { _ = try EndpointPolicy.proxy(torProxy) }
         if !certificateSHA256.isEmpty {
             guard certificateSHA256.count == 64, certificateSHA256.allSatisfy(\.isHexDigit) else { throw ConnectionError.invalidCredential }
@@ -56,13 +56,12 @@ public struct ArkRPCConnection: Codable, Equatable, Sendable {
     public init() {}
     public func validate() throws {
         guard !username.isEmpty, !password.isEmpty else { throw ConnectionError.invalidCredential }
-        let url = try EndpointPolicy.validate(endpoint, tor: false, credentials: true)
-        guard url.scheme == "https" else { throw ConnectionError.insecureCredentials }
+        _ = try EndpointPolicy.validate(endpoint, tor: false, credentials: true, allowHTTP: true)
     }
 }
 
 public enum EndpointPolicy {
-    public static func validate(_ text: String, tor: Bool, electrum: Bool = false, credentials: Bool = false) throws -> URL {
+    public static func validate(_ text: String, tor: Bool, electrum: Bool = false, credentials: Bool = false, allowHTTP: Bool = false) throws -> URL {
         guard text == text.trimmingCharacters(in: .whitespacesAndNewlines),
               let url = URL(string: text), let host = url.host, !host.isEmpty,
               let scheme = url.scheme?.lowercased(),
@@ -72,7 +71,7 @@ public enum EndpointPolicy {
         let onion = host.lowercased().hasSuffix(".onion")
         if onion && !tor { throw ConnectionError.onionNeedsTor }
         if electrum && (url.port == nil || (!url.path.isEmpty && url.path != "/")) { throw ConnectionError.invalidEndpoint }
-        if credentials && scheme != "https" && !(onion && tor) { throw ConnectionError.insecureCredentials }
+        if credentials && scheme != "https" && !(allowHTTP && scheme == "http") && !(onion && tor) { throw ConnectionError.insecureCredentials }
         return url
     }
     public static func proxy(_ text: String) throws -> URL {

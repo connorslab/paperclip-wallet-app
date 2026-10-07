@@ -12,12 +12,11 @@ struct ConnectionsView: View {
         Form {
             Section("On-chain") {
                 Picker("Backend", selection: $settings.backend) { ForEach(ChainBackend.allCases, id: \.self) { Text($0.title).tag($0) } }
-                TextField(settings.backend == .electrum ? "ssl://host:port" : "https://host", text: $settings.endpoint)
+                TextField(settings.backend == .electrum ? "ssl://host:port" : "http://host or https://host", text: $settings.endpoint)
                     .textInputAutocapitalization(.never).autocorrectionDisabled()
                     .accessibilityIdentifier("chain-endpoint")
                 if settings.backend == .electrum {
                     Button("Use Paperclip Pool (default)") { settings.endpoint = "ssl://pool.paperclippool.xyz:50002"; settings.certificateSHA256 = "" }
-                    Button("Use Kilombino") { settings.endpoint = "ssl://fulcrum.kilombino.com:17717"; settings.certificateSHA256 = "" }
                     TextField("Certificate SHA256 (optional)", text: $settings.certificateSHA256)
                         .textInputAutocapitalization(.never).autocorrectionDisabled()
                     Text("For self-signed TLS, obtain the certificate fingerprint from the server operator. A changed certificate will block the connection.").font(.caption)
@@ -25,6 +24,9 @@ struct ConnectionsView: View {
                 if settings.backend == .rpc {
                     TextField("RPC username", text: $settings.username).textInputAutocapitalization(.never).autocorrectionDisabled()
                     SecureField("RPC password", text: $settings.password)
+                    if settings.endpoint.lowercased().hasPrefix("http://") {
+                        Text("HTTP sends RPC credentials without encryption. Use it on a trusted local network.").font(.caption)
+                    }
                 }
                 Text("Use an XBT backend with BLAKE2b headers. Paperclip validates network and activation before use.").font(.caption)
             }
@@ -37,9 +39,12 @@ struct ConnectionsView: View {
                 } }.disabled(store.busy) }
                 Toggle("Use a separate RPC backend for Ark", isOn: $separateRPC)
                 if separateRPC {
-                    TextField("https://your-rpc-gateway", text: $arkRPC.endpoint).textInputAutocapitalization(.never).autocorrectionDisabled()
+                    TextField("http://local-node:port or https://host", text: $arkRPC.endpoint).textInputAutocapitalization(.never).autocorrectionDisabled()
                     TextField("RPC username", text: $arkRPC.username).textInputAutocapitalization(.never).autocorrectionDisabled()
                     SecureField("RPC password", text: $arkRPC.password)
+                    if arkRPC.endpoint.lowercased().hasPrefix("http://") {
+                        Text("HTTP sends RPC credentials without encryption. Use it on a trusted local network.").font(.caption)
+                    }
                 }
                 Text("Ark can use Electrum when the server exposes package relay and complete relay policy. RPC is optional for your own node. No public RPC endpoint is configured.").font(.caption)
             }
