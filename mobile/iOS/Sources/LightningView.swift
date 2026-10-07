@@ -19,7 +19,6 @@ struct LightningView: View {
     @State private var payInvoice = ""
     @State private var maximumFee = ""
     @State private var payOffer = false
-    @State private var offerNeedsAmount = false
     @State private var offerAmount = ""
     @State private var resolvedInvoice: String?
     @State private var reviewedPayment: LightningPaymentReview?
@@ -112,12 +111,12 @@ struct LightningView: View {
             .onChange(of: amount) { _, _ in receiveInvoice = "" }
             .onChange(of: offerDescription) { _, _ in receiveInvoice = "" }
             .onChange(of: payInvoice) { _, value in
-                reviewedHash = nil; resolvedInvoice = nil; offerNeedsAmount = false
+                reviewedHash = nil; resolvedInvoice = nil
                 let request = PaymentInput.normalized(value).lowercased()
                 if request.hasPrefix("lno1") { payOffer = true }
                 else if request.hasPrefix("lni1") || PaymentInput.isBolt11(request) { payOffer = false }
             }
-            .onChange(of: payOffer) { _, _ in reviewedHash = nil; resolvedInvoice = nil; offerNeedsAmount = false }
+            .onChange(of: payOffer) { _, _ in reviewedHash = nil; resolvedInvoice = nil }
             .onChange(of: offerAmount) { _, _ in reviewedHash = nil; resolvedInvoice = nil }
             .onChange(of: maximumFee) { _, _ in reviewedHash = nil }
             .onChange(of: connection) { old, _ in if !old.endpoint.isEmpty { client = nil; reviewedHash = nil; balance = nil; receiveInvoice = ""; receiveOffer = false } }
@@ -180,7 +179,9 @@ struct LightningView: View {
                     TextField(payOffer ? "BOLT12 offer (lno1…)" : "Lightning invoice", text: $payInvoice, axis: .vertical).textInputAutocapitalization(.never).autocorrectionDisabled()
                     if payOffer {
                         Text("Review requests an invoice from the offer issuer. No payment is sent until you confirm.").font(.caption)
-                        if offerNeedsAmount { TextField(unit.amountPrompt, text: $offerAmount).keyboardType(.decimalPad) }
+                        TextField(unit.amountPrompt + " (if needed)", text: $offerAmount)
+                            .keyboardType(.decimalPad).accessibilityIdentifier("bolt12-payment-amount")
+                        Text("Enter an amount for an amountless offer. Leave blank to use a fixed amount set by the offer.").font(.caption).foregroundStyle(PaperclipTheme.muted)
                     }
                     TextField("Maximum routing fee in \(unit.title)", text: $maximumFee).keyboardType(.decimalPad)
                     Button(payOffer ? "Request invoice & review" : "Review invoice") { review() }.disabled(pending != nil)
@@ -261,14 +262,12 @@ struct LightningView: View {
                 if isOffer {
                     guard connection.implementation == .cln else { throw WalletFailure(message: "BOLT12 offers require Core Lightning.") }
                     let offer = try LightningOfferReview.decode(await client.decode(request))
-                    expectedMsat = offer.amountMsat
-                    if expectedMsat == nil {
-                        offerNeedsAmount = true
-                        guard let sats = selectedUnit.parse(chosenAmount), sats > 0, sats <= UInt64.max / 1000 else {
-                            status = "This offer has no fixed amount. Enter an amount, then request an invoice."; return
-                        }
-                        expectedMsat = sats * 1000
+                    let entered = chosenAmount.trimmingCharacters(in: .whitespacesAndNewlines)
+                    let sats = entered.isEmpty ? nil : selectedUnit.parse(entered)
+                    guard entered.isEmpty || sats != nil else {
+                        throw WalletFailure(message: "Enter a valid amount in \(selectedUnit.title). XBT supports up to 8 decimal places.")
                     }
+                    expectedMsat = try offer.requestedAmount(enteredSats: sats)
                     invoice = try await client.fetchOfferInvoice(request, amountMsat: expectedMsat)
                 } else {
                     guard request.lowercased().hasPrefix(store.network == "xbt-mainnet" ? "lnbc" : "lnbcrt") ||

@@ -53,4 +53,17 @@ final class LightningPaymentTests: XCTestCase {
         XCTAssertThrowsError(try LightningNode.fetchOfferParameters("lno1example", amountMsat: 0))
     }
 
+    func testOfferAmountEntryIsNeverSilentlyIgnored() throws {
+        let fixed = try LightningOfferReview.decode(data(["type": "bolt12 offer", "valid": true, "offer_amount_msat": 21000]))
+        XCTAssertEqual(try fixed.requestedAmount(enteredSats: nil), 21000)
+        XCTAssertEqual(try fixed.requestedAmount(enteredSats: 21), 21000)
+        XCTAssertThrowsError(try fixed.requestedAmount(enteredSats: 20))
+        XCTAssertThrowsError(try fixed.requestedAmount(enteredSats: 22))
+        let any = try LightningOfferReview.decode(data(["type": "bolt12 offer", "valid": true]))
+        XCTAssertEqual(try any.requestedAmount(enteredSats: 42), 42000)
+        XCTAssertThrowsError(try any.requestedAmount(enteredSats: nil))
+        XCTAssertThrowsError(try any.requestedAmount(enteredSats: 0))
+        XCTAssertThrowsError(try any.requestedAmount(enteredSats: UInt64.max))
+    }
+
 }
