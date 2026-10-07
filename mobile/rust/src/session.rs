@@ -382,7 +382,7 @@ pub fn dispatch(state: &mut Option<Session>, request: Value, seed: [u8; 64]) -> 
 				let psbt = onchain.write().await.prepare_tx(&[(address, Amount::from_sat(amount))], w.chain().fee_rates().await.regular).await?;
 				let total = amount.checked_add(psbt.fee()?.to_sat()).context("amount overflow")?;
 				*board_quote = Some((amount, total, reserve, psbt, key, expiry, Instant::now()));
-				Ok(json!({"total_sat": total, "net_sat": net, "reserve_sat": reserve}))
+				Ok(json!({"total_sat": total, "net_sat": net, "reserve_sat": reserve, "network_fee_sat": total - amount}))
 			},
 			"board" => {
 				let (amount, total, reserve, psbt, key, expiry, time) = board_quote.take().context("review a board first")?;
@@ -499,6 +499,11 @@ pub fn dispatch(state: &mut Option<Session>, request: Value, seed: [u8; 64]) -> 
 				let txid = tx.compute_txid();
 				let broadcast = w.chain().broadcast_tx(&tx).await.is_ok();
 				Ok(json!({"state": if broadcast {"submitted"} else {"pending_broadcast"}, "txid": txid.to_string()}))
+			},
+			"inspect_payment" => {
+				let payment = w.parse_payment_request(text(&request, "destination")?).await?;
+				ensure!(payment.default_option().is_some(), "invalid payment destination");
+				Ok(json!({"amount_sat": payment.amount.map(|a| a.to_sat())}))
 			},
 			"quote" => {
 				*quote = None;

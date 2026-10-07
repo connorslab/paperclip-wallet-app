@@ -8,55 +8,101 @@ struct SendView: View {
     @State private var onchain = true
     @State private var destination = ""
     @State private var amount = ""
+    @State private var reviewedAmount: UInt64?
     @State private var total: UInt64?
     @State private var fee: UInt64?
+    @State private var needsAmount = false
     @State private var confirmation = false
     @State private var submitted = false
+    @State private var status = ""
     init(onchain: Bool = true) { _onchain = State(initialValue: onchain) }
+    private var target: String { PaymentInput.normalized(destination) }
+    private var invoice: Bool { !onchain && PaymentInput.isBolt11(destination) }
     var body: some View {
-        Form {
-            Section("Pay from") {
-                Picker("Wallet", selection: $onchain) { Text("On-chain").tag(true); Text("Ark").tag(false) }.pickerStyle(.segmented)
-                TextField(onchain ? "XBT address" : "Ark address, invoice, offer, or XBT address", text: $destination, axis: .vertical)
-                    .textInputAutocapitalization(.never).autocorrectionDisabled()
-                TextField("Amount in sats", text: $amount).keyboardType(.numberPad)
-                Text(onchain ? "Signed with unified sighash for XBT replay protection." : "An XBT address uses an Ark offboard. A Lightning invoice pays from your Ark balance.").font(.caption)
-            }
-            Section {
-                Button("Review payment") { store.run {
-                    total = nil; submitted = false
-                    guard let sats = UInt64(amount), sats > 0 else { throw WalletFailure(message: "Enter a positive whole-sat amount.") }
-                    let quote = try await store.engine.quote(destination: destination, amount: sats, onchain: onchain)
-                    guard let quoted = quote["total_sat"] as? NSNumber else { throw WalletFailure(message: "No valid quote was returned.") }
-                    total = quoted.uint64Value; fee = (quote["fee_sat"] as? NSNumber)?.uint64Value
-                } }.disabled(store.busy)
-            }
-            if let total {
-                Section("Review") {
-                    LabeledContent("Recipient", value: "\(amount) sats")
-                    LabeledContent("Fee / reserves", value: "\(fee?.formatted() ?? "—") sats")
-                    LabeledContent("Total", value: "\(total.formatted()) sats")
-                    Text(destination).font(.caption.monospaced()).textSelection(.enabled)
-                    Text("Quote expires after 60 seconds. A changed fee requires a new review.").font(.caption)
-                    Button("Confirm payment") { confirmation = true }.disabled(store.busy)
+        ScrollView {
+            VStack(spacing: 20) {
+                WalletSection("Pay from") {
+                    Picker("Wallet", selection: $onchain) { Text("On-chain").tag(true); Text("Ark").tag(false) }.pickerStyle(.segmented).disabled(store.busy || submitted)
+                    Text(onchain ? "Send XBT to an on-chain address." : "Pay Lightning invoices, BOLT12 offers, Ark addresses, or withdraw to on-chain.").font(.subheadline).foregroundStyle(PaperclipTheme.muted)
                 }
-            }
-            Section { if store.busy { ProgressView() }; Text(store.message).font(.caption) }
-            if submitted { Text("Check Activity before another attempt if the result is pending or uncertain.").font(.caption) }
-        }.navigationTitle("Send XBT").toolbar { Button("Done") { dismiss() } }
-            .onChange(of: destination) { _, _ in total = nil }
-            .onChange(of: amount) { _, _ in total = nil }
-            .onChange(of: onchain) { _, _ in total = nil }
+                WalletSection("Recipient") {
+                    TextField(onchain ? "XBT address" : "Paste an invoice, offer, or address", text: $destination, axis: .vertical)
+                        .textInputAutocapitalization(.never).autocorrectionDisabled().disabled(store.busy || submitted)
+                    if !invoice || needsAmount {
+                        TextField("Amount in sats", text: $amount).keyboardType(.numberPad).disabled(store.busy || submitted)
+                        if needsAmount { Text("This request has no fixed amount. Choose how many sats to send.").font(.caption) }
+                    } else {
+                        Label("Amount comes from the invoice", systemImage: "bolt.fill").font(.subheadline).foregroundStyle(PaperclipTheme.muted)
+                    }
+                    Button { review() } label: { Text("Review payment").frame(maxWidth: .infinity) }.modifier(GlassAction())
+                        .disabled(store.busy || target.isEmpty || submitted)
+                }
+                if let total, let reviewedAmount {
+                    WalletSection("Review payment") {
+                        LabeledContent("From", value: onchain ? "On-chain wallet" : "Ark balance")
+                        LabeledContent("Recipient receives", value: "\(reviewedAmount.formatted()) sats")
+                        LabeledContent("Fee / recovery funding", value: "\(fee?.formatted() ?? "—") sats")
+                        Divider()
+                        LabeledContent("Total debit", value: "\(total.formatted()) sats").font(.headline)
+                        Text(target).font(.caption.monospaced()).lineLimit(4).textSelection(.enabled)
+                        Text("Review is valid for 60 seconds. If costs change, review again.").font(.caption).foregroundStyle(PaperclipTheme.muted)
+                        Button("Confirm payment") { confirmation = true }.modifier(GlassAction()).disabled(store.busy)
+                    }
+                }
+                if store.busy || !status.isEmpty {
+                    WalletSection { if store.busy { ProgressView("Working…") }; Text(status).font(.subheadline).textSelection(.enabled) }
+                }
+                if submitted {
+                    WalletSection {
+                        Label("Payment request sent", systemImage: "clock")
+                        Text("Check Activity for the final result before making another attempt.").font(.subheadline)
+                        Button("Done") { dismiss() }.modifier(GlassAction())
+                    }
+                }
+            }.padding(22).textFieldStyle(.roundedBorder)
+        }.background(PaperclipTheme.navy.ignoresSafeArea()).navigationTitle(onchain ? "Send XBT" : "Pay from Ark")
+            .toolbar { Button("Done") { dismiss() } }
+            .onChange(of: destination) { _, _ in reset(); needsAmount = false }
+            .onChange(of: amount) { _, _ in reset() }
+            .onChange(of: onchain) { _, _ in reset(); needsAmount = false }
             .confirmationDialog("Send this payment?", isPresented: $confirmation) {
-                Button("Send payment") { store.run {
-                    guard let reviewed = total, let sats = UInt64(amount) else { return }
-                    total = nil; submitted = true
-                    do {
-                        let result = try await store.engine.send(destination: destination, amount: sats, total: reviewed, onchain: onchain)
-                        store.message = "Payment: \(result["state"] ?? "unknown"). Check Activity for confirmation."
-                    } catch { store.message = "Payment outcome is uncertain: \(error.localizedDescription). Check Activity before retrying." }
-                } }
-            } message: { Text("\(destination)\nTotal: \(total?.formatted() ?? "—") sats") }
+                Button("Send payment") { send() }
+            } message: { Text("Total debit: \(total?.formatted() ?? "—") sats from \(onchain ? "on-chain" : "Ark").") }
+    }
+    private func reset() { total = nil; reviewedAmount = nil; status = "" }
+    private func review() {
+        let recipient = target, source = onchain, entered = amount
+        store.run {
+            do {
+                total = nil
+                var sats = UInt64(entered)
+                if !source {
+                    let parsed = try await store.engine.operation("inspect_payment", fields: ["destination": recipient])
+                    if let fixed = parsed["amount_sat"] as? NSNumber { sats = fixed.uint64Value }
+                    else if sats == nil || (PaymentInput.isBolt11(recipient) && !needsAmount) {
+                        needsAmount = true; status = "Enter the amount, then review your payment."; return
+                    }
+                }
+                guard let sats, sats > 0 else { throw WalletFailure(message: "Enter a positive whole-sat amount.") }
+                let quote = try await store.engine.quote(destination: recipient, amount: sats, onchain: source)
+                guard recipient == target, source == onchain, entered == amount else { return }
+                guard let quoted = quote["total_sat"] as? NSNumber else { throw WalletFailure(message: "No valid quote was returned.") }
+                reviewedAmount = sats; total = quoted.uint64Value; fee = (quote["fee_sat"] as? NSNumber)?.uint64Value
+                status = ""
+            } catch { status = error.localizedDescription }
+        }
+    }
+    private func send() {
+        guard let reviewed = total, let sats = reviewedAmount else { return }
+        let recipient = target, source = onchain
+        store.run {
+            total = nil; submitted = true
+            do {
+                let result = try await store.engine.send(destination: recipient, amount: sats, total: reviewed, onchain: source)
+                status = "Payment status: \(result["state"] ?? "unknown")."
+                try? await store.refreshActivity()
+            } catch { status = "Payment outcome needs checking: \(error.localizedDescription). Check Activity before retrying." }
+        }
     }
 }
 
@@ -74,6 +120,7 @@ struct ReceiveView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 24) {
+                WalletSection("Receive method") {
                 Picker("Receive to", selection: $route) { Text("On-chain").tag(0); Text("Ark").tag(1); Text("BOLT11 → Ark").tag(2); Text("BOLT12 → Ark").tag(3) }.pickerStyle(.menu)
                 if route >= 2 { TextField(route == 3 ? "Amount in sats (optional)" : "Amount in sats", text: $amount).keyboardType(.numberPad).textFieldStyle(.roundedBorder) }
                 if route == 3 {
@@ -105,7 +152,8 @@ struct ReceiveView: View {
                     } else { value = try await store.engine.address(ark: route == 1) }
                 } }.buttonStyle(.borderedProminent).disabled(store.busy)
                 if route == 0 { NavigationLink("View on-chain addresses") { OnchainAddressesView() } }
-                if !value.isEmpty { ReceiveCode(value: value) }
+                }
+                if !value.isEmpty { WalletSection { ReceiveCode(value: value).frame(maxWidth: .infinity) } }
                 if route >= 2 {
                     Text("Keep Paperclip open and online to receive. iOS can suspend the app in the background. BOLT12 requests need the foreground listener; issued invoices remain tracked after you close the screen.").font(.caption)
                     if !paymentHash.isEmpty {
@@ -167,11 +215,15 @@ struct ArkToolsView: View {
     @State private var confirming = false
     @State private var boardTotal: UInt64?
     @State private var boardNet: UInt64?
+    @State private var boardReserve: UInt64?
+    @State private var boardNetworkFee: UInt64?
     var body: some View {
         ScrollView {
           VStack(spacing: 20) {
             WalletSection("Board from on-chain") {
-                Text("Move on-chain XBT onto Ark. Your board becomes spendable after the required confirmations.")
+                Text("Add XBT to your Ark balance") .font(.title3.bold())
+                Text("Boarding uses an on-chain transaction. Its network fee is added to the amount you enter; the boarding fee and recovery funding are deducted from that amount before it becomes spendable on Ark.").font(.subheadline)
+                Text("Small boards can lose a significant share to these costs. The current app uses the backend’s regular fee estimate; a custom boarding fee rate is not available. Review the net amount before confirming.").font(.caption).foregroundStyle(PaperclipTheme.muted)
                 TextField("Amount in sats", text: $amount).keyboardType(.numberPad)
                 Button("Review board") { store.run {
                     boardTotal = nil
@@ -179,10 +231,15 @@ struct ArkToolsView: View {
                     let quote = try await store.engine.operation("quote_board", fields: ["amount_sat": sats])
                     boardTotal = (quote["total_sat"] as? NSNumber)?.uint64Value
                     boardNet = (quote["net_sat"] as? NSNumber)?.uint64Value
+                    boardReserve = (quote["reserve_sat"] as? NSNumber)?.uint64Value
+                    boardNetworkFee = (quote["network_fee_sat"] as? NSNumber)?.uint64Value
                 } }
                 if let boardTotal {
+                    LabeledContent("Network fee (added)", value: "\(boardNetworkFee?.formatted() ?? "—") sats")
+                    LabeledContent("Boarding / recovery deduction", value: "\(boardReserve?.formatted() ?? "—") sats")
                     LabeledContent("Total on-chain debit", value: "\(boardTotal.formatted()) sats")
-                    LabeledContent("Ark amount after reserves", value: "\(boardNet?.formatted() ?? "—") sats")
+                    LabeledContent("Available on Ark after confirmation", value: "\(boardNet?.formatted() ?? "—") sats")
+                    Text("Requires the server’s boarding confirmations. Quote expires after 60 seconds.").font(.caption)
                     Button("Confirm board") { action = "board"; confirming = true }
                 }
             }
@@ -246,19 +303,21 @@ struct ArkLightningReceivesView: View {
     @State private var hashes: [String] = []
     @State private var states: [String: String] = [:]
     var body: some View {
-        List {
+        ScrollView {
+          VStack(spacing: 20) {
             Text("BOLT11 invoices and BOLT12 offer payments use the same persistent claim state. Keep the app open to process payments. Settled payments appear in Activity.").font(.caption)
             ForEach(hashes, id: \.self) { hash in
-                VStack(alignment: .leading, spacing: 8) {
+                WalletSection {
                     Text(hash).font(.caption.monospaced()).textSelection(.enabled)
-                    Text(states[hash] ?? "Pending")
+                    Text((states[hash] ?? "Pending").replacingOccurrences(of: "_", with: " ").capitalized)
                     Button("Check status") { check(hash, claim: false) }
                     Button("Retry claim") { check(hash, claim: true) }.disabled(store.busy)
                 }
             }
             if hashes.isEmpty { Text("No pending Lightning receives loaded.") }
             Text(store.message).font(.caption)
-        }.navigationTitle("Ark Lightning receives")
+          }.padding(22)
+        }.background(PaperclipTheme.navy.ignoresSafeArea()).navigationTitle("Lightning receives")
             .toolbar { Button("Refresh") { refresh() }.disabled(store.busy) }
             .task { refresh() }
     }

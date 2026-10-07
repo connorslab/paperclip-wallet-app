@@ -56,8 +56,11 @@ import LocalAuthentication
         let result = try await engine.activity()
         let movements = result["movements"] as? [[String: Any]] ?? []
         activity = movements.reversed().enumerated().map { index, item in
-            ActivityItem(id: "ark-\(item["id"] ?? index)", title: "Ark", status: "\(item["status"] ?? "pending")",
-                amount: "\(item["effective_balance"] ?? 0) sats", detail: "\(item["created_at"] ?? "")")
+            let subsystem = item["subsystem"] as? [String: Any] ?? [:]
+            let kind = (subsystem["kind"] as? String ?? "Ark payment").replacingOccurrences(of: "_", with: " ").capitalized
+            let time = item["time"] as? [String: Any] ?? [:]
+            return ActivityItem(id: "ark-\(item["id"] ?? index)", title: kind, status: "\(item["status"] ?? "pending")".replacingOccurrences(of: "_", with: " ").capitalized,
+                amount: "\(item["effective_balance"] ?? 0) sats", detail: "\(time["created_at"] ?? "")")
         }
         activity += (result["onchain"] as? [[String: Any]] ?? []).map { item in
             ActivityItem(id: "\(item["txid"] ?? UUID().uuidString)", title: "On-chain",

@@ -105,10 +105,12 @@ struct DashboardView: View {
                     NavigationLink { OnchainOverviewView() } label: {
                         balanceCard("On-chain", icon: "link", amount: store.onchain)
                     }.buttonStyle(.plain).accessibilityHint("View on-chain balances and transactions")
-                    balanceCard("Ark", icon: "square.stack.3d.up", amount: store.ark)
+                    NavigationLink { ArkOverviewView() } label: {
+                        balanceCard("Ark", icon: "square.stack.3d.up", amount: store.ark)
+                    }.buttonStyle(.plain).accessibilityHint("View Ark balances, payments, and activity")
                 }
                 if let pending = store.pending, pending > 0 { Label("\(pending.formatted()) sats pending", systemImage: "clock").font(.subheadline) }
-                NavigationLink { ArkToolsView() } label: {
+                NavigationLink { ArkOverviewView() } label: {
                     WalletCard {
                         HStack { Image(systemName: "square.stack.3d.up.fill").foregroundStyle(PaperclipTheme.orange); Text("Ark with Paperclip").font(.headline); Spacer(); Image(systemName: "chevron.right") }
                         Text("Board, offboard, receive Lightning, and manage recovery.").font(.subheadline).foregroundStyle(PaperclipTheme.muted)
@@ -151,16 +153,18 @@ struct DashboardView: View {
 struct ActivityView: View {
     @EnvironmentObject var store: WalletStore
     var body: some View {
-        List {
+        ScrollView {
+          VStack(spacing: 20) {
             if store.activity.isEmpty { ContentUnavailableView("No activity loaded", systemImage: "clock", description: Text("Synchronize your wallet to load transactions.")) }
             ForEach(store.activity) { item in
-                VStack(alignment: .leading, spacing: 8) {
+                WalletCard {
                     HStack { Text(item.title).font(.headline); Spacer(); Text(item.amount).monospacedDigit() }
                     Text(item.status).foregroundStyle(PaperclipTheme.orange)
                     Text(item.detail).font(.caption2.monospaced()).textSelection(.enabled)
-                }.padding(.vertical, 8).listRowBackground(PaperclipTheme.panel)
+                }
             }
             Text(store.message).font(.caption)
+          }.padding(22)
         }.scrollContentBackground(.hidden).background(PaperclipTheme.navy).navigationTitle("Activity")
             .toolbar { Button("Refresh") { store.run { try await store.refreshActivity() } }.disabled(store.busy) }
     }
@@ -175,16 +179,17 @@ struct OnchainOverviewView: View {
     @State private var status = "Saved wallet state. Refresh to check the network."
     @State private var loading = false
     var body: some View {
-        List {
-            Section("Balance") {
+        ScrollView {
+          VStack(spacing: 20) {
+            WalletSection("Balance") {
                 LabeledContent("Confirmed", value: sats(confirmed))
                 LabeledContent("Unconfirmed", value: sats(unconfirmed))
                 if let immature, immature > 0 { LabeledContent("Immature mining rewards", value: sats(immature)) }
                 Text("Unconfirmed includes pending incoming outputs and change. Amounts reflect the wallet's unspent outputs.").font(.caption)
                 Text(status).font(.caption).foregroundStyle(.secondary)
             }
-            Section { NavigationLink("Receive & change addresses") { OnchainAddressesView() } }
-            Section("On-chain transactions") {
+            WalletSection { NavigationLink("Receive & change addresses") { OnchainAddressesView() } }
+            WalletSection("On-chain transactions") {
                 if transactions.isEmpty { Text("No on-chain transactions in the saved wallet state.").foregroundStyle(.secondary) }
                 ForEach(transactions) { item in
                     VStack(alignment: .leading, spacing: 8) {
@@ -196,6 +201,7 @@ struct OnchainOverviewView: View {
                     }.padding(.vertical, 6)
                 }
             }
+          }.padding(22)
         }.navigationTitle("On-chain")
             .scrollContentBackground(.hidden).background(PaperclipTheme.navy)
             .toolbar {
@@ -230,5 +236,61 @@ struct OnchainOverviewView: View {
             status = "Updated \(Date().formatted(date: .omitted, time: .shortened))"
         } catch { status = "Showing saved state. \(error.localizedDescription)" }
         await load()
+    }
+}
+
+struct ArkOverviewView: View {
+    @EnvironmentObject var store: WalletStore
+    @State private var sending = false
+    @State private var receiving = false
+    private var transactions: [ActivityItem] { store.activity.filter { $0.id.hasPrefix("ark-") } }
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 20) {
+                WalletSection("Ark balance") {
+                    Text(store.ark.map { "\($0.formatted()) sats" } ?? "—").font(.largeTitle.bold()).privacySensitive().contentTransition(.numericText())
+                    Text("Available to spend").font(.subheadline).foregroundStyle(PaperclipTheme.muted)
+                    LabeledContent("Pending", value: store.pending.map { "\($0.formatted()) sats" } ?? "—")
+                    HStack {
+                        Button { sending = true } label: { Label("Pay", systemImage: "arrow.up.right").frame(maxWidth: .infinity) }.modifier(GlassAction())
+                        Button { receiving = true } label: { Label("Receive", systemImage: "arrow.down.left").frame(maxWidth: .infinity) }.modifier(GlassAction())
+                    }
+                    Text("Pending funds are not yet available. Keep the app open to finish incoming Lightning payments.").font(.caption).foregroundStyle(PaperclipTheme.muted)
+                }
+                WalletSection("Manage Ark") {
+                    NavigationLink("Add XBT from on-chain · boarding") { ArkToolsView() }
+                    NavigationLink("Withdraw to on-chain") { SendView(onchain: false) }
+                    NavigationLink("Lightning receive status") { ArkLightningReceivesView() }
+                    NavigationLink("Backup & recovery") { ArkToolsView() }
+                }
+                WalletSection("Ark activity") {
+                    if transactions.isEmpty { Text("No Ark activity yet. Received and sent payments will appear here.").foregroundStyle(PaperclipTheme.muted) }
+                    ForEach(transactions) { item in
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack { Text(item.title).font(.headline); Spacer(); Text(item.amount).monospacedDigit() }
+                            Text(item.status).foregroundStyle(PaperclipTheme.orange)
+                            Text(item.detail).font(.caption).foregroundStyle(PaperclipTheme.muted)
+                        }
+                        Divider()
+                    }
+                }
+                if !store.message.isEmpty { Text(store.message).font(.caption).foregroundStyle(PaperclipTheme.muted) }
+            }.padding(22)
+        }.background(PaperclipTheme.navy.ignoresSafeArea()).navigationTitle("Ark")
+            .toolbar { Button { refresh() } label: { Image(systemName: "arrow.clockwise") }.disabled(store.busy).accessibilityLabel("Refresh Ark") }
+            .task { refresh() }
+            .refreshable { refresh() }
+            .sheet(isPresented: $sending) { NavigationStack { SendView(onchain: false) } }
+            .sheet(isPresented: $receiving) { NavigationStack { ReceiveView(route: 1) } }
+    }
+    private func refresh() {
+        store.run {
+            let result = try await store.engine.balances()
+            store.ark = (result["ark_sat"] as? NSNumber)?.uint64Value
+            store.pending = (result["pending_sat"] as? NSNumber)?.uint64Value
+            store.observed = Date()
+            store.message = (result["receive_warning"] as? String).map { "Pending receive: " + $0 } ?? "Ark synchronized."
+            try await store.refreshActivity()
+        }
     }
 }

@@ -189,3 +189,16 @@ The homepage reads cached Ark balances every five seconds while displayed, so
 foreground receive claims appear without a manual network sync. Manual refresh
 updates on-chain and Ark independently and retains prior balances on failure.
 Cached balance reads do not claim to establish fresh chain or server status.
+
+### Ark payment screens
+
+Tap the Ark balance to view available/pending funds, Ark activity, and payment,
+receive, boarding, and recovery entry points. Payment review uses the native
+request parser's fixed invoice amount; BOLT11 amount entry appears only when the
+validated request has no amount. The confirmation uses the reviewed amount and
+retains the engine's quote expiry and fee-change checks.
+
+Boarding review separates the network fee added to the debit from the combined
+boarding/recovery deduction. The app currently uses the regular backend fee
+estimate, without a custom boarding fee-rate control. Small boards may incur a
+large relative cost; the net Ark amount is shown before confirmation.

@@ -102,9 +102,10 @@ struct SettingsView: View {
     @AppStorage("automaticRefresh") private var automatic = true
     @AppStorage("walletLock") private var walletLock = true
     var body: some View {
-        Form {
-            Section { WalletBrand().padding(.vertical, 10).listRowBackground(PaperclipTheme.panel) }
-            Section("Your wallet") {
+        ScrollView {
+          VStack(spacing: 20) {
+            WalletSection { WalletBrand().padding(.vertical, 10) }
+            WalletSection("Your wallet") {
                 NavigationLink("On-chain addresses") { OnchainAddressesView() }
                 NavigationLink("Connections") { ConnectionsView() }
                 NavigationLink("Encrypted iCloud backup & restore") { BackupView(engine: store.engine) }
@@ -112,7 +113,7 @@ struct SettingsView: View {
                 Text("Keys use device-only Keychain storage. Background Ark refresh can access keys after the first device unlock.").font(.caption)
                 LabeledContent("On-chain signing", value: "Unified sighash · 0x21")
             }
-            Section("Ark maintenance") {
+            WalletSection("Ark maintenance") {
                 Toggle("Attempt automatic refresh", isOn: $automatic)
                 Text("iOS controls background time. Open Paperclip regularly so Ark transactions can complete before expiry.").font(.caption)
                 Button("Check and refresh") { Task { await maintenance.update(automatic: true) } }.disabled(maintenance.busy)
@@ -120,7 +121,8 @@ struct SettingsView: View {
                 Button("Enable expiry reminders") { Task { await maintenance.enableNotifications() } }
                 Text(maintenance.notificationStatus).font(.caption)
             }
-            Section("Recovery") { NavigationLink("Ark recovery & emergency exit") { ArkToolsView() } }
+            WalletSection("Recovery") { NavigationLink("Ark recovery & emergency exit") { ArkToolsView() } }
+          }.padding(22)
         }.navigationTitle("Settings").scrollContentBackground(.hidden).background(PaperclipTheme.navy)
     }
 }
