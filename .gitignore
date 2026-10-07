@@ -11,3 +11,6 @@ __pycache__/
 .DS_Store
 /mobile/.swiftpm/
 /mobile/DeviceDerivedData/
+
+/mobile/TorRuntime/.swiftpm/
+/mobile/TorRuntime/.build/
