@@ -23,6 +23,19 @@ public enum ConnectionError: LocalizedError {
     }
 }
 
+public struct ConnectionFieldError: LocalizedError {
+    public let field: String
+    public let reason: String
+    public var errorDescription: String? { "\(field): \(reason)" }
+}
+
+private func validateField(_ field: String, hint: String, _ validate: () throws -> Void) throws {
+    do { try validate() }
+    catch {
+        throw ConnectionFieldError(field: field, reason: "\(error.localizedDescription) \(hint)")
+    }
+}
+
 public struct WalletConnection: Codable, Equatable, Sendable {
     public var arkRPC: ArkRPCConnection? = nil
     public var backend: ChainBackend = .electrum
@@ -37,9 +50,16 @@ public struct WalletConnection: Codable, Equatable, Sendable {
     public func validate() throws {
         if backend == .rpc && (username.isEmpty || password.isEmpty) { throw ConnectionError.invalidCredential }
         try arkRPC?.validate()
-        _ = try EndpointPolicy.validate(arkServer, tor: arkRPC?.useTor ?? useTor)
-        _ = try EndpointPolicy.validate(endpoint, tor: useTor, electrum: backend == .electrum,
-            credentials: backend == .rpc && (!username.isEmpty || !password.isEmpty), allowHTTP: true)
+        try validateField("Ark server", hint: "Use https://ark.paperclippool.xyz or your server's full URL.") {
+            _ = try EndpointPolicy.validate(arkServer, tor: arkRPC?.useTor ?? useTor)
+        }
+        let hint = backend == .electrum
+            ? "Use tcp://192.168.1.10:50001 for plain Electrum, or ssl://host:50002 for TLS. HTTP is for RPC, not Electrum."
+            : "Include http:// or https:// and the node's port, for example http://192.168.1.10:8332. Enter credentials in their separate fields."
+        try validateField("On-chain endpoint", hint: hint) {
+            _ = try EndpointPolicy.validate(endpoint, tor: useTor, electrum: backend == .electrum,
+                credentials: backend == .rpc && (!username.isEmpty || !password.isEmpty), allowHTTP: true)
+        }
         if useTor { _ = try EndpointPolicy.proxy(torProxy) }
         if !certificateSHA256.isEmpty {
             guard certificateSHA256.count == 64, certificateSHA256.allSatisfy(\.isHexDigit) else { throw ConnectionError.invalidCredential }
@@ -66,7 +86,9 @@ public struct ArkRPCConnection: Codable, Equatable, Sendable {
     }
     public func validate() throws {
         guard !username.isEmpty, !password.isEmpty else { throw ConnectionError.invalidCredential }
-        _ = try EndpointPolicy.validate(endpoint, tor: useTor, credentials: true, allowHTTP: true)
+        try validateField("Ark RPC endpoint", hint: "Include http:// or https:// and the RPC port. Enter credentials in their separate fields.") {
+            _ = try EndpointPolicy.validate(endpoint, tor: useTor, credentials: true, allowHTTP: true)
+        }
         if useTor { _ = try EndpointPolicy.proxy(torProxy) }
     }
 }

@@ -2,6 +2,27 @@ import XCTest
 @testable import PaperclipMobile
 
 final class ConnectionTests: XCTestCase {
+    func testLocalElectrumAndFieldSpecificErrors() throws {
+        var connection = WalletConnection()
+        for endpoint in ["tcp://192.168.1.10:50001", "ssl://node.local:50002", "tcp://[::1]:50001"] {
+            connection.endpoint = endpoint
+            XCTAssertNoThrow(try connection.validate())
+        }
+        for endpoint in ["192.168.1.20:50001", "http://192.168.1.20:50001"] {
+            connection.endpoint = endpoint
+            XCTAssertThrowsError(try connection.validate()) { error in
+                XCTAssertTrue(error.localizedDescription.hasPrefix("On-chain endpoint:"))
+                XCTAssertTrue(error.localizedDescription.contains("tcp://"))
+                XCTAssertFalse(error.localizedDescription.contains(endpoint))
+            }
+        }
+        connection = WalletConnection()
+        connection.arkServer = "invalid"
+        XCTAssertThrowsError(try connection.validate()) { error in
+            XCTAssertTrue(error.localizedDescription.hasPrefix("Ark server:"))
+        }
+    }
+
     func testPaperclipDefaultAndTorDNSPolicy() throws {
         let connection = WalletConnection()
         XCTAssertEqual(connection.backend, .electrum)

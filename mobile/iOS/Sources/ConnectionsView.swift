@@ -38,10 +38,11 @@ struct ConnectionsView: View {
             }
             Section("On-chain") {
                 Picker("Backend", selection: $settings.backend) { ForEach(ChainBackend.allCases, id: \.self) { Text($0.title).tag($0) } }
-                TextField(settings.backend == .electrum ? "ssl://host:port" : "http://host or https://host", text: $settings.endpoint)
+                TextField(settings.backend == .electrum ? "tcp://host:port or ssl://host:port" : "http://host or https://host", text: $settings.endpoint)
                     .textInputAutocapitalization(.never).autocorrectionDisabled()
                     .accessibilityIdentifier("chain-endpoint")
                 if settings.backend == .electrum {
+                    Text("Local Electrum: tcp://192.168.1.10:50001. For TLS use ssl://host:50002. Use your server's configured port.").font(.caption)
                     Button("Use Paperclip Pool (default)") { settings.endpoint = "ssl://pool.paperclippool.xyz:50002"; settings.certificateSHA256 = "" }
                     TextField("Certificate SHA256 (optional)", text: $settings.certificateSHA256)
                         .textInputAutocapitalization(.never).autocorrectionDisabled()
