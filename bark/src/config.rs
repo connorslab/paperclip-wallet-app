@@ -180,9 +180,8 @@ pub struct Config {
 
 	/// Optional SOCKS5 proxy URL for network traffic.
 	///
-	/// The proxy is automatically bypassed for localhost addresses
-	/// (127.0.0.1, localhost, ::1), so a local bitcoind works without
-	/// extra configuration.
+	/// Except for RPC, the proxy is automatically bypassed for localhost addresses
+	/// (127.0.0.1, localhost, ::1). RPC always honours an explicitly selected proxy.
 	///
 	/// Use `socks5h://` to resolve DNS through the proxy which is required for .onion addresses
 	/// and to prevent DNS leaks. We don't allow `socks5://` to be used to preserve privacy.

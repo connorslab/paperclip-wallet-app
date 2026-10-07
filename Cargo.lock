@@ -737,6 +737,7 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "tracing",
+ "ureq",
 ]
 
 [[package]]
@@ -2470,6 +2471,7 @@ dependencies = [
  "base64 0.22.1",
  "bip39",
  "bitcoin",
+ "bitcoind-async-client",
  "rusqlite",
  "serde_json",
  "tokio",

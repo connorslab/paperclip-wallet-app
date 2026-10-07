@@ -23,8 +23,10 @@ default = ["30_2"]
 29_0 = ["corepc-node/29_0"]
 30_2 = ["corepc-node/30_2"]
 raw_rpc = []
+socks5-proxy = ["dep:ureq"]
 
 [dependencies]
+ureq = { version = "3", features = ["socks-proxy"], optional = true }
 base64 = "0.22.1"
 bitcoin = { version = "0.32.9", features = ["serde", "base64"] }
 bitreq = { version = "0.3.5", default-features = false, features = [

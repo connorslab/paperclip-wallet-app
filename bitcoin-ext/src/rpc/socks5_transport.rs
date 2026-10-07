@@ -47,6 +47,9 @@ impl Socks5Transport {
 		proxy_url: Option<&str>,
 		auth: Option<(String, Option<String>)>,
 	) -> Result<Self, Error> {
+		if proxy_url.is_some_and(|proxy| !proxy.starts_with("socks5h://")) {
+			return Err(Error::Proxy("RPC proxy must use socks5h".into()));
+		}
 		let proxy = proxy_url.map(Proxy::new).transpose()
 			.map_err(|e| Error::Proxy(e.to_string()))?;
 

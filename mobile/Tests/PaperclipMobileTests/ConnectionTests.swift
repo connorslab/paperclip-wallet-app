@@ -32,7 +32,7 @@ final class ConnectionTests: XCTestCase {
             XCTAssertFalse(SeedVerification.matches(phrase: phrase, confirmation: phrase))
         }
     }
-    func testSeparateArkRPCSupportsHTTPAndNeverBypassesTor() throws {
+    func testSeparateArkRPCSupportsHTTPAndIndependentTor() throws {
         var connection = WalletConnection()
         var rpc = ArkRPCConnection()
         rpc.username = "wallet"; rpc.password = "test-credential"
@@ -44,13 +44,43 @@ final class ConnectionTests: XCTestCase {
         XCTAssertNoThrow(try connection.validate())
         XCTAssertEqual(connection.endpoint, "ssl://pool.paperclippool.xyz:50002")
         connection.useTor = true
-        XCTAssertThrowsError(try connection.validate())
+        XCTAssertNoThrow(try connection.validate())
         connection.useTor = false
         let encoded = try JSONEncoder().encode(connection)
         XCTAssertEqual(try JSONDecoder().decode(WalletConnection.self, from: encoded), connection)
         var legacy = try JSONSerialization.jsonObject(with: encoded) as! [String: Any]
         legacy.removeValue(forKey: "arkRPC")
         XCTAssertNil(try JSONDecoder().decode(WalletConnection.self, from: JSONSerialization.data(withJSONObject: legacy)).arkRPC)
+    }
+    func testIndependentRPCTorRoutesAndLegacySettings() throws {
+        var connection = WalletConnection()
+        connection.backend = .rpc
+        connection.endpoint = "http://chain.onion:8332"
+        connection.username = "chain-user"; connection.password = "chain-password"
+        connection.useTor = true; connection.torProxy = "socks5h://192.168.1.2:9050"
+        var ark = ArkRPCConnection()
+        ark.endpoint = "http://ark-node.onion:8332"
+        ark.username = "ark-user"; ark.password = "ark-password"
+        ark.useTor = true; ark.torProxy = "socks5h://192.168.1.3:9050"
+        connection.arkServer = "http://ark.onion"
+        connection.arkRPC = ark
+        XCTAssertNoThrow(try connection.validate())
+        let restored = try JSONDecoder().decode(WalletConnection.self, from: JSONEncoder().encode(connection))
+        XCTAssertEqual(restored, connection)
+        XCTAssertNotEqual(restored.torProxy, restored.arkRPC?.torProxy)
+        connection.useTor = false
+        XCTAssertThrowsError(try connection.validate())
+        connection.endpoint = "http://192.168.1.4:8332"
+        XCTAssertNoThrow(try connection.validate())
+        connection.arkRPC?.useTor = false
+        XCTAssertThrowsError(try connection.validate())
+        connection.arkRPC?.useTor = true
+        connection.arkRPC?.torProxy = "socks5://192.168.1.3:9050"
+        XCTAssertThrowsError(try connection.validate())
+        let legacy = Data(#"{"endpoint":"http://192.168.1.4:8332","username":"user","password":"pass"}"#.utf8)
+        let old = try JSONDecoder().decode(ArkRPCConnection.self, from: legacy)
+        XCTAssertFalse(old.useTor)
+        XCTAssertEqual(old.torProxy, "socks5h://127.0.0.1:9050")
     }
     func testOnchainRPCHTTPStillValidatesCredentialsAndEndpoint() throws {
         var connection = WalletConnection()

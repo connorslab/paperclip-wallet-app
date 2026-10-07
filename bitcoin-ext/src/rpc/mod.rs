@@ -47,20 +47,22 @@ pub struct BitcoinRpcClient {
 impl BitcoinRpcClient {
 	pub fn new(url: &str, auth: Auth) -> Result<Self, Error> {
 		#[cfg(feature = "rpc-socks5-proxy")]
-		{
-			// simple_http accepts https URLs but sends plaintext. Use the TLS
-			// transport for the mobile build, including the synchronous scanner.
-			let (user, pass) = auth.get_user_pass()?;
-			let transport = socks5_transport::Socks5Transport::new(url, None, user.map(|u| (u, pass)))
-				.map_err(|e| Error::JsonRpc(jsonrpc::Error::Transport(Box::new(e))))?;
-			return Ok(BitcoinRpcClient { client: std::sync::Arc::new(Client::from_jsonrpc(
-				jsonrpc::Client::with_transport(transport),
-			)) });
-		}
+		return Self::new_with_proxy(url, auth, None);
+
 		#[cfg(not(feature = "rpc-socks5-proxy"))]
 		Ok(BitcoinRpcClient {
 			client: std::sync::Arc::new(Client::new(url, auth)?),
 		})
+	}
+
+	#[cfg(feature = "rpc-socks5-proxy")]
+	pub fn new_with_proxy(url: &str, auth: Auth, proxy: Option<&str>) -> Result<Self, Error> {
+		let (user, pass) = auth.get_user_pass()?;
+		let transport = socks5_transport::Socks5Transport::new(url, proxy, user.map(|u| (u, pass)))
+			.map_err(|e| Error::JsonRpc(jsonrpc::Error::Transport(Box::new(e))))?;
+		Ok(BitcoinRpcClient { client: std::sync::Arc::new(Client::from_jsonrpc(
+			jsonrpc::Client::with_transport(transport),
+		)) })
 	}
 }
 

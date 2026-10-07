@@ -1342,7 +1342,11 @@ impl Wallet {
 		let chain_source = config.chain_source()?;
 
 		#[cfg(feature = "socks5-proxy")]
-		let chain_proxy = proxy_for_url(&config.socks5_proxy, chain_source.url())?;
+		let chain_proxy = match &chain_source {
+			#[cfg(feature = "bitcoind-rpc")]
+			crate::chain::ChainSourceSpec::Bitcoind { .. } => config.socks5_proxy.clone(),
+			_ => proxy_for_url(&config.socks5_proxy, chain_source.url())?,
+		};
 		let chain_source_client = ChainSource::new(
 			chain_source, properties.network, config.fallback_fee_rate,
 			#[cfg(feature = "socks5-proxy")] chain_proxy.as_deref(),

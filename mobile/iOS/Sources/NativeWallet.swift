@@ -164,14 +164,13 @@ actor NativeWallet: WalletEngine, WalletBackupEngine {
         connected = false
         var request: [String: Any] = ["op": "connect", "config": config]
         if let rpc = settings.arkRPC {
-            // RPC cannot use the Rust backend's SOCKS transport. Never bypass a Tor request.
-            guard !settings.useTor else { throw ConnectionError.unsupportedTor }
             var arkConfig = config
             arkConfig["electrum_address"] = NSNull()
             arkConfig["esplora_address"] = NSNull()
             arkConfig["bitcoind_address"] = rpc.endpoint
             arkConfig["bitcoind_user"] = rpc.username
             arkConfig["bitcoind_pass"] = rpc.password
+            arkConfig["socks5_proxy"] = rpc.useTor ? rpc.torProxy : NSNull()
             request["ark_config"] = arkConfig
         }
         _ = try await call(request)

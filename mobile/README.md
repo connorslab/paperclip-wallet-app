@@ -50,9 +50,12 @@ network and extended headers, but still needs a compatible public deployment tes
 Tor routing requires a reachable SOCKS proxy configured as `socks5h://host:port`.
 The app does not embed a Tor daemon. Electrum sends the destination hostname through
 SOCKS. CLN/LND use the OS SOCKS configuration with direct failover disabled. Ark uses
-the engine's SOCKS transport. The engine deliberately bypasses Tor for literal
-loopback endpoints. Knots RPC over Tor is rejected because the upstream async RPC
-transport does not support the proxy; it is never silently sent directly.
+the engine's SOCKS transport. On-chain and separate Ark RPC each have their own
+Tor switch and SOCKS proxy address. The separate Ark route also applies to its
+Ark server connection. Both synchronous chain scanning and asynchronous RPC use
+the selected proxy, including remote DNS; RPC proxy failures and redirects never
+fall back to a direct connection. RPC preserves the proxy even for loopback target
+addresses. The engine's other backends retain their loopback proxy bypass.
 On-chain and separate Ark RPC accept explicit HTTP endpoints for local nodes and
 testing, as well as HTTPS. HTTP sends RPC credentials without encryption, so use
 it only on a trusted network. On an iPhone, use the node's LAN address; localhost

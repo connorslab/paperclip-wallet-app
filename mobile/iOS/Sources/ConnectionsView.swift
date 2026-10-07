@@ -42,18 +42,22 @@ struct ConnectionsView: View {
                     TextField("http://local-node:port or https://host", text: $arkRPC.endpoint).textInputAutocapitalization(.never).autocorrectionDisabled()
                     TextField("RPC username", text: $arkRPC.username).textInputAutocapitalization(.never).autocorrectionDisabled()
                     SecureField("RPC password", text: $arkRPC.password)
+                    Toggle("Route Ark RPC through Tor", isOn: $arkRPC.useTor)
+                    if arkRPC.useTor {
+                        TextField("socks5h://host:port", text: $arkRPC.torProxy).textInputAutocapitalization(.never).autocorrectionDisabled()
+                    }
+                    Text("These settings apply to the Ark RPC and Ark server connections independently of the on-chain connection.").font(.caption)
                     if arkRPC.endpoint.lowercased().hasPrefix("http://") {
                         Text("HTTP sends RPC credentials without encryption. Use it on a trusted local network.").font(.caption)
                     }
                 }
                 Text("Ark can use Electrum when the server exposes package relay and complete relay policy. RPC is optional for your own node. No public RPC endpoint is configured.").font(.caption)
             }
-            Section("Tor") {
+            Section(separateRPC ? "On-chain Tor" : "On-chain & Ark Tor") {
                 Toggle("Route through Tor", isOn: $settings.useTor)
                 if settings.useTor {
                     TextField("socks5h://host:port", text: $settings.torProxy).textInputAutocapitalization(.never).autocorrectionDisabled()
                     Text("Use a reachable Tor SOCKS proxy. This app does not start a Tor daemon. Onion names resolve through the proxy; connection failure does not fall back to a direct connection.").font(.caption)
-                    if settings.backend == .rpc || separateRPC { Text("Knots RPC over Tor is not available in this build.").foregroundStyle(.orange) }
                 }
             }
             Section {

@@ -28,3 +28,6 @@ rusqlite = { version = "0.31.0", features = ["bundled"] }
 bark-bitcoin-ext = { path = "../../bitcoin-ext", features = ["xbt-mainnet"] }
 
 ark-lib = { path = "../../lib" }
+
+[dev-dependencies]
+bitcoind-async-client.workspace = true

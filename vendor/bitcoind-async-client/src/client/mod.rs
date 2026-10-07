@@ -110,6 +110,8 @@ pub struct Client {
     ///
     /// This is used to reuse TCP connections across requests.
     http_client: BitreqClient,
+    #[cfg(feature = "socks5-proxy")]
+    socks_agent: Option<ureq::Agent>,
 }
 
 impl fmt::Debug for Client {
@@ -170,7 +172,65 @@ impl Client {
             max_retries,
             retry_interval,
             http_client,
+            #[cfg(feature = "socks5-proxy")]
+            socks_agent: None,
         })
+    }
+
+    /// Route every request through this SOCKS5 proxy, including remote DNS.
+    #[cfg(feature = "socks5-proxy")]
+    pub fn with_socks5_proxy(mut self, proxy: &str) -> ClientResult<Self> {
+        if !proxy.starts_with("socks5h://") {
+            return Err(ClientError::Other("RPC proxy must use socks5h".into()));
+        }
+        let proxy = ureq::Proxy::new(proxy).map_err(|e| ClientError::Other(e.to_string()))?;
+        self.socks_agent = Some(ureq::Agent::config_builder()
+            .proxy(Some(proxy))
+            .max_redirects(0)
+            .http_status_as_error(false)
+            .timeout_global(Some(Duration::from_secs(self.timeout)))
+            .build().new_agent());
+        Ok(self)
+    }
+
+    #[cfg(feature = "socks5-proxy")]
+    async fn call_socks5<T: de::DeserializeOwned + fmt::Debug>(
+        &self, agent: ureq::Agent, method: &str, params: &[Value],
+    ) -> ClientResult<T> {
+        let id = self.next_id();
+        let body = serde_json::to_vec(&json!({
+            "jsonrpc": "1.0", "id": id, "method": method, "params": params,
+        })).map_err(|e| ClientError::Param(e.to_string()))?;
+        let url = self.url.clone();
+        let authorization = self.authorization.clone();
+        // Never retry an uncertain write or fall back to the direct client.
+        let (status, raw) = tokio::task::spawn_blocking(move || {
+            let response = agent.post(&url)
+                .header("Authorization", &authorization)
+                .header("Content-Type", "application/json")
+                .send(&body[..]).map_err(|e| ClientError::Other(e.to_string()))?;
+            let status = response.status().as_u16();
+            let raw = response.into_body().read_to_string()
+                .map_err(|e| ClientError::Other(e.to_string()))?;
+            Ok::<_, ClientError>((status, raw))
+        }).await.map_err(|e| ClientError::Other(e.to_string()))??;
+        if !(200..300).contains(&status) {
+            if let Ok(response) = serde_json::from_str::<Response<Value>>(&raw) {
+                if let Some(error) = response.error {
+                    return Err(ClientError::Server(error.code, error.message));
+                }
+            }
+            return Err(ClientError::Status(status, "RPC HTTP request rejected".into()));
+        }
+        let response: Response<T> = serde_json::from_str(&raw)
+            .map_err(|e| ClientError::Parse(e.to_string()))?;
+        if response.id != id as u64 {
+            return Err(ClientError::Other("RPC response ID mismatch".into()));
+        }
+        if let Some(error) = response.error {
+            return Err(ClientError::Server(error.code, error.message));
+        }
+        response.result.ok_or_else(|| ClientError::Other("Empty data received".into()))
     }
 
     fn next_id(&self) -> usize {
@@ -182,6 +242,10 @@ impl Client {
         method: &str,
         params: &[Value],
     ) -> ClientResult<T> {
+        #[cfg(feature = "socks5-proxy")]
+        if let Some(agent) = &self.socks_agent {
+            return self.call_socks5(agent.clone(), method, params).await;
+        }
         let mut retries = 0;
         loop {
             debug!(%method, ?params, %retries, "Calling bitcoin client");

@@ -314,17 +314,15 @@ impl ChainSource {
 			},
 			#[cfg(feature = "bitcoind-rpc")]
 			ChainSourceSpec::Bitcoind { url, auth, zmq } => {
-				#[cfg(feature = "socks5-proxy")]
-				ensure!(proxy.is_none(), "Knots RPC Tor transport is unavailable; use Electrum over Tor for on-chain access");
 				// `bdk_bitcoind_rpc::Emitter` is sync-only upstream, so we keep
 				// a sync companion to drive it inside `spawn_blocking`. The async
 				// client is used everywhere else. `BitcoinRpcClient` (rather
 				// than the bare `bitcoincore_rpc::Client`) is required so the
 				// `spawn_blocking` closure can take an owned, `Clone` value.
-				//
-				// The sync companion currently does not honour `socks5-proxy`;
-				// SOCKS5 is supported on the Esplora backend, where it is the
-				// realistic Tor-via-bitcoind use case.
+				#[cfg(feature = "socks5-proxy")]
+				let sync = BitcoinRpcClient::new_with_proxy(&url, auth.clone(), proxy)
+					.context("failed to create sync bitcoind rpc client")?;
+				#[cfg(not(feature = "socks5-proxy"))]
 				let sync = BitcoinRpcClient::new(&url, auth.clone())
 					.context("failed to create sync bitcoind rpc client")?;
 				let async_auth = match auth {
@@ -336,6 +334,10 @@ impl ChainSource {
 				};
 				let rpc = BitcoindClient::new(url, async_auth, None, None, None)
 					.context("failed to create async bitcoind rpc client")?;
+				#[cfg(feature = "socks5-proxy")]
+				let rpc = if let Some(proxy) = proxy {
+					rpc.with_socks5_proxy(proxy).context("failed to configure RPC Tor transport")?
+				} else { rpc };
 				rpc.require_txindex().await?;
 				if network == Network::Bitcoin {
 					let chain: serde_json::Value = rpc.call_raw("getblockchaininfo", &[]).await?;

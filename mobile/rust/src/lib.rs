@@ -107,3 +107,6 @@ mod tests {
 		}).unwrap().join().unwrap();
 	}
 }
+
+#[cfg(test)]
+mod rpc_tor_tests;

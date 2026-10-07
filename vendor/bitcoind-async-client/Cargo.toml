@@ -43,6 +43,7 @@ repository = "https://github.com/alpenlabs/bitcoind-async-client"
 30_2 = ["corepc-node/30_2"]
 default = ["30_2"]
 raw_rpc = []
+socks5-proxy = ["dep:ureq"]
 
 [lib]
 name = "bitcoind_async_client"
@@ -117,3 +118,8 @@ lto = true
 codegen-units = 1
 panic = "abort"
 strip = "symbols"
+
+[dependencies.ureq]
+version = "3"
+features = ["socks-proxy"]
+optional = true

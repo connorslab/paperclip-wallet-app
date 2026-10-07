@@ -37,8 +37,7 @@ public struct WalletConnection: Codable, Equatable, Sendable {
     public func validate() throws {
         if backend == .rpc && (username.isEmpty || password.isEmpty) { throw ConnectionError.invalidCredential }
         try arkRPC?.validate()
-        if arkRPC != nil && useTor { throw ConnectionError.unsupportedTor }
-        _ = try EndpointPolicy.validate(arkServer, tor: useTor)
+        _ = try EndpointPolicy.validate(arkServer, tor: arkRPC?.useTor ?? useTor)
         _ = try EndpointPolicy.validate(endpoint, tor: useTor, electrum: backend == .electrum,
             credentials: backend == .rpc && (!username.isEmpty || !password.isEmpty), allowHTTP: true)
         if useTor { _ = try EndpointPolicy.proxy(torProxy) }
@@ -53,10 +52,22 @@ public struct ArkRPCConnection: Codable, Equatable, Sendable {
     public var endpoint = ""
     public var username = ""
     public var password = ""
+    public var useTor = false
+    public var torProxy = "socks5h://127.0.0.1:9050"
     public init() {}
+    private enum CodingKeys: String, CodingKey { case endpoint, username, password, useTor, torProxy }
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        endpoint = try values.decode(String.self, forKey: .endpoint)
+        username = try values.decode(String.self, forKey: .username)
+        password = try values.decode(String.self, forKey: .password)
+        useTor = try values.decodeIfPresent(Bool.self, forKey: .useTor) ?? false
+        torProxy = try values.decodeIfPresent(String.self, forKey: .torProxy) ?? "socks5h://127.0.0.1:9050"
+    }
     public func validate() throws {
         guard !username.isEmpty, !password.isEmpty else { throw ConnectionError.invalidCredential }
-        _ = try EndpointPolicy.validate(endpoint, tor: false, credentials: true, allowHTTP: true)
+        _ = try EndpointPolicy.validate(endpoint, tor: useTor, credentials: true, allowHTTP: true)
+        if useTor { _ = try EndpointPolicy.proxy(torProxy) }
     }
 }
 
