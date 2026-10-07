@@ -4,12 +4,13 @@ import PaperclipMobile
 struct LightningView: View {
     @AppStorage("displayUnit") private var unit: BitcoinUnit = .sats
     @EnvironmentObject var store: WalletStore
-    private enum Page: String, Hashable { case connection = "Node connection", receive = "Receive on your node", pay = "Pay from your node", status = "Payment status" }
+    private enum Page: String, Hashable { case balance = "Node balance", connection = "Node connection", receive = "Receive on your node", pay = "Pay from your node", status = "Payment status" }
     @State private var page: Page?
     @State private var scanning = false
     @State private var connection = LightningConnection()
     @State private var client: LightningNode?
     @State private var nodeName = ""
+    @State private var connectionError = ""
     @State private var amount = ""
     @State private var receiveInvoice = ""
     @State private var receiveOffer = false
@@ -33,47 +34,55 @@ struct LightningView: View {
     var body: some View {
         ScrollView {
           VStack(spacing: 20) {
-            WalletSection {
-                Label("Your node. Your Lightning.", systemImage: "bolt.fill").font(.title2.bold())
-                Text("Connect a BLAKE2b XBT Core Lightning or LND node. Node balances and channel backups remain on that node.").font(.caption)
-            }
-
+            WalletBrand()
             if client != nil {
-                WalletSection("Lightning balance") {
+                WalletSection {
+                    HStack {
+                        Label("Lightning balance", systemImage: "bolt.fill").foregroundStyle(PaperclipTheme.muted)
+                        Spacer()
+                        Button { store.run { await refreshBalance() } } label: { Image(systemName: "arrow.clockwise") }
+                            .accessibilityLabel("Refresh Lightning balance")
+                    }
                     Text(balance.map { unit.display($0.sendableMsat / 1000) } ?? "—")
-                        .font(.system(size: 36, weight: .semibold, design: .rounded)).privacySensitive()
-                    Text("Estimated available to send").font(.caption).foregroundStyle(PaperclipTheme.muted)
-                    LabeledContent("Receive capacity", value: balance.map { unit.display($0.receivableMsat / 1000) } ?? "—")
-                    if let balance { Text("\(balance.activeChannels) active channels · routing and fees can limit payments").font(.caption) }
-                    Button("Refresh balance") { store.run { await refreshBalance() } }.modifier(GlassAction())
-                    if !balanceStatus.isEmpty { Text(balanceStatus).font(.caption) }
-                }
-            }
-            WalletSection("Your node") {
-                LabeledContent("Node", value: client == nil ? "Not connected" : (nodeName.isEmpty ? connection.implementation.title : nodeName))
-                Button("Connection settings") { page = .connection }
-                if client != nil {
+                        .font(.system(size: 36, weight: .semibold, design: .rounded)).minimumScaleFactor(0.6).lineLimit(1).privacySensitive()
+                    Text(balance == nil ? "Balance unavailable · open details to retry" : "Available to send from your node").font(.subheadline).foregroundStyle(PaperclipTheme.muted)
                     HStack {
                         Button { page = .pay } label: { Label("Pay", systemImage: "arrow.up.right").frame(maxWidth: .infinity) }.modifier(GlassAction())
                         Button { page = .receive } label: { Label("Receive", systemImage: "arrow.down.left").frame(maxWidth: .infinity) }.modifier(GlassAction())
                     }
+                    Button { page = .balance } label: {
+                        WalletNavigationRow("Balance details", subtitle: "Receive capacity and active channels", icon: "chart.bar")
+                    }.buttonStyle(.plain)
                 }
-                Button("Payment status") { page = .status }
-                if pending != nil { Label("Payment in progress · checking automatically", systemImage: "clock").font(.caption) }
-            }
-            if !payments.status.isEmpty {
-                WalletSection(pending == nil ? "Last payment" : "Current payment") {
-                    if payments.checking { ProgressView("Checking payment…") }
-                    Text(payments.status).font(.subheadline)
+            } else {
+                WalletSection {
+                    Label("Your node. Your Lightning.", systemImage: "bolt.fill").font(.title2.bold())
+                    Text("Connect your XBT Core Lightning or LND node to send and receive payments with Paperclip.")
+                        .foregroundStyle(PaperclipTheme.muted)
+                    Button("Connect a node") { page = .connection }.buttonStyle(.borderedProminent)
+                    if !connectionError.isEmpty { Text(connectionError).font(.caption).foregroundStyle(PaperclipTheme.muted) }
                 }
             }
-            WalletSection { if store.busy { ProgressView() }; Text(store.message).font(.caption) }
+            WalletSection {
+                Button { page = .connection } label: {
+                    WalletNavigationRow(nodeName.isEmpty ? "Node connection" : nodeName,
+                        subtitle: client == nil ? "Set up Core Lightning or LND" : connection.implementation.title + (connection.useTor ? " · Tor" : " · Direct connection"), icon: "server.rack")
+                }.buttonStyle(.plain)
+                Divider()
+                Button { page = .status } label: {
+                    WalletNavigationRow("Payments", subtitle: pending == nil ? "View your latest payment status" : "Payment in progress · checking automatically", icon: pending == nil ? "clock.arrow.circlepath" : "clock")
+                }.buttonStyle(.plain)
+            }
+            Text("Funds and channel backups stay on your node. Paperclip is your connection to it.")
+                .font(.caption).foregroundStyle(PaperclipTheme.muted).frame(maxWidth: .infinity, alignment: .leading)
+            if store.busy { ProgressView("Connecting…") }
           }.padding(22).textFieldStyle(WalletInputStyle())
         }.navigationTitle("Lightning").background(PaperclipTheme.navy.ignoresSafeArea()).disabled(store.busy)
             .navigationDestination(item: $page) { selected in
                 ScrollView {
                     VStack(spacing: 20) {
                         switch selected {
+                        case .balance: balanceCard
                         case .connection: connectionCard
                         case .receive: receiveCard
                         case .pay: payCard
@@ -121,6 +130,16 @@ struct LightningView: View {
             .onChange(of: maximumFee) { _, _ in reviewedHash = nil }
             .onChange(of: connection) { old, _ in if !old.endpoint.isEmpty { client = nil; reviewedHash = nil; balance = nil; receiveInvoice = ""; receiveOffer = false } }
 
+    }
+    private var balanceCard: some View {
+        WalletSection("Channel balance") {
+            LabeledContent("Available to send", value: balance.map { unit.display($0.sendableMsat / 1000) } ?? "—")
+            LabeledContent("Receive capacity", value: balance.map { unit.display($0.receivableMsat / 1000) } ?? "—")
+            if let balance { LabeledContent("Active channels", value: "\(balance.activeChannels)") }
+            Text("These are estimates. Routes, channel liquidity, and fees can limit individual payments.").font(.caption).foregroundStyle(PaperclipTheme.muted)
+            Button("Refresh balance") { store.run { await refreshBalance() } }.buttonStyle(.bordered)
+            if !balanceStatus.isEmpty { Text(balanceStatus).font(.caption).foregroundStyle(PaperclipTheme.muted) }
+        }
     }
     private var connectionCard: some View {
         WalletSection("Node connection") {
@@ -218,7 +237,7 @@ struct LightningView: View {
                 nodeName = info["alias"] as? String ?? connection.implementation.title
                 await refreshBalance()
             }
-        } catch { store.message = error.localizedDescription }
+        } catch { connectionError = error.localizedDescription }
     }
     private func refreshBalance() async {
         guard let client else { return }
