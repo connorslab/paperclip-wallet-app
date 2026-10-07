@@ -202,14 +202,7 @@ impl Electrum {
 					return if entry.height > 0 {
 						let header = c.inner.block_header(entry.height as usize)?;
 						let proof = c.inner.transaction_get_merkle(&txid, entry.height as usize)?;
-						let mut root = txid.to_byte_array();
-						let mut position = proof.pos;
-						for sibling in proof.merkle {
-							let pair = if position & 1 == 0 { [root, sibling] } else { [sibling, root] };
-							root = bitcoin::hashes::sha256d::Hash::hash(&pair.concat()).to_byte_array();
-							position >>= 1;
-						}
-						ensure!(position == 0 && root == header.merkle_root.to_byte_array(), "invalid Electrum inclusion proof");
+						ensure!(proof.block_height == entry.height as usize && valid_inclusion_proof(txid, header.merkle_root, &proof), "invalid Electrum inclusion proof");
 						Ok(TxStatus::Confirmed(BlockRef { height: (entry.height as u32).into(), hash: header.block_hash() }))
 					} else { Ok(TxStatus::Mempool) };
 				}
@@ -239,4 +232,29 @@ pub fn validate_ark_capabilities(data: &serde_json::Value) -> anyhow::Result<()>
 		ensure!(value.is_finite() && value >= 0.0 && value <= ceiling, "Electrum {field} exceeds the funded profile");
 	}
 	Ok(())
+}
+
+// Electrum encodes branch hashes in display byte order, unlike internal hash bytes.
+fn valid_inclusion_proof(txid: Txid, root: bitcoin::TxMerkleNode, proof: &bdk_electrum::electrum_client::GetMerkleRes) -> bool {
+	let mut position = proof.pos;
+	for _ in &proof.merkle { position >>= 1; }
+	position == 0 && bdk_electrum::electrum_client::utils::validate_merkle_proof(&txid, &root, proof)
+}
+
+#[cfg(test)]
+mod inclusion_tests {
+	use super::*;
+	#[test]
+	fn electrum_inclusion_display_order_and_tampering() {
+		// Mainnet block 974884, independently retrieved from mempool.guide.
+		let txid: Txid = "677351f04eb19472aab2bf82980d79bad19fe9c5c58ff334ad6f512a1b434bd8".parse().unwrap();
+		let root = bitcoin::TxMerkleNode::from_byte_array([14, 36, 98, 252, 101, 240, 157, 10, 101, 243, 125, 123, 135, 117, 96, 185, 91, 191, 55, 6, 204, 248, 120, 45, 184, 93, 250, 155, 80, 236, 162, 152]);
+		let mut proof: bdk_electrum::electrum_client::GetMerkleRes = serde_json::from_str(r#"{"block_height":974884,"merkle":["bc8d333b9c70a27042f4d2a896d82b44a3b7d3392af09c9181175a5c3cac04ec","935d885558681a2ee44b0f36f3070cc5138f661f6ab01c9617cc24dc81aadd94","dc4d4b832be415d59be3cd855296dbbe1da38ab6efca774854ca25a8e9357934","0293a9d58c5a4630e68cb9a7aa7ae75dd75cffa8a4c705be39b2e50fff808bca","db45cb9af204b29338649aad960a8ef6183e8ff32a713f2f55a6ad7ff3014e70","c05347b8054239f223d5d25e8ed518c1f9e37e88f45cfd16aebab002542e8d40","9ce77ca72431ead5dd906511b9558a0de296fbca8bcdefd2d9b21aef01ea3d97","d7508d7012813bc454450b37b1b3dd9d1a4a6d5e2d36b1783df0180597cc2f6f","35202aefa4590345d97b47c7d3d7b6e856449c331e5a043106c7f994c2887474"],"pos":470}"#).unwrap();
+		assert!(valid_inclusion_proof(txid, root, &proof));
+		proof.merkle[0][0] ^= 1;
+		assert!(!valid_inclusion_proof(txid, root, &proof));
+		proof.merkle[0][0] ^= 1;
+		proof.pos += 1 << proof.merkle.len();
+		assert!(!valid_inclusion_proof(txid, root, &proof));
+	}
 }
