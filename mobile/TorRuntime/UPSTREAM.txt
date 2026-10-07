@@ -1,0 +1,4 @@
+iCepa/Tor.framework v409.13.1, MIT license. Core and TORThread sources vendored.
+Local changes: framework-qualified tor_api import; omit unused logging import; allocate argv terminator slot.
+Binary release checksum matches the upstream Tor.podspec.
+Trailing whitespace removed from vendored source files.

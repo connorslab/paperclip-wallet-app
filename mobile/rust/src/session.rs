@@ -103,6 +103,11 @@ mod tests {
 		let mut state = None;
 		let create = json!({"op": "create", "network": "xbt-regtest", "directory": original});
 		dispatch(&mut state, create.clone(), seed).unwrap();
+		let overview = dispatch(&mut state, json!({"op": "overview_onchain"}), seed).unwrap();
+		assert_eq!(overview["confirmed_sat"], 0);
+		assert_eq!(overview["unconfirmed_sat"], 0);
+		assert_eq!(overview["immature_sat"], 0);
+		assert_eq!(overview["transactions"], json!([]));
 		let first = dispatch(&mut state, json!({"op": "address_onchain"}), seed).unwrap();
 		assert!(first["address"].as_str().unwrap().starts_with("bcrt1"));
 		let page = dispatch(&mut state, json!({"op": "addresses_onchain"}), seed).unwrap();
@@ -247,6 +252,17 @@ pub fn dispatch(state: &mut Option<Session>, request: Value, seed: [u8; 64]) -> 
 	let network = session.network;
 	let Session { runtime, wallet, ark_wallet, db, onchain, quote, onchain_quote, board_quote, offer_task, receive_task, .. } = session;
 	runtime.block_on(async {
+		if op == "overview_onchain" {
+			let chain = onchain.read().await;
+			let balance = chain.balance();
+			return Ok(json!({"confirmed_sat": balance.confirmed.to_sat(),
+				"unconfirmed_sat": (balance.trusted_pending + balance.untrusted_pending).to_sat(),
+				"immature_sat": balance.immature.to_sat(), "total_sat": balance.total().to_sat(),
+				"transactions": chain.list_transaction_infos()?.iter().map(|tx| json!({
+					"txid": tx.txid.to_string(), "change_sat": tx.balance_change.to_sat(),
+					"confirmed": tx.confirmation.is_some()
+				})).collect::<Vec<_>>() }));
+		}
 		if op == "addresses_onchain" {
 			let start = request["start"].as_u64().unwrap_or(0);
 			ensure!(start < 0x80000000, "invalid address index");

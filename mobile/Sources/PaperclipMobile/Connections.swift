@@ -45,7 +45,7 @@ public struct WalletConnection: Codable, Equatable, Sendable {
     public var username = ""
     public var password = ""
     public var useTor = false
-    public var torProxy = "socks5h://127.0.0.1:9050"
+    public var torProxy = "builtin"
     public init() {}
     public func validate() throws {
         if backend == .rpc && (username.isEmpty || password.isEmpty) { throw ConnectionError.invalidCredential }
@@ -60,7 +60,7 @@ public struct WalletConnection: Codable, Equatable, Sendable {
             _ = try EndpointPolicy.validate(endpoint, tor: useTor, electrum: backend == .electrum,
                 credentials: backend == .rpc && (!username.isEmpty || !password.isEmpty), allowHTTP: true)
         }
-        if useTor { _ = try EndpointPolicy.proxy(torProxy) }
+        if useTor { try EndpointPolicy.validateTorProxy(torProxy) }
         if !certificateSHA256.isEmpty {
             guard certificateSHA256.count == 64, certificateSHA256.allSatisfy(\.isHexDigit) else { throw ConnectionError.invalidCredential }
         }
@@ -73,7 +73,7 @@ public struct ArkRPCConnection: Codable, Equatable, Sendable {
     public var username = ""
     public var password = ""
     public var useTor = false
-    public var torProxy = "socks5h://127.0.0.1:9050"
+    public var torProxy = "builtin"
     public init() {}
     private enum CodingKeys: String, CodingKey { case endpoint, username, password, useTor, torProxy }
     public init(from decoder: Decoder) throws {
@@ -89,11 +89,16 @@ public struct ArkRPCConnection: Codable, Equatable, Sendable {
         try validateField("Ark RPC endpoint", hint: "Include http:// or https:// and the RPC port. Enter credentials in their separate fields.") {
             _ = try EndpointPolicy.validate(endpoint, tor: useTor, credentials: true, allowHTTP: true)
         }
-        if useTor { _ = try EndpointPolicy.proxy(torProxy) }
+        if useTor { try EndpointPolicy.validateTorProxy(torProxy) }
     }
 }
 
 public enum EndpointPolicy {
+    public static func validateTorProxy(_ text: String) throws {
+        if text == "builtin" { return }
+        _ = try proxy(text)
+    }
+
     public static func validate(_ text: String, tor: Bool, electrum: Bool = false, credentials: Bool = false, allowHTTP: Bool = false) throws -> URL {
         guard text == text.trimmingCharacters(in: .whitespacesAndNewlines),
               let url = URL(string: text), let host = url.host, !host.isEmpty,

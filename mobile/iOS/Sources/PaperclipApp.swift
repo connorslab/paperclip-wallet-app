@@ -29,6 +29,12 @@ import PaperclipMobile
             }
             .tint(PaperclipTheme.orange).preferredColorScheme(.dark)
             .task {
+                #if DEBUG
+                if ProcessInfo.processInfo.arguments.contains("-tor-probe") {
+                    await TorProbe.run()
+                    return
+                }
+                #endif
                 await store.load()
                 if store.hasWallet && lockEnabled { await lock.unlock() }
                 if store.hasWallet {
@@ -96,7 +102,9 @@ struct DashboardView: View {
                     }.font(.headline)
                 }
                 HStack(spacing: 14) {
-                    balanceCard("On-chain", icon: "link", amount: store.onchain)
+                    NavigationLink { OnchainOverviewView() } label: {
+                        balanceCard("On-chain", icon: "link", amount: store.onchain)
+                    }.buttonStyle(.plain).accessibilityHint("View on-chain balances and transactions")
                     balanceCard("Ark", icon: "square.stack.3d.up", amount: store.ark)
                 }
                 if let pending = store.pending, pending > 0 { Label("\(pending.formatted()) sats pending", systemImage: "clock").font(.subheadline) }
@@ -148,5 +156,72 @@ struct ActivityView: View {
             Text(store.message).font(.caption)
         }.scrollContentBackground(.hidden).background(PaperclipTheme.navy).navigationTitle("Activity")
             .toolbar { Button("Refresh") { store.run { try await store.refreshActivity() } }.disabled(store.busy) }
+    }
+}
+
+struct OnchainOverviewView: View {
+    @EnvironmentObject var store: WalletStore
+    @State private var confirmed: UInt64?
+    @State private var unconfirmed: UInt64?
+    @State private var immature: UInt64?
+    @State private var transactions: [ActivityItem] = []
+    @State private var status = "Saved wallet state. Refresh to check the network."
+    @State private var loading = false
+    var body: some View {
+        List {
+            Section("Balance") {
+                LabeledContent("Confirmed", value: sats(confirmed))
+                LabeledContent("Unconfirmed", value: sats(unconfirmed))
+                if let immature, immature > 0 { LabeledContent("Immature mining rewards", value: sats(immature)) }
+                Text("Unconfirmed includes pending incoming outputs and change. Amounts reflect the wallet's unspent outputs.").font(.caption)
+                Text(status).font(.caption).foregroundStyle(.secondary)
+            }
+            Section { NavigationLink("Receive & change addresses") { OnchainAddressesView() } }
+            Section("On-chain transactions") {
+                if transactions.isEmpty { Text("No on-chain transactions in the saved wallet state.").foregroundStyle(.secondary) }
+                ForEach(transactions) { item in
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack { Text(item.status).foregroundStyle(PaperclipTheme.orange); Spacer(); Text(item.amount).monospacedDigit() }
+                        Text(item.detail).font(.caption.monospaced()).textSelection(.enabled)
+                        Button("Copy transaction ID") {
+                            UIPasteboard.general.setItems([[UIPasteboard.typeAutomatic: item.id]], options: [.localOnly: true, .expirationDate: Date().addingTimeInterval(120)])
+                        }.buttonStyle(.borderless)
+                    }.padding(.vertical, 6)
+                }
+            }
+        }.navigationTitle("On-chain")
+            .scrollContentBackground(.hidden).background(PaperclipTheme.navy)
+            .toolbar {
+                Button { Task { await refresh() } } label: {
+                    if loading { ProgressView() } else { Image(systemName: "arrow.clockwise") }
+                }.disabled(loading || store.busy).accessibilityLabel("Refresh on-chain wallet")
+            }
+            .task { await load() }
+            .refreshable { await refresh() }
+    }
+    private func sats(_ amount: UInt64?) -> String { amount.map { "\($0.formatted()) sats" } ?? "—" }
+    private func load() async {
+        do {
+            let result = try await store.engine.onchainOverview()
+            confirmed = (result["confirmed_sat"] as? NSNumber)?.uint64Value
+            unconfirmed = (result["unconfirmed_sat"] as? NSNumber)?.uint64Value
+            immature = (result["immature_sat"] as? NSNumber)?.uint64Value
+            store.onchain = (result["total_sat"] as? NSNumber)?.uint64Value
+            transactions = (result["transactions"] as? [[String: Any]] ?? []).compactMap { row in
+                guard let txid = row["txid"] as? String, let amount = row["change_sat"] as? NSNumber else { return nil }
+                return ActivityItem(id: txid, title: "On-chain", status: row["confirmed"] as? Bool == true ? "Confirmed" : "Unconfirmed",
+                    amount: "\(amount.int64Value.formatted()) sats", detail: txid)
+            }
+        } catch { status = error.localizedDescription }
+    }
+    private func refresh() async {
+        guard !loading, !store.busy else { return }
+        loading = true; store.busy = true
+        defer { loading = false; store.busy = false }
+        do {
+            _ = try await store.engine.operation("sync_onchain")
+            status = "Updated \(Date().formatted(date: .omitted, time: .shortened))"
+        } catch { status = "Showing saved state. \(error.localizedDescription)" }
+        await load()
     }
 }

@@ -41,8 +41,8 @@ struct LightningView: View {
                         .textInputAutocapitalization(.never).autocorrectionDisabled()
                     Toggle("Use Tor", isOn: $connection.useTor)
                     if connection.useTor {
-                        TextField("socks5h://host:port", text: $connection.torProxy).textInputAutocapitalization(.never).autocorrectionDisabled()
-                        Text("Requires a reachable Tor SOCKS proxy. No direct fallback.").font(.caption)
+                        TorProxyPicker(selection: $connection.torProxy)
+                        Text("Enter your .onion REST address in the node URL field above.").font(.caption)
                     }
                     Button("Save and connect") { connect() }.disabled(pending != nil)
                     Text("Use a node-scoped rune or macaroon with only the permissions you need. Credentials stay in device-only Keychain.").font(.caption)
@@ -75,7 +75,7 @@ struct LightningView: View {
             }
             Section { if store.busy { ProgressView() }; Text(store.message).font(.caption) }
         }.navigationTitle("Lightning").scrollContentBackground(.hidden).background(PaperclipTheme.navy).disabled(store.busy)
-            .task { load() }
+            .task { await load() }
             .onChange(of: payInvoice) { _, _ in reviewedHash = nil }
             .onChange(of: maximumFee) { _, _ in reviewedHash = nil }
             .onChange(of: connection) { old, _ in if !old.endpoint.isEmpty { client = nil; reviewedHash = nil } }
@@ -83,17 +83,23 @@ struct LightningView: View {
                 Button("Pay invoice") { pay() }
             } message: { Text("\(reviewAmount)\nMaximum fee: \(maximumFee) sats\n\(payInvoice)") }
     }
-    private func load() {
+    private func load() async {
         do {
             if let data = try WalletKeychain.read(configAccount) { connection = try JSONDecoder().decode(LightningConnection.self, from: data) }
             if let data = try WalletKeychain.read(pendingAccount), !data.isEmpty { pending = try JSONDecoder().decode(PendingNodePayment.self, from: data) }
-            if !connection.endpoint.isEmpty { client = try LightningNode(connection: connection) }
+            if !connection.endpoint.isEmpty { client = try await makeNode() }
         } catch { store.message = error.localizedDescription }
+    }
+    private func makeNode() async throws -> LightningNode {
+        var resolved = connection
+        try resolved.validate()
+        if resolved.useTor { resolved.torProxy = try await EmbeddedTor.shared.proxy(for: resolved.torProxy) }
+        return try LightningNode(connection: resolved)
     }
     private func connect() {
         store.run {
             guard pending == nil else { throw WalletFailure(message: "Reconcile the saved node payment before changing nodes.") }
-            let node = try LightningNode(connection: connection)
+            let node = try await makeNode()
             let info = try JSONSerialization.jsonObject(with: await node.info()) as? [String: Any] ?? [:]
             // Both forks retain the upstream network names. The node must be configured for XBT.
             if connection.implementation == .cln {

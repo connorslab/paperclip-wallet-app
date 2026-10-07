@@ -2,6 +2,26 @@ import XCTest
 @testable import PaperclipMobile
 
 final class ConnectionTests: XCTestCase {
+    func testBuiltInTorSelectionAndExternalProxyValidation() throws {
+        var node = LightningConnection()
+        node.endpoint = "http://node.onion"
+        node.credential = "test-rune"
+        node.useTor = true
+        XCTAssertEqual(node.torProxy, "builtin")
+        XCTAssertNoThrow(try node.validate())
+        XCTAssertEqual(try JSONDecoder().decode(LightningConnection.self, from: JSONEncoder().encode(node)), node)
+        node.torProxy = "http://node.onion"
+        XCTAssertThrowsError(try node.validate())
+        node.torProxy = "socks5h://192.168.1.2:9050"
+        XCTAssertNoThrow(try node.validate())
+        // The HTTP client must resolve built-in selection to a running loopback proxy first.
+        node.torProxy = "builtin"
+        XCTAssertThrowsError(try LightningNode(connection: node))
+        var chain = WalletConnection()
+        chain.useTor = true
+        XCTAssertNoThrow(try chain.validate())
+    }
+
     func testLocalElectrumAndFieldSpecificErrors() throws {
         var connection = WalletConnection()
         for endpoint in ["tcp://192.168.1.10:50001", "ssl://node.local:50002", "tcp://[::1]:50001"] {

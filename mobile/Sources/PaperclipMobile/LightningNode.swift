@@ -14,11 +14,11 @@ public struct LightningConnection: Codable, Equatable, Sendable {
     public var credential = ""
     public var certificateSHA256 = ""
     public var useTor = false
-    public var torProxy = "socks5h://127.0.0.1:9050"
+    public var torProxy = "builtin"
     public init() {}
     public func validate() throws {
         _ = try EndpointPolicy.validate(endpoint, tor: useTor, credentials: true)
-        if useTor { _ = try EndpointPolicy.proxy(torProxy) }
+        if useTor { try EndpointPolicy.validateTorProxy(torProxy) }
         guard !credential.isEmpty, !credential.contains(where: \.isNewline),
               credential.utf8.count < 16_384 else { throw ConnectionError.invalidCredential }
         if implementation == .lnd {

@@ -159,7 +159,7 @@ actor NativeWallet: WalletEngine, WalletBackupEngine {
         config["bitcoind_address"] = settings.backend == .rpc ? settings.endpoint : NSNull()
         config["bitcoind_user"] = settings.username
         config["bitcoind_pass"] = settings.password
-        config["socks5_proxy"] = settings.useTor ? settings.torProxy : NSNull()
+        config["socks5_proxy"] = settings.useTor ? try await EmbeddedTor.shared.proxy(for: settings.torProxy) : NSNull()
         config["user_agent"] = "paperclip-ios/0.2.0"
         connected = false
         var request: [String: Any] = ["op": "connect", "config": config]
@@ -170,7 +170,7 @@ actor NativeWallet: WalletEngine, WalletBackupEngine {
             arkConfig["bitcoind_address"] = rpc.endpoint
             arkConfig["bitcoind_user"] = rpc.username
             arkConfig["bitcoind_pass"] = rpc.password
-            arkConfig["socks5_proxy"] = rpc.useTor ? rpc.torProxy : NSNull()
+            arkConfig["socks5_proxy"] = rpc.useTor ? try await EmbeddedTor.shared.proxy(for: rpc.torProxy) : NSNull()
             request["ark_config"] = arkConfig
         }
         _ = try await call(request)
@@ -194,6 +194,10 @@ actor NativeWallet: WalletEngine, WalletBackupEngine {
         if connected { return }
         guard let settings = try savedConnection() else { throw WalletFailure(message: "Configure a chain connection in Settings.") }
         try await connect(settings)
+    }
+    func onchainOverview() async throws -> [String: Any] {
+        _ = try await open()
+        return try await call(["op": "overview_onchain"])
     }
     func onchainAddresses(start: Int) async throws -> (entries: [[String: Any]], hasMore: Bool) {
         _ = try await open()

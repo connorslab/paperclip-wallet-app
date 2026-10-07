@@ -14,7 +14,7 @@ struct ConnectionsView: View {
                 Toggle("On-chain Tor", isOn: $settings.useTor)
                     .accessibilityIdentifier("onchain-tor")
                 if settings.useTor {
-                    TextField("On-chain SOCKS proxy", text: $settings.torProxy).textInputAutocapitalization(.never).autocorrectionDisabled()
+                    TorProxyPicker(selection: $settings.torProxy)
                 }
                 Toggle("Separate Ark RPC connection", isOn: $separateRPC)
                     .accessibilityIdentifier("separate-ark-rpc")
@@ -26,14 +26,14 @@ struct ConnectionsView: View {
                     .accessibilityIdentifier("ark-tor")
                 if separateRPC {
                     if arkRPC.useTor {
-                        TextField("Ark SOCKS proxy", text: $arkRPC.torProxy).textInputAutocapitalization(.never).autocorrectionDisabled()
+                        TorProxyPicker(selection: $arkRPC.torProxy)
                     }
                     Text("Ark RPC and the Ark server use the Ark Tor setting independently of on-chain. Configure the RPC endpoint below.").font(.caption)
                 } else {
                     Text("Ark shares the on-chain backend and Tor setting. Enable a separate Ark RPC connection to set its Tor route independently.").font(.caption)
                 }
                 if settings.useTor || (separateRPC && arkRPC.useTor) {
-                    Text("Enter a reachable Tor SOCKS proxy as socks5h://host:port. This app does not start Tor. Proxy failures never fall back to a direct connection.").font(.caption)
+                    Text("Built-in Tor starts automatically when connecting. Keep Paperclip open while Tor connects. Connection failures never fall back to a direct connection.").font(.caption)
                 }
             }
             Section("On-chain") {

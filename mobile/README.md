@@ -47,11 +47,15 @@ user supplies an exact SHA256 certificate pin. Pins must come from the operator
 through a trusted channel. A changed certificate fails closed. Esplora also checks
 network and extended headers, but still needs a compatible public deployment test.
 
-Tor routing requires a reachable SOCKS proxy configured as `socks5h://host:port`.
-The app does not embed a Tor daemon. Electrum sends the destination hostname through
-SOCKS. CLN/LND use the OS SOCKS configuration with direct failover disabled. Ark uses
+Tor routing defaults to the built-in iCepa Tor 0.4.9.13 runtime. The native iOS
+app starts one client with loopback-only, dynamically assigned SOCKS and cookie-authenticated
+control ports, and waits for a circuit before using it. Keep the app open while
+connecting; iOS can suspend Tor in the background. Startup times out without a direct
+fallback. Each connection can instead use an external `socks5h://host:port` proxy.
+Onion node URLs belong in the node endpoint field, not the external proxy field.
+Electrum sends the destination hostname through SOCKS. CLN/LND use the OS SOCKS configuration with direct failover disabled. Ark uses
 the engine's SOCKS transport. On-chain and separate Ark RPC each have their own
-Tor switch and SOCKS proxy address. The separate Ark route also applies to its
+Tor switch and built-in/external proxy selection. The separate Ark route also applies to its
 Ark server connection. Both synchronous chain scanning and asynchronous RPC use
 the selected proxy, including remote DNS; RPC proxy failures and redirects never
 fall back to a direct connection. RPC preserves the proxy even for loopback target
@@ -73,8 +77,18 @@ See [the Electrum Ark contract](electrum-ark.md) for the operator requirements.
 
 No public RPC endpoint is configured. Users can select their own Knots RPC for
 on-chain and Ark, or enable a separate Ark RPC backend while retaining Electrum
-for on-chain payments. RPC credentials are stored in Keychain. Separate RPC with
-Tor is currently rejected rather than bypassing Tor.
+for on-chain payments. RPC credentials are stored in Keychain. Both RPC routes support
+built-in Tor and external proxies independently.
+
+Tap the on-chain balance to view confirmed, unconfirmed, and immature balances plus
+on-chain transactions. This view opens saved wallet state offline; Refresh synchronizes
+only the on-chain wallet. Receive/change address previews do not advance derivation.
+
+The Tor runtime package pins the upstream binary checksum and vendors its MIT-licensed
+Objective-C wrapper. The iOS build flattens the upstream versioned framework layout
+and signs the copied framework. Debug builds support `-tor-probe`, which starts Tor
+without opening a wallet and verifies a proxied request with Tor Project's check service;
+only the pass/fail result is written to `Documents/tor-probe.txt`.
 
 ## Payments and recovery
 
