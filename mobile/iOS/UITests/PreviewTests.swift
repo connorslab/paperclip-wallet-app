@@ -2,6 +2,7 @@ import XCTest
 
 final class PreviewTests: XCTestCase {
     func testSeedImportAndPersistentReceiveAddress() {
+        continueAfterFailure = false
         let app = XCUIApplication()
         app.launchArguments = ["-ui-testing"]
         app.launch()
@@ -11,8 +12,20 @@ final class PreviewTests: XCTestCase {
             let words = app.textViews["import-seed"]
             XCTAssertTrue(words.waitForExistence(timeout: 5))
             words.tap()
-            words.typeText("abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about")
-            app.buttons["Import wallet"].tap()
+            let seed = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
+            var entered = ""
+            for word in seed.split(separator: " ") {
+                let next = entered.isEmpty ? String(word) : " " + word
+                words.typeText(next)
+                entered += next
+                let inputMatches = NSPredicate(format: "value == %@", entered)
+                expectation(for: inputMatches, evaluatedWith: words)
+                waitForExpectations(timeout: 5)
+            }
+            let importWallet = app.buttons["Import wallet"]
+            expectation(for: NSPredicate(format: "enabled == true"), evaluatedWith: importWallet)
+            waitForExpectations(timeout: 5)
+            importWallet.tap()
         }
         let receive = app.buttons["Receive"]
         XCTAssertTrue(receive.waitForExistence(timeout: 30))
