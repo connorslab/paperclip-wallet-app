@@ -17,6 +17,7 @@ struct BackupView: View {
     // A production adapter supplies this only after native wallet setup/recovery is implemented.
     let engine: (any WalletBackupEngine)?
     var restoreOnly = false
+    @EnvironmentObject var store: WalletStore
     @Environment(\.scenePhase) private var phase
     @State private var recoveryKey = ""
     @State private var confirmation = ""
@@ -46,10 +47,10 @@ struct BackupView: View {
                 }
             }
             NavigationLink { BackupView(engine: engine, restoreOnly: true) } label: {
-                WalletCard { WalletNavigationRow("Restore a backup", subtitle: "Requires an empty wallet", icon: "icloud.and.arrow.down") }
+                WalletCard { WalletNavigationRow("Restore a backup", subtitle: "Add as a separate wallet", icon: "icloud.and.arrow.down") }
             }
             } else {
-            WalletSection("Restore onto an empty wallet") {
+            WalletSection("Restore as another wallet") {
                 SecureField("Backup recovery key", text: $restoreKey).textInputAutocapitalization(.never).autocorrectionDisabled()
                 Button("Choose backup from iCloud Drive…") { importing = true }
                     .disabled(engine == nil || restoreKey.isEmpty || busy)
@@ -72,7 +73,7 @@ struct BackupView: View {
                 Task { await loadBackup(result, key: key) }
             }
             .confirmationDialog("Restore this wallet?", isPresented: $restoring) {
-                Button("Restore into an empty wallet") { Task { await restore() } }
+                Button("Restore as a new wallet") { Task { await restore() } }
                 Button("Cancel", role: .cancel) { pending = nil }
             } message: {
                 Text("Backup network: \(pending?.network ?? "unknown"). The native engine will validate recovery state before importing.")
@@ -112,6 +113,7 @@ struct BackupView: View {
         busy = true; defer { busy = false; pending = nil }
         do {
             try await engine.restoreIntoEmptyWallet(archive)
+            await store.load()
             status = "Recovery data imported. Synchronize with the server before spending."
         } catch { status = "Restore failed or an existing wallet prevented import. Check the native wallet status." }
     }

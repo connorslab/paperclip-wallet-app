@@ -1,6 +1,7 @@
 //! Serialized native XBT wallet bridge. The application explicitly enables mainnet.
 
 mod session;
+mod hardware;
 
 use std::ffi::{c_char, CStr, CString};
 use std::sync::{mpsc, OnceLock};

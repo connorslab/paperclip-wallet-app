@@ -5,6 +5,9 @@ struct ConnectionsView: View {
     @EnvironmentObject var store: WalletStore
     @Environment(\.dismiss) private var dismiss
     var isSetup = false
+    var onSave: ((WalletConnection) -> Void)? = nil
+    var initialSettings: WalletConnection? = nil
+    var onchainOnly = false
     @State private var settings = WalletConnection()
     @State private var separateRPC = false
     @State private var arkRPC = ArkRPCConnection()
@@ -15,15 +18,22 @@ struct ConnectionsView: View {
                     NavigationLink {
                         connectionPage("On-chain connection") { chainCard }
                     } label: { WalletNavigationRow("On-chain", subtitle: settings.backend.title + (settings.useTor ? " · Tor" : " · Direct"), icon: "link") }
-                    NavigationLink {
+                    if store.supportsArk && !onchainOnly { NavigationLink {
                         connectionPage("Ark connection") { arkCard }
                     } label: { WalletNavigationRow("Ark", subtitle: separateRPC ? "Separate RPC connection" : "Shares on-chain backend", icon: "square.stack.3d.up") }
-                    Text("Lightning node settings are on the Lightning tab.").font(.caption).foregroundStyle(PaperclipTheme.muted)
+                    Text("Lightning node settings are shared across mobile wallets, on the Lightning tab.").font(.caption).foregroundStyle(PaperclipTheme.muted) }
                 }
                 saveCard
             }.padding(22)
         }.navigationTitle("Connections").background(PaperclipTheme.navy.ignoresSafeArea())
-            .task { do { if let saved = try await store.engine.savedConnection() { settings = saved; separateRPC = saved.arkRPC != nil; arkRPC = saved.arkRPC ?? ArkRPCConnection() } } catch { store.message = error.localizedDescription } }
+            .task {
+                do {
+                    let saved: WalletConnection?
+                    if let initialSettings { saved = initialSettings }
+                    else { saved = try await store.engine.savedConnection() }
+                    if let saved { settings = saved; separateRPC = saved.arkRPC != nil; arkRPC = saved.arkRPC ?? ArkRPCConnection() }
+                } catch { store.message = error.localizedDescription }
+            }
     }
     private func connectionPage<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
         ScrollView { VStack(spacing: 20) {
@@ -85,7 +95,8 @@ struct ConnectionsView: View {
                     var connection = settings
                     connection.arkRPC = separateRPC ? arkRPC : nil
                     if isSetup {
-                        try await store.engine.saveConnection(connection)
+                        if let onSave { try connection.validate(); onSave(connection) }
+                        else { try await store.engine.saveConnection(connection) }
                         store.message = "Connection saved for your wallet."
                         dismiss()
                     } else {
@@ -106,19 +117,27 @@ struct SettingsView: View {
         ScrollView {
             VStack(spacing: 20) {
                 WalletSection { WalletBrand() }
+                WalletSection { NavigationLink { WalletPickerView() } label: { WalletNavigationRow("Your wallets", subtitle: "Switch, add, or rename a wallet", icon: "wallet.pass") } }
                 WalletSection("Preferences") {
                     NavigationLink { DisplaySettingsView() } label: { WalletNavigationRow("Appearance & units", subtitle: "Light, dark, sats, or XBT", icon: "circle.lefthalf.filled") }
                     NavigationLink { ConnectionsView() } label: { WalletNavigationRow("Connections", subtitle: "On-chain and Ark servers · Tor", icon: "network") }
                 }
                 WalletSection("Security & recovery") {
                     NavigationLink { SecuritySettingsView() } label: { WalletNavigationRow("Wallet security", subtitle: "Device authentication and protected storage", icon: "lock.shield") }.accessibilityIdentifier("settings-security")
-                    NavigationLink { BackupView(engine: store.engine) } label: { WalletNavigationRow("Encrypted backup", subtitle: "Save your wallet and Ark recovery data", icon: "icloud.and.arrow.up") }
-                    NavigationLink { ArkToolsView() } label: { WalletNavigationRow("Recovery", subtitle: "Seed recovery and emergency exits", icon: "arrow.counterclockwise") }
+                    if store.supportsArk { NavigationLink { BackupView(engine: store.engine) } label: { WalletNavigationRow("Encrypted backup", subtitle: "Save your wallet and Ark recovery data", icon: "icloud.and.arrow.up") }
+                    NavigationLink { ArkToolsView() } label: { WalletNavigationRow("Recovery", subtitle: "Seed recovery and emergency exits", icon: "arrow.counterclockwise") } }
+                    if !store.supportsArk, let descriptor = store.selectedProfile?.descriptor {
+                        DisclosureGroup("Public wallet backup") {
+                            Text("Keep this descriptor to restore monitoring. It contains no private keys. Your signing seed remains on the hardware wallet.").font(.caption)
+                            Text(descriptor).font(.caption.monospaced()).textSelection(.enabled)
+                            ShareLink("Share public descriptor", item: descriptor)
+                        }
+                    }
                 }
                 WalletSection("Wallet tools") {
                     NavigationLink { OnchainAddressesView() } label: { WalletNavigationRow("On-chain addresses", subtitle: "Receive and change addresses", icon: "list.bullet") }
-                    NavigationLink { MessageSigningView() } label: { WalletNavigationRow("Sign a message", subtitle: "Prove ownership of an on-chain address", icon: "signature") }
-                    NavigationLink { ArkMaintenanceView() } label: { WalletNavigationRow("Ark maintenance", subtitle: "Refresh funds and expiry reminders", icon: "arrow.triangle.2.circlepath") }
+                    if store.supportsArk { NavigationLink { MessageSigningView() } label: { WalletNavigationRow("Sign a message", subtitle: "Prove ownership of an on-chain address", icon: "signature") }
+                    NavigationLink { ArkMaintenanceView() } label: { WalletNavigationRow("Ark maintenance", subtitle: "Refresh funds and expiry reminders", icon: "arrow.triangle.2.circlepath") } }
                 }
             }.padding(22)
         }.navigationTitle("Settings").background(PaperclipTheme.navy.ignoresSafeArea())

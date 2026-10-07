@@ -60,6 +60,58 @@ key/network association in a staging directory and refuses existing wallet data.
 Remote Lightning nodes need their own channel backups; they are not part of an Ark
 backup. A backup does not prevent Ark expiry.
 
+## Multiple wallets and QR hardware signing
+
+Tap the wallet card beneath the logo, or Settings → Your wallets, to switch, rename,
+or add a wallet. Existing installations migrate their catalog without moving the old
+Keychain entry or database. Each new wallet gets a separate database, key/identity entry,
+and on-chain/Ark connection settings. A switch closes the previous session and discards
+unsubmitted signing requests. A wallet cannot switch while a native operation is active.
+Only the selected mobile wallet receives Ark maintenance; open each mobile wallet regularly.
+Remote Lightning node settings remain app-wide and are labeled accordingly.
+
+Hardware and watch-only wallets import account-level XPUB/YPUB/ZPUB (or testnet variants),
+`[fingerprint/path]` key expressions, or single-key public descriptors. Receive `/0/*`
+and change `/1/*` are separate. Hardware imports require the master fingerprint and full
+account path. Supported scripts are BIP44 P2PKH, BIP49 P2SH-P2WPKH, BIP84 P2WPKH, and
+BIP86 key-path Taproot. Multisig and Taproot script trees are not supported. Watch-only
+wallets cannot initiate payments, local signing, or Ark operations. Public descriptors
+can be shared from Settings for monitoring backups; hardware seeds stay on the signer.
+Compare the first receive address with the signer before funding an imported account.
+
+Hardware payment flow: review recipient/amount/fee → show animated BBQr → approve and
+sign on the hardware wallet → scan its response → verify → confirm broadcast. Every input
+explicitly requests unified SIGHASH_ALL (`0x21`). The native engine verifies every returned
+signature against trusted original prevouts and the exact reviewed transaction. Changed
+outputs, amounts, fees, input order, sequences, locktime, or a BTC sighash are rejected.
+Requests expire after 30 minutes. A broadcast attempt saves the exact transaction before
+relay; an uncertain reply is not treated as permission to send a replacement payment.
+
+Compatibility checked against:
+
+- `privkeyio/seedsigner` at `e135132033412901a957ddf5e6fea4883186a36b`, with its pinned
+  `privkeyio/embit` at `5f700aa3222da65c27331df50b9a899236cb5461`. Choose **Specter** for
+  public-key export, then **Scan** for signing. SeedSigner accepts BBQr requests and always
+  returns signed PSBTs as `ur:crypto-psbt`; the app decodes that animated fountain format.
+  `crypto-account` public-key UR import is not supported; use the Specter export instead.
+- `connorslab/krux-blake2b` at `820367495ef72a4544557c9f0b47a92984fb6fe1`, with embit
+  `087d020fbfb66fc2e0eab88fb948269e1da28e95`. Export a plain public-key expression or descriptor,
+  choose **Sign PSBT**, and return BBQr or UR. Legacy requests include the complete previous
+  transaction without a witness-only hint, as required by Krux's policy.
+- Shrike's reviewed implementation at `45a3943307cb0d1dda2e94a4e1c049af3621dcca` provides
+  the reference review/export/import flow. This does not claim device-to-device testing.
+
+QR imports accept BBQr `H`, `2`, and raw-deflate `Z`, animated UR PSBTs, base64/hex,
+and `pNofM` responses. Transfers, fountain metadata, and decompression are bounded.
+`Tests/PaperclipMobileTests/Fixtures` contains only public BIP39 test-key data; never fund
+those keys. `integration/hardware-fixtures.py` regenerates SeedSigner signature/UR fixtures
+using its actual parser, signing policy, trimming, and QR encoder. Rust tests verify both
+SeedSigner and Krux signatures for all four scripts, and Swift tests decode SeedSigner's
+UR output. Optical scanning on physical hardware still requires a device round trip.
+
+Do not leave Xcode Device Hub open during camera testing: its remote interaction can
+make physical camera capture unavailable. Test the scanner directly on the iPhone.
+
 ## Connections
 
 - Default: `ssl://pool.paperclippool.xyz:50002` (operator is preparing this endpoint).

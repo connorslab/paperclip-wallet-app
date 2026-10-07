@@ -2470,6 +2470,7 @@ dependencies = [
  "bark-wallet",
  "base64 0.22.1",
  "bdk_electrum",
+ "bdk_wallet",
  "bip39",
  "bitcoin",
  "bitcoind-async-client",

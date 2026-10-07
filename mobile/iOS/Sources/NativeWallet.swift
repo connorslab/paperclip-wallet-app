@@ -8,7 +8,6 @@ struct WalletFailure: LocalizedError {
 }
 
 enum WalletKeychain {
-    static func saveConnection(_ data: Data) throws { try save(data, account: "wallet-connection-v2") }
     static func save(_ data: Data, account: String) throws {
         let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: "xyz.paperclippool.wallet.preview", kSecAttrAccount as String: account]
@@ -45,6 +44,71 @@ actor NativeWallet: WalletEngine, WalletBackupEngine {
     static let shared = NativeWallet()
     private let queue = DispatchQueue(label: "paperclip.native.wallet", qos: .userInitiated)
     private var opened = false
+    private var catalog: WalletCatalog?
+    private var operations = 0
+    private var transitioning = false
+    private func beginOperation() throws {
+        guard !transitioning else { throw WalletFailure(message: "Wallet is switching. Try again in a moment.") }
+        operations += 1
+    }
+    private func loadedCatalog() throws -> WalletCatalog {
+        if let catalog { return catalog }
+        if let data = try WalletKeychain.read("wallet-catalog-v1") {
+            let saved = try JSONDecoder().decode(WalletCatalog.self, from: data)
+            guard saved.wallets.isEmpty || saved.selected != nil else { throw WalletFailure(message: "Wallet selection is invalid.") }
+            catalog = saved; return saved
+        }
+        var saved = WalletCatalog()
+        if let data = try WalletKeychain.read("wallet-key-v2") {
+            let key = try JSONDecoder().decode(KeyRecord.self, from: data)
+            try saved.add(WalletProfile(id: "legacy", name: "My Paperclip wallet", kind: .hot, network: key.network))
+        } else if let seed = try WalletKeychain.read("regtest-seed-v1") {
+            try WalletKeychain.insert(JSONEncoder().encode(KeyRecord(seed: seed, phrase: nil, network: "xbt-regtest")), account: "wallet-key-v2")
+            try saved.add(WalletProfile(id: "legacy", name: "Regtest wallet", kind: .hot, network: "xbt-regtest"))
+        }
+        try saveCatalog(saved)
+        return saved
+    }
+    private func saveCatalog(_ value: WalletCatalog) throws {
+        try WalletKeychain.save(JSONEncoder().encode(value), account: "wallet-catalog-v1")
+        catalog = value
+    }
+    func holdMaintenanceWallet() throws -> WalletProfile? {
+        let profile = try loadedCatalog().selected
+        guard profile?.supportsArk == true else { return nil }
+        try beginOperation(); return profile
+    }
+    func releaseMaintenanceWallet() { operations -= 1 }
+    func profiles() throws -> [WalletProfile] { try loadedCatalog().wallets }
+    func selectedProfile() throws -> WalletProfile? { try loadedCatalog().selected }
+    func rename(id: String, name: String) throws {
+        guard !transitioning else { throw WalletFailure(message: "Wait for the wallet switch to finish.") }
+        var saved = try loadedCatalog()
+        let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty, name.count <= 60, let index = saved.wallets.firstIndex(where: { $0.id == id }) else { throw WalletFailure(message: "Enter a wallet name up to 60 characters.") }
+        saved.wallets[index].name = name; try saveCatalog(saved)
+    }
+    func activate(_ id: String) async throws {
+        guard operations == 0, !provisioning, !transitioning, opening == nil else { throw WalletFailure(message: "Wait for the current wallet operation to finish, then switch.") }
+        var next = try loadedCatalog()
+        guard next.wallets.contains(where: { $0.id == id }) else { throw WalletFailure(message: "Wallet not found.") }
+        if next.selectedID == id && opened { return }
+        transitioning = true; defer { transitioning = false }
+        let previous = next
+        if opened { _ = try await call(["op": "close"]) }
+        opened = false; connected = false; fingerprint = ""
+        next.selectedID = id
+        catalog = next
+        do {
+            _ = try await openStorage(create: false)
+            try saveCatalog(next)
+        } catch {
+            if opened { _ = try? await call(["op": "close"]) }
+            opened = false; connected = false; catalog = previous
+            if previous.selected != nil { _ = try? await openStorage(create: false) }
+            throw error
+        }
+    }
     private var provisioning = false
     private var opening: Task<String, Error>?
     private var connected = false
@@ -52,9 +116,8 @@ actor NativeWallet: WalletEngine, WalletBackupEngine {
     private var fingerprint = ""
     private struct KeyRecord: Codable { let seed: Data; let phrase: String?; let network: String }
     private func record() throws -> KeyRecord? {
-        if let data = try WalletKeychain.read("wallet-key-v2") { return try JSONDecoder().decode(KeyRecord.self, from: data) }
-        if let seed = try WalletKeychain.read("regtest-seed-v1") { return KeyRecord(seed: seed, phrase: nil, network: "xbt-regtest") }
-        return nil
+        guard let profile = try loadedCatalog().selected, let data = try WalletKeychain.read(profile.keyAccount) else { return nil }
+        return try JSONDecoder().decode(KeyRecord.self, from: data)
     }
     private var network = "xbt-mainnet"
     func hasWallet() throws -> Bool { try record() != nil }
@@ -65,30 +128,80 @@ actor NativeWallet: WalletEngine, WalletBackupEngine {
         return phrase
     }
     func create(phrase: String, confirmation: String, network: String) async throws -> String {
-        guard !provisioning else { throw WalletFailure(message: "Wallet setup is already in progress.") }
-        provisioning = true; defer { provisioning = false }
-        guard try record() == nil, SeedVerification.matches(phrase: phrase, confirmation: confirmation),
-              ["xbt-mainnet", "xbt-regtest"].contains(network) else { throw WalletFailure(message: "Verify every seed word before creating the wallet.") }
+        try await addHotWallet(name: "My Paperclip wallet", phrase: phrase, confirmation: confirmation, network: network)
+    }
+    func addHotWallet(name: String, phrase: String, confirmation: String, network: String, connection: WalletConnection? = nil) async throws -> String {
+        guard SeedVerification.matches(phrase: phrase, confirmation: confirmation), ["xbt-mainnet", "xbt-regtest"].contains(network) else { throw WalletFailure(message: "Verify every seed word before creating the wallet.") }
         let result = try await call(["op": "seed_derive", "phrase": phrase], seed: Data(repeating: 0, count: 64))
-        guard let encoded = result["seed"] as? String, let seed = Data(base64Encoded: encoded), seed.count == 64 else {
-            throw WalletFailure(message: "Invalid seed phrase.")
+        guard let encoded = result["seed"] as? String, let seed = Data(base64Encoded: encoded), seed.count == 64 else { throw WalletFailure(message: "Invalid seed phrase.") }
+        return try await installProfile(WalletProfile(name: name, kind: .hot, network: network), key: KeyRecord(seed: seed, phrase: phrase, network: network), connection: connection)
+    }
+    func addPublicWallet(name: String, value: String, script: String, origin: String, network: String, hardware: Bool, connection: WalletConnection? = nil) async throws -> String {
+        let result = try await call(["op": "validate_public_wallet", "public_key": value.trimmingCharacters(in: .whitespacesAndNewlines), "script": script,
+            "origin": origin, "network": network, "hardware": hardware], seed: Data(repeating: 0, count: 64))
+        guard let descriptor = result["receive"] as? String else { throw WalletFailure(message: "Invalid public wallet.") }
+        // This random value identifies the local database. It is not the hardware wallet's seed.
+        var identity = Data(count: 64)
+        let success = identity.withUnsafeMutableBytes { SecRandomCopyBytes(kSecRandomDefault, 64, $0.baseAddress!) }
+        guard success == errSecSuccess else { throw WalletFailure(message: "Could not initialize wallet storage.") }
+        return try await installProfile(WalletProfile(name: name, kind: hardware ? .hardware : .watch, network: network, descriptor: descriptor),
+            key: KeyRecord(seed: identity, phrase: nil, network: network), connection: connection)
+    }
+    private func installProfile(_ profile: WalletProfile, key: KeyRecord, archive: RecoveryArchive? = nil, connection: WalletConnection? = nil) async throws -> String {
+        guard operations == 0, !provisioning, !transitioning, opening == nil else { throw WalletFailure(message: "Wait for the current wallet operation to finish.") }
+        let previous = try loadedCatalog()
+        guard !profile.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, profile.name.count <= 60 else { throw WalletFailure(message: "Enter a wallet name up to 60 characters.") }
+        for existing in previous.wallets {
+            if let data = try WalletKeychain.read(existing.keyAccount), let stored = try? JSONDecoder().decode(KeyRecord.self, from: data), stored.seed == key.seed && stored.network == key.network {
+                throw WalletFailure(message: "This wallet is already saved as \(existing.name). Switch to it instead.")
+            }
+            if let descriptor = profile.descriptor, existing.descriptor == descriptor && existing.network == profile.network { throw WalletFailure(message: "This public wallet is already saved as \(existing.name).") }
         }
-        // Re-check after the FFI await. Never replace another setup or restored wallet.
-        guard try record() == nil else { throw WalletFailure(message: "A wallet already exists.") }
-        try WalletKeychain.insert(JSONEncoder().encode(KeyRecord(seed: seed, phrase: phrase, network: network)), account: "wallet-key-v2")
-        return try await open(create: true)
+        let settings = try connection ?? savedConnection() ?? WalletConnection()
+        try settings.validate()
+        provisioning = true; transitioning = true
+        defer { provisioning = false; transitioning = false }
+        if opened { _ = try await call(["op": "close"]) }
+        opened = false; connected = false; fingerprint = ""
+        var next = previous; try next.add(profile)
+        do {
+            try WalletKeychain.insert(JSONEncoder().encode(key), account: profile.keyAccount)
+            try WalletKeychain.save(JSONEncoder().encode(settings), account: profile.connectionAccount)
+            catalog = next
+            if let archive {
+                network = archive.network
+                var parent = directory.deletingLastPathComponent()
+                try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true,
+                    attributes: [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication])
+                var protection = URLResourceValues(); protection.isExcludedFromBackup = true
+                try parent.setResourceValues(protection)
+                _ = try await call(["op": "restore", "network": network, "directory": directory.path, "database": archive.recoveryState.base64EncodedString()], seed: key.seed)
+            }
+            let id = try await openStorage(create: archive == nil)
+            try saveCatalog(next)
+            return id
+        } catch {
+            if opened { _ = try? await call(["op": "close"]) }
+            opened = false; connected = false; catalog = previous
+            if previous.selected != nil { _ = try? await openStorage(create: false) }
+            throw error
+        }
     }
     func savedConnection() throws -> WalletConnection? {
-        guard let data = try WalletKeychain.read("wallet-connection-v2") else { return nil }
+        guard let data = try WalletKeychain.read(loadedCatalog().selected?.connectionAccount ?? "wallet-connection-v2") else { return nil }
         return try JSONDecoder().decode(WalletConnection.self, from: data)
     }
     func saveConnection(_ settings: WalletConnection) throws {
+        guard !transitioning else { throw WalletFailure(message: "Wait for the wallet switch to finish.") }
         try settings.validate()
-        try WalletKeychain.saveConnection(JSONEncoder().encode(settings))
+        try WalletKeychain.save(JSONEncoder().encode(settings), account: loadedCatalog().selected?.connectionAccount ?? "wallet-connection-v2")
     }
     private var directory: URL {
-        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent(network == "xbt-regtest" ? "PaperclipRegtest" : "PaperclipMainnet", isDirectory: true)
+        let root = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        if let profile = catalog?.selected, profile.id != "legacy" {
+            return root.appendingPathComponent("PaperclipWallets", isDirectory: true).appendingPathComponent(profile.id, isDirectory: true)
+        }
+        return root.appendingPathComponent(network == "xbt-regtest" ? "PaperclipRegtest" : "PaperclipMainnet", isDirectory: true)
     }
 
     private func call(_ input: [String: Any], seed: Data? = nil) async throws -> [String: Any] {
@@ -124,6 +237,7 @@ actor NativeWallet: WalletEngine, WalletBackupEngine {
     }
 
     func open(create: Bool = false) async throws -> String {
+        try beginOperation(); defer { operations -= 1 }
         if opened { return fingerprint }
         if let opening { return try await opening.value }
         let task = Task { try await self.openStorage(create: create) }
@@ -141,15 +255,19 @@ actor NativeWallet: WalletEngine, WalletBackupEngine {
         try protected.setResourceValues(values)
         let exists = FileManager.default.fileExists(atPath: directory.appendingPathComponent("db.sqlite").path)
         guard create || exists else { throw WalletFailure(message: "Wallet database missing. Restore a full backup.") }
-        let result = try await call(["op": exists ? "open" : "create", "directory": directory.path, "network": network])
+        let profile = try loadedCatalog().selected
+        var request: [String: Any] = ["op": exists ? "open" : "create", "directory": directory.path, "network": network, "kind": profile?.kind.rawValue ?? "hot"]
+        if let descriptor = profile?.descriptor { request["descriptor"] = descriptor }
+        let result = try await call(request)
+        opened = true
         try FileManager.default.setAttributes([.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication],
             ofItemAtPath: directory.appendingPathComponent("db.sqlite").path)
         fingerprint = result["fingerprint"] as? String ?? ""
-        opened = true
         return fingerprint
     }
 
     func address(ark: Bool) async throws -> String {
+        try beginOperation(); defer { operations -= 1 }
         _ = try await open()
         if ark { try await ensureConnected() }
         let result = try await call(["op": ark ? "address_ark" : "address_onchain"])
@@ -158,6 +276,7 @@ actor NativeWallet: WalletEngine, WalletBackupEngine {
     }
 
     func connect(_ settings: WalletConnection) async throws {
+        try beginOperation(); defer { operations -= 1 }
         try settings.validate()
         _ = try await open()
         var config = try await call(["op": "config_template"])
@@ -172,7 +291,7 @@ actor NativeWallet: WalletEngine, WalletBackupEngine {
         config["user_agent"] = "paperclip-ios/0.2.0"
         connected = false
         var request: [String: Any] = ["op": "connect", "config": config]
-        if let rpc = settings.arkRPC {
+        if try loadedCatalog().selected?.supportsArk == true, let rpc = settings.arkRPC {
             var arkConfig = config
             arkConfig["electrum_address"] = NSNull()
             arkConfig["esplora_address"] = NSNull()
@@ -185,11 +304,12 @@ actor NativeWallet: WalletEngine, WalletBackupEngine {
         _ = try await call(request)
         try saveConnection(settings)
         connected = true
-        _ = try await call(["op": "receive_listen", "enabled": foreground])
+        if try loadedCatalog().selected?.supportsArk == true { _ = try await call(["op": "receive_listen", "enabled": foreground]) }
     }
     func setForeground(_ active: Bool) async {
+        guard (try? beginOperation()) != nil else { return }; defer { operations -= 1 }
         foreground = active
-        guard opened && connected else { return }
+        guard opened && connected, (try? loadedCatalog().selected?.supportsArk) == true else { return }
         _ = try? await call(["op": "receive_listen", "enabled": active])
     }
     // Retained for the regtest diagnostic workbench.
@@ -205,31 +325,38 @@ actor NativeWallet: WalletEngine, WalletBackupEngine {
         try await connect(settings)
     }
     func signMessage(address: String, message: String) async throws -> String {
+        try beginOperation(); defer { operations -= 1 }
         _ = try await open()
         let result = try await call(["op": "sign_message_onchain", "address": address, "message": message])
         guard let signature = result["signature"] as? String else { throw WalletFailure(message: "No signature returned.") }
         return signature
     }
     func onchainOverview() async throws -> [String: Any] {
+        try beginOperation(); defer { operations -= 1 }
         _ = try await open()
         return try await call(["op": "overview_onchain"])
     }
-    func onchainAddresses(start: Int) async throws -> (entries: [[String: Any]], hasMore: Bool) {
+    func onchainAddresses(start: Int, change: Bool = false) async throws -> (entries: [[String: Any]], hasMore: Bool) {
+        try beginOperation(); defer { operations -= 1 }
         _ = try await open()
-        let result = try await call(["op": "addresses_onchain", "start": start])
+        let result = try await call(["op": "addresses_onchain", "start": start, "change": change])
         guard let entries = result["addresses"] as? [[String: Any]] else { throw WalletFailure(message: "Invalid address list.") }
         return (entries, result["has_more"] as? Bool ?? false)
     }
     func operation(_ op: String, fields: [String: Any] = [:]) async throws -> [String: Any] {
-        try await ensureConnected()
+        try beginOperation(); defer { operations -= 1 }
+        if ["hardware_import", "hardware_cancel"].contains(op) { _ = try await open() }
+        else { try await ensureConnected() }
         var input = fields; input["op"] = op
         return try await call(input)
     }
     func balances() async throws -> [String: Any] {
+        try beginOperation(); defer { operations -= 1 }
         try await ensureConnected()
         return try await call(["op": "sync_ark"])
     }
     func synchronize() async throws -> WalletSnapshot {
+        try beginOperation(); defer { operations -= 1 }
         let result = try await operation("sync")
         guard let tip = result["tip"] as? Int, let vtxos = result["vtxos"] as? [[String: Any]] else {
             throw WalletFailure(message: "Incomplete wallet sync.")
@@ -237,19 +364,23 @@ actor NativeWallet: WalletEngine, WalletBackupEngine {
         return WalletSnapshot(tip: tip, observedAt: Date(), estimatedBlockSeconds: 600,
             vtxos: try JSONDecoder().decode([VTXO].self, from: JSONSerialization.data(withJSONObject: vtxos)))
     }
-    func refreshEligible() async throws { _ = try await call(["op": "refresh"]) }
+    func refreshEligible() async throws { try beginOperation(); defer { operations -= 1 }; _ = try await call(["op": "refresh"]) }
     func activity() async throws -> [String: Any] {
+        try beginOperation(); defer { operations -= 1 }
         try await ensureConnected()
         return try await call(["op": "activity"])
     }
     func quote(destination: String, amount: UInt64, onchain: Bool = false) async throws -> [String: Any] {
+        try beginOperation(); defer { operations -= 1 }
         try await ensureConnected()
         return try await call(["op": onchain ? "quote_onchain" : "quote", "destination": destination, "amount_sat": amount])
     }
     func send(destination: String, amount: UInt64, total: UInt64, onchain: Bool = false) async throws -> [String: Any] {
-        try await call(["op": onchain ? "send_onchain" : "send", "destination": destination, "amount_sat": amount, "total_sat": total])
+        try beginOperation(); defer { operations -= 1 }
+        return try await call(["op": onchain ? "send_onchain" : "send", "destination": destination, "amount_sat": amount, "total_sat": total])
     }
     func exportRecoveryArchive() async throws -> RecoveryArchive {
+        try beginOperation(); defer { operations -= 1 }
         _ = try await open()
         let result = try await call(["op": "backup"])
         guard let encoded = result["database"] as? String, let database = Data(base64Encoded: encoded),
@@ -260,19 +391,13 @@ actor NativeWallet: WalletEngine, WalletBackupEngine {
         guard !provisioning else { throw WalletFailure(message: "Wallet setup is already in progress.") }
         provisioning = true; defer { provisioning = false }
         try archive.validate()
-        guard !opened, try record() == nil else {
-            throw WalletFailure(message: "Restore requires an empty wallet. Existing data was not replaced.")
-        }
-        network = archive.network
-        guard !FileManager.default.fileExists(atPath: directory.path) else { throw WalletFailure(message: "Wallet storage already exists.") }
+
         if let phrase = archive.seedPhrase {
             let derived = try await call(["op": "seed_derive", "phrase": phrase], seed: Data(repeating: 0, count: 64))
             guard derived["seed"] as? String == archive.seed.base64EncodedString() else { throw BackupError.invalidArchive }
         }
-        try FileManager.default.createDirectory(at: directory.deletingLastPathComponent(), withIntermediateDirectories: true)
-        _ = try await call(["op": "restore", "network": archive.network, "directory": directory.path,
-            "database": archive.recoveryState.base64EncodedString()], seed: archive.seed)
-        try WalletKeychain.insert(JSONEncoder().encode(KeyRecord(seed: archive.seed, phrase: archive.seedPhrase, network: network)), account: "wallet-key-v2")
-        _ = try await open()
+        provisioning = false
+        _ = try await installProfile(WalletProfile(name: "Restored wallet", kind: .hot, network: archive.network),
+            key: KeyRecord(seed: archive.seed, phrase: archive.seedPhrase, network: archive.network), archive: archive)
     }
 }

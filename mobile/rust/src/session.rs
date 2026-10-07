@@ -13,7 +13,15 @@ use bark::onchain::{OnchainWallet, OnchainWalletTrait};
 use bark::payment_request::PaymentInitOutput;
 use bark::persist::{BarkPersister, sqlite::SqliteClient};
 
+struct HardwareRequest {
+	psbt: bitcoin::Psbt,
+	time: Instant,
+	signed: Option<bitcoin::Transaction>,
+}
+
 pub struct Session {
+	kind: String,
+	hardware_request: Option<HardwareRequest>,
 	offer_task: Option<tokio::task::JoinHandle<()>>,
 	receive_task: Option<tokio::task::JoinHandle<()>>,
 	runtime: tokio::runtime::Runtime,
@@ -93,6 +101,40 @@ mod tests {
 	}
 
 	#[test]
+	fn public_wallets_reopen_with_separate_change_and_no_local_spending() {
+		let base = std::env::temp_dir().join(format!("paperclip-public-{}-{}", std::process::id(),
+			std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+		let secp = bitcoin::secp256k1::Secp256k1::new();
+		let root = bitcoin::bip32::Xpriv::new_master(Network::Regtest, &[7; 64]).unwrap();
+		let account = root.derive_priv(&secp, &"m/84h/1h/0h".parse::<bitcoin::bip32::DerivationPath>().unwrap()).unwrap();
+		let key = format!("[{}/84h/1h/0h]{}", root.fingerprint(&secp), bitcoin::bip32::Xpub::from_priv(&secp, &account));
+		let (descriptor, _) = crate::hardware::descriptors(&key, "segwit", "", Network::Regtest, true).unwrap();
+		let mut state = None;
+		for kind in ["hardware", "watch"] {
+			let directory = base.join(kind);
+			let request = json!({"op": "create", "kind": kind, "descriptor": descriptor, "network": "xbt-regtest", "directory": directory});
+			dispatch(&mut state, request, [8; 64]).unwrap();
+			let first = dispatch(&mut state, json!({"op": "address_onchain"}), [8; 64]).unwrap();
+			let change = dispatch(&mut state, json!({"op": "addresses_onchain", "change": true}), [8; 64]).unwrap();
+			assert_eq!(change["shared_change_branch"], false);
+			assert_ne!(first["address"], change["addresses"][0]["address"]);
+			for op in ["send_onchain", "quote_onchain", "sign_message_onchain", "address_ark", "backup", "refresh"] {
+				assert!(dispatch(&mut state, json!({"op": op}), [8; 64]).is_err(), "{kind} allowed {op}");
+			}
+			if kind == "watch" { assert!(dispatch(&mut state, json!({"op": "hardware_prepare"}), [8; 64]).is_err()); }
+			dispatch(&mut state, json!({"op": "close"}), [8; 64]).unwrap();
+			assert!(dispatch(&mut state, json!({"op": "open", "network": "xbt-regtest", "directory": directory}), [8; 64]).is_err());
+			dispatch(&mut state, json!({"op": "open", "kind": kind, "descriptor": descriptor, "network": "xbt-regtest", "directory": directory}), [8; 64]).unwrap();
+			let page = dispatch(&mut state, json!({"op": "addresses_onchain"}), [8; 64]).unwrap();
+			assert_eq!(page["addresses"][0]["address"], first["address"]);
+			let second = dispatch(&mut state, json!({"op": "address_onchain"}), [8; 64]).unwrap();
+			assert_ne!(first, second);
+			dispatch(&mut state, json!({"op": "close"}), [8; 64]).unwrap();
+		}
+		std::fs::remove_dir_all(base).unwrap();
+	}
+
+	#[test]
 	fn mobile_persistence_and_complete_backup_roundtrip() {
 		let base = std::env::temp_dir().join(format!("paperclip-mobile-{}-{}", std::process::id(),
 			std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
@@ -169,6 +211,11 @@ pub fn dispatch(state: &mut Option<Session>, request: Value, seed: [u8; 64]) -> 
 			_ => bail!("unsupported XBT network"),
 		}
 	};
+	if op == "validate_public_wallet" {
+		let (receive, change) = crate::hardware::descriptors(text(&request, "public_key")?, text(&request, "script")?,
+			request["origin"].as_str().unwrap_or(""), requested_network()?, request["hardware"] == true)?;
+		return Ok(json!({"receive": receive, "change": change}));
+	}
 	if op == "close" { *state = None; return Ok(json!({})); }
 	if op == "restore" {
 		ensure!(state.is_none(), "restore requires an empty session");
@@ -209,6 +256,18 @@ pub fn dispatch(state: &mut Option<Session>, request: Value, seed: [u8; 64]) -> 
 		let dir = PathBuf::from(text(&request, "directory")?);
 		ensure!(dir.is_absolute(), "wallet path must be absolute");
 		let dbpath = dir.join("db.sqlite");
+		let kind = request["kind"].as_str().unwrap_or("hot");
+		ensure!(["hot", "hardware", "watch"].contains(&kind), "unknown wallet type");
+		let public = if kind != "hot" {
+			Some(crate::hardware::descriptors(text(&request, "descriptor")?, "segwit", "", network, kind == "hardware")?)
+		} else { None };
+		let marker = dir.join("public-wallet.json");
+		if op == "open" {
+			if let Some((receive, change)) = &public {
+				let saved: Value = serde_json::from_slice(&std::fs::read(&marker)?)?;
+				ensure!(saved == json!({"kind": kind, "receive": receive, "change": change}), "public wallet identity mismatch");
+			} else { ensure!(!marker.exists(), "this wallet requires its public descriptor"); }
+		}
 		if op == "create" { ensure!(!dbpath.exists(), "wallet already exists; reopen it"); }
 		else { ensure!(dbpath.is_file(), "wallet database is missing; restore a backup"); }
 		std::fs::create_dir_all(&dir)?;
@@ -234,15 +293,24 @@ pub fn dispatch(state: &mut Option<Session>, request: Value, seed: [u8; 64]) -> 
 			let properties = db.read_properties().await?.context("wallet not initialized")?;
 			ensure!(properties.network == network && properties.fingerprint == fingerprint,
 				"recovery key or network does not match the wallet");
-			OnchainWallet::load_or_create(network, seed, db.clone()).await
+			if let Some((receive, change)) = &public {
+				OnchainWallet::load_or_create_public(network, receive, change, db.clone()).await
+			} else { OnchainWallet::load_or_create(network, seed, db.clone()).await }
 		})?;
-		*state = Some(Session { offer_task: None, receive_task: None, runtime, dir, db, onchain: Arc::new(tokio::sync::RwLock::new(onchain)),
+		if op == "create" && let Some((receive, change)) = &public {
+			std::fs::write(&marker, serde_json::to_vec(&json!({"kind": kind, "receive": receive, "change": change}))?)?;
+		}
+		*state = Some(Session { kind: kind.into(), hardware_request: None, offer_task: None, receive_task: None, runtime, dir, db, onchain: Arc::new(tokio::sync::RwLock::new(onchain)),
 			wallet: None, ark_wallet: None, _lock: lock, fingerprint: fingerprint.to_string(), network, quote: None, onchain_quote: None, board_quote: None });
 		return Ok(json!({"fingerprint": fingerprint.to_string()}));
 	}
 	let session = state.as_mut().context("open a wallet first")?;
 	ensure!(WalletSeed::new_from_seed(session.network, &seed).fingerprint().to_string() == session.fingerprint,
 		"wallet key mismatch");
+	if session.kind != "hot" {
+		ensure!(matches!(op, "close" | "connect" | "config_template" | "chain_health" | "overview_onchain" | "addresses_onchain" | "address_onchain" | "sync_onchain" | "activity" | "hardware_prepare" | "hardware_import" | "hardware_broadcast" | "hardware_cancel"), "This public-only wallet supports on-chain monitoring and QR signing only");
+	}
+	if op.starts_with("hardware_") { ensure!(session.kind == "hardware", "Choose a QR-signing hardware wallet"); }
 	if op == "backup" {
 		let path = session.dir.join("snapshot.sqlite");
 		ensure!(!path.exists(), "a previous snapshot needs recovery before export");
@@ -256,7 +324,7 @@ pub fn dispatch(state: &mut Option<Session>, request: Value, seed: [u8; 64]) -> 
 		return result;
 	}
 	let network = session.network;
-	let Session { runtime, wallet, ark_wallet, db, onchain, quote, onchain_quote, board_quote, offer_task, receive_task, .. } = session;
+	let Session { runtime, wallet, ark_wallet, db, onchain, quote, onchain_quote, board_quote, offer_task, receive_task, hardware_request, kind, .. } = session;
 	runtime.block_on(async {
 		if op == "sign_message_onchain" {
 			let address = text(&request, "address")?.parse::<bitcoin::Address<_>>()?.require_network(network)?;
@@ -277,19 +345,21 @@ pub fn dispatch(state: &mut Option<Session>, request: Value, seed: [u8; 64]) -> 
 		if op == "addresses_onchain" {
 			let start = request["start"].as_u64().unwrap_or(0);
 			ensure!(start < 0x80000000, "invalid address index");
-			let (entries, has_more) = onchain.read().await.address_page(start as u32)?;
-			return Ok(json!({"shared_change_branch": true, "has_more": has_more, "addresses": entries.into_iter().map(|(index, address, revealed)|
+			let (entries, has_more) = onchain.read().await.address_page(start as u32, kind != "hot" && request["change"].as_bool().unwrap_or(false))?;
+			return Ok(json!({"shared_change_branch": kind == "hot", "has_more": has_more, "addresses": entries.into_iter().map(|(index, address, revealed)|
 				json!({"index": index, "address": address, "revealed": revealed})).collect::<Vec<_>>()}));
 		}
 		if op == "address_onchain" {
 			return Ok(json!({"address": OnchainWalletTrait::address(&mut *onchain.write().await).await?.to_string()}));
 		}
+		if op == "hardware_cancel" { *hardware_request = None; return Ok(json!({})); }
 		if op == "connect" {
 			if let Some(task) = offer_task.take() { task.abort(); let _ = task.await; }
 			if let Some(task) = receive_task.take() { task.abort(); let _ = task.await; }
 			*quote = None;
 			*onchain_quote = None;
 			*board_quote = None;
+			*hardware_request = None;
 			*wallet = None;
 			*ark_wallet = None;
 			let config: Config = serde_json::from_value(request["config"].clone())?;
@@ -308,7 +378,7 @@ pub fn dispatch(state: &mut Option<Session>, request: Value, seed: [u8; 64]) -> 
 		}
 		if op == "config_template" { return Ok(serde_json::to_value(Config::network_default(network))?); }
 		let chain_wallet = wallet.as_ref().context("connect to a backend first")?;
-		let w = if matches!(op, "chain_health" | "sync_onchain" | "quote_onchain" | "send_onchain" | "activity") {
+		let w = if matches!(op, "chain_health" | "sync_onchain" | "quote_onchain" | "send_onchain" | "activity" | "hardware_prepare" | "hardware_import" | "hardware_broadcast") {
 			chain_wallet
 		} else { ark_wallet.as_ref().unwrap_or(chain_wallet) };
 		if op == "receive_listen" {
@@ -493,6 +563,45 @@ pub fn dispatch(state: &mut Option<Session>, request: Value, seed: [u8; 64]) -> 
 				w.sync_pending_rounds().await?;
 				let scheduled = w.maybe_schedule_maintenance_refresh_delegated().await?.is_some();
 				Ok(json!({"scheduled": scheduled}))
+			},
+			"hardware_prepare" => {
+				*hardware_request = None;
+				let address = text(&request, "destination")?.parse::<bitcoin::Address<_>>()?.require_network(network)?;
+				let amount = request["amount_sat"].as_u64().context("amount required")?;
+				ensure!(amount > 0, "amount must be positive");
+				w.chain().update_fee_rates(w.config().fallback_fee_rate).await?;
+				let mut psbt = onchain.write().await.prepare_tx(&[(address, Amount::from_sat(amount))], w.chain().fee_rates().await.regular).await?;
+				crate::hardware::prepare(&mut psbt)?;
+				let fee = psbt.fee()?.to_sat();
+				let encoded = STANDARD.encode(psbt.serialize());
+				ensure!(psbt.serialize().len() <= crate::hardware::MAX_TRANSFER, "Transaction is too large for QR signing; use fewer inputs");
+				*hardware_request = Some(HardwareRequest { psbt, time: Instant::now(), signed: None });
+				Ok(json!({"psbt": encoded, "amount_sat": amount, "fee_sat": fee, "total_sat": amount.checked_add(fee).context("amount overflow")?}))
+			},
+			"hardware_import" => {
+				let pending = hardware_request.as_mut().context("Create a signing request in this wallet first")?;
+				ensure!(pending.time.elapsed() < Duration::from_secs(1800), "Signing request expired; create a new request");
+				let encoded = text(&request, "signed")?;
+				ensure!(encoded.len() <= crate::hardware::MAX_TRANSFER * 2, "signed request too large");
+				let tx = crate::hardware::signed_transaction(&pending.psbt, &STANDARD.decode(encoded)?)?;
+				let result = json!({"txid": tx.compute_txid().to_string(), "verified": true, "fee_sat": pending.psbt.fee()?.to_sat()});
+				pending.signed = Some(tx);
+				Ok(result)
+			},
+			"hardware_broadcast" => {
+				let pending = hardware_request.as_ref().context("Create and sign a request first")?;
+				ensure!(pending.time.elapsed() < Duration::from_secs(1800), "Signing request expired; create a new request");
+				let tx = pending.signed.as_ref().context("Scan and verify the hardware signature first")?.clone();
+				ensure!(text(&request, "txid")? == tx.compute_txid().to_string(), "transaction changed");
+				let mut chain = onchain.write().await;
+				chain.sync(w.chain()).await?;
+				let unspent: std::collections::HashSet<_> = chain.list_unspent().iter().map(|u| u.outpoint).collect();
+				ensure!(tx.input.iter().all(|input| unspent.contains(&input.previous_output)), "An input is no longer unspent; synchronize and review your wallet");
+				// Persist before relay. An uncertain response never authorizes a new payment.
+				chain.register_tx(&tx).await?;
+				*hardware_request = None;
+				let broadcast = w.chain().broadcast_tx(&tx).await.is_ok();
+				Ok(json!({"state": if broadcast {"submitted"} else {"pending_broadcast"}, "txid": tx.compute_txid().to_string()}))
 			},
 			"quote_onchain" => {
 				*onchain_quote = None;

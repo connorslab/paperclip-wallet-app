@@ -3,6 +3,12 @@ import PaperclipMobile
 import LocalAuthentication
 
 @MainActor final class WalletStore: ObservableObject {
+    @Published var profiles: [WalletProfile] = []
+    @Published var selectedProfile: WalletProfile?
+    var supportsArk: Bool { selectedProfile?.supportsArk ?? true }
+    var isHardware: Bool { selectedProfile?.kind == .hardware }
+    var isWatchOnly: Bool { selectedProfile?.kind == .watch }
+    var walletID: String { selectedProfile?.id ?? "setup" }
     @Published var loaded = false
     @Published var hasWallet = false
     @Published var busy = false
@@ -24,23 +30,36 @@ import LocalAuthentication
     func checkChainConnection(force: Bool = false) async {
         guard !chainChecking, hasWallet else { return }
         if !force, let lastChainAttempt, Date().timeIntervalSince(lastChainAttempt) < 30 { return }
+        let identity = walletID
         lastChainAttempt = Date(); chainChecking = true
         defer { chainChecking = false }
         do {
             let result = try await engine.operation("chain_health")
+            guard identity == walletID else { return }
             chainReachable = result["connected"] as? Bool == true
             chainChecked = Date()
-        } catch { chainReachable = false; chainChecked = nil }
+        } catch { if identity == walletID { chainReachable = false; chainChecked = nil } }
     }
     @Published var activity: [ActivityItem] = []
     let engine = NativeWallet.shared
     func load() async {
         do {
+            let profile = try await engine.selectedProfile()
+            if selectedProfile?.id != profile?.id {
+                onchain = nil; ark = nil; pending = nil; activity = []; observed = nil
+                chainChecked = nil; chainReachable = false; lastChainAttempt = nil; message = ""
+            }
+            profiles = try await engine.profiles(); selectedProfile = profile
             hasWallet = try await engine.hasWallet()
             network = try await engine.walletNetwork()
             if hasWallet { _ = try await engine.open() }
         } catch { message = error.localizedDescription }
         loaded = true
+    }
+    func selectWallet(_ profile: WalletProfile) async throws {
+        guard !Maintenance.shared.busy else { throw WalletFailure(message: "Ark maintenance is finishing. Try switching again in a moment.") }
+        try await engine.activate(profile.id)
+        await load()
     }
     func run(_ action: @escaping @MainActor () async throws -> Void) {
         guard !busy else { return }
@@ -55,6 +74,11 @@ import LocalAuthentication
             onchain = (chain["onchain_sat"] as? NSNumber)?.uint64Value
             chainReachable = true; chainChecked = Date(); lastChainAttempt = Date()
         } catch { chainReachable = false; chainChecked = nil; chainWarning = "On-chain refresh: " + error.localizedDescription }
+        if !supportsArk {
+            ark = nil; pending = nil; observed = Date()
+            message = chainWarning ?? "On-chain wallet synchronized."
+            try await refreshActivity(); return
+        }
         do {
             let result = try await engine.balances()
             ark = (result["ark_sat"] as? NSNumber)?.uint64Value
@@ -69,8 +93,11 @@ import LocalAuthentication
     }
     func refreshCachedArkBalance() async {
         guard !busy else { return }
+        let identity = walletID
         await checkChainConnection()
+        guard !busy, identity == walletID, supportsArk else { return }
         guard let result = try? await engine.operation("balance_cached") else { return }
+        guard identity == walletID else { return }
         ark = (result["ark_sat"] as? NSNumber)?.uint64Value
         pending = (result["pending_sat"] as? NSNumber)?.uint64Value
     }

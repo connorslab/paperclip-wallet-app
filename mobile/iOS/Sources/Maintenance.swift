@@ -18,6 +18,7 @@ actor UnconnectedEngine: WalletEngine {
     @Published var notificationStatus = "Notifications have not been enabled."
     private let coordinator: RefreshCoordinator
     private var snapshot: WalletSnapshot?
+    private var snapshotWallet: WalletProfile?
     private let center = UNUserNotificationCenter.current()
     init(engine: any WalletEngine = UnconnectedEngine()) { coordinator = RefreshCoordinator(engine: engine) }
 
@@ -54,9 +55,14 @@ actor UnconnectedEngine: WalletEngine {
         busy = true
         defer { busy = false }
         do {
+            guard let profile = try await NativeWallet.shared.holdMaintenanceWallet() else {
+                message = "Ark maintenance applies to mobile wallets. Open each mobile wallet regularly to refresh its funds."
+                return true
+            }
+            defer { Task { await NativeWallet.shared.releaseMaintenanceWallet() } }
             guard let fresh = try await coordinator.run(automatic: automatic) else { return false }
-            snapshot = fresh
-            try await replaceReminders(fresh)
+            snapshot = fresh; snapshotWallet = profile
+            try await replaceReminders(fresh, profile: profile)
             message = "Checked at block \(fresh.tip). Expiry is block-based; reminders use estimated times."
             return true
         } catch is CancellationError {
@@ -72,25 +78,26 @@ actor UnconnectedEngine: WalletEngine {
         do {
             let allowed = try await center.requestAuthorization(options: [.alert, .sound])
             notificationStatus = allowed ? "Expiry reminders enabled." : "Notifications are disabled. Check expiry in the app."
-            if allowed, let snapshot { try await replaceReminders(snapshot) }
+            if allowed, let snapshot, let profile = snapshotWallet { try await replaceReminders(snapshot, profile: profile) }
         } catch { notificationStatus = "Notification permission unavailable. Check iOS Settings." }
     }
-    private func replaceReminders(_ snapshot: WalletSnapshot) async throws {
+    private func replaceReminders(_ snapshot: WalletSnapshot, profile: WalletProfile) async throws {
         let settings = await center.notificationSettings()
         guard settings.authorizationStatus == .authorized || settings.authorizationStatus == .provisional else { return }
         let planned = RefreshPolicy.reminders(snapshot, now: Date())
         // Replace matching IDs first; a scheduling failure keeps older safety reminders.
+        let prefix = "paperclip.expiry." + profile.id + "."
         for reminder in planned {
             let content = UNMutableNotificationContent()
             content.title = "Paperclip wallet check"
             content.body = reminder.body
             content.sound = .default
             let trigger = UNTimeIntervalNotificationTrigger(timeInterval: max(5, reminder.date.timeIntervalSinceNow), repeats: false)
-            try await center.add(UNNotificationRequest(identifier: reminder.id, content: content, trigger: trigger))
+            try await center.add(UNNotificationRequest(identifier: prefix + reminder.id, content: content, trigger: trigger))
         }
-        let keep = Set(planned.map(\.id))
+        let keep = Set(planned.map { prefix + $0.id })
         let obsolete = await center.pendingNotificationRequests().map(\.identifier)
-            .filter { $0.hasPrefix("paperclip.expiry.") && !keep.contains($0) }
+            .filter { $0.hasPrefix(prefix) && !keep.contains($0) }
         center.removePendingNotificationRequests(withIdentifiers: obsolete)
     }
 }

@@ -163,7 +163,7 @@ struct ReceiveView: View {
                 WalletSection {
                     Button { choosingMethod = true } label: {
                         WalletNavigationRow(methodNames[route], subtitle: "Change receive method", icon: methodIcons[route])
-                    }.buttonStyle(.plain).disabled(store.busy)
+                    }.buttonStyle(.plain).disabled(store.busy || !store.supportsArk)
                     Text(methodDetails[route]).font(.subheadline).foregroundStyle(PaperclipTheme.muted)
                 }
                 }
@@ -250,7 +250,7 @@ struct ReceiveView: View {
                     ScrollView {
                         VStack(spacing: 16) {
                             Text("Where should your XBT arrive?").font(.title2.bold()).frame(maxWidth: .infinity, alignment: .leading)
-                            ForEach(0..<4) { method in
+                            ForEach(0..<(store.supportsArk ? 4 : 1)) { method in
                                 Button {
                                     route = method
                                     choosingMethod = false
@@ -314,7 +314,7 @@ struct ArkToolsView: View {
     @State private var exitSummary = "Check status to see registered exits and claim availability."
     @AppStorage("displayUnit") private var unit: BitcoinUnit = .sats
     @EnvironmentObject var store: WalletStore
-    @AppStorage("seedRecoveryRequired") private var recoveryRequired = false
+    @State private var recoveryRequired = false
     @State private var amount = ""
     @State private var exitAddress = ""
     @State private var status = ""
@@ -415,7 +415,15 @@ struct ArkToolsView: View {
             WalletSection { if store.busy { ProgressView() }; Text(store.message).font(.caption) }
           }.padding(22).textFieldStyle(WalletInputStyle())
         }.background(PaperclipTheme.navy.ignoresSafeArea()).navigationTitle(page.title).disabled(store.busy)
-            .task { if page == .exit { perform("exit_status") } }
+            .task {
+                recoveryRequired = UserDefaults.standard.bool(forKey: "seedRecoveryRequired-" + store.walletID)
+                    || (store.walletID == "legacy" && UserDefaults.standard.bool(forKey: "seedRecoveryRequired"))
+                if page == .exit { perform("exit_status") }
+            }
+            .onChange(of: recoveryRequired) { _, value in
+                UserDefaults.standard.set(value, forKey: "seedRecoveryRequired-" + store.walletID)
+                if store.walletID == "legacy" { UserDefaults.standard.set(value, forKey: "seedRecoveryRequired") }
+            }
             .onChange(of: amount) { _, _ in boardTotal = nil }
             .onChange(of: unit) { old, new in amount = old.parse(amount).map { new.input($0) } ?? ""; boardTotal = nil }
             .confirmationDialog("Confirm Ark operation", isPresented: $confirming) {
@@ -494,6 +502,7 @@ struct OnchainAddressesView: View {
     @EnvironmentObject var store: WalletStore
     @State private var entries: [Entry] = []
     @State private var start = 0
+    @State private var change = false
     @State private var hasMore = false
     @State private var loading = false
     @State private var error = ""
@@ -505,7 +514,12 @@ struct OnchainAddressesView: View {
     var body: some View {
         ScrollView { VStack(spacing: 20) {
             WalletSection {
-                Text("Receive & change share the same derivation branch in this wallet. Addresses are shown by derivation index.")
+                if store.supportsArk {
+                    Text("Receive & change share the same derivation branch in this wallet. Addresses are shown by derivation index.")
+                } else {
+                    Picker("Branch", selection: $change) { Text("Receive").tag(false); Text("Change").tag(true) }.pickerStyle(.segmented)
+                    Text(change ? "Change returns to this wallet after a payment." : "Receive addresses for this public account.")
+                }
                 Text("Previewing does not reserve addresses. Use Create receive address when requesting a payment so recovery can discover it reliably.").font(.caption)
             }
             WalletSection("Derived addresses") {
@@ -536,10 +550,11 @@ struct OnchainAddressesView: View {
             }
         }.padding(22) }.navigationTitle("On-chain addresses")
             .scrollContentBackground(.hidden).background(PaperclipTheme.navy)
-            .task(id: start) {
+            .onChange(of: change) { _, _ in start = 0 }
+            .task(id: "\(start)-\(change)") {
                 loading = true; error = ""
                 do {
-                    let page = try await store.engine.onchainAddresses(start: start)
+                    let page = try await store.engine.onchainAddresses(start: start, change: change)
                     hasMore = page.hasMore
                     entries = page.entries.compactMap { row in
                         guard let index = row["index"] as? Int, let address = row["address"] as? String,

@@ -5,7 +5,17 @@ import VisionKit
 struct QRScannerView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scene
-    let onScan: (String) -> Void
+    let title: String
+    let instruction: String
+    let process: (String) -> (Bool, String)
+    init(onScan: @escaping (String) -> Void) {
+        title = "Scan payment"; instruction = "Scan a payment QR code. Review the recipient and amount before sending."
+        process = { value in onScan(value); return (true, "") }
+    }
+    init(title: String, instruction: String, onFrame: @escaping (String) -> (Bool, String)) {
+        self.title = title; self.instruction = instruction; process = onFrame
+    }
+    @State private var progress = ""
     @State private var allowed = false
     @State private var error = ""
     @State private var scannerID = UUID()
@@ -14,15 +24,19 @@ struct QRScannerView: View {
             ZStack {
                 PaperclipTheme.navy.ignoresSafeArea()
                 if allowed && DataScannerViewController.isSupported {
-                    CameraScanner(active: scene == .active) { value in onScan(value); dismiss() } onError: { error = $0 }
+                    CameraScanner(active: scene == .active) { value in
+                        let result = process(value); progress = result.1
+                        if result.0 { dismiss() }; return result.0
+                    } onError: { error = $0 }
                         .id(scannerID)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .ignoresSafeArea(edges: .bottom)
                 }
                 VStack {
-                    Text("Scan a payment QR code. Review the recipient and amount before sending.")
+                    Text(instruction)
                         .padding().background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 20)).padding()
                     Spacer()
+                    if !progress.isEmpty { Text(progress).padding().background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16)).padding() }
                     if !error.isEmpty {
                         Text(error).padding().background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 20)).padding()
                         if allowed {
@@ -33,7 +47,7 @@ struct QRScannerView: View {
                         }
                     }
                 }
-            }.navigationTitle("Scan payment").navigationBarTitleDisplayMode(.inline)
+            }.navigationTitle(title).navigationBarTitleDisplayMode(.inline)
                 .toolbar { Button("Cancel") { dismiss() } }
                 .task(id: scene) {
                     guard scene == .active else { return }
@@ -51,21 +65,24 @@ struct QRScannerView: View {
 
 private struct CameraScanner: UIViewControllerRepresentable {
     let active: Bool
-    let onScan: (String) -> Void
+    let onScan: (String) -> Bool
     let onError: (String) -> Void
     func makeUIViewController(context: Context) -> ScannerController {
         let controller = ScannerController()
         controller.onScan = onScan; controller.onError = onError
         return controller
     }
-    func updateUIViewController(_ controller: ScannerController, context: Context) { controller.setActive(active) }
+    func updateUIViewController(_ controller: ScannerController, context: Context) {
+        controller.onScan = onScan; controller.onError = onError
+        controller.setActive(active)
+    }
     static func dismantleUIViewController(_ controller: ScannerController, coordinator: ()) { controller.stop() }
 }
 
 // Let VisionKit own capture, preview rendering, focus, and QR recognition together.
 // No wallet operation is performed here: a scan only fills the payment review form.
 private final class ScannerController: UIViewController, DataScannerViewControllerDelegate {
-    var onScan: ((String) -> Void)?
+    var onScan: ((String) -> Bool)?
     var onError: ((String) -> Void)?
     private let scanner = DataScannerViewController(
         recognizedDataTypes: [.barcode(symbologies: [.qr])],
@@ -127,9 +144,7 @@ private final class ScannerController: UIViewController, DataScannerViewControll
         guard visible, active, !delivered else { return }
         for item in items {
             guard case .barcode(let barcode) = item, let value = barcode.payloadStringValue, !value.isEmpty else { continue }
-            delivered = true
-            stop()
-            onScan?(value)
+            if onScan?(value) == true { delivered = true; stop() }
             return
         }
     }

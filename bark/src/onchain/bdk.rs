@@ -158,15 +158,31 @@ impl DerefMut for OnchainWallet {
 }
 
 impl OnchainWallet {
-	/// Inspect the shared receive/change branch without revealing new addresses.
-	pub fn address_page(&self, start: u32) -> anyhow::Result<(Vec<(u32, String, bool)>, bool)> {
-		let last = self.inner.derivation_index(KeychainKind::External);
+	/// Inspect a branch without revealing new addresses.
+	pub fn address_page(&self, start: u32, change: bool) -> anyhow::Result<(Vec<(u32, String, bool)>, bool)> {
+		let branch = if change { KeychainKind::Internal } else { KeychainKind::External };
+		let last = self.inner.derivation_index(branch);
 		let end = last.map_or(20, |i| i.saturating_add(21)).min(0x80000000);
 		anyhow::ensure!(start < end, "address page is outside the wallet range");
 		Ok(((start..start.saturating_add(20).min(end)).map(|index| {
-			let address = self.inner.peek_address(KeychainKind::External, index);
+			let address = self.inner.peek_address(branch, index);
 			(index, address.address.to_string(), last.is_some_and(|last| index <= last))
 		}).collect(), start.saturating_add(20) < end))
+	}
+
+	pub async fn load_or_create_public(network: Network, receive: &str, change: &str, db: Arc<dyn BarkPersister>) -> anyhow::Result<Self> {
+		let changeset = db.initialize_bdk_wallet().await?;
+		let loaded = BdkWallet::load()
+			.descriptor(KeychainKind::External, Some(receive.to_owned()))
+			.descriptor(KeychainKind::Internal, Some(change.to_owned()))
+			.check_network(network).load_wallet_no_persist(changeset)?;
+		let inner = match loaded {
+			Some(wallet) => wallet,
+			None => BdkWallet::create(receive.to_owned(), change.to_owned()).network(network).create_wallet_no_persist()?,
+		};
+		let mut wallet = Self { inner, db };
+		wallet.persist().await?;
+		Ok(wallet)
 	}
 
 	pub async fn load_or_create(network: Network, seed: [u8; 64], db: Arc<dyn BarkPersister>) -> anyhow::Result<Self> {

@@ -2,6 +2,10 @@ import SwiftUI
 import PaperclipMobile
 
 struct SetupView: View {
+    var adding = false
+    @State private var connection: WalletConnection?
+    @Environment(\.dismiss) private var dismiss
+    @State private var walletName = "My Paperclip wallet"
     @EnvironmentObject var store: WalletStore
     @Environment(\.scenePhase) private var phase
     @State private var phrase = ""
@@ -11,7 +15,12 @@ struct SetupView: View {
     @State private var importedPhrase = ""
     @State private var network = "xbt-mainnet"
     var body: some View {
-        NavigationStack {
+        Group {
+            if adding { setupContent }
+            else { NavigationStack { setupContent } }
+        }
+    }
+    private var setupContent: some View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
                     WalletBrand()
@@ -42,13 +51,15 @@ struct SetupView: View {
                     } else {
                         WalletCard {
                             Label("Your keys stay with you", systemImage: "key.fill").font(.headline)
+                            TextField("Wallet name", text: $walletName).textFieldStyle(WalletInputStyle())
                             Text("Create a seed, write it down, and verify it. Your seed and Ark recovery data use protected device storage.").foregroundStyle(PaperclipTheme.muted)
                             Picker("Network", selection: $network) { Text("XBT mainnet").tag("xbt-mainnet"); Text("Regtest").tag("xbt-regtest") }
-                            NavigationLink("Connection settings") { ConnectionsView(isSetup: true) }
+                            NavigationLink("Connection settings") { ConnectionsView(isSetup: true, onSave: { connection = $0 }, initialSettings: connection) }
                                 .accessibilityIdentifier("setup-connections")
                             Button("Create a wallet") { store.run { phrase = try await store.engine.generatePhrase() } }
                                 .buttonStyle(.borderedProminent).controlSize(.large).accessibilityIdentifier("create-wallet")
                             Button("Import 12 or 24 seed words") { importing = true }
+                            if !adding { NavigationLink("Connect a hardware or watch-only wallet") { AddWalletView(publicOnly: true) } }
                             NavigationLink("Restore an encrypted Ark backup") { BackupView(engine: store.engine, restoreOnly: true) }
                             Button("Open a restored wallet") { Task { await store.load() } }
                         }
@@ -74,7 +85,7 @@ struct SetupView: View {
                     NavigationStack {
                         ScrollView { VStack(spacing: 20) {
                             WalletSection("Connection") {
-                                NavigationLink("Connection settings") { ConnectionsView(isSetup: true) }
+                                NavigationLink("Connection settings") { ConnectionsView(isSetup: true, onSave: { connection = $0 }, initialSettings: connection) }
                                     .accessibilityIdentifier("import-connections")
                                 Text("Choose your Electrum server and Tor settings before importing.").font(.caption)
                             }
@@ -106,17 +117,17 @@ struct SetupView: View {
                 .onChange(of: phase) { _, phase in
                     if phase == .background { phrase = ""; confirmation = ""; importedPhrase = ""; verifying = false; importing = false }
                 }
-        }
     }
     private func create(_ phrase: String, confirmation: String, recovery: Bool = false) {
         store.run {
             if try await store.engine.savedConnection() == nil {
                 try await store.engine.saveConnection(WalletConnection())
             }
-            _ = try await store.engine.create(phrase: phrase, confirmation: confirmation, network: network)
-            if recovery { UserDefaults.standard.set(true, forKey: "seedRecoveryRequired") }
+            _ = try await store.engine.addHotWallet(name: walletName, phrase: phrase, confirmation: confirmation, network: network, connection: connection)
+            if recovery, let profile = try await store.engine.selectedProfile() { UserDefaults.standard.set(true, forKey: "seedRecoveryRequired-" + profile.id) }
             self.phrase = ""; self.confirmation = ""; importedPhrase = ""; importing = false
             await store.load()
+            if adding { dismiss() }
             store.message = recovery ? "Seed imported. Configure a connection, then run recovery in Ark tools." : "Seed verified. Configure your connection to start."
         }
     }
