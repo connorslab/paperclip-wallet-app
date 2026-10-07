@@ -10,6 +10,32 @@ struct ConnectionsView: View {
     @State private var arkRPC = ArkRPCConnection()
     var body: some View {
         Form {
+            Section("Connection routing") {
+                Toggle("On-chain Tor", isOn: $settings.useTor)
+                    .accessibilityIdentifier("onchain-tor")
+                if settings.useTor {
+                    TextField("On-chain SOCKS proxy", text: $settings.torProxy).textInputAutocapitalization(.never).autocorrectionDisabled()
+                }
+                Toggle("Separate Ark RPC connection", isOn: $separateRPC)
+                    .accessibilityIdentifier("separate-ark-rpc")
+                Toggle("Ark Tor", isOn: Binding(
+                    get: { separateRPC ? arkRPC.useTor : settings.useTor },
+                    set: { if separateRPC { arkRPC.useTor = $0 } }
+                ))
+                    .disabled(!separateRPC)
+                    .accessibilityIdentifier("ark-tor")
+                if separateRPC {
+                    if arkRPC.useTor {
+                        TextField("Ark SOCKS proxy", text: $arkRPC.torProxy).textInputAutocapitalization(.never).autocorrectionDisabled()
+                    }
+                    Text("Ark RPC and the Ark server use the Ark Tor setting independently of on-chain. Configure the RPC endpoint below.").font(.caption)
+                } else {
+                    Text("Ark shares the on-chain backend and Tor setting. Enable a separate Ark RPC connection to set its Tor route independently.").font(.caption)
+                }
+                if settings.useTor || (separateRPC && arkRPC.useTor) {
+                    Text("Enter a reachable Tor SOCKS proxy as socks5h://host:port. This app does not start Tor. Proxy failures never fall back to a direct connection.").font(.caption)
+                }
+            }
             Section("On-chain") {
                 Picker("Backend", selection: $settings.backend) { ForEach(ChainBackend.allCases, id: \.self) { Text($0.title).tag($0) } }
                 TextField(settings.backend == .electrum ? "ssl://host:port" : "http://host or https://host", text: $settings.endpoint)
@@ -37,28 +63,15 @@ struct ConnectionsView: View {
                     _ = try await store.engine.operation("ark_backend_check")
                     store.message = "Backend reports the required Ark relay capabilities and policy."
                 } }.disabled(store.busy) }
-                Toggle("Use a separate RPC backend for Ark", isOn: $separateRPC)
                 if separateRPC {
                     TextField("http://local-node:port or https://host", text: $arkRPC.endpoint).textInputAutocapitalization(.never).autocorrectionDisabled()
                     TextField("RPC username", text: $arkRPC.username).textInputAutocapitalization(.never).autocorrectionDisabled()
                     SecureField("RPC password", text: $arkRPC.password)
-                    Toggle("Route Ark RPC through Tor", isOn: $arkRPC.useTor)
-                    if arkRPC.useTor {
-                        TextField("socks5h://host:port", text: $arkRPC.torProxy).textInputAutocapitalization(.never).autocorrectionDisabled()
-                    }
-                    Text("These settings apply to the Ark RPC and Ark server connections independently of the on-chain connection.").font(.caption)
                     if arkRPC.endpoint.lowercased().hasPrefix("http://") {
                         Text("HTTP sends RPC credentials without encryption. Use it on a trusted local network.").font(.caption)
                     }
                 }
                 Text("Ark can use Electrum when the server exposes package relay and complete relay policy. RPC is optional for your own node. No public RPC endpoint is configured.").font(.caption)
-            }
-            Section(separateRPC ? "On-chain Tor" : "On-chain & Ark Tor") {
-                Toggle("Route through Tor", isOn: $settings.useTor)
-                if settings.useTor {
-                    TextField("socks5h://host:port", text: $settings.torProxy).textInputAutocapitalization(.never).autocorrectionDisabled()
-                    Text("Use a reachable Tor SOCKS proxy. This app does not start a Tor daemon. Onion names resolve through the proxy; connection failure does not fall back to a direct connection.").font(.caption)
-                }
             }
             Section {
                 Button(isSetup ? "Save connection" : "Save and connect") { store.run {
