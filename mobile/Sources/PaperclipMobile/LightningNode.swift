@@ -85,13 +85,36 @@ public actor LightningNode {
         let (data, response) = try await session.data(for: request)
         guard let response = response as? HTTPURLResponse else { throw ConnectionError.response }
         if (300..<400).contains(response.statusCode) { throw ConnectionError.redirect }
-        guard (200..<300).contains(response.statusCode), data.count < 8 * 1024 * 1024,
+        guard (200..<300).contains(response.statusCode) else {
+            let detail = [401, 403].contains(response.statusCode) ? " Check the node credential and permission for this method." : " Check that your node exposes this REST method."
+            throw LightningNodeError(message: "Node rejected \(path) (HTTP \(response.statusCode))." + detail)
+        }
+        guard data.count < 8 * 1024 * 1024,
               let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { throw ConnectionError.response }
         return json
     }
     public func info() async throws -> Data {
         let result = try await request("v1/getinfo", body: connection.implementation == .cln ? [:] : nil)
         return try JSONSerialization.data(withJSONObject: result, options: [.sortedKeys, .prettyPrinted])
+    }
+    public func balance() async throws -> LightningBalance {
+        let result = try await request(connection.implementation == .cln ? "v1/listpeerchannels" : "v1/channels",
+            body: connection.implementation == .cln ? [:] : nil)
+        return try LightningBalance.decode(JSONSerialization.data(withJSONObject: result), implementation: connection.implementation)
+    }
+    public func offer(amount: UInt64?, description: String) async throws -> String {
+        guard connection.implementation == .cln else {
+            throw LightningNodeError(message: "BOLT12 offers require Core Lightning with the offer RPC enabled.")
+        }
+        let result = try await request("v1/offer", body: Self.offerParameters(amount: amount, description: description))
+        guard let offer = result["bolt12"] as? String, offer.hasPrefix("lno1"), result["active"] as? Bool == true else { throw ConnectionError.response }
+        return offer
+    }
+    nonisolated static func offerParameters(amount: UInt64?, description: String) throws -> [String: Any] {
+        guard !description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, description.utf8.count <= 256,
+              amount.map({ $0 > 0 && $0 <= UInt64.max / 1000 }) ?? true else { throw ConnectionError.response }
+        return ["amount": amount.map { "\($0 * 1000)msat" } ?? "any",
+            "description": description, "label": "paperclip-" + UUID().uuidString]
     }
     public func invoice(amount: UInt64) async throws -> String {
         guard amount > 0, amount <= UInt64.max / 1000 else { throw ConnectionError.response }

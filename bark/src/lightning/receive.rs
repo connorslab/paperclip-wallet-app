@@ -308,6 +308,7 @@ impl Wallet {
 
 		let mut claimed = vec![];
 		let mut failed = 0;
+		let mut first_error = None;
 
 		for result in results {
 			match result {
@@ -315,6 +316,7 @@ impl Wallet {
 				Err(e) => {
 					error!("Error claiming lightning receive: {:#}", e);
 					failed += 1;
+					if first_error.is_none() { first_error = Some(e); }
 				}
 			}
 		}
@@ -327,7 +329,9 @@ impl Wallet {
 		}
 
 		if claimed.is_empty() {
-			anyhow::bail!("All {} lightning receive claim(s) failed", failed);
+			if let Some(error) = first_error {
+				return Err(error.context(format!("All {} lightning receive claim(s) failed", failed)));
+			}
 		}
 
 		Ok(claimed)

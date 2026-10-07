@@ -12,6 +12,7 @@ struct SendView: View {
     @State private var fee: UInt64?
     @State private var confirmation = false
     @State private var submitted = false
+    init(onchain: Bool = true) { _onchain = State(initialValue: onchain) }
     var body: some View {
         Form {
             Section("Pay from") {
@@ -69,6 +70,7 @@ struct ReceiveView: View {
     @State private var receiveStatus = ""
     @State private var offerDescription = "Paperclip wallet"
     @State private var offerActive = false
+    init(route: Int = 0) { _route = State(initialValue: route) }
     var body: some View {
         ScrollView {
             VStack(spacing: 24) {
@@ -166,8 +168,9 @@ struct ArkToolsView: View {
     @State private var boardTotal: UInt64?
     @State private var boardNet: UInt64?
     var body: some View {
-        Form {
-            Section("Board from on-chain") {
+        ScrollView {
+          VStack(spacing: 20) {
+            WalletSection("Board from on-chain") {
                 Text("Move on-chain XBT onto Ark. Your board becomes spendable after the required confirmations.")
                 TextField("Amount in sats", text: $amount).keyboardType(.numberPad)
                 Button("Review board") { store.run {
@@ -183,12 +186,13 @@ struct ArkToolsView: View {
                     Button("Confirm board") { action = "board"; confirming = true }
                 }
             }
-            Section("Receive and offboard") {
-                NavigationLink("Receive BOLT11 or BOLT12 onto Ark") { ReceiveView() }
-                NavigationLink("Offboard to an XBT address") { SendView() }
-                Text("Select Ark as the payment source to offboard.").font(.caption)
+            WalletSection("Receive and offboard") {
+                NavigationLink("Receive BOLT11 or BOLT12 onto Ark") { ReceiveView(route: 2) }
+                NavigationLink("Pending Lightning receives") { ArkLightningReceivesView() }
+                NavigationLink("Offboard to an XBT address") { SendView(onchain: false) }
+                Text("Receive into your Ark balance or send Ark funds to an on-chain address.").font(.caption)
             }
-            Section("Seed recovery") {
+            WalletSection("Seed recovery") {
                 if recoveryRequired { Label("Recovery scan required", systemImage: "exclamationmark.circle").foregroundStyle(.orange) }
                 Text("Scan on-chain history and the Ark recovery mailbox. Seed-only recovery may not recover every pending operation. Prefer a full encrypted backup when available.").font(.caption)
                 Button("Scan for recoverable XBT") { store.run {
@@ -199,7 +203,7 @@ struct ArkToolsView: View {
                 } }
                 NavigationLink("Encrypted backup & restore") { BackupView(engine: store.engine) }
             }
-            Section("Emergency exit · unilateral recovery") {
+            WalletSection("Emergency exit · unilateral recovery") {
                 Text("Use this if cooperative Ark offboarding is unavailable. The exit uses saved recovery transactions and a chain backend. Keep on-chain XBT for fees. Confirmations and timelocks can take time.").font(.caption)
                 Button("Check exit status") { perform("exit_status") }
                 Button("Start emergency exit", role: .destructive) { action = "exit_start"; confirming = true }
@@ -209,8 +213,9 @@ struct ArkToolsView: View {
                 Text("Use an Ark-capable Electrum server or your own Knots RPC for package relay. Change backends in Connections without changing keys.").font(.caption)
                 Text(status).font(.caption.monospaced()).textSelection(.enabled)
             }
-            Section { if store.busy { ProgressView() }; Text(store.message).font(.caption) }
-        }.navigationTitle("Ark tools").disabled(store.busy)
+            WalletSection { if store.busy { ProgressView() }; Text(store.message).font(.caption) }
+          }.padding(22).textFieldStyle(.roundedBorder)
+        }.background(PaperclipTheme.navy.ignoresSafeArea()).navigationTitle("Ark tools").disabled(store.busy)
             .onChange(of: amount) { _, _ in boardTotal = nil }
             .confirmationDialog("Confirm Ark operation", isPresented: $confirming) {
                 Button(action == "board" ? "Board XBT" : "Continue", role: action == "exit_start" ? .destructive : nil) {
@@ -247,10 +252,8 @@ struct ArkLightningReceivesView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     Text(hash).font(.caption.monospaced()).textSelection(.enabled)
                     Text(states[hash] ?? "Pending")
-                    Button("Check status") { store.run {
-                        let result = try await store.engine.operation("receive_status", fields: ["payment_hash": hash])
-                        states[hash] = result["state"] as? String ?? "unknown"
-                    } }
+                    Button("Check status") { check(hash, claim: false) }
+                    Button("Retry claim") { check(hash, claim: true) }.disabled(store.busy)
                 }
             }
             if hashes.isEmpty { Text("No pending Lightning receives loaded.") }
@@ -258,6 +261,14 @@ struct ArkLightningReceivesView: View {
         }.navigationTitle("Ark Lightning receives")
             .toolbar { Button("Refresh") { refresh() }.disabled(store.busy) }
             .task { refresh() }
+    }
+    private func check(_ hash: String, claim: Bool) {
+        store.run {
+            do {
+                let result = try await store.engine.operation(claim ? "receive_claim" : "receive_status", fields: ["payment_hash": hash])
+                states[hash] = result["state"] as? String ?? "unknown"
+            } catch { states[hash] = error.localizedDescription }
+        }
     }
     private func refresh() {
         store.run {

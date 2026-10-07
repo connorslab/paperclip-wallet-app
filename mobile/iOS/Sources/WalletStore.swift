@@ -36,7 +36,9 @@ import LocalAuthentication
             ark = (result["ark_sat"] as? NSNumber)?.uint64Value
             pending = (result["pending_sat"] as? NSNumber)?.uint64Value
             observed = Date()
-            message = "Wallet synchronized."
+            if let warning = result["receive_warning"] as? String {
+                message = "Wallet synchronized. Pending Ark receive: " + warning
+            } else { message = "Wallet synchronized." }
         } catch { message = "On-chain synchronized. Ark: \(error.localizedDescription)" }
         try await refreshActivity()
     }

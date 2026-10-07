@@ -13,6 +13,10 @@ struct LightningView: View {
     @State private var nodeName = ""
     @State private var amount = ""
     @State private var receiveInvoice = ""
+    @State private var receiveOffer = false
+    @State private var offerDescription = "Paperclip wallet"
+    @State private var balance: LightningBalance?
+    @State private var balanceStatus = ""
     @State private var payInvoice = ""
     @State private var maximumFee = "100"
     @State private var reviewedHash: String?
@@ -24,12 +28,13 @@ struct LightningView: View {
     private let configAccount = "lightning-connection-v1"
     private let pendingAccount = "lightning-pending-v1"
     var body: some View {
-        Form {
-            Section {
+        ScrollView {
+          VStack(spacing: 20) {
+            WalletSection {
                 Label("Your node. Your Lightning.", systemImage: "bolt.fill").font(.title2.bold())
                 Text("Connect a BLAKE2b XBT Core Lightning or LND node. Node balances and channel backups remain on that node.").font(.caption)
             }
-            Section("Node connection") {
+            WalletSection("Node connection") {
                 DisclosureGroup("\(nodeName.isEmpty ? "Configure node" : nodeName)", isExpanded: $showConnection) {
                     Picker("Implementation", selection: $connection.implementation) {
                         ForEach(LightningImplementation.allCases, id: \.self) { Text($0.title).tag($0) }
@@ -49,15 +54,39 @@ struct LightningView: View {
                 }.disabled(pending != nil)
             }
             if client != nil {
-                Section("Receive on your node") {
-                    TextField("Amount in sats", text: $amount).keyboardType(.numberPad)
-                    Button("Create Lightning invoice") { store.run {
-                        guard let sats = UInt64(amount), let client else { throw WalletFailure(message: "Enter a positive amount.") }
-                        receiveInvoice = try await client.invoice(amount: sats)
-                    } }
+                WalletSection("Lightning balance") {
+                    Text(balance.map { "\(($0.sendableMsat / 1000).formatted()) sats" } ?? "—")
+                        .font(.system(size: 36, weight: .semibold, design: .rounded)).privacySensitive()
+                    Text("Estimated available to send").font(.caption).foregroundStyle(PaperclipTheme.muted)
+                    LabeledContent("Receive capacity", value: balance.map { "\(($0.receivableMsat / 1000).formatted()) sats" } ?? "—")
+                    if let balance { Text("\(balance.activeChannels) active channels · routing and fees can limit payments").font(.caption) }
+                    Button("Refresh balance") { store.run { await refreshBalance() } }.modifier(GlassAction())
+                    if !balanceStatus.isEmpty { Text(balanceStatus).font(.caption) }
+                }
+                WalletSection("Receive on your node") {
+                    Picker("Payment request", selection: $receiveOffer) {
+                        Text("BOLT11 invoice").tag(false)
+                        if connection.implementation == .cln { Text("BOLT12 offer").tag(true) }
+                    }.pickerStyle(.segmented)
+                    TextField(receiveOffer ? "Amount in sats (optional)" : "Amount in sats", text: $amount).keyboardType(.numberPad)
+                    if receiveOffer { TextField("Offer description", text: $offerDescription) }
+                    Button(receiveOffer ? "Create BOLT12 offer" : "Create Lightning invoice") { store.run {
+                        guard let client else { return }
+                        receiveInvoice = ""
+                        if receiveOffer {
+                            let sats = amount.isEmpty ? nil : UInt64(amount)
+                            guard amount.isEmpty || (sats != nil && sats! > 0) else { throw WalletFailure(message: "Enter a positive amount, or leave it blank.") }
+                            receiveInvoice = try await client.offer(amount: sats, description: offerDescription)
+                        } else {
+                            guard let sats = UInt64(amount), sats > 0 else { throw WalletFailure(message: "Enter a positive amount.") }
+                            receiveInvoice = try await client.invoice(amount: sats)
+                        }
+                    } }.modifier(GlassAction())
+                    Text(receiveOffer ? "Reusable offer. Your node handles invoice requests and must stay online. Manage saved offers on your node." : "Payments go to your connected Lightning node.").font(.caption)
+                    if connection.implementation == .lnd { Text("BOLT12 offer creation is available for Core Lightning nodes.").font(.caption) }
                     if !receiveInvoice.isEmpty { ReceiveCode(value: receiveInvoice) }
                 }
-                Section("Pay from your node") {
+                WalletSection("Pay from your node") {
                     TextField("BOLT11 invoice", text: $payInvoice, axis: .vertical).textInputAutocapitalization(.never).autocorrectionDisabled()
                     TextField("Maximum routing fee in sats", text: $maximumFee).keyboardType(.numberPad)
                     Button("Review invoice") { review() }.disabled(pending != nil)
@@ -67,18 +96,22 @@ struct LightningView: View {
                         Button("Confirm Lightning payment") { confirming = true }.disabled(pending != nil)
                     }
                 }
-                Section("Payment status") {
+                WalletSection("Payment status") {
                     if let pending { Text("An attempt is recorded for \(pending.hash). Check the node before another payment.").font(.caption.monospaced()) }
                     Button("Reconcile node payments") { reconcile() }
                     Text(status).font(.caption).textSelection(.enabled)
                 }
             }
-            Section { if store.busy { ProgressView() }; Text(store.message).font(.caption) }
-        }.navigationTitle("Lightning").scrollContentBackground(.hidden).background(PaperclipTheme.navy).disabled(store.busy)
+            WalletSection { if store.busy { ProgressView() }; Text(store.message).font(.caption) }
+          }.padding(22).textFieldStyle(.roundedBorder)
+        }.navigationTitle("Lightning").background(PaperclipTheme.navy.ignoresSafeArea()).disabled(store.busy)
             .task { await load() }
+            .onChange(of: receiveOffer) { _, _ in receiveInvoice = "" }
+            .onChange(of: amount) { _, _ in receiveInvoice = "" }
+            .onChange(of: offerDescription) { _, _ in receiveInvoice = "" }
             .onChange(of: payInvoice) { _, _ in reviewedHash = nil }
             .onChange(of: maximumFee) { _, _ in reviewedHash = nil }
-            .onChange(of: connection) { old, _ in if !old.endpoint.isEmpty { client = nil; reviewedHash = nil } }
+            .onChange(of: connection) { old, _ in if !old.endpoint.isEmpty { client = nil; reviewedHash = nil; balance = nil; receiveInvoice = ""; receiveOffer = false } }
             .confirmationDialog("Pay this Lightning invoice?", isPresented: $confirming) {
                 Button("Pay invoice") { pay() }
             } message: { Text("\(reviewAmount)\nMaximum fee: \(maximumFee) sats\n\(payInvoice)") }
@@ -87,8 +120,19 @@ struct LightningView: View {
         do {
             if let data = try WalletKeychain.read(configAccount) { connection = try JSONDecoder().decode(LightningConnection.self, from: data) }
             if let data = try WalletKeychain.read(pendingAccount), !data.isEmpty { pending = try JSONDecoder().decode(PendingNodePayment.self, from: data) }
-            if !connection.endpoint.isEmpty { client = try await makeNode() }
+            if !connection.endpoint.isEmpty {
+                let selected = connection
+                let node = try await makeNode()
+                guard selected == connection else { return }
+                client = node
+                await refreshBalance()
+            }
         } catch { store.message = error.localizedDescription }
+    }
+    private func refreshBalance() async {
+        guard let client else { return }
+        do { balance = try await client.balance(); balanceStatus = "Updated \(Date().formatted(date: .omitted, time: .shortened))" }
+        catch { balance = nil; balanceStatus = error.localizedDescription }
     }
     private func makeNode() async throws -> LightningNode {
         var resolved = connection
@@ -111,6 +155,7 @@ struct LightningView: View {
             try WalletKeychain.save(JSONEncoder().encode(connection), account: configAccount)
             client = node; nodeName = info["alias"] as? String ?? connection.implementation.title
             showConnection = false; store.message = "Lightning node connected."
+            await refreshBalance()
         }
     }
     private func review() {

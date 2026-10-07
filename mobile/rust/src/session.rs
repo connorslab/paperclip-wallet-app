@@ -346,14 +346,14 @@ pub fn dispatch(state: &mut Option<Session>, request: Value, seed: [u8; 64]) -> 
 				w.sync_pending_arkoor_sends().await?;
 				w.sync_pending_lightning_send_vtxos().await?;
 				w.sync_pending_lightning_receives().await?;
-				w.try_claim_all_lightning_receives(false).await?;
+				let receive_warning = w.try_claim_all_lightning_receives(false).await.err().map(|error| format!("{error:#}"));
 				w.sync_pending_boards().await?;
 				w.sync_pending_offboards().await?;
 				w.sync_mailbox().await?;
 				let balance = w.balance().await?;
 				let tip = w.chain().tip().await?;
 				let vtxos = w.vtxos().await?;
-				Ok(json!({"tip": tip, "ark_sat": balance.spendable.to_sat(), "pending_sat": balance.pending().to_sat(),
+				Ok(json!({"receive_warning": receive_warning, "tip": tip, "ark_sat": balance.spendable.to_sat(), "pending_sat": balance.pending().to_sat(),
 					"onchain_sat": onchain.read().await.balance().total().to_sat(),
 					"vtxos": vtxos.iter().map(|v| json!({"id": v.id().to_string(), "expiryHeight": v.expiry_height(),
 						"spendable": v.state.kind() == bark::vtxo::VtxoStateKind::Spendable})).collect::<Vec<_>>() }))
@@ -406,9 +406,12 @@ pub fn dispatch(state: &mut Option<Session>, request: Value, seed: [u8; 64]) -> 
 				None => json!({"active": false}),
 			}),
 			"offer_disable" => { w.disable_lightning_offer().await?; Ok(json!({"active": false})) },
-			"receive_status" => {
+			"receive_status" | "receive_claim" => {
 				use bark::actions::lightning::receive::{LightningReceiveState, Progress};
-				let state = w.lightning_receive_state(text(&request, "payment_hash")?.parse()?).await?;
+				let hash = text(&request, "payment_hash")?.parse()?;
+				let state = if op == "receive_claim" {
+					w.try_claim_lightning_receive(hash, false).await?
+				} else { w.lightning_receive_state(hash).await? };
 				Ok(json!({"state": match state {
 					LightningReceiveState::Settled(_) => "settled",
 					LightningReceiveState::InProgress(recv) => match recv.progress {

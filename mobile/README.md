@@ -159,3 +159,21 @@ artifacts also require your development signing and provisioning before install.
 
 Apple's instructions:
 https://developer.apple.com/documentation/xcode/running-your-app-on-simulated-or-physical-devices
+
+## Lightning node dashboard
+
+The Lightning tab shows active-channel send and receive estimates. CLN uses
+`listpeerchannels` spendable/receivable amounts; LND uses active `listchannels`
+balances minus reserves. Routing, HTLC limits and fees can reduce usable amounts.
+Missing or denied channel data is shown as unavailable rather than a zero balance.
+
+CLN nodes can create reusable BOLT12 offers with `offer`; leave the amount blank
+for an amount chosen by the payer. The node retains and serves the offer. The rune
+needs `listpeerchannels` and `offer` permissions in addition to existing methods.
+LND offer creation is not implemented through its standard REST API.
+
+Ark tools opens BOLT11-to-Ark receive and Ark offboarding with the correct source
+selected. Pending receives expose their state and a manual claim retry. An all-failed
+claim batch now retains the underlying error, and that warning does not suppress
+otherwise successful balance synchronization. Claim errors still need investigation;
+this UI change does not prove that a pending payment settled.

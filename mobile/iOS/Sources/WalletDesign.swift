@@ -13,8 +13,7 @@ struct WalletCard<Content: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) { content }
             .frame(maxWidth: .infinity, alignment: .leading).padding(22)
-            .background(PaperclipTheme.panel.gradient, in: RoundedRectangle(cornerRadius: 26))
-            .overlay(RoundedRectangle(cornerRadius: 26).stroke(.white.opacity(0.09)))
+            .modifier(GlassCardSurface())
     }
 }
 
@@ -45,5 +44,35 @@ struct WalletBrand: View {
             }
             Spacer()
         }
+    }
+}
+
+struct WalletSection<Content: View>: View {
+    let title: String?
+    let content: Content
+    init(_ title: String? = nil, @ViewBuilder content: () -> Content) {
+        self.title = title; self.content = content()
+    }
+    var body: some View {
+        WalletCard {
+            if let title { Text(title).font(.headline).foregroundStyle(PaperclipTheme.muted) }
+            content
+        }
+    }
+}
+
+private struct GlassCardSurface: ViewModifier {
+    @ViewBuilder func body(content: Content) -> some View {
+        #if compiler(>=6.2)
+        if #available(iOS 26, *) {
+            content.glassEffect(.regular.tint(PaperclipTheme.panel.opacity(0.7)), in: RoundedRectangle(cornerRadius: 26))
+        } else { fallback(content) }
+        #else
+        fallback(content)
+        #endif
+    }
+    private func fallback(_ content: Content) -> some View {
+        content.background(PaperclipTheme.panel.gradient, in: RoundedRectangle(cornerRadius: 26))
+            .overlay(RoundedRectangle(cornerRadius: 26).stroke(.white.opacity(0.09)))
     }
 }
