@@ -366,11 +366,12 @@ private struct CoinjoinSignView: View {
             Text(model.message).font(.caption)
         }.padding(22) }.background(PaperclipTheme.navy).navigationTitle("Sign Coinjoin")
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
-            .confirmationDialog("Release your transaction signature?", isPresented: $confirming) {
-                Button("Sign with unified sighash") { model.perform {
+            .alert("Release your transaction signature?", isPresented: $confirming) {
+                Button("Sign transaction") { model.perform {
                     try await model.action("coinjoin_sign", ["id": round["id"] as? String ?? "", "plan_id": round["plan_id"] as? String ?? ""]); dismiss()
                 } }
-            }
+                Button("Cancel", role: .cancel) { }
+            } message: { Text("Sign with unified sighash 0x21 and share with this pool. Once shared, your signature cannot be recalled.") }
     }
 }
 private struct CoinjoinTransferView: View {

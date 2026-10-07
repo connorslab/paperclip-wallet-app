@@ -41,6 +41,7 @@ import PaperclipMobile
     }
     func action(_ op: String, _ fields: [String: Any] = [:]) async throws {
         snapshot = try await call(op, fields); try await subscribe(); await flush()
+        if op == "coinjoin_sync" { message = "Coinjoin account updated." }
     }
     func connect() async throws {
         stop(); let ticket = generation
@@ -74,13 +75,19 @@ import PaperclipMobile
                     if !self.busy {
                         self.snapshot = try await self.call("coinjoin_tick")
                         await self.flush(); try await self.subscribe()
+                        ticks += 1
+                        if ticks % 6 == 0 {
+                            do {
+                                self.snapshot = try await self.call("coinjoin_sync")
+                                self.message = "Coinjoin account updated."
+                            } catch { self.message = error.localizedDescription }
+                        }
                         if let r = self.active, r["can_broadcast"] as? Bool == true, let id = r["id"] as? String,
                            Date().timeIntervalSince(self.attempts["broadcast-" + id] ?? .distantPast) > 30 {
                             self.attempts["broadcast-" + id] = Date()
-                            self.snapshot = try await self.call("coinjoin_broadcast", ["id": id])
+                            do { self.snapshot = try await self.call("coinjoin_broadcast", ["id": id]) }
+                            catch { self.message = error.localizedDescription }
                         }
-                        ticks += 1
-                        if ticks % 6 == 0 { self.snapshot = try await self.call("coinjoin_sync") }
                         if ticks % 12 == 0 { do { try await self.relay?.ping() } catch { self.connected = false; throw error } }
                     }
                 } catch { if !Task.isCancelled { self?.message = error.localizedDescription } }

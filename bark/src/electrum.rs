@@ -195,7 +195,11 @@ impl Electrum {
 			if let Ok(height) = c.inner.raw_call("blockchain.transaction.get_height", [Param::String(txid.to_string())]) {
 				if height.is_null() { return Ok(TxStatus::NotFound); }
 			}
-			let tx = c.inner.transaction_get(&txid)?;
+			let tx = match c.inner.transaction_get(&txid) {
+				Ok(tx) => tx,
+				Err(err) if transaction_not_found(&err) => return Ok(TxStatus::NotFound),
+				Err(err) => return Err(err.into()),
+			};
 			ensure!(tx.compute_txid() == txid, "Electrum transaction hash mismatch");
 			for output in &tx.output {
 				if let Some(entry) = c.inner.script_get_history(&output.script_pubkey)?.iter().find(|e| e.tx_hash == txid) {
@@ -256,5 +260,31 @@ mod inclusion_tests {
 		proof.merkle[0][0] ^= 1;
 		proof.pos += 1 << proof.merkle.len();
 		assert!(!valid_inclusion_proof(txid, root, &proof));
+	}
+}
+
+// Only an explicit missing-transaction response is absence, never a transport failure.
+fn transaction_not_found(error: &bdk_electrum::electrum_client::Error) -> bool {
+	match error {
+		bdk_electrum::electrum_client::Error::Protocol(value) => {
+			matches!(value["code"].as_i64(), Some(-5 | 2)) && matches!(value["message"].as_str(),
+				Some("No such mempool or blockchain transaction. Use gettransaction for wallet transactions." | "No such mempool or blockchain transaction"))
+		},
+		_ => false,
+	}
+}
+
+#[cfg(test)]
+mod missing_transaction_tests {
+	use super::*;
+	use bdk_electrum::electrum_client::Error;
+	#[test]
+	fn explicit_absence_is_not_a_connection_or_server_failure() {
+		for code in [-5, 2] {
+			assert!(transaction_not_found(&Error::Protocol(serde_json::json!({"code":code,"message":"No such mempool or blockchain transaction. Use gettransaction for wallet transactions."}))));
+		}
+		assert!(!transaction_not_found(&Error::Protocol(serde_json::json!({"code":2,"message":"Transaction outputs already in utxo set"}))));
+		assert!(!transaction_not_found(&Error::Protocol(serde_json::json!({"code":-32603,"message":"Internal error"}))));
+		assert!(!transaction_not_found(&Error::IOError(std::io::Error::from(std::io::ErrorKind::TimedOut))));
 	}
 }

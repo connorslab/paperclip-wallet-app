@@ -468,6 +468,17 @@ pub async fn dispatch(
 				tx.input[i].witness =
 					bitcoin::Witness::from_slice(&[bytes(sig)?, bytes(&plan.coins[i].pubkey)?]);
 			}
+			let chain = chain_wallet.context("connect a chain backend")?.chain();
+			chain.invalidate_caches().await;
+			if chain.tx_confirmed(tx.compute_txid()).await?.is_some() {
+				r.txid = Some(tx.compute_txid().to_string());
+				r.phase = "confirmed".into();
+				let mixed_script = r.mix.clone();
+				s.labels.insert(mixed_script, "mixed".into());
+				save(&path, &s)?;
+				w.sync(chain).await?;
+				return Ok(summary(&s, &w));
+			}
 			r.txid = Some(tx.compute_txid().to_string());
 			r.phase = "broadcast".into();
 			r.announce(time)?;
