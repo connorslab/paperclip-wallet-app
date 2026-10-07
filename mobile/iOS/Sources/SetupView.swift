@@ -49,7 +49,7 @@ struct SetupView: View {
                             Button("Create a wallet") { store.run { phrase = try await store.engine.generatePhrase() } }
                                 .buttonStyle(.borderedProminent).controlSize(.large).accessibilityIdentifier("create-wallet")
                             Button("Import 12 or 24 seed words") { importing = true }
-                            NavigationLink("Restore an encrypted Ark backup") { BackupView(engine: store.engine) }
+                            NavigationLink("Restore an encrypted Ark backup") { BackupView(engine: store.engine, restoreOnly: true) }
                             Button("Open a restored wallet") { Task { await store.load() } }
                         }
                     }
@@ -72,13 +72,13 @@ struct SetupView: View {
                 }
                 .sheet(isPresented: $importing) {
                     NavigationStack {
-                        Form {
-                            Section("Connection") {
+                        ScrollView { VStack(spacing: 20) {
+                            WalletSection("Connection") {
                                 NavigationLink("Connection settings") { ConnectionsView(isSetup: true) }
                                     .accessibilityIdentifier("import-connections")
                                 Text("Choose your Electrum server and Tor settings before importing.").font(.caption)
                             }
-                            Section("Import your seed") {
+                            WalletSection("Import your seed") {
                                 Text("Enter 12 or 24 BIP39 words. Seed import scans on-chain history and attempts Ark mailbox recovery. A full Ark backup gives more complete recovery for pending operations.")
                                 TextEditor(text: $importedPhrase).frame(minHeight: 150).privacySensitive()
                                     .textInputAutocapitalization(.never).autocorrectionDisabled().accessibilityIdentifier("import-seed")
@@ -90,7 +90,7 @@ struct SetupView: View {
                                 }.disabled(![12, 24].contains(importedPhrase.split(whereSeparator: \.isWhitespace).count) || store.busy)
                             }
                             Text(store.message).foregroundStyle(PaperclipTheme.orange)
-                        }.navigationTitle("Import wallet").toolbar {
+                        }.padding(22) }.background(PaperclipTheme.navy.ignoresSafeArea()).navigationTitle("Import wallet").toolbar {
                             ToolbarItem(placement: .topBarLeading) {
                                 Button { importing = false; importedPhrase = "" } label: { Label("Back", systemImage: "chevron.left") }
                                     .disabled(store.busy).accessibilityIdentifier("import-back")

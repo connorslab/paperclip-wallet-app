@@ -7,7 +7,6 @@ use ark::{Vtxo, VtxoId};
 use ark::fees::VtxoFeeInfo;
 
 use crate::Wallet;
-use crate::vtxo::selection::InputSelection;
 
 /// Result of a fee estimation containing the total cost, fee amount, and VTXOs used. It's very
 /// important to consider that fees can change over time, so you should expect to renew this
@@ -219,10 +218,8 @@ impl Wallet {
 	/// the user will receive and `FeeEstimate::gross_amount` is the offchain amount the user will
 	/// pay using `FeeEstimate::vtxos_used`.
 	///
-	/// Uses the same iterative approach as `send_onchain` to account for VTXO expiry-based fees.
-	///
-	/// If the wallet is lacking enough funds to send `amount` onchain, then the estimate will be
-	/// the maximum possible fee, assuming the user acquires enough funds to cover the payment.
+	/// Validate the selected inputs with the funded split builder before quoting.
+	/// Insufficient recovery funding is an error, not a hypothetical fee.
 	pub async fn estimate_send_onchain(
 		&self,
 		address: &bitcoin::Address,
@@ -232,27 +229,26 @@ impl Wallet {
 		let offboard_feerate = srv.offboard_feerate().await?;
 		let script_buf = address.script_pubkey();
 
-		let selection = InputSelection::new()
+		ensure!(amount >= script_buf.minimal_non_dust(), "withdrawal amount is below dust");
+		let selection = self.spend_input_selection().await?
 			.max_inputs(srv.ark_info().await.max_offboard_inputs)
 			.fee_scheme(self.inner.chain.tip().await?, |a, v|
 				ark_info.fees.offboard.calculate(&script_buf, a, offboard_feerate, v)
 					.ok_or_else(|| anyhow!("Error whilst calculating fee")),
 			);
-		let (inputs, fee) = match selection.select(self.spendable_vtxos().await?, amount) {
-			Ok((inputs, fee)) => (inputs, fee),
-			Err(_) => {
-				// We choose to ignore every error, even those which are not due to insufficient
-				// funds.
-				let info = [VtxoFeeInfo { amount, expiry_blocks: u32::MAX }];
-				let fee = ark_info.fees.offboard.calculate(
-					&script_buf, amount, offboard_feerate, info,
-				).context("fee overflowed")?;
-				(Vec::new(), fee)
-			}
-		};
-
-		let total_cost = amount.checked_add(fee).unwrap_or(Amount::MAX);
-		let vtxo_ids = inputs.into_iter().map(|v| v.id()).collect();
+		let (inputs, fee) = selection.select(self.spendable_vtxos().await?, amount)?;
+		let vtxo_ids = inputs.iter().map(|v| v.id()).collect::<Vec<_>>();
+		let full = self.inner.db.get_full_vtxos(&vtxo_ids).await?;
+		let (destination_key, index) = self.peek_next_keypair().await?;
+		let change_key = self.peek_keypair(index.checked_add(1).context("key index overflow")?).await?;
+		let (_, reserve) = ark::arkoor::package::ArkoorPackageBuilder::new_funded_payment(
+			full, ark::arkoor::ArkoorDestination {
+				total_amount: amount.checked_add(fee).context("amount overflow")?,
+				policy: ark::VtxoPolicy::new_pubkey(destination_key.public_key()),
+			}, ark::VtxoPolicy::new_pubkey(change_key.public_key()),
+		).context("Cannot withdraw this amount: insufficient Ark recovery funding. Reduce the amount or add Ark funds")?;
+		let fee = fee.checked_add(reserve).context("fee overflow")?;
+		let total_cost = amount.checked_add(fee).context("amount overflow")?;
 
 		Ok(FeeEstimate::new(total_cost, fee, amount, vtxo_ids))
 	}

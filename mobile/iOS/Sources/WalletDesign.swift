@@ -2,10 +2,17 @@ import SwiftUI
 
 // Colors match the Paperclip web wallet.
 enum PaperclipTheme {
-    static let navy = Color(red: 17/255, green: 28/255, blue: 46/255)
-    static let panel = Color(red: 26/255, green: 41/255, blue: 62/255)
-    static let orange = Color(red: 245/255, green: 104/255, blue: 53/255)
-    static let muted = Color(red: 175/255, green: 189/255, blue: 209/255)
+    private static func adaptive(light: UInt32, dark: UInt32) -> Color {
+        Color(uiColor: UIColor { traits in
+            let rgb = traits.userInterfaceStyle == .dark ? dark : light
+            return UIColor(red: CGFloat((rgb >> 16) & 255) / 255, green: CGFloat((rgb >> 8) & 255) / 255,
+                           blue: CGFloat(rgb & 255) / 255, alpha: 1)
+        })
+    }
+    static let navy = adaptive(light: 0xF2F5FA, dark: 0x111C2E)
+    static let panel = adaptive(light: 0xFFFFFF, dark: 0x1A293E)
+    static let orange = adaptive(light: 0xB93C0C, dark: 0xF56835)
+    static let muted = adaptive(light: 0x4B5C73, dark: 0xAFBDD1)
 }
 
 struct WalletCard<Content: View>: View {
@@ -29,7 +36,7 @@ struct GlassAction: ViewModifier {
     }
     private func fallback(_ content: Content) -> some View {
         content.padding(14).background(.ultraThinMaterial, in: Capsule())
-            .overlay(Capsule().stroke(.white.opacity(0.12)))
+            .overlay(Capsule().stroke(.primary.opacity(0.12)))
     }
 }
 
@@ -73,6 +80,32 @@ private struct GlassCardSurface: ViewModifier {
     }
     private func fallback(_ content: Content) -> some View {
         content.background(PaperclipTheme.panel.gradient, in: RoundedRectangle(cornerRadius: 26))
-            .overlay(RoundedRectangle(cornerRadius: 26).stroke(.white.opacity(0.09)))
+            .overlay(RoundedRectangle(cornerRadius: 26).stroke(.primary.opacity(0.09)))
+    }
+}
+
+struct WalletNavigationRow: View {
+    let title: String
+    let subtitle: String
+    let icon: String
+    init(_ title: String, subtitle: String, icon: String) { self.title = title; self.subtitle = subtitle; self.icon = icon }
+    var body: some View {
+        HStack(spacing: 14) {
+            Image(systemName: icon).font(.title3).foregroundStyle(PaperclipTheme.orange).frame(width: 28)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title).foregroundStyle(.primary)
+                Text(subtitle).font(.caption).foregroundStyle(PaperclipTheme.muted)
+            }
+            Spacer(minLength: 4)
+            Image(systemName: "chevron.right").font(.caption.bold()).foregroundStyle(PaperclipTheme.muted)
+        }.padding(.vertical, 4).contentShape(Rectangle())
+    }
+}
+
+struct WalletInputStyle: TextFieldStyle {
+    func _body(configuration: TextField<Self._Label>) -> some View {
+        configuration.padding(12)
+            .background(.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 12))
+            .overlay(RoundedRectangle(cornerRadius: 12).stroke(.primary.opacity(0.10)))
     }
 }

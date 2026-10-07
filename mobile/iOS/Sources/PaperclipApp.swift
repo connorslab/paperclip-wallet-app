@@ -6,6 +6,7 @@ import PaperclipMobile
     @StateObject private var maintenance = Maintenance.shared
     @StateObject private var store = WalletStore()
     @StateObject private var lock = WalletLock()
+    @AppStorage("appearance") private var appearance = "system"
     @AppStorage("walletLock") private var lockEnabled = true
     init() {
         UserDefaults.standard.register(defaults: ["automaticRefresh": true, "walletLock": true])
@@ -27,7 +28,7 @@ import PaperclipMobile
                     PaperclipTheme.navy.ignoresSafeArea().overlay(Image("PaperclipLogo").resizable().scaledToFit().frame(width: 72, height: 72))
                 }
             }
-            .tint(PaperclipTheme.orange).preferredColorScheme(.dark)
+            .tint(PaperclipTheme.orange).preferredColorScheme(appearance == "system" ? nil : appearance == "light" ? .light : .dark)
             .task {
                 #if DEBUG
                 if ProcessInfo.processInfo.arguments.contains("-tor-probe") {
@@ -77,6 +78,7 @@ struct WalletView: View {
 }
 
 struct DashboardView: View {
+    @AppStorage("displayUnit") private var unit: BitcoinUnit = .sats
     @EnvironmentObject var store: WalletStore
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var sending = false
@@ -95,7 +97,7 @@ struct DashboardView: View {
                     Text("Your XBT.\nWithin reach.").font(.largeTitle.bold())
                     Text(total).font(.system(size: 42, weight: .semibold, design: .rounded)).minimumScaleFactor(0.5).lineLimit(1).privacySensitive()
                         .contentTransition(.numericText())
-                    Text("SATS · ON-CHAIN + ARK").font(.caption2).tracking(2).foregroundStyle(PaperclipTheme.muted)
+                    Text("\(unit.title.uppercased()) · ON-CHAIN + ARK").font(.caption2).tracking(2).foregroundStyle(PaperclipTheme.muted)
                     HStack(spacing: 12) {
                         Button { sending = true } label: { Label("Send", systemImage: "arrow.up.right").frame(maxWidth: .infinity) }.modifier(GlassAction())
                         Button { receiving = true } label: { Label("Receive", systemImage: "arrow.down.left").frame(maxWidth: .infinity) }.modifier(GlassAction())
@@ -109,13 +111,7 @@ struct DashboardView: View {
                         balanceCard("Ark", icon: "square.stack.3d.up", amount: store.ark)
                     }.buttonStyle(.plain).accessibilityHint("View Ark balances, payments, and activity")
                 }
-                if let pending = store.pending, pending > 0 { Label("\(pending.formatted()) sats pending", systemImage: "clock").font(.subheadline) }
-                NavigationLink { ArkOverviewView() } label: {
-                    WalletCard {
-                        HStack { Image(systemName: "square.stack.3d.up.fill").foregroundStyle(PaperclipTheme.orange); Text("Ark with Paperclip").font(.headline); Spacer(); Image(systemName: "chevron.right") }
-                        Text("Board, offboard, receive Lightning, and manage recovery.").font(.subheadline).foregroundStyle(PaperclipTheme.muted)
-                    }
-                }.buttonStyle(.plain)
+                if let pending = store.pending, pending > 0 { Label("\(unit.display(pending)) pending", systemImage: "clock").font(.subheadline) }
                 if store.observed == nil {
                     NavigationLink { ConnectionsView() } label: { Label("Configure your connection", systemImage: "network") }
                 }
@@ -139,26 +135,34 @@ struct DashboardView: View {
     private var total: String {
         if hideBalance { return "••••••" }
         guard let chain = store.onchain, let ark = store.ark else { return "—" }
-        return (chain + ark).formatted()
+        return unit.number(chain + ark)
     }
     private func balanceCard(_ title: String, icon: String, amount: UInt64?) -> some View {
         WalletCard {
             Label(title, systemImage: icon).font(.subheadline).foregroundStyle(PaperclipTheme.muted)
-            Text(hideBalance ? "••••" : amount.map { $0.formatted() } ?? "—").font(.title2.bold()).lineLimit(1).minimumScaleFactor(0.6).privacySensitive()
-            Text("sats").font(.caption).foregroundStyle(.secondary)
+            Text(hideBalance ? "••••" : amount.map { unit.number($0) } ?? "—").font(.title2.bold()).lineLimit(1).minimumScaleFactor(0.6).privacySensitive()
+            Text(unit.title).font(.caption).foregroundStyle(.secondary)
         }
     }
 }
 
 struct ActivityView: View {
+    @AppStorage("displayUnit") private var unit: BitcoinUnit = .sats
     @EnvironmentObject var store: WalletStore
+    @State private var filter = "All"
+    private var items: [ActivityItem] { store.activity.filter {
+        filter == "All" || (filter == "Ark" ? $0.id.hasPrefix("ark-") : !$0.id.hasPrefix("ark-"))
+    } }
     var body: some View {
         ScrollView {
           VStack(spacing: 20) {
-            if store.activity.isEmpty { ContentUnavailableView("No activity loaded", systemImage: "clock", description: Text("Synchronize your wallet to load transactions.")) }
-            ForEach(store.activity) { item in
+            Picker("Activity wallet", selection: $filter) {
+                Text("All").tag("All"); Text("On-chain").tag("On-chain"); Text("Ark").tag("Ark")
+            }.pickerStyle(.segmented)
+            if items.isEmpty { ContentUnavailableView("No activity loaded", systemImage: "clock", description: Text("Synchronize your wallet to load transactions.")) }
+            ForEach(items) { item in
                 WalletCard {
-                    HStack { Text(item.title).font(.headline); Spacer(); Text(item.amount).monospacedDigit() }
+                    HStack { Text(item.title).font(.headline); Spacer(); Text(unit.signed(item.amountSat)).monospacedDigit() }
                     Text(item.status).foregroundStyle(PaperclipTheme.orange)
                     Text(item.detail).font(.caption2.monospaced()).textSelection(.enabled)
                 }
@@ -171,6 +175,7 @@ struct ActivityView: View {
 }
 
 struct OnchainOverviewView: View {
+    @AppStorage("displayUnit") private var unit: BitcoinUnit = .sats
     @EnvironmentObject var store: WalletStore
     @State private var confirmed: UInt64?
     @State private var unconfirmed: UInt64?
@@ -188,12 +193,18 @@ struct OnchainOverviewView: View {
                 Text("Unconfirmed includes pending incoming outputs and change. Amounts reflect the wallet's unspent outputs.").font(.caption)
                 Text(status).font(.caption).foregroundStyle(.secondary)
             }
-            WalletSection { NavigationLink("Receive & change addresses") { OnchainAddressesView() } }
+            WalletSection("On-chain actions") {
+                HStack {
+                    NavigationLink { SendView() } label: { Label("Send", systemImage: "arrow.up.right").frame(maxWidth: .infinity) }.modifier(GlassAction())
+                    NavigationLink { ReceiveView() } label: { Label("Receive", systemImage: "arrow.down.left").frame(maxWidth: .infinity) }.modifier(GlassAction())
+                }
+                NavigationLink { OnchainAddressesView() } label: { WalletNavigationRow("Wallet addresses", subtitle: "View derived receive and change addresses", icon: "list.bullet") }
+            }
             WalletSection("On-chain transactions") {
                 if transactions.isEmpty { Text("No on-chain transactions in the saved wallet state.").foregroundStyle(.secondary) }
                 ForEach(transactions) { item in
                     VStack(alignment: .leading, spacing: 8) {
-                        HStack { Text(item.status).foregroundStyle(PaperclipTheme.orange); Spacer(); Text(item.amount).monospacedDigit() }
+                        HStack { Text(item.status).foregroundStyle(PaperclipTheme.orange); Spacer(); Text(unit.signed(item.amountSat)).monospacedDigit() }
                         Text(item.detail).font(.caption.monospaced()).textSelection(.enabled)
                         Button("Copy transaction ID") {
                             UIPasteboard.general.setItems([[UIPasteboard.typeAutomatic: item.id]], options: [.localOnly: true, .expirationDate: Date().addingTimeInterval(120)])
@@ -212,7 +223,7 @@ struct OnchainOverviewView: View {
             .task { await load() }
             .refreshable { await refresh() }
     }
-    private func sats(_ amount: UInt64?) -> String { amount.map { "\($0.formatted()) sats" } ?? "—" }
+    private func sats(_ amount: UInt64?) -> String { unit.display(amount) }
     private func load() async {
         do {
             let result = try await store.engine.onchainOverview()
@@ -223,7 +234,7 @@ struct OnchainOverviewView: View {
             transactions = (result["transactions"] as? [[String: Any]] ?? []).compactMap { row in
                 guard let txid = row["txid"] as? String, let amount = row["change_sat"] as? NSNumber else { return nil }
                 return ActivityItem(id: txid, title: "On-chain", status: row["confirmed"] as? Bool == true ? "Confirmed" : "Unconfirmed",
-                    amount: "\(amount.int64Value.formatted()) sats", detail: txid)
+                    amountSat: amount.int64Value, detail: txid)
             }
         } catch { status = error.localizedDescription }
     }
@@ -240,6 +251,7 @@ struct OnchainOverviewView: View {
 }
 
 struct ArkOverviewView: View {
+    @AppStorage("displayUnit") private var unit: BitcoinUnit = .sats
     @EnvironmentObject var store: WalletStore
     @State private var sending = false
     @State private var receiving = false
@@ -248,9 +260,9 @@ struct ArkOverviewView: View {
         ScrollView {
             VStack(spacing: 20) {
                 WalletSection("Ark balance") {
-                    Text(store.ark.map { "\($0.formatted()) sats" } ?? "—").font(.largeTitle.bold()).privacySensitive().contentTransition(.numericText())
+                    Text(unit.display(store.ark)).font(.largeTitle.bold()).privacySensitive().contentTransition(.numericText())
                     Text("Available to spend").font(.subheadline).foregroundStyle(PaperclipTheme.muted)
-                    LabeledContent("Pending", value: store.pending.map { "\($0.formatted()) sats" } ?? "—")
+                    LabeledContent("Pending", value: unit.display(store.pending))
                     HStack {
                         Button { sending = true } label: { Label("Pay", systemImage: "arrow.up.right").frame(maxWidth: .infinity) }.modifier(GlassAction())
                         Button { receiving = true } label: { Label("Receive", systemImage: "arrow.down.left").frame(maxWidth: .infinity) }.modifier(GlassAction())
@@ -258,16 +270,16 @@ struct ArkOverviewView: View {
                     Text("Pending funds are not yet available. Keep the app open to finish incoming Lightning payments.").font(.caption).foregroundStyle(PaperclipTheme.muted)
                 }
                 WalletSection("Manage Ark") {
-                    NavigationLink("Add XBT from on-chain · boarding") { ArkToolsView() }
-                    NavigationLink("Withdraw to on-chain") { SendView(onchain: false) }
-                    NavigationLink("Lightning receive status") { ArkLightningReceivesView() }
-                    NavigationLink("Backup & recovery") { ArkToolsView() }
+                    NavigationLink { ArkToolsView(page: .boarding) } label: { WalletNavigationRow("Add to Ark", subtitle: "Board funds from your on-chain wallet", icon: "arrow.down.to.line") }
+                    NavigationLink { SendView(onchain: false) } label: { WalletNavigationRow("Withdraw to on-chain", subtitle: "Send to an XBT address", icon: "arrow.up.right") }
+                    NavigationLink { ArkLightningReceivesView() } label: { WalletNavigationRow("Lightning receives", subtitle: "Check incoming payments and claims", icon: "bolt") }
+                    NavigationLink { ArkToolsView() } label: { WalletNavigationRow("Backup & recovery", subtitle: "Protect and recover your Ark funds", icon: "shield") }
                 }
                 WalletSection("Ark activity") {
                     if transactions.isEmpty { Text("No Ark activity yet. Received and sent payments will appear here.").foregroundStyle(PaperclipTheme.muted) }
                     ForEach(transactions) { item in
                         VStack(alignment: .leading, spacing: 8) {
-                            HStack { Text(item.title).font(.headline); Spacer(); Text(item.amount).monospacedDigit() }
+                            HStack { Text(item.title).font(.headline); Spacer(); Text(unit.signed(item.amountSat)).monospacedDigit() }
                             Text(item.status).foregroundStyle(PaperclipTheme.orange)
                             Text(item.detail).font(.caption).foregroundStyle(PaperclipTheme.muted)
                         }

@@ -43,6 +43,7 @@ final class PreviewTests: XCTestCase {
         XCTAssertNotEqual(address.label, first)
         app.buttons["Done"].tap()
         app.tabBars.buttons["Settings"].tap()
+        app.buttons["settings-security"].tap()
         XCTAssertTrue(app.staticTexts["Unified sighash · 0x21"].exists)
     }
 }

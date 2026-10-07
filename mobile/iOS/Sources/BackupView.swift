@@ -16,6 +16,7 @@ struct BackupDocument: FileDocument {
 struct BackupView: View {
     // A production adapter supplies this only after native wallet setup/recovery is implemented.
     let engine: (any WalletBackupEngine)?
+    var restoreOnly = false
     @Environment(\.scenePhase) private var phase
     @State private var recoveryKey = ""
     @State private var confirmation = ""
@@ -29,8 +30,9 @@ struct BackupView: View {
     @State private var status = ""
 
     var body: some View {
-        Form {
-            Section("Encrypted iCloud Drive backup") {
+        ScrollView { VStack(spacing: 20) {
+            if !restoreOnly {
+            WalletSection("Encrypted iCloud Drive backup") {
                 Text("Save an encrypted full-wallet backup to iCloud Drive using Files. Keep its recovery key somewhere separate. Paperclip cannot recover a lost key.")
                 Text("Includes the seed and Ark recovery state. A backup does not stop VTXO expiry; keep refreshing funds.").font(.caption)
                 if engine == nil { Text("Wallet backup is unavailable until a native wallet is connected. This preview does not export a placeholder backup.").foregroundStyle(.orange) }
@@ -43,14 +45,19 @@ struct BackupView: View {
                         .disabled(confirmation.trimmingCharacters(in: .whitespacesAndNewlines) != recoveryKey)
                 }
             }
-            Section("Restore onto an empty wallet") {
+            NavigationLink { BackupView(engine: engine, restoreOnly: true) } label: {
+                WalletCard { WalletNavigationRow("Restore a backup", subtitle: "Requires an empty wallet", icon: "icloud.and.arrow.down") }
+            }
+            } else {
+            WalletSection("Restore onto an empty wallet") {
                 SecureField("Backup recovery key", text: $restoreKey).textInputAutocapitalization(.never).autocorrectionDisabled()
                 Button("Choose backup from iCloud Drive…") { importing = true }
                     .disabled(engine == nil || restoreKey.isEmpty || busy)
                 Text("Restoration never replaces an existing wallet. Avoid using the same restored wallet on two devices simultaneously.").font(.caption)
             }
-            if !status.isEmpty { Section { Text(status) } }
-        }.navigationTitle("Backup & restore")
+            }
+            if !status.isEmpty { WalletSection { Text(status) } }
+        }.padding(22).textFieldStyle(WalletInputStyle()) }.navigationTitle(restoreOnly ? "Restore backup" : "Encrypted backup").background(PaperclipTheme.navy.ignoresSafeArea())
             .fileExporter(isPresented: $exporting, document: document, contentType: .data,
                 defaultFilename: "Paperclip-\(Date().formatted(.iso8601.year().month().day())).pcbackup") { result in
                 switch result {

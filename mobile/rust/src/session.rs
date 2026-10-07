@@ -110,6 +110,11 @@ mod tests {
 		assert_eq!(overview["transactions"], json!([]));
 		let first = dispatch(&mut state, json!({"op": "address_onchain"}), seed).unwrap();
 		assert!(first["address"].as_str().unwrap().starts_with("bcrt1"));
+		let proof = dispatch(&mut state, json!({"op": "sign_message_onchain", "address": first["address"], "message": "Exact message\n"}), seed).unwrap();
+		let address = first["address"].as_str().unwrap().parse::<bitcoin::Address<_>>().unwrap().require_network(Network::Regtest).unwrap();
+		assert!(bark::onchain::message::verify_onchain_message(&address, "Exact message\n", proof["signature"].as_str().unwrap()).unwrap());
+		assert!(!bark::onchain::message::verify_onchain_message(&address, "Exact message", proof["signature"].as_str().unwrap()).unwrap());
+		assert!(dispatch(&mut state, json!({"op": "sign_message_onchain", "address": first["address"], "message": "x".repeat(4097)}), seed).is_err());
 		let page = dispatch(&mut state, json!({"op": "addresses_onchain"}), seed).unwrap();
 		assert_eq!(page["addresses"][0]["address"], first["address"]);
 		assert_eq!(page["addresses"][0]["revealed"], true);
@@ -252,6 +257,11 @@ pub fn dispatch(state: &mut Option<Session>, request: Value, seed: [u8; 64]) -> 
 	let network = session.network;
 	let Session { runtime, wallet, ark_wallet, db, onchain, quote, onchain_quote, board_quote, offer_task, receive_task, .. } = session;
 	runtime.block_on(async {
+		if op == "sign_message_onchain" {
+			let address = text(&request, "address")?.parse::<bitcoin::Address<_>>()?.require_network(network)?;
+			let signature = onchain.read().await.sign_onchain_message(&address, text(&request, "message")?)?;
+			return Ok(json!({"signature": signature, "format": "BIP322-simple"}));
+		}
 		if op == "overview_onchain" {
 			let chain = onchain.read().await;
 			let balance = chain.balance();
@@ -522,11 +532,20 @@ pub fn dispatch(state: &mut Option<Session>, request: Value, seed: [u8; 64]) -> 
 				ensure!(time.elapsed() < Duration::from_secs(60), "quote expired");
 				ensure!(text(&request, "destination")? == destination && request["amount_sat"].as_u64() == Some(amount)
 					&& request["total_sat"].as_u64() == Some(total), "payment changed; review a new quote");
-				let payment = w.parse_payment_request(&destination).await?;
-				let option = payment.default_option().context("invalid destination")?;
-				let estimate = w.estimate_payment_fee(option, Amount::from_sat(amount)).await?;
-				ensure!(estimate.gross_amount.to_sat() == total, "cost changed; review a new quote");
-				let result = w.send_payment(&option.method, Some(Amount::from_sat(amount)), None::<&str>, false).await?;
+				// Nothing has been submitted during this preflight. Return a distinct
+				// outcome so the UI can safely allow a new review after rejection.
+				let preflight = async {
+					let payment = w.parse_payment_request(&destination).await?;
+					let option = payment.default_option().context("invalid destination")?;
+					let estimate = w.estimate_payment_fee(option, Amount::from_sat(amount)).await?;
+					ensure!(estimate.gross_amount.to_sat() == total, "cost changed; review a new quote");
+					Ok::<_, anyhow::Error>(option.method.clone())
+				}.await;
+				let method = match preflight {
+					Ok(method) => method,
+					Err(error) => return Ok(json!({"state": "not_sent", "reason": format!("{error:#}")})),
+				};
+				let result = w.send_payment(&method, Some(Amount::from_sat(amount)), None::<&str>, false).await?;
 				Ok(match result {
 					PaymentInitOutput::Ark => json!({"state": "completed"}),
 					PaymentInitOutput::Lightning(invoice) => json!({"state": "pending", "invoice": invoice.to_string(), "payment_hash": invoice.payment_hash().to_string()}),

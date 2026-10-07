@@ -204,6 +204,12 @@ actor NativeWallet: WalletEngine, WalletBackupEngine {
         guard let settings = try savedConnection() else { throw WalletFailure(message: "Configure a chain connection in Settings.") }
         try await connect(settings)
     }
+    func signMessage(address: String, message: String) async throws -> String {
+        _ = try await open()
+        let result = try await call(["op": "sign_message_onchain", "address": address, "message": message])
+        guard let signature = result["signature"] as? String else { throw WalletFailure(message: "No signature returned.") }
+        return signature
+    }
     func onchainOverview() async throws -> [String: Any] {
         _ = try await open()
         return try await call(["op": "overview_onchain"])

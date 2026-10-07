@@ -7,7 +7,11 @@ private struct PendingNodePayment: Codable {
 }
 
 struct LightningView: View {
+    @AppStorage("displayUnit") private var unit: BitcoinUnit = .sats
     @EnvironmentObject var store: WalletStore
+    private enum Page: String, Hashable { case connection = "Node connection", receive = "Receive on your node", pay = "Pay from your node", status = "Payment status" }
+    @State private var page: Page?
+    @State private var scanning = false
     @State private var connection = LightningConnection()
     @State private var client: LightningNode?
     @State private var nodeName = ""
@@ -18,13 +22,12 @@ struct LightningView: View {
     @State private var balance: LightningBalance?
     @State private var balanceStatus = ""
     @State private var payInvoice = ""
-    @State private var maximumFee = "100"
+    @State private var maximumFee = ""
     @State private var reviewedHash: String?
     @State private var reviewAmount = ""
     @State private var confirming = false
     @State private var pending: PendingNodePayment?
     @State private var status = ""
-    @State private var showConnection = true
     private let configAccount = "lightning-connection-v1"
     private let pendingAccount = "lightning-pending-v1"
     var body: some View {
@@ -34,8 +37,73 @@ struct LightningView: View {
                 Label("Your node. Your Lightning.", systemImage: "bolt.fill").font(.title2.bold())
                 Text("Connect a BLAKE2b XBT Core Lightning or LND node. Node balances and channel backups remain on that node.").font(.caption)
             }
-            WalletSection("Node connection") {
-                DisclosureGroup("\(nodeName.isEmpty ? "Configure node" : nodeName)", isExpanded: $showConnection) {
+
+            if client != nil {
+                WalletSection("Lightning balance") {
+                    Text(balance.map { unit.display($0.sendableMsat / 1000) } ?? "—")
+                        .font(.system(size: 36, weight: .semibold, design: .rounded)).privacySensitive()
+                    Text("Estimated available to send").font(.caption).foregroundStyle(PaperclipTheme.muted)
+                    LabeledContent("Receive capacity", value: balance.map { unit.display($0.receivableMsat / 1000) } ?? "—")
+                    if let balance { Text("\(balance.activeChannels) active channels · routing and fees can limit payments").font(.caption) }
+                    Button("Refresh balance") { store.run { await refreshBalance() } }.modifier(GlassAction())
+                    if !balanceStatus.isEmpty { Text(balanceStatus).font(.caption) }
+                }
+            }
+            WalletSection("Your node") {
+                LabeledContent("Node", value: client == nil ? "Not connected" : (nodeName.isEmpty ? connection.implementation.title : nodeName))
+                Button("Connection settings") { page = .connection }
+                if client != nil {
+                    HStack {
+                        Button { page = .pay } label: { Label("Pay", systemImage: "arrow.up.right").frame(maxWidth: .infinity) }.modifier(GlassAction())
+                        Button { page = .receive } label: { Label("Receive", systemImage: "arrow.down.left").frame(maxWidth: .infinity) }.modifier(GlassAction())
+                    }
+                }
+                Button("Payment status & reconciliation") { page = .status }
+                if pending != nil { Label("A payment needs checking", systemImage: "clock").font(.caption) }
+            }
+            WalletSection { if store.busy { ProgressView() }; Text(store.message).font(.caption) }
+          }.padding(22).textFieldStyle(WalletInputStyle())
+        }.navigationTitle("Lightning").background(PaperclipTheme.navy.ignoresSafeArea()).disabled(store.busy)
+            .navigationDestination(item: $page) { selected in
+                ScrollView {
+                    VStack(spacing: 20) {
+                        switch selected {
+                        case .connection: connectionCard
+                        case .receive: receiveCard
+                        case .pay: payCard
+                        case .status: statusCard
+                        }
+                        if store.busy || !store.message.isEmpty { WalletSection { if store.busy { ProgressView() }; Text(store.message).font(.caption) } }
+                    }.padding(22).textFieldStyle(WalletInputStyle()).disabled(store.busy)
+                }.background(PaperclipTheme.navy.ignoresSafeArea()).navigationTitle(selected.rawValue).navigationBarTitleDisplayMode(.inline)
+            .confirmationDialog("Pay this Lightning invoice?", isPresented: $confirming) {
+                Button("Pay invoice") { pay() }
+            } message: { Text("\(reviewAmount)\nMaximum fee: \(maximumFee) \(unit.title)\n\(payInvoice)") }
+                    .sheet(isPresented: $scanning) {
+                        QRScannerView { value in
+                            let normalized = PaymentInput.normalized(value)
+                            if PaymentInput.isBolt11(normalized) { payInvoice = normalized }
+                            else { status = "Scan a BOLT11 invoice to pay from your Lightning node." }
+                        }
+                    }
+            }
+            .task { await load() }
+            .onChange(of: unit) { old, new in
+                amount = old.parse(amount).map { new.input($0) } ?? ""
+                maximumFee = old.parse(maximumFee).map { new.input($0) } ?? new.input(100)
+                reviewedHash = nil; receiveInvoice = ""
+            }
+            .onChange(of: receiveOffer) { _, _ in receiveInvoice = "" }
+            .onChange(of: amount) { _, _ in receiveInvoice = "" }
+            .onChange(of: offerDescription) { _, _ in receiveInvoice = "" }
+            .onChange(of: payInvoice) { _, _ in reviewedHash = nil }
+            .onChange(of: maximumFee) { _, _ in reviewedHash = nil }
+            .onChange(of: connection) { old, _ in if !old.endpoint.isEmpty { client = nil; reviewedHash = nil; balance = nil; receiveInvoice = ""; receiveOffer = false } }
+
+    }
+    private var connectionCard: some View {
+        WalletSection("Node connection") {
+                Group {
                     Picker("Implementation", selection: $connection.implementation) {
                         ForEach(LightningImplementation.allCases, id: \.self) { Text($0.title).tag($0) }
                     }
@@ -53,32 +121,24 @@ struct LightningView: View {
                     Text("Use a node-scoped rune or macaroon with only the permissions you need. Credentials stay in device-only Keychain.").font(.caption)
                 }.disabled(pending != nil)
             }
-            if client != nil {
-                WalletSection("Lightning balance") {
-                    Text(balance.map { "\(($0.sendableMsat / 1000).formatted()) sats" } ?? "—")
-                        .font(.system(size: 36, weight: .semibold, design: .rounded)).privacySensitive()
-                    Text("Estimated available to send").font(.caption).foregroundStyle(PaperclipTheme.muted)
-                    LabeledContent("Receive capacity", value: balance.map { "\(($0.receivableMsat / 1000).formatted()) sats" } ?? "—")
-                    if let balance { Text("\(balance.activeChannels) active channels · routing and fees can limit payments").font(.caption) }
-                    Button("Refresh balance") { store.run { await refreshBalance() } }.modifier(GlassAction())
-                    if !balanceStatus.isEmpty { Text(balanceStatus).font(.caption) }
-                }
-                WalletSection("Receive on your node") {
+    }
+    private var receiveCard: some View {
+        WalletSection("Receive on your node") {
                     Picker("Payment request", selection: $receiveOffer) {
                         Text("BOLT11 invoice").tag(false)
                         if connection.implementation == .cln { Text("BOLT12 offer").tag(true) }
                     }.pickerStyle(.segmented)
-                    TextField(receiveOffer ? "Amount in sats (optional)" : "Amount in sats", text: $amount).keyboardType(.numberPad)
+                    TextField(receiveOffer ? unit.amountPrompt + " (optional)" : unit.amountPrompt, text: $amount).keyboardType(.decimalPad)
                     if receiveOffer { TextField("Offer description", text: $offerDescription) }
                     Button(receiveOffer ? "Create BOLT12 offer" : "Create Lightning invoice") { store.run {
                         guard let client else { return }
                         receiveInvoice = ""
                         if receiveOffer {
-                            let sats = amount.isEmpty ? nil : UInt64(amount)
+                            let sats = amount.isEmpty ? nil : unit.parse(amount)
                             guard amount.isEmpty || (sats != nil && sats! > 0) else { throw WalletFailure(message: "Enter a positive amount, or leave it blank.") }
                             receiveInvoice = try await client.offer(amount: sats, description: offerDescription)
                         } else {
-                            guard let sats = UInt64(amount), sats > 0 else { throw WalletFailure(message: "Enter a positive amount.") }
+                            guard let sats = unit.parse(amount), sats > 0 else { throw WalletFailure(message: "Enter a positive amount.") }
                             receiveInvoice = try await client.invoice(amount: sats)
                         }
                     } }.modifier(GlassAction())
@@ -86,37 +146,30 @@ struct LightningView: View {
                     if connection.implementation == .lnd { Text("BOLT12 offer creation is available for Core Lightning nodes.").font(.caption) }
                     if !receiveInvoice.isEmpty { ReceiveCode(value: receiveInvoice) }
                 }
-                WalletSection("Pay from your node") {
+    }
+    private var payCard: some View {
+        WalletSection("Pay from your node") {
+                    Button { scanning = true } label: { Label("Scan QR code", systemImage: "qrcode.viewfinder") }.disabled(pending != nil)
                     TextField("BOLT11 invoice", text: $payInvoice, axis: .vertical).textInputAutocapitalization(.never).autocorrectionDisabled()
-                    TextField("Maximum routing fee in sats", text: $maximumFee).keyboardType(.numberPad)
+                    TextField("Maximum routing fee in \(unit.title)", text: $maximumFee).keyboardType(.decimalPad)
                     Button("Review invoice") { review() }.disabled(pending != nil)
                     if reviewedHash != nil {
                         LabeledContent("Amount", value: reviewAmount)
-                        LabeledContent("Maximum fee", value: "\(maximumFee) sats")
+                        LabeledContent("Maximum fee", value: "\(maximumFee) \(unit.title)")
                         Button("Confirm Lightning payment") { confirming = true }.disabled(pending != nil)
                     }
+                    if !status.isEmpty { Text(status).font(.caption).textSelection(.enabled) }
                 }
-                WalletSection("Payment status") {
+    }
+    private var statusCard: some View {
+        WalletSection("Payment status") {
                     if let pending { Text("An attempt is recorded for \(pending.hash). Check the node before another payment.").font(.caption.monospaced()) }
                     Button("Reconcile node payments") { reconcile() }
                     Text(status).font(.caption).textSelection(.enabled)
                 }
-            }
-            WalletSection { if store.busy { ProgressView() }; Text(store.message).font(.caption) }
-          }.padding(22).textFieldStyle(.roundedBorder)
-        }.navigationTitle("Lightning").background(PaperclipTheme.navy.ignoresSafeArea()).disabled(store.busy)
-            .task { await load() }
-            .onChange(of: receiveOffer) { _, _ in receiveInvoice = "" }
-            .onChange(of: amount) { _, _ in receiveInvoice = "" }
-            .onChange(of: offerDescription) { _, _ in receiveInvoice = "" }
-            .onChange(of: payInvoice) { _, _ in reviewedHash = nil }
-            .onChange(of: maximumFee) { _, _ in reviewedHash = nil }
-            .onChange(of: connection) { old, _ in if !old.endpoint.isEmpty { client = nil; reviewedHash = nil; balance = nil; receiveInvoice = ""; receiveOffer = false } }
-            .confirmationDialog("Pay this Lightning invoice?", isPresented: $confirming) {
-                Button("Pay invoice") { pay() }
-            } message: { Text("\(reviewAmount)\nMaximum fee: \(maximumFee) sats\n\(payInvoice)") }
     }
     private func load() async {
+        if maximumFee.isEmpty { maximumFee = unit.input(100) }
         do {
             if let data = try WalletKeychain.read(configAccount) { connection = try JSONDecoder().decode(LightningConnection.self, from: data) }
             if let data = try WalletKeychain.read(pendingAccount), !data.isEmpty { pending = try JSONDecoder().decode(PendingNodePayment.self, from: data) }
@@ -124,7 +177,9 @@ struct LightningView: View {
                 let selected = connection
                 let node = try await makeNode()
                 guard selected == connection else { return }
+                let info = try JSONSerialization.jsonObject(with: await node.info()) as? [String: Any] ?? [:]
                 client = node
+                nodeName = info["alias"] as? String ?? connection.implementation.title
                 await refreshBalance()
             }
         } catch { store.message = error.localizedDescription }
@@ -154,25 +209,25 @@ struct LightningView: View {
             }
             try WalletKeychain.save(JSONEncoder().encode(connection), account: configAccount)
             client = node; nodeName = info["alias"] as? String ?? connection.implementation.title
-            showConnection = false; store.message = "Lightning node connected."
+            page = nil; store.message = "Lightning node connected."
             await refreshBalance()
         }
     }
     private func review() {
         store.run {
             reviewedHash = nil
-            guard let client, UInt64(maximumFee) != nil, payInvoice.lowercased().hasPrefix(store.network == "xbt-mainnet" ? "lnbc" : "lnbcrt"),
+            guard let client, unit.parse(maximumFee) != nil, payInvoice.lowercased().hasPrefix(store.network == "xbt-mainnet" ? "lnbc" : "lnbcrt"),
                   !payInvoice.contains(where: \.isWhitespace) else { throw WalletFailure(message: "Enter a BOLT11 invoice for this network and a whole-sat fee limit.") }
             let review = try LightningPaymentReview.decode(await client.decode(payInvoice), implementation: connection.implementation)
-            guard let fee = UInt64(maximumFee), fee <= UInt64.max / 1000 else { throw WalletFailure(message: "Fee limit is too large.") }
+            guard let fee = unit.parse(maximumFee), fee <= UInt64.max / 1000 else { throw WalletFailure(message: "Fee limit is too large.") }
             let millis = review.millisatoshis
-            reviewAmount = "\(millis / 1000) sats\(millis % 1000 == 0 ? "" : " + \(millis % 1000) msat")"
+            reviewAmount = "\(unit.display(millis / 1000))\(millis % 1000 == 0 ? "" : " + \(millis % 1000) msat")"
             reviewedHash = review.hash
         }
     }
     private func pay() {
         store.run {
-            guard let client, let hash = reviewedHash, let fee = UInt64(maximumFee), pending == nil else { return }
+            guard let client, let hash = reviewedHash, let fee = unit.parse(maximumFee), pending == nil else { return }
             let attempt = PendingNodePayment(invoice: payInvoice, hash: hash)
             try WalletKeychain.save(JSONEncoder().encode(attempt), account: pendingAccount)
             pending = attempt; reviewedHash = nil

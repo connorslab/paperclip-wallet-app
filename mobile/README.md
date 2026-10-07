@@ -8,6 +8,33 @@ versions use system material. It contains an on-chain and Ark wallet, a remote
 Lightning node client, transaction review, QR receive screens, activity, recovery,
 and encrypted iCloud Drive export/import.
 
+## Navigation and preferences
+
+Wallet opens on-chain and Ark balance pages with focused payment and receive flows.
+Lightning shows node capacity, with separate pages for pay, receive, connection settings,
+and payment reconciliation. Ark boarding, seed recovery, and emergency exits are separate
+pages; exit status explains whether exits are registered, waiting, or claimable.
+Settings groups display preferences, connections, security, backups, and wallet tools.
+
+Settings → Appearance & units selects System, Light, or Dark and sats or XBT. Amount
+entry, balances, fee reviews, and activity use the selected unit. XBT conversion uses
+integer sats, accepts at most eight decimal places, and never rounds a payment.
+Changing units converts existing amount fields and invalidates pending reviews.
+
+Send and node payment pages support camera QR scanning. Bitcoin URI amounts are decoded
+without floating-point conversion; unsupported required URI parameters are rejected.
+Scanning only fills the payment form. Native validation, review, and confirmation remain
+required. Camera permission is requested only when opening the scanner.
+
+Settings → Sign a message creates an offline BIP322-simple Taproot ownership proof for
+an address owned by the on-chain wallet. Device authentication is required. Messages
+retain exact UTF-8 bytes (up to 4096 bytes); the generated proof is verified before being
+returned. This proof format does not change unified sighash for XBT transactions.
+
+Ark withdrawal estimates validate recovery funding with the funded split builder before
+allowing a review. A failed preflight is distinguished from a submitted or uncertain
+payment; uncertain outcomes are never automatically retried.
+
 ## Setup and storage
 
 New wallets generate 24 BIP39 words with the Rust engine's secure random generator.

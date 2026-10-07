@@ -60,12 +60,12 @@ import LocalAuthentication
             let kind = (subsystem["kind"] as? String ?? "Ark payment").replacingOccurrences(of: "_", with: " ").capitalized
             let time = item["time"] as? [String: Any] ?? [:]
             return ActivityItem(id: "ark-\(item["id"] ?? index)", title: kind, status: "\(item["status"] ?? "pending")".replacingOccurrences(of: "_", with: " ").capitalized,
-                amount: "\(item["effective_balance"] ?? 0) sats", detail: "\(time["created_at"] ?? "")")
+                amountSat: (item["effective_balance"] as? NSNumber)?.int64Value ?? 0, detail: "\(time["created_at"] ?? "")")
         }
         activity += (result["onchain"] as? [[String: Any]] ?? []).map { item in
             ActivityItem(id: "\(item["txid"] ?? UUID().uuidString)", title: "On-chain",
                 status: item["confirmed"] as? Bool == true ? "Confirmed" : "Pending",
-                amount: "\(item["change_sat"] ?? 0) sats", detail: "\(item["txid"] ?? "")")
+                amountSat: (item["change_sat"] as? NSNumber)?.int64Value ?? 0, detail: "\(item["txid"] ?? "")")
         }
     }
 }
@@ -74,7 +74,7 @@ struct ActivityItem: Identifiable {
     let id: String
     let title: String
     let status: String
-    let amount: String
+    let amountSat: Int64
     let detail: String
 }
 
