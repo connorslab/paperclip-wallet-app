@@ -67,7 +67,7 @@ struct SendView: View {
             }.padding(22).textFieldStyle(WalletInputStyle())
         }.background(PaperclipTheme.navy.ignoresSafeArea()).navigationTitle(onchain ? "Send XBT" : "Pay from Ark")
             .toolbar { Button("Done") { dismiss() } }
-            .sheet(isPresented: $scanning) {
+            .fullScreenCover(isPresented: $scanning) {
                 QRScannerView { value in
                     do {
                         let request = try PaymentInput.scanned(value)

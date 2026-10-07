@@ -94,7 +94,7 @@ struct LightningView: View {
             .confirmationDialog("Pay this Lightning invoice?", isPresented: $confirming) {
                 Button("Pay invoice") { pay() }
             } message: { Text("\(reviewAmount)\nMaximum fee: \(maximumFee) \(unit.title)\n\(payInvoice)") }
-                    .sheet(isPresented: $scanning) {
+                    .fullScreenCover(isPresented: $scanning) {
                         QRScannerView { value in
                             let normalized = PaymentInput.normalized(value)
                             if normalized.lowercased().hasPrefix("lno1"), connection.implementation == .cln {
