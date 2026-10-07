@@ -111,3 +111,32 @@ installation can compile the shared library but does not include XCTest here.
 A device release still needs Apple signing/provisioning, physical-device Tor/iCloud
 and background tests, and funded integration tests against the deployed XBT services.
 The simulator artifact is not a signed device IPA or a TestFlight release.
+
+## Test on your iPhone
+
+Install full Xcode and its iOS platform support, then select it in Xcode Settings
+under Locations > Command Line Tools. The standalone Command Line Tools package
+cannot build or install an iPhone app.
+
+From this repository's root:
+
+```sh
+rustup target add --toolchain 1.90.0 aarch64-apple-ios
+cargo +1.90.0 build --locked -p paperclip-mobile --target aarch64-apple-ios
+(cd mobile/iOS && xcodegen generate)
+```
+
+Open `mobile/iOS/Paperclip.xcodeproj` in Xcode. Add your Apple Account under Xcode
+Settings > Apple Accounts. In the Paperclip target's Signing & Capabilities tab,
+enable automatic signing and choose your team. If Xcode reports a bundle ID
+conflict, use a unique bundle identifier for your personal test build. Connect
+and trust your iPhone, enable Developer Mode when prompted, select the phone as
+the run destination, and run the Paperclip scheme.
+
+A personal Apple Account supports direct device testing. TestFlight distribution
+requires Apple Developer Program membership and an App Store Connect app record.
+CI simulator artifacts cannot be installed on a physical iPhone. Unsigned device
+artifacts also require your development signing and provisioning before install.
+
+Apple's instructions:
+https://developer.apple.com/documentation/xcode/running-your-app-on-simulated-or-physical-devices

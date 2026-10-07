@@ -32,6 +32,16 @@ jobs:
         with:
           name: paperclip-rust-ios-simulator
           path: target/aarch64-apple-ios-sim/debug
+      - uses: actions/download-artifact@v4
+        with:
+          name: paperclip-rust-ios-device
+          path: target/aarch64-apple-ios/debug
+      - name: Build unsigned iPhone app
+        run: xcodebuild -project mobile/iOS/Paperclip.xcodeproj -scheme Paperclip -sdk iphoneos -destination 'generic/platform=iOS' -configuration Debug -derivedDataPath mobile/DeviceDerivedData CODE_SIGNING_ALLOWED=NO build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Paperclip-iOS-device-unsigned
+          path: mobile/DeviceDerivedData/Build/Products/Debug-iphoneos/Paperclip.app
       - name: Build simulator app
         run: xcodebuild -project mobile/iOS/Paperclip.xcodeproj -scheme Paperclip -sdk iphonesimulator -configuration Debug -derivedDataPath mobile/DerivedData CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=YES ARCHS=arm64 ONLY_ACTIVE_ARCH=NO build
       - name: Test native bridge in an iPhone simulator
@@ -105,3 +115,7 @@ jobs:
         with:
           name: paperclip-rust-ios-simulator
           path: target/aarch64-apple-ios-sim/debug/libpaperclip_mobile.a
+      - uses: actions/upload-artifact@v4
+        with:
+          name: paperclip-rust-ios-device
+          path: target/aarch64-apple-ios/debug/libpaperclip_mobile.a
