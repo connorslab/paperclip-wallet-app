@@ -6,41 +6,123 @@ struct CoinjoinView: View {
     @StateObject private var model = CoinjoinModel()
     @AppStorage("displayUnit") private var unit: BitcoinUnit = .sats
     @State private var showConnection = false
-    @State private var showCreate = false
-    @State private var selectedPool: CoinjoinSelection?
-    @State private var selectedCoin: CoinjoinSelection?
+    @State private var page: CoinjoinPage?
     @State private var signing: CoinjoinSelection?
+    @State private var leavingRound: String?
     private func amount(_ value: Any?) -> String { unit.display((value as? NSNumber)?.uint64Value) }
+    private var availableCoins: Int { model.coins.filter { $0["available"] as? Bool == true }.count }
     var body: some View {
         ScrollView { VStack(spacing: 20) {
             WalletSection {
-                HStack { Label("Coinjoin", systemImage: "shuffle").font(.title2.bold()); Spacer(); Text("Experimental").font(.caption.bold()).foregroundStyle(.orange) }
-                Text(amount(model.snapshot["balance_sat"])).font(.largeTitle.bold())
-                Text("Separate native SegWit account · same wallet seed and encrypted backup").font(.caption).foregroundStyle(PaperclipTheme.muted)
-                Text("Coinjoin does not guarantee anonymity. Peers see inputs and change; the relay may correlate traffic. Tor and separate output connections reduce exposure.").font(.caption)
                 HStack {
-                    Button("Refresh") { model.perform { try await model.action("coinjoin_sync") } }
+                    Label("Coinjoin account", systemImage: "shuffle").font(.headline).foregroundStyle(PaperclipTheme.muted)
                     Spacer()
-                    Button(model.connected ? "Relay settings" : "Connect relay") { showConnection = true }
+                    Text("Experimental").font(.caption.bold()).foregroundStyle(PaperclipTheme.orange)
+                }
+                Text(amount(model.snapshot["balance_sat"])).font(.largeTitle.bold()).contentTransition(.numericText())
+                Text("Separate coins. Shared transactions.").foregroundStyle(PaperclipTheme.muted)
+                ViewThatFits(in: .horizontal) {
+                    HStack { receiveAction; poolsAction }
+                    VStack { receiveAction; poolsAction }
+                }
+                Text("Privacy is experimental and anonymity is not guaranteed.").font(.caption).foregroundStyle(PaperclipTheme.muted)
+            }
+            if let round = model.active { roundCard(round) }
+            WalletSection {
+                Button { showConnection = true } label: {
+                    HStack(spacing: 14) {
+                        Circle().fill(model.connected ? Color.green : PaperclipTheme.muted).frame(width: 10, height: 10)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(model.connected ? "Relay connected" : "Relay offline").foregroundStyle(.primary)
+                            Text(model.connected ? "Browse pools and keep your round moving" : "Connect when you’re ready to join").font(.caption).foregroundStyle(PaperclipTheme.muted)
+                        }
+                        Spacer(); Image(systemName: "chevron.right").font(.caption.bold())
+                    }.contentShape(Rectangle())
+                }.buttonStyle(.plain)
+                Divider()
+                pageButton(.coins, subtitle: "\(availableCoins) available · prepare, withdraw, or board into Ark", icon: "circle.grid.2x2")
+                Divider()
+                pageButton(.activity, subtitle: "Round history and account transactions", icon: "clock.arrow.circlepath")
+            }
+            WalletSection {
+                pageButton(.guide, subtitle: "How it works, privacy, and recovery", icon: "info.circle")
+            }
+            status
+        }.padding(22) }.background(PaperclipTheme.navy).navigationTitle("Coinjoin").navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .primaryAction) {
+                Button { model.perform { try await model.action("coinjoin_sync") } } label: { Image(systemName: "arrow.clockwise") }
+                    .accessibilityLabel("Refresh Coinjoin account").disabled(model.busy)
+            } }
+            .task { if let id = store.selectedProfile?.id { await model.start(walletID: id) } }
+            .onDisappear { model.stop() }
+            // Section sheets keep this view mounted and its relay session alive.
+            .sheet(item: $page) { destination in
+                NavigationStack {
+                    ScrollView { VStack(spacing: 20) {
+                        switch destination {
+                        case .receive: receiveContent
+                        case .pools: poolsContent
+                        case .coins: coinsContent
+                        case .activity: activityContent
+                        case .guide: guideContent
+                        }
+                        status
+                    }.padding(22) }.background(PaperclipTheme.navy)
+                        .navigationTitle(destination.rawValue).navigationBarTitleDisplayMode(.inline)
+                        .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { page = nil } } }
                 }
             }
+            .sheet(isPresented: $showConnection) { NavigationStack { connection } }
+            .sheet(item: $signing) { item in NavigationStack { CoinjoinSignView(model: model, round: item.value) } }
+            .confirmationDialog("Leave this round?", isPresented: Binding(get: { leavingRound != nil }, set: { if !$0 { leavingRound = nil } })) {
+                if let id = leavingRound {
+                    Button("Leave round", role: .destructive) { model.perform { try await model.action("coinjoin_leave", ["id": id]) }; leavingRound = nil }
+                }
+            } message: { Text("You’ll stop participating in this round. You can join a different pool afterward.") }
+    }
+    private var receiveAction: some View {
+        Button { page = .receive } label: { Label("Receive", systemImage: "arrow.down.left").frame(maxWidth: .infinity) }.modifier(GlassAction())
+    }
+    private var poolsAction: some View {
+        Button { page = .pools } label: { Label("Browse pools", systemImage: "person.2").frame(maxWidth: .infinity) }.modifier(GlassAction())
+    }
+    private func pageButton(_ destination: CoinjoinPage, subtitle: String, icon: String) -> some View {
+        Button { page = destination } label: { WalletNavigationRow(destination.rawValue, subtitle: subtitle, icon: icon) }.buttonStyle(.plain)
+    }
+    @ViewBuilder private var status: some View {
+        if model.busy { ProgressView("Updating Coinjoin…").frame(maxWidth: .infinity) }
+        if !model.message.isEmpty {
+            Text(model.message).font(.caption).foregroundStyle(PaperclipTheme.muted).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+    private var receiveContent: some View {
+        VStack(spacing: 20) {
+            WalletSection { WalletBrand(); Text("Fund your Coinjoin account").font(.title2.bold()); Text("Receive XBT here before joining a pool. These coins stay separate from your everyday on-chain balance.").foregroundStyle(PaperclipTheme.muted) }
             WalletSection("Receive into Coinjoin") {
                 if let address = model.snapshot["address"] as? String {
-                    DisclosureGroup("Show receive QR") { ReceiveCode(value: address) }
-                    Text(address).font(.caption.monospaced()).textSelection(.enabled)
-                    HStack { Button("Copy address") { UIPasteboard.general.setItems([[UIPasteboard.typeAutomatic: address]], options: [.localOnly: true]) }; Spacer(); Button("New address") { model.perform { try await model.action("coinjoin_address") } } }
+                    ReceiveCode(value: address)
+                    Button("Generate a new address") { model.perform { try await model.action("coinjoin_address") } }.disabled(model.busy)
                 }
                 Text("Send only XBT (BLAKE2b). This account stays separate from ordinary on-chain spending. Fund it externally or send from your wallet using this address.").font(.caption).foregroundStyle(PaperclipTheme.muted)
             }
-            if let round = model.active { roundCard(round) }
+        }
+    }
+    private var poolsContent: some View {
             WalletSection("Pools") {
                 HStack { Text(model.connected ? "Kilojoin v1" : "Relay disconnected").foregroundStyle(PaperclipTheme.muted); Spacer()
-                    Button("Create pool") { showCreate = true }.disabled(!model.connected || model.active != nil)
+                    NavigationLink("Create pool") { CoinjoinPoolForm(model: model, pool: nil) }.disabled(!model.connected || model.active != nil)
                 }
-                if model.pools.isEmpty { Text("No open pools loaded. Connect or wait for participants to announce one.").font(.subheadline) }
+                if !model.connected {
+                    Text("Connect to discover pools and their current terms.").foregroundStyle(PaperclipTheme.muted)
+                    Button("Connect to relay") { model.perform { try await model.connect() } }.buttonStyle(.borderedProminent).disabled(model.busy)
+                } else if model.pools.isEmpty {
+                    Label("Waiting for open pools", systemImage: "person.2.wave.2").font(.headline)
+                    Text("Pools appear here as they are announced. You can also create one and wait for others to join.").font(.subheadline).foregroundStyle(PaperclipTheme.muted)
+                }
+                if model.active != nil { Text("Finish or leave your current round before joining another pool.").font(.caption).foregroundStyle(PaperclipTheme.muted) }
                 ForEach(Array(model.pools.enumerated()), id: \.offset) { _, pool in
                     if let terms = pool["terms"] as? [String: Any] {
-                        Button { selectedPool = CoinjoinSelection(value: pool) } label: {
+                        NavigationLink { CoinjoinPoolForm(model: model, pool: pool) } label: {
                             HStack {
                                 VStack(alignment: .leading, spacing: 4) {
                                     Text(amount(terms["denomination"])).font(.headline)
@@ -52,20 +134,26 @@ struct CoinjoinView: View {
                     }
                 }
             }
+    }
+    private var coinsContent: some View {
             WalletSection("Your coins") {
                 Text("Select one coin to prepare an exact amount, withdraw, or board a mixed output into Ark. Paperclip never adds another input to these transfers.").font(.caption).foregroundStyle(PaperclipTheme.muted)
-                if model.coins.isEmpty { Text("No unspent coins. Receive XBT above, then refresh.") }
+                if model.coins.isEmpty { Text("No coins yet. Use Receive on the Coinjoin overview to fund this account, then refresh.") }
                 ForEach(Array(model.coins.enumerated()), id: \.offset) { _, coin in
-                    Button { selectedCoin = CoinjoinSelection(value: coin) } label: {
+                    NavigationLink { CoinjoinTransferView(model: model, coin: coin) } label: {
                         HStack { VStack(alignment: .leading, spacing: 4) {
                             Text(amount(coin["amount_sat"])).font(.headline)
                             Text("\((coin["label"] as? String ?? "unmixed").capitalized) · \(coin["confirmed"] as? Bool == true ? "Confirmed" : "Unconfirmed")").font(.caption).foregroundStyle(PaperclipTheme.muted)
+                            if coin["available"] as? Bool != true { Text("Reserved or not yet spendable").font(.caption).foregroundStyle(PaperclipTheme.muted) }
                             Text(String((coin["outpoint"] as? String ?? "").prefix(18)) + "…").font(.caption2.monospaced())
                         }; Spacer(); Image(systemName: coin["available"] as? Bool == true ? "chevron.right" : "lock") }
                     }.disabled(coin["available"] as? Bool != true)
                 }
             }
-            if !model.rounds.isEmpty {
+    }
+    private var activityContent: some View {
+        VStack(spacing: 20) {
+            if model.rounds.contains(where: { $0["active"] as? Bool != true }) {
                 WalletSection("Round history") {
                     ForEach(Array(model.rounds.filter { $0["active"] as? Bool != true }.enumerated()), id: \.offset) { _, round in
                         VStack(alignment: .leading, spacing: 5) {
@@ -76,7 +164,11 @@ struct CoinjoinView: View {
                     }
                 }
             }
-            WalletSection("Coinjoin account activity") {
+            WalletSection("Account transactions") {
+                if (model.snapshot["activity"] as? [[String: Any]] ?? []).isEmpty {
+                    Label("No transactions yet", systemImage: "clock").font(.headline)
+                    Text("Deposits, mixes, and transfers for this account appear here.").font(.subheadline).foregroundStyle(PaperclipTheme.muted)
+                }
                 ForEach(Array((model.snapshot["activity"] as? [[String: Any]] ?? []).sorted { ($0["timestamp"] as? Int ?? 0) > ($1["timestamp"] as? Int ?? 0) }.enumerated()), id: \.offset) { _, tx in
                     if let txid = tx["txid"] as? String {
                         Link(destination: URL(string: "https://mempool.guide/tx/" + txid)!) {
@@ -88,22 +180,29 @@ struct CoinjoinView: View {
                     }
                 }
             }
+        }
+    }
+    private var guideContent: some View {
+        VStack(spacing: 20) {
+            WalletSection("From one coin to a shared transaction") {
+                Label("1. Receive or prepare a coin", systemImage: "arrow.down.left")
+                Text("Your coin needs to cover the pool amount and your miner fee. Prepare an exact coin from Your coins to avoid linked change.").font(.subheadline).foregroundStyle(PaperclipTheme.muted)
+                Label("2. Choose a pool", systemImage: "person.2")
+                Text("Review the amount, fee rate, and participant limits. Joining reserves one coin; you approve the final transaction separately.").font(.subheadline).foregroundStyle(PaperclipTheme.muted)
+                Label("3. Review and sign", systemImage: "signature")
+                Text("Keep Coinjoin open during the round. After confirmation, you can withdraw a mixed coin or board it into Ark from Your coins.").font(.subheadline).foregroundStyle(PaperclipTheme.muted)
+            }
+            WalletSection("Understand the privacy limits") {
+                Text("Coinjoin does not guarantee anonymity. Peers see inputs and change; the relay may correlate traffic. Tor and separate output connections reduce exposure.")
+                Text("Combining mixed coins with other funds can link their histories. Boarding into Ark is a separate, visible on-chain transaction.").font(.subheadline).foregroundStyle(PaperclipTheme.muted)
+            }
             WalletSection("Backup & recovery") {
                 NavigationLink("Encrypted wallet backup") { BackupView(engine: store.engine) }
                 Button("Scan account from seed") { model.perform { try await model.action("coinjoin_recover") } }
                 Text("The seed recovers coins. A full encrypted backup also preserves round state and mixed/change labels. After a seed-only restore, treat recovered coins as having unknown privacy history.").font(.caption).foregroundStyle(PaperclipTheme.muted)
                 Text("Hardware and watch-only wallets cannot join v1 pools yet: joining needs custom ownership-proof signatures. Direct boarding inside the Coinjoin transaction is not supported by v1.").font(.caption).foregroundStyle(PaperclipTheme.muted)
             }
-            if model.busy { ProgressView() }
-            WalletSection { Text(model.message).font(.subheadline).textSelection(.enabled) }
-        }.padding(22) }.background(PaperclipTheme.navy).navigationTitle("Coinjoin").navigationBarTitleDisplayMode(.inline)
-            .task { if let id = store.selectedProfile?.id { await model.start(walletID: id) } }
-            .onDisappear { model.stop() }
-            .sheet(isPresented: $showConnection) { NavigationStack { connection } }
-            .sheet(isPresented: $showCreate) { NavigationStack { CoinjoinPoolForm(model: model, pool: nil) } }
-            .sheet(item: $selectedPool) { item in NavigationStack { CoinjoinPoolForm(model: model, pool: item.value) } }
-            .sheet(item: $selectedCoin) { item in NavigationStack { CoinjoinTransferView(model: model, coin: item.value) } }
-            .sheet(item: $signing) { item in NavigationStack { CoinjoinSignView(model: model, round: item.value) } }
+        }
     }
     private var connection: some View {
         ScrollView { VStack(spacing: 20) {
@@ -118,15 +217,39 @@ struct CoinjoinView: View {
         }.padding(22).textFieldStyle(WalletInputStyle()) }.background(PaperclipTheme.navy).navigationTitle("Coinjoin relay")
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { showConnection = false } } }
     }
+    private func roundTitle(_ phase: String) -> String {
+        switch phase {
+        case "joining": "Joining pool"
+        case "open": "Waiting for participants"
+        case "voting": "Participant vote"
+        case "closing": "Preparing transaction"
+        case "signing": "Review and sign"
+        case "broadcast": "Waiting for confirmation"
+        case "uncertain": "Checking payment outcome"
+        default: phase.capitalized
+        }
+    }
+    private func roundHelp(_ phase: String, signed: Bool) -> String {
+        if signed { return "Your signature has been shared. Wait for the transaction to confirm; your coin stays reserved." }
+        switch phase {
+        case "joining": return "Waiting for the pool to accept your ownership proof."
+        case "open": return "More people can join. Start a vote when the pool has enough participants."
+        case "voting": return "Participants must agree before the transaction is prepared."
+        case "closing": return "The agreed inputs and outputs are being collected. No signature is needed yet."
+        case "signing": return "Check your output, change, and fee before sharing your signature."
+        default: return "Check the round status before making another attempt."
+        }
+    }
     @ViewBuilder private func roundCard(_ round: [String: Any]) -> some View {
         let id = round["id"] as? String ?? ""
         let phase = round["phase"] as? String ?? ""
         WalletSection("Current round") {
-            Text(phase.capitalized).font(.title2.bold())
+            Text(roundTitle(phase)).font(.title2.bold())
+            Text(roundHelp(phase, signed: round["signed"] as? Bool == true)).font(.subheadline).foregroundStyle(PaperclipTheme.muted)
             Text("\(amount(round["amount_sat"])) · \(round["peers"] as? Int ?? 0) participants")
-            Text("Keep this page open. Leaving the page disconnects; return and connect to resume the saved round.").font(.caption).foregroundStyle(PaperclipTheme.muted)
+            Text("Keep Coinjoin open while participating. You can browse its pages; leaving Coinjoin disconnects the relay. Reconnect here to resume.").font(.caption).foregroundStyle(PaperclipTheme.muted)
             if !model.connected { Button("Reconnect round") { model.perform { try await model.connect() } } }
-            if phase == "open" { Button("Request close & vote") { model.perform { try await model.action("coinjoin_close", ["id": id]) } } }
+            if phase == "open" { Button("Start participant vote") { model.perform { try await model.action("coinjoin_close", ["id": id]) } } }
             if phase == "voting", round["voted"] as? Bool != true {
                 HStack { Button("Accept round") { model.perform { try await model.action("coinjoin_vote", ["id": id, "accept": true]) } }
                     Button("Decline") { model.perform { try await model.action("coinjoin_vote", ["id": id, "accept": false]) } }
@@ -134,12 +257,16 @@ struct CoinjoinView: View {
             }
             if phase == "signing", round["signed"] as? Bool != true { Button("Review & sign") { signing = CoinjoinSelection(value: round) }.buttonStyle(.borderedProminent) }
             if round["signed"] as? Bool == true { Text("Signature released. This coin stays reserved until the transaction or a conflicting spend is confirmed. A timeout cannot recall a signature.").font(.caption) }
-            else { Button("Leave round", role: .destructive) { model.perform { try await model.action("coinjoin_leave", ["id": id]) } } }
+            else { Button("Leave round", role: .destructive) { leavingRound = id } }
             if let deadline = round["deadline"] as? NSNumber, deadline.uint64Value > 0 { Text("Deadline: " + Date(timeIntervalSince1970: deadline.doubleValue).formatted(date: .omitted, time: .standard)).font(.caption) }
             if let txid = round["txid"] as? String { Link("View transaction", destination: URL(string: "https://mempool.guide/tx/" + txid)!) }
             Text(round["reason"] as? String ?? "").font(.caption)
         }.disabled(model.busy)
     }
+}
+private enum CoinjoinPage: String, Identifiable {
+    case receive = "Receive XBT", pools = "Pools", coins = "Your coins", activity = "Activity", guide = "Coinjoin guide"
+    var id: String { rawValue }
 }
 struct CoinjoinSelection: Identifiable { let id = UUID(); let value: [String: Any] }
 
@@ -170,12 +297,16 @@ private struct CoinjoinPoolForm: View {
         ScrollView { VStack(spacing: 20) {
             WalletSection("Pool terms") {
                 if pool == nil {
-                    TextField("Equal output · " + unit.amountPrompt, text: $amount).keyboardType(.decimalPad)
+                    Text("Amount per participant").font(.subheadline.bold())
+                    TextField(unit.amountPrompt, text: $amount).keyboardType(.decimalPad)
+                    Text("Each participant receives this same amount, before spending it again.").font(.caption).foregroundStyle(PaperclipTheme.muted)
                     TextField("Fee rate · sat/vB", text: $rate).keyboardType(.decimalPad)
+                    DisclosureGroup("Participants & timing") {
                     Stepper("Minimum \(minimum) participants", value: $minimum, in: 2...20)
                     Stepper("Maximum \(maximum) participants", value: $maximum, in: minimum...20)
                     Stepper("Open for \(hours) hours", value: $hours, in: 1...168)
-                    Toggle("Private pool", isOn: $isPrivate)
+                    }
+                    Toggle("Password-protected pool", isOn: $isPrivate)
                 } else {
                     LabeledContent("Equal output", value: unit.display(denomination))
                     LabeledContent("Fee rate", value: "\(feeRate) sat/vB")
@@ -184,7 +315,7 @@ private struct CoinjoinPoolForm: View {
                 if isPrivate || terms["private"] as? Bool == true { SecureField("Pool password", text: $password) }
             }
             WalletSection("Choose one coin") {
-                Picker("Input", selection: $coin) {
+                Picker("Spendable coin", selection: $coin) {
                     Text("Select a coin").tag("")
                     ForEach(Array(model.coins.filter { $0["available"] as? Bool == true }.enumerated()), id: \.offset) { _, c in
                         Text("\(unit.display((c["amount_sat"] as? NSNumber)?.uint64Value)) · \(c["label"] as? String ?? "unmixed") · \(String((c["outpoint"] as? String ?? "").prefix(8)))").tag(c["outpoint"] as? String ?? "")
@@ -195,11 +326,14 @@ private struct CoinjoinPoolForm: View {
                     LabeledContent("Your miner fee", value: unit.display(value - d - change))
                     LabeledContent("Linked change", value: unit.display(change))
                 } else { Text("Select a coin large enough for the denomination and fee.").font(.caption) }
+                if model.coins.filter({ $0["available"] as? Bool == true }).isEmpty {
+                    Text("No spendable coins yet. Fund your Coinjoin account and wait for confirmation before joining.").font(.subheadline).foregroundStyle(PaperclipTheme.muted)
+                }
                 Text("Joining reserves the coin and shares its ownership proof. Your final transaction signature still needs a separate review. Change remains linked to your input.").font(.caption).foregroundStyle(PaperclipTheme.muted)
                 Button(pool == nil ? "Review new pool" : "Review join") { confirming = true }.buttonStyle(.borderedProminent).disabled(change == nil || model.busy || !model.connected)
             }
             Text(model.message).font(.caption)
-        }.padding(22).textFieldStyle(WalletInputStyle()) }.background(PaperclipTheme.navy).navigationTitle(pool == nil ? "Create pool" : "Join pool")
+        }.padding(22).textFieldStyle(WalletInputStyle()) }.background(PaperclipTheme.navy).navigationTitle(pool == nil ? "Create pool" : "Join pool").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
             .onChange(of: minimum) { _, n in maximum = max(maximum, n) }
             .confirmationDialog("Reserve this coin and join?", isPresented: $confirming) {
@@ -209,7 +343,7 @@ private struct CoinjoinPoolForm: View {
                     else { fields.merge(["amount_sat": denomination ?? 0, "fee_rate": feeRate, "min_peers": minimum, "max_peers": maximum, "hours": hours, "private": isPrivate]) { _, new in new } }
                     try await model.action(pool == nil ? "coinjoin_create" : "coinjoin_join", fields); password = ""; dismiss()
                 } }
-            } message: { Text("Equal output: \(unit.display(denomination)). Privacy is experimental. The selected input and change are visible to participants.") }
+            } message: { Text("Equal output: \(unit.display(denomination)). Linked change: \(unit.display(change)). Privacy is experimental. The selected input and change are visible to participants.") }
     }
 }
 private struct CoinjoinSignView: View {
@@ -293,7 +427,7 @@ private struct CoinjoinTransferView: View {
                 }
             }
             Text(model.message).font(.caption)
-        }.padding(22).textFieldStyle(WalletInputStyle()) }.background(PaperclipTheme.navy).navigationTitle("Coinjoin coin")
+        }.padding(22).textFieldStyle(WalletInputStyle()) }.background(PaperclipTheme.navy).navigationTitle("Manage coin").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
             .onChange(of: action) { _, _ in quote = nil }.onChange(of: amount) { _, _ in quote = nil }.onChange(of: rate) { _, _ in quote = nil }.onChange(of: destination) { _, _ in quote = nil }
             .confirmationDialog("Send this single-coin transfer?", isPresented: $confirming) {
