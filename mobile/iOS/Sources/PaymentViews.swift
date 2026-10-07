@@ -102,6 +102,7 @@ struct ReceiveView: View {
                         paymentHash = result["payment_hash"] as? String ?? ""
                     } else { value = try await store.engine.address(ark: route == 1) }
                 } }.buttonStyle(.borderedProminent).disabled(store.busy)
+                if route == 0 { NavigationLink("View on-chain addresses") { OnchainAddressesView() } }
                 if !value.isEmpty { ReceiveCode(value: value) }
                 if route >= 2 {
                     Text("Keep Paperclip open and online to receive. iOS can suspend the app in the background. BOLT12 requests need the foreground listener; issued invoices remain tracked after you close the screen.").font(.caption)
@@ -122,8 +123,9 @@ struct ReceiveView: View {
                 }
                 if store.busy { ProgressView() }
                 Text(store.message).font(.caption).foregroundStyle(.secondary)
-            }.padding(24)
-        }.background(PaperclipTheme.navy).navigationTitle("Receive XBT").toolbar { Button("Done") { dismiss() } }
+            }.frame(maxWidth: .infinity).padding(24)
+        }.frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(PaperclipTheme.navy.ignoresSafeArea()).navigationTitle("Receive XBT").toolbar { Button("Done") { dismiss() } }
             .onChange(of: route) { _, _ in value = ""; paymentHash = ""; receiveStatus = ""; offerActive = false }
             .onChange(of: amount) { _, _ in if route >= 2 { value = ""; paymentHash = "" } }
     }
@@ -262,5 +264,67 @@ struct ArkLightningReceivesView: View {
             let result = try await store.engine.operation("receive_pending")
             hashes = (result["receives"] as? [[String: Any]] ?? []).compactMap { $0["payment_hash"] as? String }
         }
+    }
+}
+
+struct OnchainAddressesView: View {
+    @EnvironmentObject var store: WalletStore
+    @State private var entries: [Entry] = []
+    @State private var start = 0
+    @State private var hasMore = false
+    @State private var loading = false
+    @State private var error = ""
+    struct Entry: Identifiable {
+        let id: Int
+        let address: String
+        let revealed: Bool
+    }
+    var body: some View {
+        List {
+            Section {
+                Text("Receive & change share the same derivation branch in this wallet. Addresses are shown by derivation index.")
+                Text("Previewing does not reserve addresses. Use Create receive address when requesting a payment so recovery can discover it reliably.").font(.caption)
+            }
+            Section("Derived addresses") {
+                ForEach(entries) { entry in
+                    NavigationLink {
+                        ScrollView {
+                            ReceiveCode(value: entry.address).frame(maxWidth: .infinity).padding(24)
+                        }.frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .background(PaperclipTheme.navy.ignoresSafeArea())
+                            .navigationTitle("Address #\(entry.id)")
+                    } label: {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("#\(entry.id) · \(entry.revealed ? "Revealed" : "Preview")")
+                            Text(entry.address).font(.caption.monospaced()).lineLimit(nil)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                }
+            }
+            Section {
+                HStack {
+                    Button("Previous") { start = max(0, start - 20) }.disabled(start == 0 || loading)
+                    Spacer()
+                    Button("Next") { start += 20 }.disabled(!hasMore || loading)
+                }.buttonStyle(.borderless)
+                if loading { ProgressView() }
+                if !error.isEmpty { Text(error).font(.caption) }
+            }
+        }.navigationTitle("On-chain addresses")
+            .scrollContentBackground(.hidden).background(PaperclipTheme.navy)
+            .task(id: start) {
+                loading = true; error = ""
+                do {
+                    let page = try await store.engine.onchainAddresses(start: start)
+                    hasMore = page.hasMore
+                    entries = page.entries.compactMap { row in
+                        guard let index = row["index"] as? Int, let address = row["address"] as? String,
+                              let revealed = row["revealed"] as? Bool else { return nil }
+                        return Entry(id: index, address: address, revealed: revealed)
+                    }
+                } catch { entries = []; hasMore = false; self.error = error.localizedDescription }
+                loading = false
+            }
     }
 }

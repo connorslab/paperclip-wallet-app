@@ -195,6 +195,12 @@ actor NativeWallet: WalletEngine, WalletBackupEngine {
         guard let settings = try savedConnection() else { throw WalletFailure(message: "Configure a chain connection in Settings.") }
         try await connect(settings)
     }
+    func onchainAddresses(start: Int) async throws -> (entries: [[String: Any]], hasMore: Bool) {
+        _ = try await open()
+        let result = try await call(["op": "addresses_onchain", "start": start])
+        guard let entries = result["addresses"] as? [[String: Any]] else { throw WalletFailure(message: "Invalid address list.") }
+        return (entries, result["has_more"] as? Bool ?? false)
+    }
     func operation(_ op: String, fields: [String: Any] = [:]) async throws -> [String: Any] {
         try await ensureConnected()
         var input = fields; input["op"] = op

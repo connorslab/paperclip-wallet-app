@@ -158,6 +158,17 @@ impl DerefMut for OnchainWallet {
 }
 
 impl OnchainWallet {
+	/// Inspect the shared receive/change branch without revealing new addresses.
+	pub fn address_page(&self, start: u32) -> anyhow::Result<(Vec<(u32, String, bool)>, bool)> {
+		let last = self.inner.derivation_index(KeychainKind::External);
+		let end = last.map_or(20, |i| i.saturating_add(21)).min(0x80000000);
+		anyhow::ensure!(start < end, "address page is outside the wallet range");
+		Ok(((start..start.saturating_add(20).min(end)).map(|index| {
+			let address = self.inner.peek_address(KeychainKind::External, index);
+			(index, address.address.to_string(), last.is_some_and(|last| index <= last))
+		}).collect(), start.saturating_add(20) < end))
+	}
+
 	pub async fn load_or_create(network: Network, seed: [u8; 64], db: Arc<dyn BarkPersister>) -> anyhow::Result<Self> {
 		anyhow::ensure!(bitcoin_ext::paperclip_network::enabled(network),
 			"XBT mainnet requires explicit PAPERCLIP_XBT_MAINNET=1; only regtest is enabled by default");

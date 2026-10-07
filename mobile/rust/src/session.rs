@@ -105,6 +105,16 @@ mod tests {
 		dispatch(&mut state, create.clone(), seed).unwrap();
 		let first = dispatch(&mut state, json!({"op": "address_onchain"}), seed).unwrap();
 		assert!(first["address"].as_str().unwrap().starts_with("bcrt1"));
+		let page = dispatch(&mut state, json!({"op": "addresses_onchain"}), seed).unwrap();
+		assert_eq!(page["addresses"][0]["address"], first["address"]);
+		assert_eq!(page["addresses"][0]["revealed"], true);
+		assert_eq!(page["addresses"][1]["revealed"], false);
+		assert_eq!(page["has_more"], true);
+		let last_page = dispatch(&mut state, json!({"op": "addresses_onchain", "start": 20}), seed).unwrap();
+		assert_eq!(last_page["addresses"].as_array().unwrap().len(), 1);
+		assert_eq!(last_page["has_more"], false);
+		assert!(dispatch(&mut state, json!({"op": "addresses_onchain", "start": 21}), seed).is_err());
+		assert!(dispatch(&mut state, json!({"op": "addresses_onchain", "start": 2147483648u64}), seed).is_err());
 		let backup = dispatch(&mut state, json!({"op": "backup"}), seed).unwrap();
 		dispatch(&mut state, json!({"op": "close"}), seed).unwrap();
 		assert!(dispatch(&mut state, create, seed).is_err());
@@ -113,6 +123,7 @@ mod tests {
 		dispatch(&mut state, open, seed).unwrap();
 		let second = dispatch(&mut state, json!({"op": "address_onchain"}), seed).unwrap();
 		assert_ne!(first, second);
+		assert_eq!(page["addresses"][1]["address"], second["address"]);
 		let mut other = None;
 		let restore = json!({"op": "restore", "network": "xbt-regtest", "directory": restored, "database": backup["database"]});
 		dispatch(&mut other, restore.clone(), seed).unwrap();
@@ -236,6 +247,13 @@ pub fn dispatch(state: &mut Option<Session>, request: Value, seed: [u8; 64]) -> 
 	let network = session.network;
 	let Session { runtime, wallet, ark_wallet, db, onchain, quote, onchain_quote, board_quote, offer_task, receive_task, .. } = session;
 	runtime.block_on(async {
+		if op == "addresses_onchain" {
+			let start = request["start"].as_u64().unwrap_or(0);
+			ensure!(start < 0x80000000, "invalid address index");
+			let (entries, has_more) = onchain.read().await.address_page(start as u32)?;
+			return Ok(json!({"shared_change_branch": true, "has_more": has_more, "addresses": entries.into_iter().map(|(index, address, revealed)|
+				json!({"index": index, "address": address, "revealed": revealed})).collect::<Vec<_>>()}));
+		}
 		if op == "address_onchain" {
 			return Ok(json!({"address": OnchainWalletTrait::address(&mut *onchain.write().await).await?.to_string()}));
 		}

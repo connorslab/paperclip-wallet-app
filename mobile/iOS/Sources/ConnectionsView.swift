@@ -105,6 +105,7 @@ struct SettingsView: View {
         Form {
             Section { WalletBrand().padding(.vertical, 10).listRowBackground(PaperclipTheme.panel) }
             Section("Your wallet") {
+                NavigationLink("On-chain addresses") { OnchainAddressesView() }
                 NavigationLink("Connections") { ConnectionsView() }
                 NavigationLink("Encrypted iCloud backup & restore") { BackupView(engine: store.engine) }
                 Toggle("Require device authentication", isOn: $walletLock)
