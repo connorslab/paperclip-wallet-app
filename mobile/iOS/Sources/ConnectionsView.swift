@@ -135,6 +135,8 @@ struct SettingsView: View {
                     }
                 }
                 WalletSection("Wallet tools") {
+                    if store.supportsArk { NavigationLink { CoinjoinView() } label: { WalletNavigationRow("Coinjoin", subtitle: "Experimental · Kilojoin pools", icon: "shuffle") } }
+
                     NavigationLink { OnchainAddressesView() } label: { WalletNavigationRow("On-chain addresses", subtitle: "Receive and change addresses", icon: "list.bullet") }
                     if store.supportsArk { NavigationLink { MessageSigningView() } label: { WalletNavigationRow("Sign a message", subtitle: "Prove ownership of an on-chain address", icon: "signature") }
                     NavigationLink { ArkMaintenanceView() } label: { WalletNavigationRow("Ark maintenance", subtitle: "Refresh funds and expiry reminders", icon: "arrow.triangle.2.circlepath") } }

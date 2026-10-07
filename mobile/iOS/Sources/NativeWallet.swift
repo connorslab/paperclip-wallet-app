@@ -382,6 +382,16 @@ actor NativeWallet: WalletEngine, WalletBackupEngine {
         guard let entries = result["addresses"] as? [[String: Any]] else { throw WalletFailure(message: "Invalid address list.") }
         return (entries, result["has_more"] as? Bool ?? false)
     }
+    func coinjoin(_ op: String, walletID: String, fields: [String: Any] = [:]) async throws -> [String: Any] {
+        try beginOperation(); defer { operations -= 1 }
+        guard try loadedCatalog().selected?.id == walletID, try loadedCatalog().selected?.kind == .hot else {
+            throw WalletFailure(message: "Open Coinjoin from the selected mobile wallet’s settings.")
+        }
+        if ["coinjoin_status", "coinjoin_address", "coinjoin_pool", "coinjoin_ack", "coinjoin_tick", "coinjoin_leave", "coinjoin_vote", "coinjoin_close"].contains(op) { _ = try await open() }
+        else { try await ensureConnected() }
+        var input = fields; input["op"] = op
+        return try await call(input)
+    }
     func operation(_ op: String, fields: [String: Any] = [:]) async throws -> [String: Any] {
         try beginOperation(); defer { operations -= 1 }
         if ["hardware_import", "hardware_cancel", "ark_hardware_import", "ark_hardware_cancel"].contains(op) { _ = try await open() }

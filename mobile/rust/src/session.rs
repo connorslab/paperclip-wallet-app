@@ -131,7 +131,7 @@ mod tests {
 			let change = dispatch(&mut state, json!({"op": "addresses_onchain", "change": true}), [8; 64]).unwrap();
 			assert_eq!(change["shared_change_branch"], false);
 			assert_ne!(first["address"], change["addresses"][0]["address"]);
-			for op in ["send_onchain", "quote_onchain", "sign_message_onchain", "address_ark", "backup", "refresh", "ark_hardware_prepare", "ark_hardware_commit", "public_wallet_address"] {
+			for op in ["send_onchain", "quote_onchain", "sign_message_onchain", "address_ark", "backup", "refresh", "ark_hardware_prepare", "ark_hardware_commit", "public_wallet_address", "coinjoin_create", "coinjoin_status"] {
 				assert!(dispatch(&mut state, json!({"op": op}), [8; 64]).is_err(), "{kind} allowed {op}");
 			}
 			if kind == "watch" { assert!(dispatch(&mut state, json!({"op": "hardware_prepare"}), [8; 64]).is_err()); }
@@ -352,7 +352,7 @@ pub fn dispatch(state: &mut Option<Session>, request: Value, seed: [u8; 64]) -> 
 		return result;
 	}
 	let network = session.network;
-	let Session { runtime, wallet, ark_wallet, db, onchain, quote, onchain_quote, board_quote, offer_task, receive_task, hardware_request, hardware_board, kind, .. } = session;
+	let Session { runtime, wallet, ark_wallet, db, onchain, quote, onchain_quote, board_quote, offer_task, receive_task, hardware_request, hardware_board, kind, dir, .. } = session;
 	runtime.block_on(async {
 		if op == "sign_message_onchain" {
 			let address = text(&request, "address")?.parse::<bitcoin::Address<_>>()?.require_network(network)?;
@@ -417,6 +417,9 @@ pub fn dispatch(state: &mut Option<Session>, request: Value, seed: [u8; 64]) -> 
 			return Ok(json!({"connected": true}));
 		}
 		if op == "config_template" { return Ok(serde_json::to_value(Config::network_default(network))?); }
+		if op.starts_with("coinjoin_") {
+			return crate::coinjoin::dispatch(dir, seed, network, wallet.as_ref(), ark_wallet.as_ref().or(wallet.as_ref()), &request).await;
+		}
 		let chain_wallet = wallet.as_ref().context("connect to a backend first")?;
 		let w = if matches!(op, "chain_health" | "sync_onchain" | "quote_onchain" | "send_onchain" | "activity" | "hardware_prepare" | "hardware_import" | "hardware_broadcast") {
 			chain_wallet

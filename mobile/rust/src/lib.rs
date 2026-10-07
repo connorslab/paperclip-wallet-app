@@ -2,6 +2,7 @@
 
 mod session;
 mod hardware;
+mod coinjoin;
 
 use std::ffi::{c_char, CStr, CString};
 use std::sync::{mpsc, OnceLock};

@@ -862,6 +862,28 @@ impl ChainSource {
 		Ok(tx.output.get(outpoint.vout as usize).context("outpoint vout out of range")?.value)
 	}
 
+	/// Check exact unspent output including mempool spends, for interactive coin selection.
+	pub async fn unspent_output(&self, outpoint: OutPoint, expected: &bitcoin::TxOut) -> anyhow::Result<bool> {
+		match self.inner() {
+			#[cfg(feature = "electrum")]
+			ChainSourceClient::Electrum(client) => {
+				let tx = client.transaction(outpoint.txid).await?;
+				if tx.output.get(outpoint.vout as usize) != Some(expected) { return Ok(false); }
+				Ok(client.spending(outpoint).await?.is_none())
+			},
+			#[cfg(feature = "bitcoind-rpc")]
+			ChainSourceClient::Bitcoind { rpc, .. } => {
+				let out = rpc.try_get_tx_out(outpoint, true).await?;
+				Ok(out.is_some_and(|o| o.value == expected.value && o.script_pub_key.hex == expected.script_pubkey.as_bytes()))
+			},
+			ChainSourceClient::Esplora(client) => {
+				let tx = client.get_tx(&outpoint.txid).await?;
+				if tx.as_ref().and_then(|t| t.output.get(outpoint.vout as usize)) != Some(expected) { return Ok(false); }
+				Ok(client.get_output_status(&outpoint.txid,outpoint.vout as u64).await?.is_some_and(|s| !s.spent))
+			},
+		}
+	}
+
 	/// Whether `outpoint` has been spent by a transaction that is confirmed, i.e.
 	/// whether any transaction spending it can still be mined.
 	///

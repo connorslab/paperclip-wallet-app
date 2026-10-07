@@ -42,7 +42,7 @@ import Network
             config.ignoreMissingTorrc = true
             config.clientOnly = true
             config.avoidDiskWrites = true
-            config.options = ["SocksPort": "auto", "SafeSocks": "1", "Log": "notice stdout"]
+            config.options = ["SocksPort": "auto IsolateSOCKSAuth", "SafeSocks": "1", "Log": "notice stdout"]
             configuration = config
             let worker = TorThread(configuration: config)
             worker.stackSize = 8 * 1024 * 1024

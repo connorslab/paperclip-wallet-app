@@ -344,3 +344,50 @@ refreshes the displayed capacity. CLN queries the exact payment hash; LND includ
 incomplete payments and scans up to twenty backwards pages of 100 payments. Older
 missing records remain uncertain and require node inspection. Background suspension
 pauses checking until Paperclip becomes active again.
+
+### Experimental Coinjoin
+
+Settings → Wallet tools → Coinjoin opens the separate BIP84 account. The homepage
+has no Coinjoin balance, card, or entry. All pool controls, account history, coin labels,
+and single-coin transfers stay on the Coinjoin page. The account uses the selected mobile
+wallet's seed and chain connection. Hardware and watch-only profiles cannot join pools.
+
+The protocol core is the public [paperclip-kilojoin-rs](https://github.com/connorslab/paperclip-kilojoin-rs)
+crate, pinned to an immutable commit in Cargo.toml/Cargo.lock. Paperclip contributions are
+MIT licensed. The adapted Kilombino code and fixtures retain Apache-2.0 notices.
+
+The relay defaults to `wss://relay.kilombino.com`; a custom secure WebSocket URL is allowed.
+Tor is on by default. Output posts use a separate ephemeral URLSession and separate
+SOCKS-auth credentials. The embedded Tor listener enables IsolateSOCKSAuth. Tor does not
+remove timing correlation or guarantee anonymity. Discovery uses only indexed `#t` tags;
+the client validates the signed announcement's network, version, identity, and limits.
+No signatures, pool announcements, or other events are published merely to browse pools.
+
+Receive into the displayed address, then refresh to select a coin. Creating a pool supports
+a denomination of 10,000–100,000,000 sats, fee rate 1–500 sat/vB, 2–20 participants,
+1–168-hour open duration, and optional password protection. Joining reserves one input.
+A separate review is required before its transaction signature can leave the device.
+The page must remain open during a round; return and reconnect to replay saved state.
+
+Coinjoin account changes, rounds, outbox events, reservations, and coin labels are in the
+same SQLite database as the mobile wallet, so a full encrypted backup includes them.
+The seed recovers the BIP84 account through Scan account from seed, but cannot recover
+privacy labels or an in-progress round's complete state. Unlabelled coins are shown as
+unclassified. Exact-coin preparation requires confirmation that the source is unmixed;
+known mixed outputs are rejected for that operation.
+
+Exact preparation, withdrawal, and boarding manually select one input and reject any
+transaction with additional inputs. Withdrawals drain that coin after the network fee.
+A mixed output can be boarded separately into the selected mobile Ark wallet; the review
+shows its network fee, recovery deduction, and net Ark amount. Ark recovery is persisted
+before funding broadcast. Direct Ark outputs inside Kilojoin v1 are not supported.
+
+A signed round is never unlocked just because it is aborted or times out. Reconciliation
+needs confirmation of the expected transaction or evidence of a conflicting confirmed
+spend. Relay transaction claims are not confirmation evidence. The saved transaction and
+outbox are retried without creating a replacement payment. There is no automatic remix.
+
+Validation covers the upstream production vectors in the standalone library, simulated
+round replay/restart/vote/sign/timeout behavior, the named-account backup round trip,
+single-coin selection and unified signing, and read-only live relay discovery. This does
+not constitute a live funded Paperclip ↔ Kilowallet/StartOS round or an independent audit.

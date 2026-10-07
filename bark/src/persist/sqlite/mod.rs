@@ -13,6 +13,7 @@ mod migrations;
 mod query;
 
 
+use rusqlite::OptionalExtension;
 use std::path::{Path, PathBuf};
 
 use anyhow::Context;
@@ -45,6 +46,7 @@ pub const DEFAULT_DB_FILE: &str = "db.sqlite";
 #[derive(Debug, Clone)]
 pub struct SqliteClient {
 	connection_string: PathBuf,
+	bdk_namespace: Option<String>,
 }
 
 impl SqliteClient {
@@ -64,7 +66,13 @@ impl SqliteClient {
 		let migrations = migrations::MigrationContext::new();
 		migrations.do_all_migrations(&mut conn)?;
 
-		Ok( Self { connection_string: path })
+		Ok( Self { connection_string: path, bdk_namespace: None })
+	}
+
+	/// Separate on-chain account, included in the same SQLite backup.
+	pub fn with_bdk_namespace(mut self, name: &str) -> Self {
+		self.bdk_namespace = Some(name.to_owned());
+		self
 	}
 
 	fn connect(&self) -> anyhow::Result<Connection> {
@@ -88,12 +96,26 @@ impl BarkPersister for SqliteClient {
 	#[cfg(feature = "onchain-bdk")]
 	async fn initialize_bdk_wallet(&self) -> anyhow::Result<bdk_wallet::ChangeSet> {
 	    let mut conn = self.connect()?;
+		if let Some(name) = &self.bdk_namespace {
+			conn.execute("CREATE TABLE IF NOT EXISTS named_bdk_account (name TEXT PRIMARY KEY, changes TEXT NOT NULL)", [])?;
+			let saved: Option<String> = conn.query_row("SELECT changes FROM named_bdk_account WHERE name=?1", [name], |r| r.get(0)).optional()?;
+			return Ok(saved.map(|s| serde_json::from_str(&s)).transpose()?.unwrap_or_default());
+		}
 		Ok(bdk_wallet::WalletPersister::initialize(&mut conn)?)
 	}
 
 	#[cfg(feature = "onchain-bdk")]
 	async fn store_bdk_wallet_changeset(&self, changeset: &bdk_wallet::ChangeSet) -> anyhow::Result<()> {
 	    let mut conn = self.connect()?;
+		if let Some(name) = &self.bdk_namespace {
+			let tx = conn.transaction()?;
+			let saved: Option<String> = tx.query_row("SELECT changes FROM named_bdk_account WHERE name=?1", [name], |r| r.get(0)).optional()?;
+			let mut all: bdk_wallet::ChangeSet = saved.map(|s| serde_json::from_str(&s)).transpose()?.unwrap_or_default();
+			bdk_wallet::chain::Merge::merge(&mut all, changeset.clone());
+			tx.execute("INSERT OR REPLACE INTO named_bdk_account VALUES (?1, ?2)", rusqlite::params![name, serde_json::to_string(&all)?])?;
+			tx.commit()?;
+			return Ok(());
+		}
 		bdk_wallet::WalletPersister::persist(&mut conn, changeset)?;
 		Ok(())
 	}

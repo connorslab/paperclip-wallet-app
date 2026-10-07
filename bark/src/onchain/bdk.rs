@@ -185,6 +185,24 @@ impl OnchainWallet {
 		Ok(wallet)
 	}
 
+	/// BIP84 account for Kilojoin v1. Pass an independently namespaced persister.
+	pub async fn load_coinjoin(network: Network, seed: [u8; 64], db: Arc<dyn BarkPersister>) -> anyhow::Result<Self> {
+		let master = bip32::Xpriv::new_master(network, &seed)?;
+		let external = bdk_wallet::template::Bip84(master, KeychainKind::External);
+		let internal = bdk_wallet::template::Bip84(master, KeychainKind::Internal);
+		let changes = db.initialize_bdk_wallet().await?;
+		let loaded = BdkWallet::load().descriptor(KeychainKind::External, Some(external.clone()))
+			.descriptor(KeychainKind::Internal, Some(internal.clone())).extract_keys().check_network(network)
+			.load_wallet_no_persist(changes)?;
+		let inner = match loaded {
+			Some(w) => w,
+			None => BdkWallet::create(external, internal).network(network).create_wallet_no_persist()?,
+		};
+		let mut wallet = Self { inner, db };
+		wallet.persist().await?;
+		Ok(wallet)
+	}
+
 	pub async fn load_or_create(network: Network, seed: [u8; 64], db: Arc<dyn BarkPersister>) -> anyhow::Result<Self> {
 		anyhow::ensure!(bitcoin_ext::paperclip_network::enabled(network),
 			"XBT mainnet requires explicit PAPERCLIP_XBT_MAINNET=1; only regtest is enabled by default");
@@ -652,7 +670,8 @@ impl OnchainWallet {
 	}
 
 
-	async fn persist(&mut self) -> anyhow::Result<()> {
+	/// Persist revealed addresses and transaction changes before exposing them externally.
+	pub async fn persist(&mut self) -> anyhow::Result<()> {
 		if let Some(stage) = self.inner.staged() {
 			self.db.store_bdk_wallet_changeset(&*stage).await?;
 			let _ = self.inner.take_staged();

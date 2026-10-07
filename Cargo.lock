@@ -2461,6 +2461,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "paperclip-kilojoin"
+version = "0.1.0"
+source = "git+https://github.com/connorslab/paperclip-kilojoin-rs?rev=8783918bef8635bec14538f5461daa24bb877ee1#8783918bef8635bec14538f5461daa24bb877ee1"
+dependencies = [
+ "anyhow",
+ "base64 0.22.1",
+ "bitcoin",
+ "chacha20 0.9.1",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "paperclip-mobile"
 version = "0.1.0"
 dependencies = [
@@ -2474,7 +2487,9 @@ dependencies = [
  "bip39",
  "bitcoin",
  "bitcoind-async-client",
+ "paperclip-kilojoin",
  "rusqlite",
+ "serde",
  "serde_json",
  "tokio",
 ]
