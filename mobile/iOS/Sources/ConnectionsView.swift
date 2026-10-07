@@ -3,6 +3,8 @@ import PaperclipMobile
 
 struct ConnectionsView: View {
     @EnvironmentObject var store: WalletStore
+    @Environment(\.dismiss) private var dismiss
+    var isSetup = false
     @State private var settings = WalletConnection()
     @State private var separateRPC = false
     @State private var arkRPC = ArkRPCConnection()
@@ -12,6 +14,7 @@ struct ConnectionsView: View {
                 Picker("Backend", selection: $settings.backend) { ForEach(ChainBackend.allCases, id: \.self) { Text($0.title).tag($0) } }
                 TextField(settings.backend == .electrum ? "ssl://host:port" : "https://host", text: $settings.endpoint)
                     .textInputAutocapitalization(.never).autocorrectionDisabled()
+                    .accessibilityIdentifier("chain-endpoint")
                 if settings.backend == .electrum {
                     Button("Use Paperclip Pool (default)") { settings.endpoint = "ssl://pool.paperclippool.xyz:50002"; settings.certificateSHA256 = "" }
                     Button("Use Kilombino") { settings.endpoint = "ssl://fulcrum.kilombino.com:17717"; settings.certificateSHA256 = "" }
@@ -28,10 +31,10 @@ struct ConnectionsView: View {
             Section("Ark") {
                 TextField("Ark server", text: $settings.arkServer).textInputAutocapitalization(.never).autocorrectionDisabled()
                 Text("Paperclip default: ark.paperclippool.xyz").font(.caption)
-                Button("Check saved backend for Ark") { store.run {
+                if !isSetup { Button("Check saved backend for Ark") { store.run {
                     _ = try await store.engine.operation("ark_backend_check")
                     store.message = "Backend reports the required Ark relay capabilities and policy."
-                } }.disabled(store.busy)
+                } }.disabled(store.busy) }
                 Toggle("Use a separate RPC backend for Ark", isOn: $separateRPC)
                 if separateRPC {
                     TextField("https://your-rpc-gateway", text: $arkRPC.endpoint).textInputAutocapitalization(.never).autocorrectionDisabled()
@@ -49,7 +52,19 @@ struct ConnectionsView: View {
                 }
             }
             Section {
-                Button("Save and connect") { store.run { var connection = settings; connection.arkRPC = separateRPC ? arkRPC : nil; try await store.engine.connect(connection); try await store.synchronize() } }.disabled(store.busy)
+                Button(isSetup ? "Save connection" : "Save and connect") { store.run {
+                    var connection = settings
+                    connection.arkRPC = separateRPC ? arkRPC : nil
+                    if isSetup {
+                        try await store.engine.saveConnection(connection)
+                        store.message = "Connection saved for your wallet."
+                        dismiss()
+                    } else {
+                        try await store.engine.connect(connection)
+                        try await store.synchronize()
+                    }
+                } }.disabled(store.busy).accessibilityIdentifier("save-connection")
+                if isSetup { Text("Save your server and Tor settings before creating or importing a wallet. Network access starts when you connect or run recovery.").font(.caption) }
                 if store.busy { ProgressView() }
                 Text(store.message).font(.caption)
             }

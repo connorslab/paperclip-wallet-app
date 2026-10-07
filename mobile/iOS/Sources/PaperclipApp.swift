@@ -24,7 +24,7 @@ import PaperclipMobile
                     }.frame(maxWidth: .infinity, maxHeight: .infinity).background(PaperclipTheme.navy)
                 }
                 if scene != .active {
-                    PaperclipTheme.navy.ignoresSafeArea().overlay(Image(systemName: "paperclip").font(.system(size: 60)).foregroundStyle(PaperclipTheme.orange))
+                    PaperclipTheme.navy.ignoresSafeArea().overlay(Image("PaperclipLogo").resizable().scaledToFit().frame(width: 72, height: 72))
                 }
             }
             .tint(PaperclipTheme.orange).preferredColorScheme(.dark)

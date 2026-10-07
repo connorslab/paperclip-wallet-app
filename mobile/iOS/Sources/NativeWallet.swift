@@ -82,6 +82,10 @@ actor NativeWallet: WalletEngine, WalletBackupEngine {
         guard let data = try WalletKeychain.read("wallet-connection-v2") else { return nil }
         return try JSONDecoder().decode(WalletConnection.self, from: data)
     }
+    func saveConnection(_ settings: WalletConnection) throws {
+        try settings.validate()
+        try WalletKeychain.saveConnection(JSONEncoder().encode(settings))
+    }
     private var directory: URL {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent(network == "xbt-regtest" ? "PaperclipRegtest" : "PaperclipMainnet", isDirectory: true)
@@ -171,7 +175,7 @@ actor NativeWallet: WalletEngine, WalletBackupEngine {
             request["ark_config"] = arkConfig
         }
         _ = try await call(request)
-        try WalletKeychain.saveConnection(JSONEncoder().encode(settings))
+        try saveConnection(settings)
         connected = true
         _ = try await call(["op": "receive_listen", "enabled": foreground])
     }

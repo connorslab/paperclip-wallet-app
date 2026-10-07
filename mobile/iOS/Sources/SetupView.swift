@@ -44,6 +44,8 @@ struct SetupView: View {
                             Label("Your keys stay with you", systemImage: "key.fill").font(.headline)
                             Text("Create a seed, write it down, and verify it. Your seed and Ark recovery data use protected device storage.").foregroundStyle(PaperclipTheme.muted)
                             Picker("Network", selection: $network) { Text("XBT mainnet").tag("xbt-mainnet"); Text("Regtest").tag("xbt-regtest") }
+                            NavigationLink("Connection settings") { ConnectionsView(isSetup: true) }
+                                .accessibilityIdentifier("setup-connections")
                             Button("Create a wallet") { store.run { phrase = try await store.engine.generatePhrase() } }
                                 .buttonStyle(.borderedProminent).controlSize(.large).accessibilityIdentifier("create-wallet")
                             Button("Import 12 or 24 seed words") { importing = true }
@@ -57,9 +59,25 @@ struct SetupView: View {
                     Text(store.message).font(.caption).foregroundStyle(PaperclipTheme.orange)
                 }.padding(24)
             }.background(PaperclipTheme.navy).disabled(store.busy)
+                .toolbar {
+                    ToolbarItem(placement: .topBarLeading) {
+                        if !phrase.isEmpty {
+                            Button {
+                                confirmation = ""
+                                if verifying { verifying = false } else { phrase = "" }
+                            } label: { Label("Back", systemImage: "chevron.left") }
+                            .disabled(store.busy).accessibilityIdentifier("setup-back")
+                        }
+                    }
+                }
                 .sheet(isPresented: $importing) {
                     NavigationStack {
                         Form {
+                            Section("Connection") {
+                                NavigationLink("Connection settings") { ConnectionsView(isSetup: true) }
+                                    .accessibilityIdentifier("import-connections")
+                                Text("Choose your Electrum server and Tor settings before importing.").font(.caption)
+                            }
                             Section("Import your seed") {
                                 Text("Enter 12 or 24 BIP39 words. Seed import scans on-chain history and attempts Ark mailbox recovery. A full Ark backup gives more complete recovery for pending operations.")
                                 TextEditor(text: $importedPhrase).frame(minHeight: 150).privacySensitive()
@@ -72,7 +90,12 @@ struct SetupView: View {
                                 }.disabled(![12, 24].contains(importedPhrase.split(whereSeparator: \.isWhitespace).count) || store.busy)
                             }
                             Text(store.message).foregroundStyle(PaperclipTheme.orange)
-                        }.navigationTitle("Import wallet").toolbar { Button("Cancel") { importing = false; importedPhrase = "" } }
+                        }.navigationTitle("Import wallet").toolbar {
+                            ToolbarItem(placement: .topBarLeading) {
+                                Button { importing = false; importedPhrase = "" } label: { Label("Back", systemImage: "chevron.left") }
+                                    .disabled(store.busy).accessibilityIdentifier("import-back")
+                            }
+                        }
                     }
                 }
                 .task {
@@ -87,6 +110,9 @@ struct SetupView: View {
     }
     private func create(_ phrase: String, confirmation: String, recovery: Bool = false) {
         store.run {
+            if try await store.engine.savedConnection() == nil {
+                try await store.engine.saveConnection(WalletConnection())
+            }
             _ = try await store.engine.create(phrase: phrase, confirmation: confirmation, network: network)
             if recovery { UserDefaults.standard.set(true, forKey: "seedRecoveryRequired") }
             self.phrase = ""; self.confirmation = ""; importedPhrase = ""; importing = false

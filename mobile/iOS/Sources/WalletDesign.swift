@@ -37,8 +37,8 @@ struct GlassAction: ViewModifier {
 struct WalletBrand: View {
     var body: some View {
         HStack(spacing: 12) {
-            Image(systemName: "paperclip").font(.title2.bold()).foregroundStyle(PaperclipTheme.navy)
-                .frame(width: 44, height: 44).background(PaperclipTheme.orange, in: RoundedRectangle(cornerRadius: 14))
+            Image("PaperclipLogo").resizable().scaledToFit()
+                .frame(width: 48, height: 48).accessibilityLabel("Paperclip Pool")
             VStack(alignment: .leading, spacing: 3) {
                 Text("PAPERCLIP").font(.headline).tracking(3)
                 Text("POOL · XBT WALLET").font(.caption2).tracking(2).foregroundStyle(PaperclipTheme.muted)
