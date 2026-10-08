@@ -7,19 +7,22 @@ struct BuyXBTView: View {
                 WalletSection {
                     WalletBrand()
                     Text("Find your next XBT.").font(.title2.bold())
-                    Text("Explore these exchanges, then withdraw your XBT to your Paperclip on-chain receive address.")
+                    Text("This list includes only exchanges selected for non-KYC trading. Buy XBT, then withdraw to your Paperclip on-chain receive address.")
                         .foregroundStyle(PaperclipTheme.muted)
                 }
-                WalletSection("Exchanges") {
+                WalletSection("Non-KYC exchanges") {
                     exchange("SafeTrade", market: "XBT / USDT", domain: "safetrade.com",
                              url: "https://safetrade.com/exchange/XBT-USDT?type=pro")
                     Divider()
                     exchange("NeoxEx", market: "XBT / USDC", domain: "neoxa.exchange",
                              url: "https://neoxa.exchange/trade/BTCB2_USDC")
+                    Divider()
+                    exchange("NeoxEx", market: "XBT / BTC", domain: "neoxa.exchange",
+                             url: "https://neoxa.exchange/trade/BTCB2_BTC")
                 }
                 WalletSection("Bring it home") {
                     Text("Choose the Bitcoin BLAKE2b (XBT) network when withdrawing. NeoxEx also uses BTCB2 in its market links.")
-                    Text("Exchange links open in your browser. Availability, fees, and withdrawal requirements are set by each exchange. Paperclip does not handle your purchase.")
+                    Text("Exchange links open in your browser. Check each exchange’s current verification rules, availability, fees, and withdrawal requirements before depositing. Paperclip does not handle your purchase.")
                         .font(.caption).foregroundStyle(PaperclipTheme.muted)
                 }
             }.padding(22)
