@@ -141,6 +141,11 @@ struct SettingsView: View {
                     if store.supportsArk { NavigationLink { MessageSigningView() } label: { WalletNavigationRow("Sign a message", subtitle: "Prove ownership of an on-chain address", icon: "signature") }
                     NavigationLink { ArkMaintenanceView() } label: { WalletNavigationRow("Ark maintenance", subtitle: "Refresh funds and expiry reminders", icon: "arrow.triangle.2.circlepath") } }
                 }
+                WalletSection {
+                    NavigationLink { DonationView() } label: {
+                        WalletNavigationRow("Support Paperclip", subtitle: "Donate XBT to support development", icon: "heart")
+                    }.accessibilityIdentifier("settings-donate")
+                }
             }.padding(22)
         }.navigationTitle("Settings").background(WalletBackdrop())
     }
@@ -198,5 +203,31 @@ struct ArkMaintenanceView: View {
                 Text(maintenance.notificationStatus).font(.caption)
             }
         }.padding(22) }.navigationTitle("Ark maintenance").background(WalletBackdrop())
+    }
+}
+
+struct DonationView: View {
+    private let address = "bc1qhzkspmsamfxa0ex0rg3faq2l9a3envunftn3aa"
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 20) {
+                WalletSection {
+                    WalletBrand()
+                    Text("Help build Paperclip.").font(.title2.bold())
+                    Text("Your donation supports continued development of Paperclip. Thank you for helping us build a better XBT wallet.")
+                        .foregroundStyle(PaperclipTheme.muted)
+                }
+                WalletSection("Donate XBT") {
+                    Label("XBT mainnet · On-chain", systemImage: "link").font(.subheadline)
+                    ReceiveCode(value: address)
+                    Text("Send any amount to this address using the XBT network. Donations are optional.")
+                        .font(.caption).foregroundStyle(PaperclipTheme.muted)
+                }
+            }.padding(22)
+        }
+        .navigationTitle("Support Paperclip")
+        .navigationBarTitleDisplayMode(.inline)
+        .background(WalletBackdrop())
     }
 }
