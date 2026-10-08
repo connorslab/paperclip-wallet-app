@@ -87,6 +87,7 @@ struct DashboardView: View {
     @State private var sending = false
     @State private var receiving = false
     @State private var hideBalance = false
+    @Environment(\.dynamicTypeSize) private var balanceTextSize
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
@@ -102,32 +103,62 @@ struct DashboardView: View {
                     Button { hideBalance.toggle() } label: { Image(systemName: hideBalance ? "eye.slash" : "eye") }.accessibilityLabel("Toggle balance visibility")
                 }.foregroundStyle(PaperclipTheme.muted)
                 WalletCard {
-                    Text("Your XBT.\nWithin reach.").font(.largeTitle.bold())
-                    Text(total).font(.system(size: 42, weight: .semibold, design: .rounded)).minimumScaleFactor(0.5).lineLimit(1).privacySensitive()
-                        .contentTransition(.numericText())
-                    USDValue(sats: store.onchain.flatMap { chain in store.supportsArk ? store.ark.map { chain + $0 } : chain }, hidden: hideBalance, mainnet: store.network == "xbt-mainnet")
-                    Text("\(unit.title.uppercased()) · " + (store.supportsArk ? "ON-CHAIN + ARK" : "ON-CHAIN")).font(.caption2).tracking(2).foregroundStyle(PaperclipTheme.muted)
+                    HStack {
+                        Text("Your XBT. Within reach.").font(.title3.bold())
+                        Spacer(minLength: 0)
+                    }
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            Text(total).font(.system(size: 38, weight: .semibold, design: .rounded)).minimumScaleFactor(0.5).lineLimit(1).privacySensitive().contentTransition(.numericText())
+                            Text(unit.title).font(.subheadline).foregroundStyle(PaperclipTheme.muted)
+                        }
+                        USDValue(sats: store.onchain.flatMap { chain in store.supportsArk ? store.ark.map { chain + $0 } : chain }, hidden: hideBalance, mainnet: store.network == "xbt-mainnet")
+                    }.padding(.vertical, 4)
+                    Text(store.supportsArk ? "Selected on-chain account + Ark" : "On-chain balance").font(.caption).foregroundStyle(PaperclipTheme.muted)
                     HStack(spacing: 12) {
-                        if !store.isWatchOnly { Button { sending = true } label: { Label("Send", systemImage: "arrow.up.right").frame(maxWidth: .infinity) }.modifier(GlassAction()) }
+                        if !store.isWatchOnly {
+                            Button { sending = true } label: {
+                                Label("Send", systemImage: "arrow.up.right").frame(maxWidth: .infinity).padding(14)
+                                    .foregroundStyle(.white).background(PaperclipTheme.orange.gradient, in: Capsule())
+                                    .shadow(color: PaperclipTheme.orange.opacity(0.18), radius: 12, y: 5)
+                            }.buttonStyle(.plain)
+                        }
                         Button { receiving = true } label: { Label("Receive", systemImage: "arrow.down.left").frame(maxWidth: .infinity) }.modifier(GlassAction())
                     }.font(.headline)
                 }
-                HStack(spacing: 14) {
+                .background(alignment: .topTrailing) {
+                    Image("PaperclipLogo").resizable().scaledToFit().frame(width: 148, height: 148)
+                        .opacity(0.09).padding(12).accessibilityHidden(true)
+                }
+                .overlay {
+                    RoundedRectangle(cornerRadius: 26).stroke(
+                        LinearGradient(colors: [PaperclipTheme.orange.opacity(0.40), .white.opacity(0.06), .clear], startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 1)
+                        .allowsHitTesting(false)
+                }
+                let cardsLayout = balanceTextSize.isAccessibilitySize ? AnyLayout(VStackLayout(spacing: 14)) : AnyLayout(HStackLayout(alignment: .top, spacing: 14))
+                cardsLayout {
                     NavigationLink { OnchainOverviewView() } label: {
-                        balanceCard(store.supportsArk ? "On-chain · " + (store.onchainAccount == "segwit" ? "SegWit" : "Taproot") : "On-chain", icon: "link", amount: store.onchain)
+                        balanceCard("On-chain", subtitle: store.supportsArk ? (store.onchainAccount == "segwit" ? "SegWit" : "Taproot") : "Account balance", icon: "link", amount: store.onchain)
                     }.buttonStyle(.plain).accessibilityHint("View on-chain balances and transactions")
                     if store.supportsArk { NavigationLink { ArkOverviewView() } label: {
-                        balanceCard("Ark", icon: "square.stack.3d.up", amount: store.ark)
+                        balanceCard("Ark", subtitle: "Available", icon: "square.stack.3d.up", amount: store.ark)
                     }.buttonStyle(.plain).accessibilityHint("View Ark balances, payments, and activity") }
                 }
                 if let pending = store.pending, pending > 0 { Label("\(unit.display(pending)) pending", systemImage: "clock").font(.subheadline) }
                 if store.observed == nil {
                     NavigationLink { ConnectionsView() } label: { Label("Configure your connection", systemImage: "network") }
                 }
-                HStack { if store.busy { ProgressView() }; Text(store.message).font(.caption).foregroundStyle(PaperclipTheme.muted) }
-                if store.supportsArk, let date = store.observed { Text("Ark last checked \(date.formatted(date: .omitted, time: .shortened))").font(.caption2).foregroundStyle(.secondary) }
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack { if store.busy { ProgressView() }; Text(store.message).font(.caption).foregroundStyle(PaperclipTheme.muted) }
+                    if store.supportsArk, let date = store.observed { Text("Ark last checked \(date.formatted(date: .omitted, time: .shortened))").font(.caption2).foregroundStyle(.secondary) }
+                }
             }.padding(22)
-        }.background(PaperclipTheme.navy).navigationBarTitleDisplayMode(.inline)
+        }.background {
+            ZStack {
+                PaperclipTheme.navy
+                RadialGradient(colors: [PaperclipTheme.orange.opacity(0.10), .clear], center: .topLeading, startRadius: 0, endRadius: 420)
+            }.ignoresSafeArea()
+        }.navigationBarTitleDisplayMode(.inline)
             .task {
                 // A switch/add finishes its UI action after the new dashboard appears.
                 while store.busy && !Task.isCancelled {
@@ -153,14 +184,23 @@ struct DashboardView: View {
         guard let ark = store.ark else { return "—" }
         return unit.number(chain + ark)
     }
-    private func balanceCard(_ title: String, icon: String, amount: UInt64?) -> some View {
+    private func balanceCard(_ title: String, subtitle: String, icon: String, amount: UInt64?) -> some View {
         WalletCard {
-            Label(title, systemImage: icon).font(.subheadline).foregroundStyle(PaperclipTheme.muted)
-            Text(hideBalance ? "••••" : amount.map { unit.number($0) } ?? "—").font(.title2.bold()).lineLimit(1).minimumScaleFactor(0.6).privacySensitive()
-            Text(unit.title).font(.caption).foregroundStyle(.secondary)
-            USDValue(sats: amount, hidden: hideBalance, mainnet: store.network == "xbt-mainnet")
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 8) {
+                    Image(systemName: icon).foregroundStyle(PaperclipTheme.orange)
+                    Text(title).foregroundStyle(.primary)
+                }.font(.subheadline.weight(.medium)).lineLimit(1)
+                Text(subtitle).font(.caption).foregroundStyle(PaperclipTheme.muted).lineLimit(1)
+            }
+            VStack(alignment: .leading, spacing: 5) {
+                Text(hideBalance ? "••••" : amount.map { unit.number($0) } ?? "—").font(.title2.bold()).lineLimit(1).minimumScaleFactor(0.6).privacySensitive()
+                Text(unit.title).font(.caption).foregroundStyle(.secondary)
+                USDValue(sats: amount, hidden: hideBalance, mainnet: store.network == "xbt-mainnet").lineLimit(1).minimumScaleFactor(0.8)
+            }
         }
     }
+
 }
 
 struct ActivityView: View {
