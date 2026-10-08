@@ -45,7 +45,7 @@ struct WalletPickerView: View {
             }.padding(22)
         }.background(WalletBackdrop()).navigationTitle("Wallets").navigationBarTitleDisplayMode(.inline)
             .disabled(store.busy)
-            .toolbar { Button("Done") { dismiss() } }
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done", systemImage: "checkmark") { dismiss() } } }
             .sheet(item: $removing) { profile in
                 NavigationStack { RemoveWalletView(profile: profile) }
             }

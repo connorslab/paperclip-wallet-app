@@ -86,7 +86,7 @@ struct HardwareSendView: View {
             Text(store.message).font(.caption).foregroundStyle(PaperclipTheme.muted)
         }.padding(22).textFieldStyle(WalletInputStyle()) }.background(WalletBackdrop())
             .navigationTitle("Hardware payment").navigationBarTitleDisplayMode(.inline)
-            .toolbar { Button("Done") { dismiss() } }
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done", systemImage: "checkmark") { dismiss() } } }
             .task { if let overview = try? await store.engine.onchainOverview() { store.onchain = (overview["total_sat"] as? NSNumber)?.uint64Value } }
             .sheet(isPresented: $showingQR) { NavigationStack { SigningQRDisplay(frames: frames) } }
             .fullScreenCover(isPresented: $scanningDestination) { QRScannerView { scanned in
@@ -148,7 +148,7 @@ struct SigningQRDisplay: View {
             Text("This request contains no private keys. Verify every payment detail on your signer, then return to scan its signed response.")
                 .font(.subheadline).foregroundStyle(PaperclipTheme.muted).multilineTextAlignment(.center)
         }.padding(24) }.background(WalletBackdrop()).navigationTitle("Signing request").navigationBarTitleDisplayMode(.inline)
-            .toolbar { Button("Done") { dismiss() } }
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done", systemImage: "checkmark") { dismiss() } } }
             .onReceive(timer) { _ in if !paused && frames.count > 1 { index = (index + 1) % frames.count } }
     }
     private func qr(_ value: String) -> UIImage? {

@@ -86,7 +86,7 @@ struct SendView: View {
                 }
             }.padding(22).textFieldStyle(WalletInputStyle())
         }.background(WalletBackdrop()).navigationTitle(onchain ? "Send XBT" : "Pay from Ark")
-            .toolbar { Button("Done") { dismiss() } }
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done", systemImage: "checkmark") { dismiss() } } }
             .task {
                 if let overview = try? await store.engine.onchainOverview() { store.onchain = (overview["total_sat"] as? NSNumber)?.uint64Value }
             }
@@ -274,7 +274,7 @@ struct ReceiveView: View {
                 Text(store.message).font(.caption).foregroundStyle(.secondary)
             }.frame(maxWidth: .infinity).padding(24)
         }.frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(WalletBackdrop()).navigationTitle("Receive XBT").toolbar { Button("Done") { dismiss() } }
+            .background(WalletBackdrop()).navigationTitle("Receive XBT").toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done", systemImage: "checkmark") { dismiss() } } }
             .navigationBarTitleDisplayMode(.inline)
             .sheet(isPresented: $choosingMethod) {
                 NavigationStack {

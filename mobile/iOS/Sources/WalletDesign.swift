@@ -47,7 +47,7 @@ struct WalletCard<Content: View>: View {
     @ViewBuilder var content: Content
     var body: some View {
         VStack(alignment: .leading, spacing: 16) { content }
-            .frame(maxWidth: .infinity, alignment: .leading).padding(22)
+            .frame(maxWidth: 676, alignment: .leading).padding(22)
             .modifier(GlassCardSurface())
             .overlay {
                 RoundedRectangle(cornerRadius: 26).stroke(

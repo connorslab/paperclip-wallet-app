@@ -48,7 +48,7 @@ struct QRScannerView: View {
                     }
                 }
             }.navigationTitle(title).navigationBarTitleDisplayMode(.inline)
-                .toolbar { Button("Cancel") { dismiss() } }
+                .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel", systemImage: "xmark") { dismiss() } } }
                 .task(id: scene) {
                     guard scene == .active else { return }
                     switch AVCaptureDevice.authorizationStatus(for: .video) {
