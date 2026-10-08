@@ -13,6 +13,7 @@ struct SetupView: View {
     @State private var verifying = false
     @State private var importing = false
     @State private var importedPhrase = ""
+    @State private var setupMessage = ""
     @State private var network = "xbt-mainnet"
     var body: some View {
         Group {
@@ -24,7 +25,7 @@ struct SetupView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
                     WalletBrand()
-                    Text(verifying ? "Verify your seed." : "One wallet.\nThree ways to pay.").font(.largeTitle.bold())
+                    Text(verifying ? "Verify your seed" : (!phrase.isEmpty ? "Back up your wallet" : "Your XBT starts here")).font(.title.bold())
                     Text("On-chain · Lightning · Ark").foregroundStyle(PaperclipTheme.muted)
                     if verifying {
                         WalletCard {
@@ -49,27 +50,53 @@ struct SetupView: View {
                             Button("I wrote down every word") { verifying = true }.buttonStyle(.borderedProminent)
                         }
                     } else {
-                        WalletCard {
-                            Label("Your keys stay with you", systemImage: "key.fill").font(.headline)
+                        WalletSection("Mobile wallet") {
                             TextField("Wallet name", text: $walletName).textFieldStyle(WalletInputStyle())
-                            Text("Create a seed, write it down, and verify it. Your seed and Ark recovery data use protected device storage.").foregroundStyle(PaperclipTheme.muted)
-                            Picker("Network", selection: $network) { Text("XBT mainnet").tag("xbt-mainnet"); Text("Regtest").tag("xbt-regtest") }
-                            NavigationLink("Connection settings") { ConnectionsView(isSetup: true, onSave: { connection = $0 }, initialSettings: connection) }
-                                .accessibilityIdentifier("setup-connections")
-                            Button("Create a wallet") { store.run { phrase = try await store.engine.generatePhrase() } }
-                                .buttonStyle(.borderedProminent).controlSize(.large).accessibilityIdentifier("create-wallet")
-                            Button("Import 12 or 24 seed words") { importing = true }
-                            if !adding { NavigationLink("Connect a hardware or watch-only wallet") { AddWalletView(publicOnly: true) } }
-                            NavigationLink("Restore an encrypted Ark backup") { BackupView(engine: store.engine, restoreOnly: true) }
-                            Button("Open a restored wallet") { Task { await store.load() } }
+                            Text("Create a wallet with keys stored securely on this iPhone. We’ll guide you through writing down and verifying your seed.").font(.subheadline).foregroundStyle(PaperclipTheme.muted)
+                            Button { store.run { phrase = try await store.engine.generatePhrase() } } label: {
+                                Label("Create a wallet", systemImage: "plus").frame(maxWidth: .infinity)
+                            }.buttonStyle(.borderedProminent).controlSize(.large).accessibilityIdentifier("create-wallet")
+                        }
+                        WalletSection {
+                            Button { importing = true } label: {
+                                WalletNavigationRow("Import seed words", subtitle: "Restore with a 12- or 24-word phrase", icon: "key")
+                            }.buttonStyle(.plain)
+                            Divider()
+                            NavigationLink { BackupView(engine: store.engine, restoreOnly: true) } label: {
+                                WalletNavigationRow("Restore a backup", subtitle: "Recover an encrypted wallet and Ark data", icon: "icloud.and.arrow.down")
+                            }.buttonStyle(.plain)
+                            if !adding {
+                                Divider()
+                                NavigationLink { AddWalletView(publicOnly: true) } label: {
+                                    WalletNavigationRow("Connect another wallet", subtitle: "QR hardware wallet or watch-only account", icon: "qrcode")
+                                }.buttonStyle(.plain)
+                            }
+                        }
+                        WalletSection {
+                            DisclosureGroup("Network & connection") {
+                                Picker("Network", selection: $network) { Text("XBT mainnet").tag("xbt-mainnet"); Text("Regtest").tag("xbt-regtest") }
+                                NavigationLink { ConnectionsView(isSetup: true, onSave: { connection = $0 }, initialSettings: connection) } label: {
+                                    WalletNavigationRow("Connection settings", subtitle: "Choose a server and Tor route before setup", icon: "network")
+                                }.buttonStyle(.plain).accessibilityIdentifier("setup-connections")
+                            }
+                            if !adding {
+                                DisclosureGroup("Already restored on this device?") {
+                                    Button("Open restored wallet") { Task { await store.load() } }
+                                }
+                            }
                         }
                     }
                     Text("Ark recovery can require more than seed words. Save an encrypted full-wallet backup after setup and after changes to your Ark wallet.")
                         .font(.caption).foregroundStyle(PaperclipTheme.muted)
                     if store.busy { ProgressView() }
-                    Text(store.message).font(.caption).foregroundStyle(PaperclipTheme.orange)
+                    if !setupMessage.isEmpty { Text(setupMessage).font(.caption).foregroundStyle(PaperclipTheme.orange) }
                 }.padding(24)
             }.background(PaperclipTheme.navy).disabled(store.busy)
+                .navigationTitle(verifying ? "Verify seed" : (!phrase.isEmpty ? "Back up seed" : "Mobile wallet"))
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbarBackground(PaperclipTheme.navy, for: .navigationBar)
+                .toolbarBackground(.visible, for: .navigationBar)
+                .onChange(of: store.message) { _, message in setupMessage = message }
                 .toolbar {
                     ToolbarItem(placement: .topBarLeading) {
                         if !phrase.isEmpty {
