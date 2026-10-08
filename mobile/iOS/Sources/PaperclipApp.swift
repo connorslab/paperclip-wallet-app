@@ -109,7 +109,7 @@ struct DashboardView: View {
                     }
                     VStack(alignment: .leading, spacing: 6) {
                         HStack(alignment: .firstTextBaseline, spacing: 8) {
-                            Text(total).font(.system(size: 38, weight: .semibold, design: .rounded)).minimumScaleFactor(0.5).lineLimit(1).privacySensitive().contentTransition(.numericText())
+                            WalletBalanceNumber(sats: totalSats, unit: unit, hidden: hideBalance).font(.system(size: 38, weight: .semibold, design: .rounded)).minimumScaleFactor(0.5).lineLimit(1).privacySensitive().contentTransition(.numericText())
                             Text(unit.title).font(.subheadline).foregroundStyle(PaperclipTheme.muted)
                         }
                         USDValue(sats: store.onchain.flatMap { chain in store.supportsArk ? store.ark.map { chain + $0 } : chain }, hidden: hideBalance, mainnet: store.network == "xbt-mainnet")
@@ -177,12 +177,11 @@ struct DashboardView: View {
             .sheet(isPresented: $sending) { NavigationStack { WalletSendView() } }
             .sheet(isPresented: $receiving) { NavigationStack { ReceiveView() } }
     }
-    private var total: String {
-        if hideBalance { return "••••••" }
-        guard let chain = store.onchain else { return "—" }
-        if !store.supportsArk { return unit.number(chain) }
-        guard let ark = store.ark else { return "—" }
-        return unit.number(chain + ark)
+    private var totalSats: UInt64? {
+        guard let chain = store.onchain else { return nil }
+        if !store.supportsArk { return chain }
+        guard let ark = store.ark else { return nil }
+        return chain + ark
     }
     private func balanceCard(_ title: String, subtitle: String, icon: String, amount: UInt64?) -> some View {
         WalletCard {
@@ -194,7 +193,7 @@ struct DashboardView: View {
                 Text(subtitle).font(.caption).foregroundStyle(PaperclipTheme.muted).lineLimit(1)
             }
             VStack(alignment: .leading, spacing: 5) {
-                Text(hideBalance ? "••••" : amount.map { unit.number($0) } ?? "—").font(.title2.bold()).lineLimit(1).minimumScaleFactor(0.6).privacySensitive()
+                WalletBalanceNumber(sats: amount, unit: unit, hidden: hideBalance).font(.title2.bold()).lineLimit(1).minimumScaleFactor(0.6).privacySensitive()
                 Text(unit.title).font(.caption).foregroundStyle(.secondary)
                 USDValue(sats: amount, hidden: hideBalance, mainnet: store.network == "xbt-mainnet").lineLimit(1).minimumScaleFactor(0.8)
             }

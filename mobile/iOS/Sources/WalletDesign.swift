@@ -1,4 +1,5 @@
 import SwiftUI
+import PaperclipMobile
 
 // Colors match the Paperclip web wallet.
 enum PaperclipTheme {
@@ -144,5 +145,46 @@ struct WalletInputStyle: TextFieldStyle {
         configuration.padding(.horizontal, 14).padding(.vertical, 13)
             .background(.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 12))
             .overlay(RoundedRectangle(cornerRadius: 12).stroke(.primary.opacity(0.10)))
+    }
+}
+
+/// Display-only grouping; payment entry and serialized amounts remain unchanged.
+struct WalletBalanceNumber: View {
+    let sats: UInt64?
+    let unit: BitcoinUnit
+    var hidden = false
+
+    private var styled: AttributedString {
+        guard !hidden else { return AttributedString("••••••") }
+        guard let sats else { return AttributedString("—") }
+        let whole = String(unit == .sats ? sats : sats / 100_000_000)
+        var digits = ""
+        for (index, digit) in whole.enumerated() {
+            if index > 0 && (whole.count - index).isMultiple(of: 3) { digits += "\u{202F}" }
+            digits.append(digit)
+        }
+        if unit == .xbt {
+            let remainder = String(sats % 100_000_000)
+            let fraction = String(repeating: "0", count: 8 - remainder.count) + remainder
+            digits += "."
+            for (index, digit) in fraction.enumerated() {
+                if index == 2 || index == 5 { digits += "\u{202F}" }
+                digits.append(digit)
+            }
+        }
+        var result = AttributedString()
+        var significant = false
+        for character in digits {
+            if character >= "1" && character <= "9" { significant = true }
+            var part = AttributedString(String(character))
+            part.foregroundColor = significant ? Color.primary : PaperclipTheme.muted
+            result.append(part)
+        }
+        return result
+    }
+
+    var body: some View {
+        Text(styled).monospacedDigit()
+            .accessibilityLabel(hidden ? "Balance hidden" : unit.display(sats))
     }
 }
