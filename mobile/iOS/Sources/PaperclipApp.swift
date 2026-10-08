@@ -113,7 +113,7 @@ struct DashboardView: View {
                 }
                 HStack(spacing: 14) {
                     NavigationLink { OnchainOverviewView() } label: {
-                        balanceCard("On-chain", icon: "link", amount: store.onchain)
+                        balanceCard(store.supportsArk ? "On-chain · " + (store.onchainAccount == "segwit" ? "SegWit" : "Taproot") : "On-chain", icon: "link", amount: store.onchain)
                     }.buttonStyle(.plain).accessibilityHint("View on-chain balances and transactions")
                     if store.supportsArk { NavigationLink { ArkOverviewView() } label: {
                         balanceCard("Ark", icon: "square.stack.3d.up", amount: store.ark)
@@ -198,6 +198,7 @@ struct ActivityView: View {
 struct OnchainOverviewView: View {
     @AppStorage("displayUnit") private var unit: BitcoinUnit = .sats
     @EnvironmentObject var store: WalletStore
+    @State private var account = "taproot"
     @State private var confirmed: UInt64?
     @State private var unconfirmed: UInt64?
     @State private var immature: UInt64?
@@ -207,6 +208,26 @@ struct OnchainOverviewView: View {
     var body: some View {
         ScrollView {
           VStack(spacing: 20) {
+            if store.selectedProfile?.kind == .hot {
+                WalletSection("Address account") {
+                    Picker("Address account", selection: Binding(get: { account }, set: { selected in
+                        Task {
+                            guard !loading, !store.busy else { return }
+                            loading = true; store.busy = true
+                            defer { loading = false; store.busy = false }
+                            do {
+                                try await store.engine.selectOnchainAccount(selected)
+                                account = selected
+                                status = "Account changed. Refresh to discover its balance."
+                                await load()
+                                store.activity = []
+                                try await store.refreshActivity()
+                            } catch { status = error.localizedDescription }
+                        }
+                    })) { Text("Taproot").tag("taproot"); Text("SegWit").tag("segwit") }.pickerStyle(.segmented).disabled(loading || store.busy)
+                    Text("Same seed, separate balances. Switching does not move funds. Receive, send, and Ark boarding use the selected account.").font(.caption).foregroundStyle(PaperclipTheme.muted)
+                }
+            }
             WalletSection("Balance") {
                 LabeledContent("Confirmed", value: sats(confirmed))
                 LabeledContent("Unconfirmed", value: sats(unconfirmed))
@@ -244,6 +265,7 @@ struct OnchainOverviewView: View {
     private func load() async {
         do {
             let result = try await store.engine.onchainOverview()
+            if let selected = result["account"] as? String { account = selected; store.onchainAccount = selected }
             confirmed = (result["confirmed_sat"] as? NSNumber)?.uint64Value
             unconfirmed = (result["unconfirmed_sat"] as? NSNumber)?.uint64Value
             immature = (result["immature_sat"] as? NSNumber)?.uint64Value

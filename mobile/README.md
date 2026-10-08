@@ -345,6 +345,29 @@ incomplete payments and scans up to twenty backwards pages of 100 payments. Olde
 missing records remain uncertain and require node inspection. Background suspension
 pauses checking until Paperclip becomes active again.
 
+### Mobile on-chain address accounts
+
+Open On-chain and select Taproot or SegWit. Both use the same seed, with separate
+balances and transaction histories. Selection is saved inside the wallet database
+and its encrypted backup. Switching does not move coins and invalidates pending
+on-chain payment and boarding quotes. Send, receive, and Ark boarding use the selected
+account. Ark's off-chain balance remains shared. Message signing currently supports
+Taproot addresses only.
+
+Mainnet paths are `m/86h/0h/0h` for the existing Taproot account and `m/84h/0h/0h`
+for main SegWit, with SegWit receive/change branches 0 and 1. New Coinjoin accounts
+use `m/84h/0h/1h`. A first SegWit refresh scans that account's history. After a
+seed-only import, refresh each address account and scan Coinjoin separately.
+
+Older Coinjoin installations used SegWit account 0. Until upgraded, they remain
+accessible from Coinjoin and the main SegWit selector refuses to open that same
+account. The explicit Coinjoin upgrade requires all reservations and pending
+transfers to be resolved. It atomically moves account-0 bookkeeping to main SegWit
+without spending coins, archives round state and labels in the same backup, and
+starts new Coinjoin activity in account 1. Archived rounds remain visible in
+Coinjoin history. Save an updated encrypted backup after upgrading. Old mixed coins
+are now in main SegWit; combining them with other funds can link their histories.
+
 ### Experimental Coinjoin
 
 Settings → Wallet tools → Coinjoin opens the separate BIP84 account. The homepage

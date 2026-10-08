@@ -370,6 +370,11 @@ actor NativeWallet: WalletEngine, WalletBackupEngine {
         guard let signature = result["signature"] as? String else { throw WalletFailure(message: "No signature returned.") }
         return signature
     }
+    func selectOnchainAccount(_ account: String) async throws {
+        try beginOperation(); defer { operations -= 1 }
+        _ = try await open()
+        _ = try await call(["op": "select_onchain_account", "account": account])
+    }
     func onchainOverview() async throws -> [String: Any] {
         try beginOperation(); defer { operations -= 1 }
         _ = try await open()

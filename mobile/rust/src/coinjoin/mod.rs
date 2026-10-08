@@ -42,6 +42,12 @@ struct Quote {
 	key: Option<u32>,
 	expiry: Option<bitcoin_ext::BlockHeight>,
 }
+pub(crate) fn legacy_account(path: &Path) -> anyhow::Result<bool> {
+	let c = rusqlite::Connection::open(path)?;
+	let exists: bool = c.query_row("SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE name='named_bdk_account')", [], |r| r.get(0))?;
+	if !exists { return Ok(false); }
+	Ok(c.query_row("SELECT EXISTS(SELECT 1 FROM named_bdk_account WHERE name='kilojoin-bip84')", [], |r| r.get(0))?)
+}
 fn now() -> u64 {
 	std::time::SystemTime::now()
 		.duration_since(std::time::UNIX_EPOCH)
@@ -81,6 +87,7 @@ fn coin(
 	out: OutPoint,
 	seed: &[u8; 64],
 	network: Network,
+	account: u32,
 ) -> anyhow::Result<(Coin, String, SecretKey)> {
 	let local = wallet
 		.list_unspent()
@@ -93,7 +100,7 @@ fn coin(
 		1
 	};
 	let path = format!(
-		"m/84'/{}'/0'/{branch}/{}",
+		"m/84'/{}'/{account}'/{branch}/{}",
 		if network == Network::Bitcoin { 0 } else { 1 },
 		local.derivation_index
 	);
@@ -248,8 +255,10 @@ pub async fn dispatch(
 	}
 	let path = dir.join("db.sqlite");
 	let mut s = load(&path)?;
-	let db = Arc::new(SqliteClient::open(&path)?.with_bdk_namespace("kilojoin-bip84"));
-	let mut w = OnchainWallet::load_coinjoin(network, seed, db).await?;
+	let legacy = legacy_account(&path)?;
+	let db = Arc::new(SqliteClient::open(&path)?.with_bdk_namespace(if legacy { "kilojoin-bip84" } else { "kilojoin-bip84-v2" }));
+	let mut w = if legacy { OnchainWallet::load_coinjoin(network, seed, db).await? }
+		else { OnchainWallet::load_segwit_account(network, seed, db, 1).await? };
 	// Revealing the first address is durable, including on an empty account.
 	if w.derivation_index(KeychainKind::External).is_none() {
 		w.address().await?;
@@ -257,6 +266,20 @@ pub async fn dispatch(
 	let time = now();
 	match op {
 		"coinjoin_status" => {}
+		"coinjoin_migrate" => {
+			ensure!(legacy, "Coinjoin already uses its separate account");
+			ensure!(s.rounds.iter().all(|r| !r.locked()) && s.pending.is_empty(), "Finish and refresh all rounds and transfers before upgrading");
+			let mut c = rusqlite::Connection::open(&path)?;
+			let tx = c.transaction()?;
+			let exists: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM named_bdk_account WHERE name='main-bip84')", [], |r| r.get(0))?;
+			ensure!(!exists, "Main SegWit account already exists; do not overwrite it");
+			tx.execute("CREATE TABLE IF NOT EXISTS paperclip_coinjoin_legacy (id INTEGER PRIMARY KEY, state TEXT NOT NULL)", [])?;
+			tx.execute("INSERT INTO paperclip_coinjoin_legacy VALUES(1,?1)", [serde_json::to_string(&s)?])?;
+			tx.execute("UPDATE named_bdk_account SET name='main-bip84' WHERE name='kilojoin-bip84'", [])?;
+			tx.execute("DELETE FROM paperclip_coinjoin", [])?;
+			tx.commit()?;
+			return Ok(json!({"migrated":true}));
+		}
 		"coinjoin_address" => {
 			w.address().await?;
 		}
@@ -341,7 +364,7 @@ pub async fn dispatch(
 			ensure!(available(&s, out), "coin reserved");
 			let chain = chain_wallet.context("connect a chain backend")?.chain();
 			w.sync(chain).await?;
-			let (coin, path, key) = coin(&w, out, &seed, network)?;
+			let (coin, path, key) = coin(&w, out, &seed, network, if legacy { 0 } else { 1 })?;
 			ensure!(check(chain, &coin).await?, "coin is not unspent");
 			let change = protocol::change(coin.value, terms.denomination, terms.fee_rate)?;
 			let mix = w.address().await?.script_pubkey().to_hex_string();
@@ -606,7 +629,7 @@ pub async fn dispatch(
 			ensure!(available(&s, out), "coin reserved");
 			let chain = chain_wallet.context("connect a chain backend")?.chain();
 			w.sync(chain).await?;
-			let (coin, _, key) = coin(&w, out, &seed, network)?;
+			let (coin, _, key) = coin(&w, out, &seed, network, if legacy { 0 } else { 1 })?;
 			ensure!(check(chain, &coin).await?, "coin already spent");
 			sign_single_coin(&mut psbt, &coin, &key)?;
 			let tx = psbt.clone().extract_tx()?;
@@ -657,5 +680,17 @@ pub async fn dispatch(
 		_ => anyhow::bail!("unknown Coinjoin operation"),
 	}
 	save(&path, &s)?;
-	Ok(summary(&s, &w))
+	let mut result = summary(&s, &w);
+	let c = rusqlite::Connection::open(&path)?;
+	let archived: bool = c.query_row("SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE name='paperclip_coinjoin_legacy')", [], |r| r.get(0))?;
+	if archived {
+		let raw: String = c.query_row("SELECT state FROM paperclip_coinjoin_legacy WHERE id=1", [], |r| r.get(0))?;
+		let old: State = serde_json::from_str(&raw)?;
+		if let (Some(current), Some(previous)) = (result["rounds"].as_array_mut(), summary(&old, &w)["rounds"].as_array()) {
+			current.extend(previous.iter().cloned());
+		}
+	}
+	result["legacy_account"] = json!(legacy);
+	result["account_path"] = json!(if legacy { "m/84h/0h/0h" } else { "m/84h/0h/1h" });
+	Ok(result)
 }

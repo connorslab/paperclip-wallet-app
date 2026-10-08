@@ -13,6 +13,7 @@ import LocalAuthentication
     @Published var hasWallet = false
     @Published var busy = false
     @Published var message = ""
+    @Published var onchainAccount = "taproot"
     @Published var onchain: UInt64?
     @Published var ark: UInt64?
     @Published var pending: UInt64?
@@ -52,7 +53,12 @@ import LocalAuthentication
             profiles = try await engine.profiles(); selectedProfile = profile
             hasWallet = try await engine.hasWallet()
             network = try await engine.walletNetwork()
-            if hasWallet { _ = try await engine.open() }
+            if hasWallet {
+                _ = try await engine.open()
+                let overview = try await engine.onchainOverview()
+                onchainAccount = overview["account"] as? String ?? "taproot"
+                onchain = (overview["total_sat"] as? NSNumber)?.uint64Value
+            }
         } catch { message = error.localizedDescription }
         loaded = true
     }

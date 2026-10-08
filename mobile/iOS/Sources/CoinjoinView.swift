@@ -8,6 +8,7 @@ struct CoinjoinView: View {
     @State private var showConnection = false
     @State private var page: CoinjoinPage?
     @State private var signing: CoinjoinSelection?
+    @State private var upgrading = false
     @State private var leavingRound: String?
     private func amount(_ value: Any?) -> String { unit.display((value as? NSNumber)?.uint64Value) }
     private var availableCoins: Int { model.coins.filter { $0["available"] as? Bool == true }.count }
@@ -26,6 +27,14 @@ struct CoinjoinView: View {
                     VStack { receiveAction; poolsAction }
                 }
                 Text("Privacy is experimental and anonymity is not guaranteed.").font(.caption).foregroundStyle(PaperclipTheme.muted)
+            }
+            if model.snapshot["legacy_account"] as? Bool == true {
+                WalletSection("Separate your Coinjoin account") {
+                    Text("Upgrade to a dedicated Coinjoin path. Existing coins will appear in your main SegWit balance; no transaction or fee is involved. Save an updated encrypted backup afterward.").font(.subheadline)
+                    Text("Existing mixed coins keep their transaction history. Avoid combining them with other coins if you want to preserve their privacy.").font(.caption).foregroundStyle(PaperclipTheme.muted)
+                    Button("Upgrade account") { upgrading = true }.disabled(model.busy || model.active != nil)
+                    if model.active != nil { Text("Finish the current round and refresh before upgrading.").font(.caption) }
+                }
             }
             if let round = model.active { roundCard(round) }
             WalletSection {
@@ -72,6 +81,16 @@ struct CoinjoinView: View {
                         .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { page = nil } } }
                 }
             }
+            .alert("Upgrade Coinjoin account?", isPresented: $upgrading) {
+                Button("Upgrade") { model.perform {
+                    try await model.action("coinjoin_sync")
+                    try await model.action("coinjoin_migrate")
+                    model.stop()
+                    try await model.action("coinjoin_status")
+                    model.message = "Upgraded. Previous coins are available under On-chain → SegWit. Coinjoin now uses account 1. Save a new encrypted backup."
+                } }
+                Button("Cancel", role: .cancel) { }
+            } message: { Text("No coins move on-chain. The old account becomes your main SegWit balance, and new Coinjoin deposits use a separate address account.") }
             .sheet(isPresented: $showConnection) { NavigationStack { connection } }
             .sheet(item: $signing) { item in NavigationStack { CoinjoinSignView(model: model, round: item.value) } }
             .confirmationDialog("Leave this round?", isPresented: Binding(get: { leavingRound != nil }, set: { if !$0 { leavingRound = nil } })) {

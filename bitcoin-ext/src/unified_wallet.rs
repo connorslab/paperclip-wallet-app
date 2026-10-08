@@ -1,4 +1,4 @@
-//! Explicit unified signer for Bark's `tr(key)` BDK wallets.
+//! Explicit unified signer for Bark's `tr(key)` and `wpkh(key)` BDK wallets.
 //! Unsupported descriptors fail closed; there is no call to BDK's legacy signer.
 
 use bdk_wallet::{KeychainKind, Wallet};
@@ -70,6 +70,38 @@ pub fn sign(wallet: &Wallet, psbt: &mut Psbt) -> Result<bool, Error> {
 		if input.sighash_type.is_some_and(|s| s.to_u32() != u32::from(unified::ALL)) {
 			return Err(Error::Unsupported);
 		}
+		if prevouts[idx].script_pubkey.is_p2wpkh() {
+			if input.redeem_script.is_some() || input.witness_script.is_some()
+				|| input.tap_internal_key.is_some() || !input.tap_scripts.is_empty() {
+				return Err(Error::Unsupported);
+			}
+			let mut signing_key = None;
+			for (public, (fingerprint, path)) in &input.bip32_derivation {
+				let public_key = bitcoin::PublicKey::new(*public);
+				if public_key.wpubkey_hash().map(|hash| ScriptBuf::new_p2wpkh(&hash)).ok().as_ref() != Some(&prevouts[idx].script_pubkey) { continue; }
+				for secret in keys.values() {
+					let xkey = match secret { DescriptorSecretKey::XPrv(k) => k, _ => continue };
+					let (expected, prefix) = match &xkey.origin {
+						Some((fp, p)) => (*fp, p.as_ref()),
+						None => (xkey.xkey.fingerprint(&secp), &[][..]),
+					};
+					let full = path.as_ref();
+					if *fingerprint != expected || !full.starts_with(prefix) { continue; }
+					let derived = xkey.xkey.derive_priv(&secp, &&full[prefix.len()..]).map_err(|_| Error::Unsupported)?;
+					if derived.private_key.public_key(&secp) == *public { signing_key = Some((derived.private_key, public_key)); break; }
+				}
+			}
+			let (key, public) = signing_key.ok_or(Error::Unsupported)?;
+			let code = ScriptBuf::new_p2pkh(&public.pubkey_hash());
+			let hash = unified::digest(&psbt.unsigned_tx, idx, &prevouts, unified::ALL,
+				Execution { script_type: 1, script_code: Some(&code), annex: None, leaf: None })?;
+			let signature = secp.sign_ecdsa(&hash.into(), &key);
+			let mut encoded = signature.serialize_der().to_vec();
+			encoded.push(unified::ALL);
+			input.sighash_type = Some(bitcoin::psbt::PsbtSighashType::from_u32(u32::from(unified::ALL)));
+			input.final_script_witness = Some(Witness::from_slice(&[encoded, public.to_bytes()]));
+			continue;
+		}
 		let internal = input.tap_internal_key.ok_or(Error::Unsupported)?;
 		if input.tap_merkle_root.is_some() || !input.tap_scripts.is_empty() {
 			return Err(Error::Unsupported);
@@ -110,6 +142,39 @@ mod tests {
 	use bdk_wallet::test_utils::{insert_checkpoint, receive_output_in_latest_block};
 	use bitcoin::{Amount, BlockHash, Network};
 	use bitcoin::hashes::Hash;
+
+	#[test]
+	fn unified_segwit_wallet_signatures_and_replay_protection() {
+		let master = bitcoin::bip32::Xpriv::new_master(Network::Regtest, &[51; 32]).unwrap();
+		let mut wallet = Wallet::create(bdk_wallet::template::Bip84(master, KeychainKind::External), bdk_wallet::template::Bip84(master, KeychainKind::Internal))
+			.network(Network::Regtest).create_wallet_no_persist().unwrap();
+		insert_checkpoint(&mut wallet, BlockId { height: 1000, hash: BlockHash::all_zeros() });
+		receive_output_in_latest_block(&mut wallet, Amount::from_sat(100_000));
+		let address = wallet.reveal_next_address(KeychainKind::External).address;
+		let mut builder = wallet.build_tx();
+		builder.add_recipient(address.script_pubkey(), Amount::from_sat(50_000));
+		builder.fee_absolute(Amount::from_sat(1000));
+		let mut psbt = builder.finish().unwrap();
+		let mut invalid = psbt.clone();
+		invalid.inputs[0].sighash_type = Some(bitcoin::EcdsaSighashType::All.into());
+		let before = invalid.clone();
+		assert!(sign(&wallet, &mut invalid).is_err());
+		assert_eq!(invalid, before);
+		assert!(sign(&wallet, &mut psbt).unwrap());
+		let prevouts = psbt.inputs.iter().map(|p| p.witness_utxo.clone().unwrap()).collect::<Vec<_>>();
+		let witness = psbt.inputs[0].final_script_witness.as_ref().unwrap();
+		let stack = witness.iter().collect::<Vec<_>>();
+		assert_eq!(stack[0].last(), Some(&unified::ALL));
+		let public = bitcoin::PublicKey::from_slice(stack[1]).unwrap();
+		let code = ScriptBuf::new_p2pkh(&public.pubkey_hash());
+		let digest = unified::digest(&psbt.unsigned_tx, 0, &prevouts, unified::ALL,
+			Execution { script_type: 1, script_code: Some(&code), annex: None, leaf: None }).unwrap();
+		let signature = bitcoin::secp256k1::ecdsa::Signature::from_der(&stack[0][..stack[0].len()-1]).unwrap();
+		Secp256k1::new().verify_ecdsa(&digest.into(), &signature, &public.inner).unwrap();
+		let btc = bitcoin::sighash::SighashCache::new(&psbt.unsigned_tx)
+			.p2wpkh_signature_hash(0, &prevouts[0].script_pubkey, prevouts[0].value, bitcoin::EcdsaSighashType::All).unwrap();
+		assert!(Secp256k1::new().verify_ecdsa(&btc.into(), &signature, &public.inner).is_err());
+	}
 
 	#[test]
 	fn standard_v2_anchor_signing_checks_exact_witness() {

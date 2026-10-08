@@ -514,6 +514,7 @@ struct ArkLightningReceivesView: View {
 
 struct OnchainAddressesView: View {
     @EnvironmentObject var store: WalletStore
+    @State private var separateChange = false
     @State private var entries: [Entry] = []
     @State private var start = 0
     @State private var change = false
@@ -528,11 +529,11 @@ struct OnchainAddressesView: View {
     var body: some View {
         ScrollView { VStack(spacing: 20) {
             WalletSection {
-                if store.supportsArk {
+                if store.supportsArk && !separateChange {
                     Text("Receive & change share the same derivation branch in this wallet. Addresses are shown by derivation index.")
                 } else {
                     Picker("Branch", selection: $change) { Text("Receive").tag(false); Text("Change").tag(true) }.pickerStyle(.segmented)
-                    Text(change ? "Change returns to this wallet after a payment." : "Receive addresses for this public account.")
+                    Text(change ? "Change returns to this wallet after a payment." : "Receive addresses for this account.")
                 }
                 Text("Previewing does not reserve addresses. Use Create receive address when requesting a payment so recovery can discover it reliably.").font(.caption)
             }
@@ -568,6 +569,8 @@ struct OnchainAddressesView: View {
             .task(id: "\(start)-\(change)") {
                 loading = true; error = ""
                 do {
+                    let overview = try await store.engine.onchainOverview()
+                    separateChange = overview["account"] as? String == "segwit"
                     let page = try await store.engine.onchainAddresses(start: start, change: change)
                     hasMore = page.hasMore
                     entries = page.entries.compactMap { row in

@@ -203,6 +203,27 @@ impl OnchainWallet {
 		Ok(wallet)
 	}
 
+	/// Isolated BIP84 account with standard receive and change branches.
+	pub async fn load_segwit_account(network: Network, seed: [u8; 64], db: Arc<dyn BarkPersister>, account: u32) -> anyhow::Result<Self> {
+		if account == 0 { return Self::load_coinjoin(network, seed, db).await; }
+		anyhow::ensure!(account < 0x80000000, "invalid account");
+		let master = bip32::Xpriv::new_master(network, &seed)?;
+		let coin = if network == Network::Bitcoin { 0 } else { 1 };
+		let external = format!("wpkh({master}/84h/{coin}h/{account}h/0/*)");
+		let internal = format!("wpkh({master}/84h/{coin}h/{account}h/1/*)");
+		let changes = db.initialize_bdk_wallet().await?;
+		let loaded = BdkWallet::load().descriptor(KeychainKind::External, Some(external.clone()))
+			.descriptor(KeychainKind::Internal, Some(internal.clone())).extract_keys().check_network(network)
+			.load_wallet_no_persist(changes)?;
+		let inner = match loaded {
+			Some(w) => w,
+			None => BdkWallet::create(external, internal).network(network).create_wallet_no_persist()?,
+		};
+		let mut wallet = Self { inner, db };
+		wallet.persist().await?;
+		Ok(wallet)
+	}
+
 	pub async fn load_or_create(network: Network, seed: [u8; 64], db: Arc<dyn BarkPersister>) -> anyhow::Result<Self> {
 		anyhow::ensure!(bitcoin_ext::paperclip_network::enabled(network),
 			"XBT mainnet requires explicit PAPERCLIP_XBT_MAINNET=1; only regtest is enabled by default");

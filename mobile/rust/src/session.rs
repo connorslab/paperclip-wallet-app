@@ -6,6 +6,7 @@ use anyhow::{bail, ensure, Context};
 use base64::{engine::general_purpose::STANDARD, Engine};
 use bitcoin::{Amount, Network};
 use serde_json::{json, Value};
+use rusqlite::OptionalExtension;
 
 use bark::{Config, OpenWalletArgs, Wallet, WalletSeed};
 use bark::lock_manager::{LockManager, memory::MemoryLockManager};
@@ -29,6 +30,26 @@ struct HardwareBoardRequest {
 	time: Instant,
 	funding: crate::hardware::PublicFundingWallet,
 	backend: Arc<bark::chain::ChainSource>,
+}
+
+fn account_setting(dir: &std::path::Path, set: Option<&str>) -> anyhow::Result<String> {
+	let c = rusqlite::Connection::open(dir.join("db.sqlite"))?;
+	c.execute("CREATE TABLE IF NOT EXISTS paperclip_account (id INTEGER PRIMARY KEY CHECK(id=1), kind TEXT NOT NULL)", [])?;
+	if let Some(kind) = set {
+		ensure!(["taproot", "segwit"].contains(&kind), "invalid on-chain account");
+		c.execute("INSERT OR REPLACE INTO paperclip_account VALUES(1,?1)", [kind])?;
+	}
+	Ok(c.query_row("SELECT kind FROM paperclip_account WHERE id=1", [], |r| r.get(0)).optional()?.unwrap_or_else(|| "taproot".into()))
+}
+async fn mobile_onchain(dir: &std::path::Path, network: Network, seed: [u8;64], db: Arc<SqliteClient>, kind: &str) -> anyhow::Result<OnchainWallet> {
+	if kind == "segwit" {
+		ensure!(!crate::coinjoin::legacy_account(&dir.join("db.sqlite"))?, "Upgrade your existing Coinjoin account from Settings → Coinjoin before using the main SegWit account. Existing coins remain accessible there.");
+		let named = Arc::new(SqliteClient::open(dir.join("db.sqlite"))?.with_bdk_namespace("main-bip84"));
+		OnchainWallet::load_segwit_account(network, seed, named, 0).await
+	} else {
+		ensure!(kind == "taproot", "invalid on-chain account");
+		OnchainWallet::load_or_create(network, seed, db).await
+	}
 }
 
 pub struct Session {
@@ -62,6 +83,42 @@ impl Drop for Session {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn mobile_address_accounts_keep_balances_and_survive_restore() {
+		let dir = std::env::temp_dir().join(format!("paperclip-accounts-{}", bitcoin::secp256k1::rand::random::<u64>()));
+		let mut state = None;
+		let seed = [63;64];
+		dispatch(&mut state, json!({"op":"create","directory":dir,"network":"xbt-regtest"}), seed).unwrap();
+		let tap = dispatch(&mut state, json!({"op":"address_onchain"}), seed).unwrap();
+		dispatch(&mut state, json!({"op":"select_onchain_account","account":"segwit"}), seed).unwrap();
+		let segwit = dispatch(&mut state, json!({"op":"address_onchain"}), seed).unwrap();
+		assert_ne!(tap, segwit);
+		{
+			let session = state.as_mut().unwrap();
+			session.runtime.block_on(async {
+				let mut wallet = session.onchain.write().await;
+				bdk_wallet::test_utils::insert_checkpoint(&mut wallet.inner, bdk_wallet::chain::BlockId { height: 1000, hash: "00".repeat(32).parse().unwrap() });
+				bdk_wallet::test_utils::receive_output_in_latest_block(&mut wallet.inner, Amount::from_sat(12345));
+				wallet.persist().await.unwrap();
+			});
+		}
+		assert_eq!(dispatch(&mut state, json!({"op":"overview_onchain"}), seed).unwrap()["total_sat"], 12345);
+		assert_eq!(dispatch(&mut state, json!({"op":"addresses_onchain","change":true}), seed).unwrap()["shared_change_branch"], false);
+		dispatch(&mut state, json!({"op":"select_onchain_account","account":"taproot"}), seed).unwrap();
+		assert_eq!(dispatch(&mut state, json!({"op":"overview_onchain"}), seed).unwrap()["total_sat"], 0);
+		assert_eq!(dispatch(&mut state, json!({"op":"addresses_onchain"}), seed).unwrap()["addresses"][0]["address"], tap["address"]);
+		dispatch(&mut state, json!({"op":"select_onchain_account","account":"segwit"}), seed).unwrap();
+		let backup = dispatch(&mut state, json!({"op":"backup"}), seed).unwrap();
+		dispatch(&mut state, json!({"op":"close"}), seed).unwrap();
+		let restored = dir.with_extension("restored");
+		dispatch(&mut state, json!({"op":"restore","directory":restored,"network":"xbt-regtest","database":backup["database"]}), seed).unwrap();
+		dispatch(&mut state, json!({"op":"open","directory":restored,"network":"xbt-regtest"}), seed).unwrap();
+		let overview = dispatch(&mut state, json!({"op":"overview_onchain"}), seed).unwrap();
+		assert_eq!(overview["account"], "segwit"); assert_eq!(overview["total_sat"],12345);
+		dispatch(&mut state, json!({"op":"close"}), seed).unwrap();
+		std::fs::remove_dir_all(dir).unwrap(); std::fs::remove_dir_all(restored).unwrap();
+	}
 
 	#[test]
 	fn electrum_ark_admission_requires_complete_safe_policy_and_package_relay() {
@@ -323,7 +380,7 @@ pub fn dispatch(state: &mut Option<Session>, request: Value, seed: [u8; 64]) -> 
 				"recovery key or network does not match the wallet");
 			if let Some((receive, change)) = &public {
 				OnchainWallet::load_or_create_public(network, receive, change, db.clone()).await
-			} else { OnchainWallet::load_or_create(network, seed, db.clone()).await }
+			} else { mobile_onchain(&dir, network, seed, db.clone(), &account_setting(&dir, None)?).await }
 		})?;
 		if op == "create" && let Some((receive, change)) = &public {
 			std::fs::write(&marker, serde_json::to_vec(&json!({"kind": kind, "receive": receive, "change": change}))?)?;
@@ -354,6 +411,16 @@ pub fn dispatch(state: &mut Option<Session>, request: Value, seed: [u8; 64]) -> 
 	let network = session.network;
 	let Session { runtime, wallet, ark_wallet, db, onchain, quote, onchain_quote, board_quote, offer_task, receive_task, hardware_request, hardware_board, kind, dir, .. } = session;
 	runtime.block_on(async {
+		if op == "select_onchain_account" {
+			ensure!(kind == "hot", "only mobile wallets can switch address accounts");
+
+			let selected = text(&request, "account")?;
+			let next = mobile_onchain(dir, network, seed, db.clone(), selected).await?;
+			account_setting(dir, Some(selected))?;
+			*onchain.write().await = next;
+			*onchain_quote = None; *board_quote = None;
+			return Ok(json!({"account":selected}));
+		}
 		if op == "sign_message_onchain" {
 			let address = text(&request, "address")?.parse::<bitcoin::Address<_>>()?.require_network(network)?;
 			let signature = onchain.read().await.sign_onchain_message(&address, text(&request, "message")?)?;
@@ -362,7 +429,7 @@ pub fn dispatch(state: &mut Option<Session>, request: Value, seed: [u8; 64]) -> 
 		if op == "overview_onchain" {
 			let chain = onchain.read().await;
 			let balance = chain.balance();
-			return Ok(json!({"confirmed_sat": balance.confirmed.to_sat(),
+			return Ok(json!({"account": if kind == "hot" { account_setting(dir, None)? } else { "public".into() }, "confirmed_sat": balance.confirmed.to_sat(),
 				"unconfirmed_sat": (balance.trusted_pending + balance.untrusted_pending).to_sat(),
 				"immature_sat": balance.immature.to_sat(), "total_sat": balance.total().to_sat(),
 				"transactions": chain.list_transaction_infos()?.iter().map(|tx| json!({
@@ -373,8 +440,8 @@ pub fn dispatch(state: &mut Option<Session>, request: Value, seed: [u8; 64]) -> 
 		if op == "addresses_onchain" {
 			let start = request["start"].as_u64().unwrap_or(0);
 			ensure!(start < 0x80000000, "invalid address index");
-			let (entries, has_more) = onchain.read().await.address_page(start as u32, kind != "hot" && request["change"].as_bool().unwrap_or(false))?;
-			return Ok(json!({"shared_change_branch": kind == "hot", "has_more": has_more, "addresses": entries.into_iter().map(|(index, address, revealed)|
+			let (entries, has_more) = onchain.read().await.address_page(start as u32, (kind != "hot" || account_setting(dir, None)? == "segwit") && request["change"].as_bool().unwrap_or(false))?;
+			return Ok(json!({"shared_change_branch": kind == "hot" && account_setting(dir, None)? == "taproot", "has_more": has_more, "addresses": entries.into_iter().map(|(index, address, revealed)|
 				json!({"index": index, "address": address, "revealed": revealed})).collect::<Vec<_>>()}));
 		}
 		if op == "address_onchain" {
@@ -494,7 +561,14 @@ pub fn dispatch(state: &mut Option<Session>, request: Value, seed: [u8; 64]) -> 
 			},
 			"sync_onchain" => {
 				w.chain().invalidate_caches().await;
-				chain_wallet.sync_onchain().await.context("synchronizing on-chain backend")?;
+				let c = rusqlite::Connection::open(dir.join("db.sqlite"))?;
+				c.execute("CREATE TABLE IF NOT EXISTS paperclip_account_scan (kind TEXT PRIMARY KEY)", [])?;
+				let selected = account_setting(dir, None)?;
+				let scanned: bool = c.query_row("SELECT EXISTS(SELECT 1 FROM paperclip_account_scan WHERE kind=?1)", [&selected], |r| r.get(0))?;
+				if (kind == "hot" && selected == "segwit" && !scanned) || onchain.read().await.derivation_index(bdk_wallet::KeychainKind::External).is_none() {
+					onchain.write().await.initial_wallet_scan(chain_wallet.chain(), None).await?;
+				} else { chain_wallet.sync_onchain().await.context("synchronizing on-chain backend")?; }
+				c.execute("INSERT OR IGNORE INTO paperclip_account_scan VALUES(?1)", [&selected])?;
 				Ok(json!({"onchain_sat": onchain.read().await.balance().total().to_sat(), "tip": w.chain().tip().await?}))
 			},
 			"ark_hardware_prepare" => {
@@ -643,7 +717,13 @@ pub fn dispatch(state: &mut Option<Session>, request: Value, seed: [u8; 64]) -> 
 				Ok(json!({"state": "registered"}))
 			},
 			"exit_progress" => {
-				chain_wallet.sync_onchain().await.context("synchronizing on-chain backend")?;
+				let c = rusqlite::Connection::open(dir.join("db.sqlite"))?;
+				c.execute("CREATE TABLE IF NOT EXISTS paperclip_account_scan (kind TEXT PRIMARY KEY)", [])?;
+				let selected = account_setting(dir, None)?;
+				let scanned: bool = c.query_row("SELECT EXISTS(SELECT 1 FROM paperclip_account_scan WHERE kind=?1)", [&selected], |r| r.get(0))?;
+				if (kind == "hot" && selected == "segwit" && !scanned) || onchain.read().await.derivation_index(bdk_wallet::KeychainKind::External).is_none() {
+					onchain.write().await.initial_wallet_scan(chain_wallet.chain(), None).await?;
+				} else { chain_wallet.sync_onchain().await.context("synchronizing on-chain backend")?; }
 				w.exit_mgr().progress_exits_with_cpfp(w, None).await?;
 				Ok(json!({"pending": w.exit_mgr().has_pending_exits().await,
 					"claimable_height": w.exit_mgr().all_claimable_at_height().await}))

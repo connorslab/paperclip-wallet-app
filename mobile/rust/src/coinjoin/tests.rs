@@ -161,3 +161,42 @@ fn public_library_digest_matches_wallet_fork_digest() {
 		);
 	}
 }
+
+#[test]
+fn segregated_coinjoin_derivation_and_legacy_upgrade_preserve_coins() {
+	let rt = tokio::runtime::Runtime::new().unwrap();
+	rt.block_on(async {
+		let dir = std::env::temp_dir().join(format!("coinjoin-upgrade-{}", hex(&crypto::random(8))));
+		std::fs::create_dir(&dir).unwrap();
+		let path = dir.join("db.sqlite");
+		let seed = [19;64];
+		let db = SqliteClient::open(&path).unwrap();
+		let mut legacy = OnchainWallet::load_coinjoin(Network::Bitcoin, seed, Arc::new(db.clone().with_bdk_namespace("kilojoin-bip84"))).await.unwrap();
+		let old_address = legacy.address().await.unwrap();
+		bdk_wallet::test_utils::insert_checkpoint(&mut legacy.inner, bdk_wallet::chain::BlockId { height: 1000, hash: "00".repeat(32).parse().unwrap() });
+		bdk_wallet::test_utils::receive_output_in_latest_block(&mut legacy.inner, Amount::from_sat(20000));
+		legacy.persist().await.unwrap();
+		let mut pending = load(&path).unwrap();
+		pending.pending.push(Transaction { version: bitcoin::transaction::Version::TWO, lock_time: bitcoin::absolute::LockTime::ZERO, input: vec![], output: vec![] });
+		save(&path, &pending).unwrap();
+		assert!(dispatch(&dir, seed, Network::Bitcoin, None, None, &json!({"op":"coinjoin_migrate"})).await.is_err());
+		assert!(legacy_account(&path).unwrap());
+		save(&path, &State::default()).unwrap();
+		assert!(legacy_account(&path).unwrap());
+		dispatch(&dir, seed, Network::Bitcoin, None, None, &json!({"op":"coinjoin_migrate"})).await.unwrap();
+		assert!(!legacy_account(&path).unwrap());
+		let main = OnchainWallet::load_segwit_account(Network::Bitcoin, seed, Arc::new(db.clone().with_bdk_namespace("main-bip84")), 0).await.unwrap();
+		assert_eq!(main.balance().total().to_sat(),20000);
+		assert_eq!(main.peek_address(KeychainKind::External,0).address,old_address);
+		let mut cj = OnchainWallet::load_segwit_account(Network::Bitcoin, seed, Arc::new(db.with_bdk_namespace("kilojoin-bip84-v2")),1).await.unwrap();
+		assert_ne!(cj.address().await.unwrap(),old_address);
+		assert_eq!(cj.balance().total().to_sat(),0);
+		bdk_wallet::test_utils::insert_checkpoint(&mut cj.inner, bdk_wallet::chain::BlockId { height: 1000, hash: "00".repeat(32).parse().unwrap() });
+		bdk_wallet::test_utils::receive_output_in_latest_block(&mut cj.inner, Amount::from_sat(30000));
+		let out = cj.list_unspent()[0].outpoint;
+		let (_,path,_) = coin(&cj,out,&seed,Network::Bitcoin,1).unwrap();
+		assert!(path.starts_with("m/84'/0'/1'/"));
+		assert!(coin(&cj,out,&seed,Network::Bitcoin,0).is_err());
+		std::fs::remove_dir_all(dir).unwrap();
+	});
+}

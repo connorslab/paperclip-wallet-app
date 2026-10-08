@@ -33,5 +33,6 @@ bark-bitcoin-ext = { path = "../../bitcoin-ext", features = ["xbt-mainnet"] }
 ark-lib = { path = "../../lib" }
 
 [dev-dependencies]
+bdk_wallet = { workspace = true, features = ["test-utils"] }
 bitcoind-async-client.workspace = true
 bdk_electrum = { version = "0.23.2", default-features = false, features = ["use-rustls-ring"] }
