@@ -42,6 +42,8 @@ struct WalletPrimaryButtonStyle: ButtonStyle {
 }
 
 struct WalletCard<Content: View>: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var appeared = false
     @ViewBuilder var content: Content
     var body: some View {
         VStack(alignment: .leading, spacing: 16) { content }
@@ -53,6 +55,12 @@ struct WalletCard<Content: View>: View {
                     .allowsHitTesting(false)
             }
             .shadow(color: .black.opacity(0.04), radius: 12, y: 5)
+            .opacity(appeared || reduceMotion ? 1 : 0)
+            .offset(y: appeared || reduceMotion ? 0 : 6)
+            .onAppear {
+                guard !appeared else { return }
+                withAnimation(reduceMotion ? nil : .easeOut(duration: 0.22)) { appeared = true }
+            }
     }
 }
 

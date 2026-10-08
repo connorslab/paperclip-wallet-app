@@ -1,5 +1,6 @@
 import Foundation
 import Security
+import LocalAuthentication
 import PaperclipMobile
 
 struct WalletFailure: LocalizedError {
@@ -14,6 +15,14 @@ enum WalletKeychain {
         let status = SecItemUpdate(query as CFDictionary, [kSecValueData as String: data] as CFDictionary)
         if status == errSecItemNotFound { try insert(data, account: account) }
         else if status != errSecSuccess { throw WalletFailure(message: "Could not save data in Keychain.") }
+    }
+    static func delete(_ account: String) throws {
+        let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: "xyz.paperclippool.wallet.preview", kSecAttrAccount as String: account]
+        let status = SecItemDelete(query as CFDictionary)
+        guard status == errSecSuccess || status == errSecItemNotFound else {
+            throw WalletFailure(message: "Could not remove wallet data from Keychain. Unlock the device and retry.")
+        }
     }
     static func read(_ account: String) throws -> Data? {
         let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
@@ -56,6 +65,10 @@ actor NativeWallet: WalletEngine, WalletBackupEngine {
         if let data = try WalletKeychain.read("wallet-catalog-v1") {
             let saved = try JSONDecoder().decode(WalletCatalog.self, from: data)
             guard saved.wallets.isEmpty || saved.selected != nil else { throw WalletFailure(message: "Wallet selection is invalid.") }
+            if let pending = try WalletKeychain.read("wallet-removal-v1") {
+                let profile = try JSONDecoder().decode(WalletProfile.self, from: pending)
+                return try finishRemoval(profile, from: saved)
+            }
             catalog = saved; return saved
         }
         var saved = WalletCatalog()
@@ -87,6 +100,48 @@ actor NativeWallet: WalletEngine, WalletBackupEngine {
         let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty, name.count <= 60, let index = saved.wallets.firstIndex(where: { $0.id == id }) else { throw WalletFailure(message: "Enter a wallet name up to 60 characters.") }
         saved.wallets[index].name = name; try saveCatalog(saved)
+    }
+    // A durable removal intent lets an interrupted deletion finish on the next unlock.
+    // Shared Lightning credentials and external backups are never part of this operation.
+    private func finishRemoval(_ profile: WalletProfile, from saved: WalletCatalog) throws -> WalletCatalog {
+        guard profile.id == "legacy" || UUID(uuidString: profile.id) != nil else { throw WalletCatalogError.invalidProfile }
+        if let existing = saved.wallets.first(where: { $0.id == profile.id }), existing != profile { throw WalletCatalogError.invalidProfile }
+        let root = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        let path = profile.id == "legacy"
+            ? root.appendingPathComponent(profile.network == "xbt-regtest" ? "PaperclipRegtest" : "PaperclipMainnet")
+            : root.appendingPathComponent("PaperclipWallets").appendingPathComponent(profile.id)
+        if FileManager.default.fileExists(atPath: path.path) { try FileManager.default.removeItem(at: path) }
+        try WalletKeychain.delete(profile.keyAccount)
+        try WalletKeychain.delete(profile.connectionAccount)
+        if profile.id == "legacy" { try WalletKeychain.delete("regtest-seed-v1") }
+        UserDefaults.standard.removeObject(forKey: "seedRecoveryRequired-" + profile.id)
+        if profile.id == "legacy" { UserDefaults.standard.removeObject(forKey: "seedRecoveryRequired") }
+        var next = saved
+        if next.wallets.contains(where: { $0.id == profile.id }) { try next.remove(id: profile.id) }
+        try WalletKeychain.save(JSONEncoder().encode(next), account: "wallet-catalog-v1")
+        try WalletKeychain.delete("wallet-removal-v1")
+        catalog = next
+        return next
+    }
+    func removeWallet(_ profile: WalletProfile, confirmation: String, backupAcknowledged: Bool) async throws {
+        guard backupAcknowledged, confirmation == "REMOVE " + profile.name else {
+            throw WalletFailure(message: "Acknowledge your backup and type the exact confirmation to remove this wallet.")
+        }
+        guard operations == 0, !provisioning, !transitioning, opening == nil else {
+            throw WalletFailure(message: "Wait for wallet operations and maintenance to finish before removing a wallet.")
+        }
+        let saved = try loadedCatalog()
+        guard saved.wallets.contains(profile) else { throw WalletFailure(message: "Wallet details changed. Reopen the removal page.") }
+        transitioning = true; defer { transitioning = false }
+        let authenticated = try await LAContext().evaluatePolicy(.deviceOwnerAuthentication,
+            localizedReason: "Remove " + profile.name + " and its local wallet data")
+        guard authenticated else { throw WalletFailure(message: "Device authentication is required.") }
+        // Close even for another profile: hardware boarding can hold a secondary database.
+        if opened { _ = try await call(["op": "close"]) }
+        opened = false; connected = false; fingerprint = ""
+        try WalletKeychain.save(JSONEncoder().encode(profile), account: "wallet-removal-v1")
+        catalog = nil
+        _ = try finishRemoval(profile, from: saved)
     }
     func activate(_ id: String) async throws {
         guard operations == 0, !provisioning, !transitioning, opening == nil else { throw WalletFailure(message: "Wait for the current wallet operation to finish, then switch.") }

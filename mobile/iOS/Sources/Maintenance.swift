@@ -74,6 +74,14 @@ actor UnconnectedEngine: WalletEngine {
             return false
         }
     }
+    func forgetWallet(_ id: String) async {
+        let prefix = "paperclip.expiry." + id + "."
+        let pending = await center.pendingNotificationRequests().map(\.identifier).filter { $0.hasPrefix(prefix) }
+        center.removePendingNotificationRequests(withIdentifiers: pending)
+        let delivered = await center.deliveredNotifications().map { $0.request.identifier }.filter { $0.hasPrefix(prefix) }
+        center.removeDeliveredNotifications(withIdentifiers: delivered)
+        if snapshotWallet?.id == id { snapshot = nil; snapshotWallet = nil }
+    }
     func enableNotifications() async {
         do {
             let allowed = try await center.requestAuthorization(options: [.alert, .sound])

@@ -25,6 +25,11 @@ public struct WalletCatalog: Codable, Sendable {
     public var selectedID: String?
     public init(wallets: [WalletProfile] = [], selectedID: String? = nil) { self.wallets = wallets; self.selectedID = selectedID }
     public var selected: WalletProfile? { wallets.first { $0.id == selectedID } }
+    public mutating func remove(id: String) throws {
+        guard wallets.contains(where: { $0.id == id }) else { throw WalletCatalogError.invalidProfile }
+        wallets.removeAll { $0.id == id }
+        if selectedID == id { selectedID = wallets.first?.id }
+    }
     public mutating func add(_ profile: WalletProfile) throws {
         guard !wallets.contains(where: { $0.id == profile.id }), !profile.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw WalletCatalogError.invalidProfile

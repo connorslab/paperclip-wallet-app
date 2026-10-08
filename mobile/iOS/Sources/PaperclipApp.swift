@@ -64,17 +64,27 @@ import PaperclipMobile
 
 struct WalletView: View {
     @EnvironmentObject var store: WalletStore
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    private enum Tab: Hashable { case wallet, lightning, activity, settings }
+    @State private var selectedTab: Tab = .wallet
     var body: some View {
         Group {
             if !store.loaded { ProgressView("Open secure storage…") }
             else if !store.hasWallet { SetupView() }
             else {
-                TabView {
-                    NavigationStack { DashboardView() }.id(store.walletID).tabItem { Label("Wallet", systemImage: "wallet.pass") }
-                    NavigationStack { LightningView() }.tabItem { Label("Lightning", systemImage: "bolt.fill") }
-                    NavigationStack { ActivityView() }.id(store.walletID).tabItem { Label("Activity", systemImage: "clock.arrow.circlepath") }
-                    NavigationStack { SettingsView() }.id(store.walletID).tabItem { Label("Settings", systemImage: "slider.horizontal.3") }
+                // Stable tab identities prevent SwiftUI falling back to the first tab.
+                // Only wallet-scoped navigation is recreated when the account changes.
+                TabView(selection: $selectedTab) {
+                    ZStack { NavigationStack { DashboardView() }.id(store.walletID) }
+                        .tabItem { Label("Wallet", systemImage: "wallet.pass") }.tag(Tab.wallet)
+                    NavigationStack { LightningView() }
+                        .tabItem { Label("Lightning", systemImage: "bolt.fill") }.tag(Tab.lightning)
+                    ZStack { NavigationStack { ActivityView() }.id(store.walletID) }
+                        .tabItem { Label("Activity", systemImage: "clock.arrow.circlepath") }.tag(Tab.activity)
+                    ZStack { NavigationStack { SettingsView() }.id(store.walletID) }
+                        .tabItem { Label("Settings", systemImage: "slider.horizontal.3") }.tag(Tab.settings)
                 }
+                .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: selectedTab)
             }
         }.background(WalletBackdrop())
     }

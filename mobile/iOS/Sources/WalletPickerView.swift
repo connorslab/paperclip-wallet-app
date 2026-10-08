@@ -4,6 +4,7 @@ import PaperclipMobile
 struct WalletPickerView: View {
     @EnvironmentObject var store: WalletStore
     @Environment(\.dismiss) private var dismiss
+    @State private var removing: WalletProfile?
     @State private var renamed: WalletProfile?
     @State private var name = ""
     var body: some View {
@@ -27,7 +28,11 @@ struct WalletPickerView: View {
                                 Image(systemName: store.walletID == profile.id ? "checkmark.circle.fill" : "chevron.right").foregroundStyle(PaperclipTheme.orange)
                             }.frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
                         }.buttonStyle(.plain)
-                        Button("Rename") { name = profile.name; renamed = profile }.font(.caption)
+                        HStack {
+                            Button("Rename") { name = profile.name; renamed = profile }
+                            Spacer()
+                            Button("Remove wallet", role: .destructive) { removing = profile }
+                        }.font(.caption)
                     }
                 }
                 NavigationLink { AddWalletView() } label: {
@@ -41,6 +46,9 @@ struct WalletPickerView: View {
         }.background(WalletBackdrop()).navigationTitle("Wallets").navigationBarTitleDisplayMode(.inline)
             .disabled(store.busy)
             .toolbar { Button("Done") { dismiss() } }
+            .sheet(item: $removing) { profile in
+                NavigationStack { RemoveWalletView(profile: profile) }
+            }
             .alert("Wallet name", isPresented: Binding(get: { renamed != nil }, set: { if !$0 { renamed = nil } })) {
                 TextField("Name", text: $name)
                 Button("Save") {
@@ -197,5 +205,63 @@ struct WalletSendView: View {
         if store.isHardware { HardwareSendView() }
         else if store.isWatchOnly { ContentUnavailableView("Watch-only wallet", systemImage: "eye", description: Text("Payments must be signed from the wallet that holds these keys.")) }
         else { SendView() }
+    }
+}
+
+struct RemoveWalletView: View {
+    let profile: WalletProfile
+    @EnvironmentObject private var store: WalletStore
+    @Environment(\.dismiss) private var dismiss
+    @State private var acknowledgement = false
+    @State private var confirmation = ""
+    @State private var confirming = false
+    private var ready: Bool { acknowledgement && confirmation == "REMOVE " + profile.name }
+
+    var body: some View {
+        ScrollView { VStack(spacing: 20) {
+            WalletSection {
+                Label("Remove from this device", systemImage: "trash").font(.title2.bold())
+                Text(profile.name).font(.headline)
+                Text(profile.kind.title).foregroundStyle(PaperclipTheme.muted)
+                Text("This permanently deletes this wallet’s local data and connection settings. It does not move or return any funds. Other wallets, your Lightning node connection, and backups saved elsewhere remain unchanged.")
+            }
+            WalletSection("Before you continue") {
+                if profile.supportsArk {
+                    Text("Both Taproot and SegWit accounts, Coinjoin data, and Ark recovery data belong to this wallet and will be removed.")
+                    Text("Finish pending payments, rounds, and exits first. Save your seed words and a current encrypted full-wallet backup outside this app. Seed words alone may not recover all Ark funds or pending Coinjoin state.")
+                    Toggle("I have verified my seed backup and saved a current encrypted wallet backup outside this app.", isOn: $acknowledgement)
+                } else {
+                    Text("Your hardware device and its keys are not erased. Keep your public descriptor or account export so you can add this wallet again.")
+                    Toggle("I have saved the public wallet export needed to add this wallet again.", isOn: $acknowledgement)
+                }
+                Text("Paperclip cannot verify your backup. Without the required recovery data, you may lose access to funds.")
+                    .font(.caption).foregroundStyle(PaperclipTheme.muted)
+            }
+            WalletSection("Confirm removal") {
+                Text("Type exactly:").font(.subheadline)
+                Text("REMOVE " + profile.name).font(.callout.monospaced()).textSelection(.enabled)
+                TextField("Confirmation", text: $confirmation).textInputAutocapitalization(.never).autocorrectionDisabled()
+                Button("Remove wallet from this device", role: .destructive) { confirming = true }
+                    .buttonStyle(.bordered).disabled(!ready || store.busy)
+                Text("Device authentication is required, even if app locking is disabled.").font(.caption).foregroundStyle(PaperclipTheme.muted)
+                if store.busy { ProgressView() }
+                if !store.message.isEmpty { Text(store.message).font(.caption) }
+            }
+        }.padding(22).textFieldStyle(WalletInputStyle()).disabled(store.busy) }
+        .background(WalletBackdrop()).navigationTitle("Remove wallet").navigationBarTitleDisplayMode(.inline)
+        .interactiveDismissDisabled(store.busy)
+        .toolbar { Button("Cancel") { dismiss() }.disabled(store.busy) }
+        .alert("Permanently remove “\(profile.name)” from this device?", isPresented: $confirming) {
+            Button("Cancel", role: .cancel) { }
+            Button("Remove wallet", role: .destructive) {
+                guard ready else { return }
+                store.run {
+                    try await store.engine.removeWallet(profile, confirmation: confirmation, backupAcknowledged: acknowledgement)
+                    await Maintenance.shared.forgetWallet(profile.id)
+                    await store.load()
+                    dismiss()
+                }
+            }
+        } message: { Text("There is no undo. Restoring requires your saved recovery data. No funds will be transferred.") }
     }
 }
