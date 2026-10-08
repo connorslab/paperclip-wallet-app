@@ -104,7 +104,7 @@ struct DashboardView: View {
                 }.foregroundStyle(PaperclipTheme.muted)
                 WalletCard {
                     HStack {
-                        Text("Your XBT. Within reach.").font(.title3.bold())
+                        Text("Your Keys. Your Bitcoin.").font(.title3.bold())
                         Spacer(minLength: 0)
                     }
                     VStack(alignment: .leading, spacing: 6) {
