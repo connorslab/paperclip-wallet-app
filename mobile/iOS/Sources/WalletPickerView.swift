@@ -91,44 +91,90 @@ struct PublicWalletImportView: View {
     @State private var connection: WalletConnection?
     @State private var scanning = false
     @State private var collector = SigningQRCollector()
+    @State private var reviewing = false
+    @State private var manual = false
+    @State private var help = false
+    private var hasExport: Bool { !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
     var body: some View {
         ScrollView { VStack(spacing: 20) {
             WalletSection {
-                Label(hardware ? "Pair your hardware wallet" : "Keep an eye on your XBT", systemImage: hardware ? "qrcode" : "eye").font(.title2.bold())
-                Text(hardware ? "Export an account public key or descriptor from your BLAKE2b Krux or SeedSigner. You’ll confirm and sign payments on the device." : "Import an account public key to see its balance, addresses, and transactions. This wallet cannot sign payments.").foregroundStyle(PaperclipTheme.muted)
+                WalletBrand()
+                Text(reviewing ? "Review your wallet" : (hardware ? "Connect your signer" : "Follow your wallet")).font(.title2.bold())
+                Text(reviewing ? "Check the account details before adding this wallet." : (hardware ? "Scan your device’s public wallet export. Your keys stay on the hardware wallet; Paperclip prepares payments for you to sign." : "Scan a public wallet export to follow its balance and activity. Private keys stay in the original wallet.")).foregroundStyle(PaperclipTheme.muted)
+                Label(reviewing ? "Step 2 of 2 · Account details" : "Step 1 of 2 · Public wallet export", systemImage: reviewing ? "checklist" : "qrcode").font(.caption.bold()).foregroundStyle(PaperclipTheme.orange)
             }
-            WalletSection("Wallet") {
-                TextField("Wallet name", text: $name)
-                Picker("Network", selection: $network) { Text("XBT mainnet").tag("xbt-mainnet"); Text("Regtest").tag("xbt-regtest") }
-                NavigationLink("Connection settings") { ConnectionsView(isSetup: true, onSave: { connection = $0 }, initialSettings: connection, onchainOnly: true) }
-                Button { collector = SigningQRCollector(); scanning = true } label: { Label("Scan public wallet QR", systemImage: "qrcode.viewfinder") }.buttonStyle(.bordered)
-                TextField("Account XPUB or public descriptor", text: $value, axis: .vertical).lineLimit(3...6)
-                    .textInputAutocapitalization(.never).autocorrectionDisabled()
-                if !value.contains("(") {
-                    Picker("Address type", selection: $script) {
-                        Text("Native SegWit · BIP84").tag("segwit")
-                        Text("Taproot · BIP86").tag("taproot")
-                        Text("Nested SegWit · BIP49").tag("nested")
-                        Text("Legacy · BIP44").tag("legacy")
+            if !reviewing {
+                WalletSection {
+                    Image(systemName: "qrcode.viewfinder").font(.system(size: 48)).foregroundStyle(PaperclipTheme.orange).frame(maxWidth: .infinity).padding(.vertical, 8)
+                    Button { collector = SigningQRCollector(); scanning = true } label: {
+                        Label("Scan wallet QR", systemImage: "camera").frame(maxWidth: .infinity)
+                    }.modifier(GlassAction())
+                    Text("Scan an account public key or descriptor, never seed words.").font(.caption).foregroundStyle(PaperclipTheme.muted)
+                    DisclosureGroup("Paste an export instead", isExpanded: $manual) {
+                        TextField("Account XPUB or public descriptor", text: $value, axis: .vertical).lineLimit(3...6)
+                            .textInputAutocapitalization(.never).autocorrectionDisabled().font(.callout.monospaced())
                     }
-                    if hardware && !value.hasPrefix("[") {
-                        TextField("Origin, e.g. a1b2c3d4/84h/0h/0h", text: $origin).textInputAutocapitalization(.never).autocorrectionDisabled()
-                        Text("Copy the master fingerprint and account derivation path from your signer. A descriptor or [fingerprint/path] key includes these already.").font(.caption)
+                    if hasExport {
+                        Button("Continue to account details") { reviewing = true }.buttonStyle(.borderedProminent).controlSize(.large)
                     }
                 }
-                Text("Use the same address type as the exporting wallet. Compare Paperclip’s first receive address with the device before funding it. Single-key wallets are supported; choose plain QR or BBQr when exporting. On SeedSigner, choose Specter to export the account key. Signed PSBTs support animated UR automatically.")
-                    .font(.caption).foregroundStyle(PaperclipTheme.muted)
-            }
-            Button(hardware ? "Add hardware wallet" : "Add watch-only wallet") {
-                store.run {
-                    _ = try await store.engine.addPublicWallet(name: name, value: value, script: script, origin: origin, network: network, hardware: hardware, connection: connection)
-                    await store.load()
+                WalletSection {
+                    DisclosureGroup("How to export from your device", isExpanded: $help) {
+                        Text("Use a BLAKE2b-compatible Krux or SeedSigner with a single-key wallet.").font(.subheadline)
+                        Text("Krux: export the account public key or descriptor as plain QR or BBQr.\n\nSeedSigner: choose Specter for the account-key export.").font(.subheadline).foregroundStyle(PaperclipTheme.muted)
+                        Text("When paying later, you’ll scan the payment on your signer, approve it there, then scan the signed transaction back into Paperclip. Animated UR is supported for signed PSBTs.").font(.caption).foregroundStyle(PaperclipTheme.muted)
+                    }
                 }
-            }.buttonStyle(.borderedProminent).controlSize(.large).disabled(value.isEmpty || name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || store.busy)
-            if store.busy { ProgressView() }
-            Text(store.message).font(.caption).foregroundStyle(PaperclipTheme.muted)
+            } else {
+                WalletSection("Public wallet export") {
+                    Label("Export captured", systemImage: "qrcode").font(.headline)
+                    DisclosureGroup("View public export") {
+                        Text(value).font(.caption.monospaced()).textSelection(.enabled)
+                    }
+                    Button("Scan or edit again") { reviewing = false; manual = true }
+                }
+                WalletSection("Account details") {
+                    Text("Wallet name").font(.subheadline.bold())
+                    TextField("Wallet name", text: $name)
+                    if !value.contains("(") {
+                        Picker("Address type", selection: $script) {
+                            Text("Native SegWit · BIP84").tag("segwit")
+                            Text("Taproot · BIP86").tag("taproot")
+                            Text("Nested SegWit · BIP49").tag("nested")
+                            Text("Legacy · BIP44").tag("legacy")
+                        }
+                        Text("Match the address type selected on the exporting wallet.").font(.caption).foregroundStyle(PaperclipTheme.muted)
+                        if hardware && !value.hasPrefix("[") {
+                            Text("Key origin").font(.subheadline.bold())
+                            TextField("a1b2c3d4/84h/0h/0h", text: $origin).textInputAutocapitalization(.never).autocorrectionDisabled()
+                            Text("Enter the master fingerprint and account derivation path shown on your signer. Descriptors and [fingerprint/path] keys already include them.").font(.caption).foregroundStyle(PaperclipTheme.muted)
+                        }
+                    }
+                }
+                WalletSection {
+                    Label("Compare before receiving", systemImage: "checkmark.shield").font(.headline)
+                    Text("After adding the wallet, compare Paperclip’s first receive address with your device before sending funds to it.").font(.subheadline).foregroundStyle(PaperclipTheme.muted)
+                    Button(hardware ? "Add hardware wallet" : "Add watch-only wallet") {
+                        store.run {
+                            _ = try await store.engine.addPublicWallet(name: name, value: value, script: script, origin: origin, network: network, hardware: hardware, connection: connection)
+                            await store.load()
+                        }
+                    }.buttonStyle(.borderedProminent).controlSize(.large).disabled(!hasExport || name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || store.busy)
+                }
+            }
+            WalletSection {
+                DisclosureGroup("Network & connection") {
+                    Picker("Network", selection: $network) { Text("XBT mainnet").tag("xbt-mainnet"); Text("Regtest").tag("xbt-regtest") }
+                    NavigationLink { ConnectionsView(isSetup: true, onSave: { connection = $0 }, initialSettings: connection, onchainOnly: true) } label: {
+                        WalletNavigationRow("Connection settings", subtitle: "Choose your chain backend and Tor route", icon: "network")
+                    }.buttonStyle(.plain)
+                }
+            }
+            if store.busy { ProgressView("Adding wallet…") }
+            if !store.message.isEmpty { Text(store.message).font(.caption).foregroundStyle(PaperclipTheme.muted).textSelection(.enabled) }
         }.padding(22).textFieldStyle(WalletInputStyle()) }.background(PaperclipTheme.navy)
             .navigationTitle(hardware ? "Hardware wallet" : "Watch-only wallet").navigationBarTitleDisplayMode(.inline)
+            .disabled(store.busy)
             .task { if name.isEmpty { name = hardware ? "Hardware wallet" : "Watch-only wallet" }; network = store.network }
             .fullScreenCover(isPresented: $scanning) {
                 QRScannerView(title: "Scan public wallet", instruction: "Show the public key or descriptor QR from your wallet. Never scan seed words here.") { frame in
@@ -137,6 +183,7 @@ struct PublicWalletImportView: View {
                         guard let text = String(data: data, encoding: .utf8), text.utf8.count <= 4096 else { throw SigningQRError.invalid }
                         if let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any], let descriptor = object["descriptor"] as? String { value = descriptor }
                         else { value = text }
+                        reviewing = true
                         return (true, "Public wallet scanned")
                     } catch { return (false, error.localizedDescription) }
                 }
