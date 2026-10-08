@@ -59,7 +59,7 @@ struct SendView: View {
                     } else {
                         Label("Amount comes from the invoice", systemImage: "bolt.fill").font(.subheadline).foregroundStyle(PaperclipTheme.muted)
                     }
-                    Button { review() } label: { Text("Review payment").frame(maxWidth: .infinity) }.modifier(GlassAction())
+                    Button { review() } label: { Text("Review payment").frame(maxWidth: .infinity) }.buttonStyle(WalletPrimaryButtonStyle())
                         .disabled(store.busy || target.isEmpty || submitted)
                 }
                 if let total, let reviewedAmount {
@@ -71,7 +71,7 @@ struct SendView: View {
                         LabeledContent("Total debit", value: unit.display(total)).font(.headline)
                         Text(target).font(.caption.monospaced()).lineLimit(4).textSelection(.enabled)
                         Text("Review is valid for 60 seconds. If costs change, review again.").font(.caption).foregroundStyle(PaperclipTheme.muted)
-                        Button("Confirm payment") { confirmation = true }.modifier(GlassAction()).disabled(store.busy)
+                        Button("Confirm payment") { confirmation = true }.buttonStyle(WalletPrimaryButtonStyle()).disabled(store.busy)
                     }
                 }
                 if store.busy || !status.isEmpty {
@@ -85,7 +85,7 @@ struct SendView: View {
                     }
                 }
             }.padding(22).textFieldStyle(WalletInputStyle())
-        }.background(PaperclipTheme.navy.ignoresSafeArea()).navigationTitle(onchain ? "Send XBT" : "Pay from Ark")
+        }.background(WalletBackdrop()).navigationTitle(onchain ? "Send XBT" : "Pay from Ark")
             .toolbar { Button("Done") { dismiss() } }
             .task {
                 if let overview = try? await store.engine.onchainOverview() { store.onchain = (overview["total_sat"] as? NSNumber)?.uint64Value }
@@ -232,7 +232,7 @@ struct ReceiveView: View {
                         value = result["invoice"] as? String ?? ""
                         paymentHash = result["payment_hash"] as? String ?? ""
                     } else { value = try await store.engine.address(ark: route == 1) }
-                } }.buttonStyle(.borderedProminent).disabled(store.busy)
+                } }.buttonStyle(WalletPrimaryButtonStyle()).disabled(store.busy)
                 if route == 0 { NavigationLink("View on-chain addresses") { OnchainAddressesView() } }
                 }
                 }
@@ -274,7 +274,7 @@ struct ReceiveView: View {
                 Text(store.message).font(.caption).foregroundStyle(.secondary)
             }.frame(maxWidth: .infinity).padding(24)
         }.frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(PaperclipTheme.navy.ignoresSafeArea()).navigationTitle("Receive XBT").toolbar { Button("Done") { dismiss() } }
+            .background(WalletBackdrop()).navigationTitle("Receive XBT").toolbar { Button("Done") { dismiss() } }
             .navigationBarTitleDisplayMode(.inline)
             .sheet(isPresented: $choosingMethod) {
                 NavigationStack {
@@ -297,7 +297,7 @@ struct ReceiveView: View {
                                 }.buttonStyle(.plain)
                             }
                         }.padding(24)
-                    }.background(PaperclipTheme.navy).navigationTitle("Receive method")
+                    }.background(WalletBackdrop()).navigationTitle("Receive method")
                         .navigationBarTitleDisplayMode(.inline)
                         .toolbar { Button("Done") { choosingMethod = false } }
                 }.presentationDragIndicator(.visible)
@@ -448,7 +448,7 @@ struct ArkToolsView: View {
             if page != .exit && !status.isEmpty { WalletSection { Text(status).font(.caption).textSelection(.enabled) } }
             WalletSection { if store.busy { ProgressView() }; Text(store.message).font(.caption) }
           }.padding(22).textFieldStyle(WalletInputStyle())
-        }.background(PaperclipTheme.navy.ignoresSafeArea()).navigationTitle(page.title).disabled(store.busy)
+        }.background(WalletBackdrop()).navigationTitle(page.title).disabled(store.busy)
             .task {
                 recoveryRequired = UserDefaults.standard.bool(forKey: "seedRecoveryRequired-" + store.walletID)
                     || (store.walletID == "legacy" && UserDefaults.standard.bool(forKey: "seedRecoveryRequired"))
@@ -512,7 +512,7 @@ struct ArkLightningReceivesView: View {
             if hashes.isEmpty { Text("No pending Lightning receives loaded.") }
             Text(store.message).font(.caption)
           }.padding(22)
-        }.background(PaperclipTheme.navy.ignoresSafeArea()).navigationTitle("Lightning receives")
+        }.background(WalletBackdrop()).navigationTitle("Lightning receives")
             .toolbar { Button("Refresh") { refresh() }.disabled(store.busy) }
             .task { refresh() }
     }
@@ -563,7 +563,7 @@ struct OnchainAddressesView: View {
                         ScrollView {
                             ReceiveCode(value: entry.address).frame(maxWidth: .infinity).padding(24)
                         }.frame(maxWidth: .infinity, maxHeight: .infinity)
-                            .background(PaperclipTheme.navy.ignoresSafeArea())
+                            .background(WalletBackdrop())
                             .navigationTitle("Address #\(entry.id)")
                     } label: {
                         VStack(alignment: .leading, spacing: 8) {
@@ -584,7 +584,7 @@ struct OnchainAddressesView: View {
                 if !error.isEmpty { Text(error).font(.caption) }
             }
         }.padding(22) }.navigationTitle("On-chain addresses")
-            .scrollContentBackground(.hidden).background(PaperclipTheme.navy)
+            .scrollContentBackground(.hidden).background(WalletBackdrop())
             .onChange(of: change) { _, _ in start = 0 }
             .task(id: "\(start)-\(change)") {
                 loading = true; error = ""

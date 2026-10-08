@@ -58,7 +58,7 @@ struct CoinjoinView: View {
                 pageButton(.guide, subtitle: "How it works, privacy, and recovery", icon: "info.circle")
             }
             status
-        }.padding(22) }.background(PaperclipTheme.navy).navigationTitle("Coinjoin").navigationBarTitleDisplayMode(.inline)
+        }.padding(22) }.background(WalletBackdrop()).navigationTitle("Coinjoin").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .primaryAction) {
                 Button { model.perform { try await model.action("coinjoin_sync") } } label: { Image(systemName: "arrow.clockwise") }
                     .accessibilityLabel("Refresh Coinjoin account").disabled(model.busy)
@@ -77,7 +77,7 @@ struct CoinjoinView: View {
                         case .guide: guideContent
                         }
                         status
-                    }.padding(22) }.background(PaperclipTheme.navy)
+                    }.padding(22) }.background(WalletBackdrop())
                         .navigationTitle(destination.rawValue).navigationBarTitleDisplayMode(.inline)
                         .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { page = nil } } }
                 }
@@ -134,7 +134,7 @@ struct CoinjoinView: View {
                 }
                 if !model.connected {
                     Text("Connect to discover pools and their current terms.").foregroundStyle(PaperclipTheme.muted)
-                    Button("Connect to relay") { model.perform { try await model.connect() } }.buttonStyle(.borderedProminent).disabled(model.busy)
+                    Button("Connect to relay") { model.perform { try await model.connect() } }.buttonStyle(WalletPrimaryButtonStyle()).disabled(model.busy)
                 } else if model.pools.isEmpty {
                     Label("Waiting for open pools", systemImage: "person.2.wave.2").font(.headline)
                     Text("Pools appear here as they are announced. You can also create one and wait for others to join.").font(.subheadline).foregroundStyle(PaperclipTheme.muted)
@@ -231,10 +231,10 @@ struct CoinjoinView: View {
                 Toggle("Use built-in Tor", isOn: $model.useTor)
                 Text("Everyone in a pool must use the same relay. Active rounds retain their original relay and Tor route.").font(.caption)
                 Text("Output posts use a separate connection and fresh Tor isolation credentials. Timing and other network observations can still link activity.").font(.caption).foregroundStyle(PaperclipTheme.muted)
-                Button("Connect") { model.perform { try await model.connect(); showConnection = false } }.buttonStyle(.borderedProminent)
+                Button("Connect") { model.perform { try await model.connect(); showConnection = false } }.buttonStyle(WalletPrimaryButtonStyle())
             }.disabled(model.busy)
             if model.busy { ProgressView() }; Text(model.message).font(.caption)
-        }.padding(22).textFieldStyle(WalletInputStyle()) }.background(PaperclipTheme.navy).navigationTitle("Coinjoin relay")
+        }.padding(22).textFieldStyle(WalletInputStyle()) }.background(WalletBackdrop()).navigationTitle("Coinjoin relay")
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { showConnection = false } } }
     }
     private func roundTitle(_ phase: String) -> String {
@@ -275,7 +275,7 @@ struct CoinjoinView: View {
                     Button("Decline") { model.perform { try await model.action("coinjoin_vote", ["id": id, "accept": false]) } }
                 }
             }
-            if phase == "signing", round["signed"] as? Bool != true { Button("Review & sign") { signing = CoinjoinSelection(value: round) }.buttonStyle(.borderedProminent) }
+            if phase == "signing", round["signed"] as? Bool != true { Button("Review & sign") { signing = CoinjoinSelection(value: round) }.buttonStyle(WalletPrimaryButtonStyle()) }
             if round["signed"] as? Bool == true { Text("Signature released. This coin stays reserved until the transaction or a conflicting spend is confirmed. A timeout cannot recall a signature.").font(.caption) }
             else { Button("Leave round", role: .destructive) { leavingRound = id } }
             if let deadline = round["deadline"] as? NSNumber, deadline.uint64Value > 0 { Text("Deadline: " + Date(timeIntervalSince1970: deadline.doubleValue).formatted(date: .omitted, time: .standard)).font(.caption) }
@@ -350,10 +350,10 @@ private struct CoinjoinPoolForm: View {
                     Text("No spendable coins yet. Fund your Coinjoin account and wait for confirmation before joining.").font(.subheadline).foregroundStyle(PaperclipTheme.muted)
                 }
                 Text("Joining reserves the coin and shares its ownership proof. Your final transaction signature still needs a separate review. Change remains linked to your input.").font(.caption).foregroundStyle(PaperclipTheme.muted)
-                Button(pool == nil ? "Review new pool" : "Review join") { confirming = true }.buttonStyle(.borderedProminent).disabled(change == nil || model.busy || !model.connected)
+                Button(pool == nil ? "Review new pool" : "Review join") { confirming = true }.buttonStyle(WalletPrimaryButtonStyle()).disabled(change == nil || model.busy || !model.connected)
             }
             Text(model.message).font(.caption)
-        }.padding(22).textFieldStyle(WalletInputStyle()) }.background(PaperclipTheme.navy).navigationTitle(pool == nil ? "Create pool" : "Join pool").navigationBarTitleDisplayMode(.inline)
+        }.padding(22).textFieldStyle(WalletInputStyle()) }.background(WalletBackdrop()).navigationTitle(pool == nil ? "Create pool" : "Join pool").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
             .onChange(of: minimum) { _, n in maximum = max(maximum, n) }
             .confirmationDialog("Reserve this coin and join?", isPresented: $confirming) {
@@ -381,10 +381,10 @@ private struct CoinjoinSignView: View {
                 Text("Transaction ID").font(.caption.bold())
                 Text(round["plan_id"] as? String ?? "").font(.caption.monospaced()).textSelection(.enabled)
                 Text("Paperclip verifies every input against your chain backend, the agreed outputs and fees, and signs only your input with unified sighash 0x21. Once shared, your signature cannot be recalled.").font(.subheadline)
-                Button("Approve & share signature") { confirming = true }.buttonStyle(.borderedProminent).disabled(model.busy || !model.connected)
+                Button("Approve & share signature") { confirming = true }.buttonStyle(WalletPrimaryButtonStyle()).disabled(model.busy || !model.connected)
             }
             Text(model.message).font(.caption)
-        }.padding(22) }.background(PaperclipTheme.navy).navigationTitle("Sign Coinjoin")
+        }.padding(22) }.background(WalletBackdrop()).navigationTitle("Sign Coinjoin")
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
             .alert("Release your transaction signature?", isPresented: $confirming) {
                 Button("Sign transaction") { model.perform {
@@ -431,7 +431,7 @@ private struct CoinjoinTransferView: View {
                         fields["amount_sat"] = sats + UInt64(ceil(feeRate * 104.25)); fields["unmixed_confirmed"] = unmixedConfirmed
                     }
                     quote = try await model.call("coinjoin_quote", fields)
-                } }.buttonStyle(.borderedProminent)
+                } }.buttonStyle(WalletPrimaryButtonStyle())
             }.disabled(model.busy || submitted)
             if let quote {
                 WalletSection("Review") {
@@ -444,11 +444,11 @@ private struct CoinjoinTransferView: View {
                         LabeledContent("Recovery funding · deducted", value: unit.display((quote["reserve_sat"] as? NSNumber)?.uint64Value))
                         LabeledContent("Spendable in Ark", value: unit.display((quote["net_sat"] as? NSNumber)?.uint64Value))
                     }
-                    Button("Confirm transfer") { confirming = true }.buttonStyle(.borderedProminent).disabled(model.busy || submitted)
+                    Button("Confirm transfer") { confirming = true }.buttonStyle(WalletPrimaryButtonStyle()).disabled(model.busy || submitted)
                 }
             }
             Text(model.message).font(.caption)
-        }.padding(22).textFieldStyle(WalletInputStyle()) }.background(PaperclipTheme.navy).navigationTitle("Manage coin").navigationBarTitleDisplayMode(.inline)
+        }.padding(22).textFieldStyle(WalletInputStyle()) }.background(WalletBackdrop()).navigationTitle("Manage coin").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
             .onChange(of: action) { _, _ in quote = nil }.onChange(of: amount) { _, _ in quote = nil }.onChange(of: rate) { _, _ in quote = nil }.onChange(of: destination) { _, _ in quote = nil }
             .confirmationDialog("Send this single-coin transfer?", isPresented: $confirming) {

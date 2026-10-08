@@ -60,7 +60,7 @@ struct LightningView: View {
                     Label("Your node. Your Lightning.", systemImage: "bolt.fill").font(.title2.bold())
                     Text("Connect your XBT Core Lightning or LND node to send and receive payments with Paperclip.")
                         .foregroundStyle(PaperclipTheme.muted)
-                    Button("Connect a node") { page = .connection }.buttonStyle(.borderedProminent)
+                    Button("Connect a node") { page = .connection }.buttonStyle(WalletPrimaryButtonStyle())
                     if !connectionError.isEmpty { Text(connectionError).font(.caption).foregroundStyle(PaperclipTheme.muted) }
                 }
             }
@@ -78,7 +78,7 @@ struct LightningView: View {
                 .font(.caption).foregroundStyle(PaperclipTheme.muted).frame(maxWidth: .infinity, alignment: .leading)
             if store.busy { ProgressView("Connecting…") }
           }.padding(22).textFieldStyle(WalletInputStyle())
-        }.navigationTitle("Lightning").background(PaperclipTheme.navy.ignoresSafeArea()).disabled(store.busy)
+        }.navigationTitle("Lightning").background(WalletBackdrop()).disabled(store.busy)
             .navigationDestination(item: $page) { selected in
                 ScrollView {
                     VStack(spacing: 20) {
@@ -91,7 +91,7 @@ struct LightningView: View {
                         }
                         if store.busy || !store.message.isEmpty { WalletSection { if store.busy { ProgressView() }; Text(store.message).font(.caption) } }
                     }.padding(22).textFieldStyle(WalletInputStyle()).disabled(store.busy)
-                }.background(PaperclipTheme.navy.ignoresSafeArea()).navigationTitle(selected.rawValue).navigationBarTitleDisplayMode(.inline)
+                }.background(WalletBackdrop()).navigationTitle(selected.rawValue).navigationBarTitleDisplayMode(.inline)
             .confirmationDialog("Pay this Lightning invoice?", isPresented: $confirming) {
                 Button("Pay invoice") { pay() }
             } message: { Text("\(reviewAmount)\nMaximum fee: \(maximumFee) \(unit.title)\n\(payInvoice)") }
@@ -159,7 +159,7 @@ struct LightningView: View {
                         TorProxyPicker(selection: $connection.torProxy)
                         Text("Enter your .onion REST address in the node URL field above.").font(.caption)
                     }
-                    Button("Save and connect") { connect() }.disabled(pending != nil)
+                    Button("Save and connect") { connect() }.buttonStyle(WalletPrimaryButtonStyle()).disabled(pending != nil)
                     Text("Use a node-scoped rune or macaroon with only the permissions you need. Credentials stay in device-only Keychain.").font(.caption)
                 }.disabled(pending != nil)
             }
@@ -183,7 +183,7 @@ struct LightningView: View {
                             guard let sats = unit.parse(amount), sats > 0 else { throw WalletFailure(message: "Enter a positive amount.") }
                             receiveInvoice = try await client.invoice(amount: sats)
                         }
-                    } }.modifier(GlassAction())
+                    } }.buttonStyle(WalletPrimaryButtonStyle())
                     Text(receiveOffer ? "Reusable offer. Your node handles invoice requests and must stay online. Manage saved offers on your node." : "Payments go to your connected Lightning node.").font(.caption)
                     if connection.implementation == .lnd { Text("BOLT12 offer creation is available for Core Lightning nodes.").font(.caption) }
                     if !receiveInvoice.isEmpty { ReceiveCode(value: receiveInvoice) }
@@ -205,12 +205,12 @@ struct LightningView: View {
                         Text("Enter an amount for an amountless offer. Leave blank to use a fixed amount set by the offer.").font(.caption).foregroundStyle(PaperclipTheme.muted)
                     }
                     TextField("Maximum routing fee in \(unit.title)", text: $maximumFee).keyboardType(.decimalPad)
-                    Button(payOffer ? "Request invoice & review" : "Review invoice") { review() }.disabled(pending != nil)
+                    Button(payOffer ? "Request invoice & review" : "Review invoice") { review() }.buttonStyle(WalletPrimaryButtonStyle()).disabled(pending != nil)
                     if reviewedHash != nil {
                         if !reviewDescription.isEmpty { Text(reviewDescription).font(.subheadline).textSelection(.enabled) }
                         LabeledContent("Amount", value: reviewAmount)
                         LabeledContent("Maximum fee", value: "\(maximumFee) \(unit.title)")
-                        Button("Confirm Lightning payment") { confirming = true }.disabled(pending != nil)
+                        Button("Confirm Lightning payment") { confirming = true }.buttonStyle(WalletPrimaryButtonStyle()).disabled(pending != nil)
                     }
                     if pending != nil { Text(payments.status).font(.caption).textSelection(.enabled) }
                     if !status.isEmpty && pending == nil { Text(status).font(.caption).textSelection(.enabled) }

@@ -48,7 +48,7 @@ struct HardwareSendView: View {
                             guard let text = result["psbt"] as? String, let data = Data(base64Encoded: text) else { throw SigningQRError.invalid }
                             frames = try SigningQR.frames(data); prepared = result; status = ""
                         }
-                    }.buttonStyle(.borderedProminent).disabled(store.busy || destination.isEmpty)
+                    }.buttonStyle(WalletPrimaryButtonStyle()).disabled(store.busy || destination.isEmpty)
                 }.disabled(store.busy)
             } else {
                 WalletSection("Review payment") {
@@ -60,7 +60,7 @@ struct HardwareSendView: View {
                 if verifiedID.isEmpty && !submitted {
                     WalletSection("2 · Sign on your device") {
                         Text("On Krux, choose Sign PSBT. On SeedSigner, choose Scan. Scan the animated request. Verify the recipient, amount, fee, and change on its screen before signing.").font(.subheadline)
-                        Button("Show signing QR") { showingQR = true }.buttonStyle(.borderedProminent)
+                        Button("Show signing QR") { showingQR = true }.buttonStyle(WalletPrimaryButtonStyle())
                         Button("Scan signed QR") { collector = SigningQRCollector(); scanningSignature = true }.buttonStyle(.bordered)
                         Text("Scan the signed response directly. Animated UR (SeedSigner), BBQr (Krux), base64, and pNofM are supported. This request expires after 30 minutes.")
                             .font(.caption).foregroundStyle(PaperclipTheme.muted)
@@ -71,7 +71,7 @@ struct HardwareSendView: View {
                         Label("Signatures verified", systemImage: "checkmark.shield.fill").foregroundStyle(.green)
                         Text("Every input uses unified SIGHASH_ALL. The transaction matches the payment you reviewed.").font(.subheadline)
                         Text(verifiedID).font(.caption.monospaced()).textSelection(.enabled)
-                        Button("Confirm and broadcast") { confirming = true }.buttonStyle(.borderedProminent).disabled(store.busy)
+                        Button("Confirm and broadcast") { confirming = true }.buttonStyle(WalletPrimaryButtonStyle()).disabled(store.busy)
                     }
                 }
                 if !submitted { Button("Start over", role: .destructive) {
@@ -84,7 +84,7 @@ struct HardwareSendView: View {
             if !status.isEmpty { WalletSection { Text(status).font(.subheadline) } }
             if store.busy { ProgressView("Working…") }
             Text(store.message).font(.caption).foregroundStyle(PaperclipTheme.muted)
-        }.padding(22).textFieldStyle(WalletInputStyle()) }.background(PaperclipTheme.navy)
+        }.padding(22).textFieldStyle(WalletInputStyle()) }.background(WalletBackdrop())
             .navigationTitle("Hardware payment").navigationBarTitleDisplayMode(.inline)
             .toolbar { Button("Done") { dismiss() } }
             .task { if let overview = try? await store.engine.onchainOverview() { store.onchain = (overview["total_sat"] as? NSNumber)?.uint64Value } }
@@ -147,7 +147,7 @@ struct SigningQRDisplay: View {
             }
             Text("This request contains no private keys. Verify every payment detail on your signer, then return to scan its signed response.")
                 .font(.subheadline).foregroundStyle(PaperclipTheme.muted).multilineTextAlignment(.center)
-        }.padding(24) }.background(PaperclipTheme.navy).navigationTitle("Signing request").navigationBarTitleDisplayMode(.inline)
+        }.padding(24) }.background(WalletBackdrop()).navigationTitle("Signing request").navigationBarTitleDisplayMode(.inline)
             .toolbar { Button("Done") { dismiss() } }
             .onReceive(timer) { _ in if !paused && frames.count > 1 { index = (index + 1) % frames.count } }
     }

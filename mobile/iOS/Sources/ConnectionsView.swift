@@ -25,7 +25,7 @@ struct ConnectionsView: View {
                 }
                 saveCard
             }.padding(22)
-        }.navigationTitle("Connections").background(PaperclipTheme.navy.ignoresSafeArea())
+        }.navigationTitle("Connections").background(WalletBackdrop())
             .task {
                 do {
                     let saved: WalletConnection?
@@ -43,7 +43,7 @@ struct ConnectionsView: View {
             }
             saveCard
         }.padding(22).textFieldStyle(WalletInputStyle()).disabled(store.busy) }
-            .navigationTitle(title).navigationBarTitleDisplayMode(.inline).background(PaperclipTheme.navy.ignoresSafeArea())
+            .navigationTitle(title).navigationBarTitleDisplayMode(.inline).background(WalletBackdrop())
     }
     private var chainCard: some View { WalletSection("On-chain") {
                 Toggle("Use Tor for on-chain", isOn: $settings.useTor).accessibilityIdentifier("onchain-tor")
@@ -142,7 +142,7 @@ struct SettingsView: View {
                     NavigationLink { ArkMaintenanceView() } label: { WalletNavigationRow("Ark maintenance", subtitle: "Refresh funds and expiry reminders", icon: "arrow.triangle.2.circlepath") } }
                 }
             }.padding(22)
-        }.navigationTitle("Settings").background(PaperclipTheme.navy.ignoresSafeArea())
+        }.navigationTitle("Settings").background(WalletBackdrop())
     }
 }
 
@@ -164,7 +164,7 @@ struct DisplaySettingsView: View {
                 }
                 Text("1 XBT = 100,000,000 sats. Applies to balances, payments, fees, and activity.").font(.caption)
             }
-        }.padding(22) }.navigationTitle("Appearance & units").background(PaperclipTheme.navy.ignoresSafeArea())
+        }.padding(22) }.navigationTitle("Appearance & units").background(WalletBackdrop())
     }
 }
 
@@ -180,7 +180,7 @@ struct SecuritySettingsView: View {
                 LabeledContent("On-chain signing", value: "Unified sighash · 0x21")
                 Text("Message ownership proofs use BIP322-simple. They cannot spend wallet funds.").font(.caption)
             }
-        }.padding(22) }.navigationTitle("Wallet security").background(PaperclipTheme.navy.ignoresSafeArea())
+        }.padding(22) }.navigationTitle("Wallet security").background(WalletBackdrop())
     }
 }
 
@@ -197,6 +197,6 @@ struct ArkMaintenanceView: View {
                 Button("Enable expiry reminders") { Task { await maintenance.enableNotifications() } }
                 Text(maintenance.notificationStatus).font(.caption)
             }
-        }.padding(22) }.navigationTitle("Ark maintenance").background(PaperclipTheme.navy.ignoresSafeArea())
+        }.padding(22) }.navigationTitle("Ark maintenance").background(WalletBackdrop())
     }
 }

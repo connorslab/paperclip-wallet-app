@@ -38,7 +38,7 @@ struct WalletPickerView: View {
                 if store.busy { ProgressView() }
                 if !store.message.isEmpty { Text(store.message).font(.caption).foregroundStyle(PaperclipTheme.muted) }
             }.padding(22)
-        }.background(PaperclipTheme.navy).navigationTitle("Wallets").navigationBarTitleDisplayMode(.inline)
+        }.background(WalletBackdrop()).navigationTitle("Wallets").navigationBarTitleDisplayMode(.inline)
             .disabled(store.busy)
             .toolbar { Button("Done") { dismiss() } }
             .alert("Wallet name", isPresented: Binding(get: { renamed != nil }, set: { if !$0 { renamed = nil } })) {
@@ -76,7 +76,7 @@ struct AddWalletView: View {
                 }.buttonStyle(.plain)
             }
             Text("Hardware and watch-only wallets are on-chain wallets. Their private keys are never imported into Paperclip.").font(.caption).foregroundStyle(PaperclipTheme.muted)
-        }.padding(22) }.background(PaperclipTheme.navy).navigationTitle("Add wallet").navigationBarTitleDisplayMode(.inline)
+        }.padding(22) }.background(WalletBackdrop()).navigationTitle("Add wallet").navigationBarTitleDisplayMode(.inline)
     }
 }
 
@@ -115,7 +115,7 @@ struct PublicWalletImportView: View {
                             .textInputAutocapitalization(.never).autocorrectionDisabled().font(.callout.monospaced())
                     }
                     if hasExport {
-                        Button("Continue to account details") { reviewing = true }.buttonStyle(.borderedProminent).controlSize(.large)
+                        Button("Continue to account details") { reviewing = true }.buttonStyle(WalletPrimaryButtonStyle()).controlSize(.large)
                     }
                 }
                 WalletSection {
@@ -159,7 +159,7 @@ struct PublicWalletImportView: View {
                             _ = try await store.engine.addPublicWallet(name: name, value: value, script: script, origin: origin, network: network, hardware: hardware, connection: connection)
                             await store.load()
                         }
-                    }.buttonStyle(.borderedProminent).controlSize(.large).disabled(!hasExport || name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || store.busy)
+                    }.buttonStyle(WalletPrimaryButtonStyle()).controlSize(.large).disabled(!hasExport || name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || store.busy)
                 }
             }
             WalletSection {
@@ -172,7 +172,7 @@ struct PublicWalletImportView: View {
             }
             if store.busy { ProgressView("Adding wallet…") }
             if !store.message.isEmpty { Text(store.message).font(.caption).foregroundStyle(PaperclipTheme.muted).textSelection(.enabled) }
-        }.padding(22).textFieldStyle(WalletInputStyle()) }.background(PaperclipTheme.navy)
+        }.padding(22).textFieldStyle(WalletInputStyle()) }.background(WalletBackdrop())
             .navigationTitle(hardware ? "Hardware wallet" : "Watch-only wallet").navigationBarTitleDisplayMode(.inline)
             .disabled(store.busy)
             .task { if name.isEmpty { name = hardware ? "Hardware wallet" : "Watch-only wallet" }; network = store.network }

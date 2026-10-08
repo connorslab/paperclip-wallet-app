@@ -43,7 +43,7 @@ struct MessageSigningView: View {
                 }
                 if working || !status.isEmpty { WalletSection { if working { ProgressView() }; Text(status).font(.caption) } }
             }.padding(22).textFieldStyle(WalletInputStyle()).disabled(working)
-        }.background(PaperclipTheme.navy.ignoresSafeArea()).navigationTitle("Message signing")
+        }.background(WalletBackdrop()).navigationTitle("Message signing")
             .onChange(of: address) { _, _ in signature = ""; status = "" }
             .onChange(of: message) { _, _ in signature = ""; status = "" }
     }

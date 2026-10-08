@@ -33,7 +33,7 @@ struct SetupView: View {
                             TextEditor(text: $confirmation).frame(minHeight: 130).privacySensitive().accessibilityIdentifier("seed-confirmation")
                                 .textInputAutocapitalization(.never).autocorrectionDisabled()
                             Button("Verify and create wallet") { create(phrase, confirmation: confirmation) }
-                                .buttonStyle(.borderedProminent).disabled(!SeedVerification.matches(phrase: phrase, confirmation: confirmation))
+                                .buttonStyle(WalletPrimaryButtonStyle()).disabled(!SeedVerification.matches(phrase: phrase, confirmation: confirmation))
                                 .accessibilityIdentifier("verify-seed")
                             Button("Show words again") { verifying = false; confirmation = "" }
                         }
@@ -47,7 +47,7 @@ struct SetupView: View {
                                         .font(.system(.body, design: .monospaced))
                                 }
                             }.privacySensitive().accessibilityIdentifier("seed-words")
-                            Button("I wrote down every word") { verifying = true }.buttonStyle(.borderedProminent)
+                            Button("I wrote down every word") { verifying = true }.buttonStyle(WalletPrimaryButtonStyle())
                         }
                     } else {
                         WalletSection("Mobile wallet") {
@@ -55,7 +55,7 @@ struct SetupView: View {
                             Text("Create a wallet with keys stored securely on this iPhone. We’ll guide you through writing down and verifying your seed.").font(.subheadline).foregroundStyle(PaperclipTheme.muted)
                             Button { store.run { phrase = try await store.engine.generatePhrase() } } label: {
                                 Label("Create a wallet", systemImage: "plus").frame(maxWidth: .infinity)
-                            }.buttonStyle(.borderedProminent).controlSize(.large).accessibilityIdentifier("create-wallet")
+                            }.buttonStyle(WalletPrimaryButtonStyle()).controlSize(.large).accessibilityIdentifier("create-wallet")
                         }
                         WalletSection {
                             Button { importing = true } label: {
@@ -91,7 +91,7 @@ struct SetupView: View {
                     if store.busy { ProgressView() }
                     if !setupMessage.isEmpty { Text(setupMessage).font(.caption).foregroundStyle(PaperclipTheme.orange) }
                 }.padding(24)
-            }.background(PaperclipTheme.navy).disabled(store.busy)
+            }.background(WalletBackdrop()).disabled(store.busy)
                 .navigationTitle(verifying ? "Verify seed" : (!phrase.isEmpty ? "Back up seed" : "Mobile wallet"))
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbarBackground(PaperclipTheme.navy, for: .navigationBar)
@@ -128,7 +128,7 @@ struct SetupView: View {
                                 }.disabled(![12, 24].contains(importedPhrase.split(whereSeparator: \.isWhitespace).count) || store.busy)
                             }
                             Text(store.message).foregroundStyle(PaperclipTheme.orange)
-                        }.padding(22) }.background(PaperclipTheme.navy.ignoresSafeArea()).navigationTitle("Import wallet").toolbar {
+                        }.padding(22) }.background(WalletBackdrop()).navigationTitle("Import wallet").toolbar {
                             ToolbarItem(placement: .topBarLeading) {
                                 Button { importing = false; importedPhrase = "" } label: { Label("Back", systemImage: "chevron.left") }
                                     .disabled(store.busy).accessibilityIdentifier("import-back")

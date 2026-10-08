@@ -44,7 +44,7 @@ struct HardwareBoardView: View {
                     TextField("Deposit · " + unit.amountPrompt, text: $amount).keyboardType(.decimalPad)
                     Text("Use a native SegWit (BIP84) or Taproot (BIP86) account. Ark requires a stable funding transaction ID; legacy and nested SegWit accounts cannot board directly.")
                         .font(.caption).foregroundStyle(PaperclipTheme.muted)
-                    Button("Review boarding") { prepare() }.buttonStyle(.borderedProminent).disabled(sourceID.isEmpty || store.busy)
+                    Button("Review boarding") { prepare() }.buttonStyle(WalletPrimaryButtonStyle()).disabled(sourceID.isEmpty || store.busy)
                 }
             }
             if quote != nil {
@@ -68,7 +68,7 @@ struct HardwareBoardView: View {
                 if verifiedID.isEmpty && !submitted {
                     WalletSection("2 · Sign with your hardware wallet") {
                         Text("Scan this request with Krux or SeedSigner. Verify the Ark funding address, deposit, network fee, and change on the signer before approving.")
-                        Button("Show signing QR") { showingQR = true }.buttonStyle(.borderedProminent)
+                        Button("Show signing QR") { showingQR = true }.buttonStyle(WalletPrimaryButtonStyle())
                         Button("Scan signed QR") { collector = SigningQRCollector(); scanning = true }.buttonStyle(.bordered)
                         Text("Unified sighash (0x21) is required. The request expires after 30 minutes; fees are checked again before boarding. Scanning does not broadcast.").font(.caption)
                     }
@@ -76,7 +76,7 @@ struct HardwareBoardView: View {
                     WalletSection("3 · Complete boarding") {
                         Label("Hardware signatures verified", systemImage: "checkmark.shield.fill").foregroundStyle(.green)
                         Text("Paperclip saves Ark recovery data before sending the funding transaction. The Ark balance becomes available after the required confirmations.").font(.subheadline)
-                        Button("Confirm and board") { confirming = true }.buttonStyle(.borderedProminent).disabled(store.busy)
+                        Button("Confirm and board") { confirming = true }.buttonStyle(WalletPrimaryButtonStyle()).disabled(store.busy)
                     }
                 }
                 if !submitted { Button("Start over", role: .destructive) {
@@ -89,7 +89,7 @@ struct HardwareBoardView: View {
             if store.busy { ProgressView("Working…") }
             if !status.isEmpty { WalletSection { Text(status) } }
             Text(store.message).font(.caption).foregroundStyle(PaperclipTheme.muted)
-        }.padding(22).textFieldStyle(WalletInputStyle()) }.background(PaperclipTheme.navy)
+        }.padding(22).textFieldStyle(WalletInputStyle()) }.background(WalletBackdrop())
             .navigationTitle("Board from QR wallet").navigationBarTitleDisplayMode(.inline)
             .sheet(isPresented: $showingQR) { NavigationStack { SigningQRDisplay(frames: frames) } }
             .fullScreenCover(isPresented: $scanning) {

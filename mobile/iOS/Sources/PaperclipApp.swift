@@ -21,9 +21,9 @@ import PaperclipMobile
                     VStack(spacing: 24) {
                         Image(systemName: "lock.shield").font(.system(size: 56)).foregroundStyle(PaperclipTheme.orange)
                         Text("Your XBT. Your keys.").font(.title.bold())
-                        Button("Unlock Paperclip") { Task { await lock.unlock() } }.buttonStyle(.borderedProminent)
+                        Button("Unlock Paperclip") { Task { await lock.unlock() } }.buttonStyle(WalletPrimaryButtonStyle())
                         Text(lock.error).font(.caption).foregroundStyle(.secondary)
-                    }.frame(maxWidth: .infinity, maxHeight: .infinity).background(PaperclipTheme.navy)
+                    }.frame(maxWidth: .infinity, maxHeight: .infinity).background(WalletBackdrop())
                 }
                 if scene != .active {
                     PaperclipTheme.navy.ignoresSafeArea().overlay(Image("PaperclipLogo").resizable().scaledToFit().frame(width: 72, height: 72))
@@ -76,7 +76,7 @@ struct WalletView: View {
                     NavigationStack { SettingsView() }.tabItem { Label("Settings", systemImage: "slider.horizontal.3") }
                 }.id(store.walletID)
             }
-        }.background(PaperclipTheme.navy)
+        }.background(WalletBackdrop())
     }
 }
 
@@ -232,7 +232,7 @@ struct ActivityView: View {
             }
             Text(store.message).font(.caption)
           }.padding(22)
-        }.scrollContentBackground(.hidden).background(PaperclipTheme.navy).navigationTitle("Activity")
+        }.scrollContentBackground(.hidden).background(WalletBackdrop()).navigationTitle("Activity")
             .toolbar { Button("Refresh") { store.run { try await store.refreshActivity() } }.disabled(store.busy) }
     }
 }
@@ -295,7 +295,7 @@ struct OnchainOverviewView: View {
             }
           }.padding(22)
         }.navigationTitle("On-chain")
-            .scrollContentBackground(.hidden).background(PaperclipTheme.navy)
+            .scrollContentBackground(.hidden).background(WalletBackdrop())
             .toolbar {
                 Button { Task { await refresh() } } label: {
                     if loading { ProgressView() } else { Image(systemName: "arrow.clockwise") }
@@ -372,7 +372,7 @@ struct ArkOverviewView: View {
                 }
                 if !store.message.isEmpty { Text(store.message).font(.caption).foregroundStyle(PaperclipTheme.muted) }
             }.padding(22)
-        }.background(PaperclipTheme.navy.ignoresSafeArea()).navigationTitle("Ark")
+        }.background(WalletBackdrop()).navigationTitle("Ark")
             .toolbar { Button { refresh() } label: { Image(systemName: "arrow.clockwise") }.disabled(store.busy).accessibilityLabel("Refresh Ark") }
             .task { refresh() }
             .refreshable { refresh() }
@@ -455,6 +455,6 @@ struct OnchainTransactionView: View {
                     }
                 }
             }.padding(22)
-        }.background(PaperclipTheme.navy).navigationTitle("Transaction").navigationBarTitleDisplayMode(.inline)
+        }.background(WalletBackdrop()).navigationTitle("Transaction").navigationBarTitleDisplayMode(.inline)
     }
 }
