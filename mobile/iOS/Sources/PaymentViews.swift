@@ -310,6 +310,7 @@ struct ReceiveView: View {
 
 struct ReceiveCode: View {
     let value: String
+    var imageAsset: String? = nil
     @State private var copied = false
     var body: some View {
         VStack(spacing: 20) {
@@ -328,6 +329,7 @@ struct ReceiveCode: View {
         }.onChange(of: value) { _, _ in copied = false }
     }
     private var qr: UIImage? {
+        if let imageAsset { return UIImage(named: imageAsset) }
         let filter = CIFilter.qrCodeGenerator()
         filter.message = Data(value.utf8); filter.correctionLevel = "M"
         guard let output = filter.outputImage,

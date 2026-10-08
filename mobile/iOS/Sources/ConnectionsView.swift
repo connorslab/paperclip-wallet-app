@@ -220,7 +220,7 @@ struct DonationView: View {
                 }
                 WalletSection("Donate XBT") {
                     Label("XBT mainnet · On-chain", systemImage: "link").font(.subheadline)
-                    ReceiveCode(value: address)
+                    ReceiveCode(value: address, imageAsset: "DonationQR")
                     Text("Send any amount to this address using the XBT network. Donations are optional.")
                         .font(.caption).foregroundStyle(PaperclipTheme.muted)
                 }
