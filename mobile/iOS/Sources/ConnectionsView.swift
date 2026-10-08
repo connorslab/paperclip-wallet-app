@@ -24,8 +24,8 @@ struct ConnectionsView: View {
                     Text("Lightning node settings are shared across mobile wallets, on the Lightning tab.").font(.caption).foregroundStyle(PaperclipTheme.muted) }
                 }
                 saveCard
-            }.padding(22)
-        }.navigationTitle("Connections").background(WalletBackdrop())
+            }.walletPageContent()
+        }.navigationTitle("Connections").walletPageBackground()
             .task {
                 do {
                     let saved: WalletConnection?
@@ -42,8 +42,8 @@ struct ConnectionsView: View {
                 Text("Built-in Tor starts when connecting. Keep Paperclip open while it connects. A Tor connection never falls back to a direct connection.").font(.caption)
             }
             saveCard
-        }.padding(22).textFieldStyle(WalletInputStyle()).disabled(store.busy) }
-            .navigationTitle(title).navigationBarTitleDisplayMode(.inline).background(WalletBackdrop())
+        }.walletPageContent().textFieldStyle(WalletInputStyle()).disabled(store.busy) }
+            .navigationTitle(title).navigationBarTitleDisplayMode(.inline).walletPageBackground()
     }
     private var chainCard: some View { WalletSection("On-chain") {
                 Toggle("Use Tor for on-chain", isOn: $settings.useTor).accessibilityIdentifier("onchain-tor")
@@ -146,8 +146,8 @@ struct SettingsView: View {
                         WalletNavigationRow("Support Paperclip", subtitle: "Donate XBT to support development", icon: "heart")
                     }.accessibilityIdentifier("settings-donate")
                 }
-            }.padding(22)
-        }.navigationTitle("Settings").background(WalletBackdrop())
+            }.walletPageContent()
+        }.navigationTitle("Settings").walletPageBackground()
     }
 }
 
@@ -169,7 +169,7 @@ struct DisplaySettingsView: View {
                 }
                 Text("1 XBT = 100,000,000 sats. Applies to balances, payments, fees, and activity.").font(.caption)
             }
-        }.padding(22) }.navigationTitle("Appearance & units").background(WalletBackdrop())
+        }.walletPageContent() }.navigationTitle("Appearance & units").walletPageBackground()
     }
 }
 
@@ -185,7 +185,7 @@ struct SecuritySettingsView: View {
                 LabeledContent("On-chain signing", value: "Unified sighash · 0x21")
                 Text("Message ownership proofs use BIP322-simple. They cannot spend wallet funds.").font(.caption)
             }
-        }.padding(22) }.navigationTitle("Wallet security").background(WalletBackdrop())
+        }.walletPageContent() }.navigationTitle("Wallet security").walletPageBackground()
     }
 }
 
@@ -202,7 +202,7 @@ struct ArkMaintenanceView: View {
                 Button("Enable expiry reminders") { Task { await maintenance.enableNotifications() } }
                 Text(maintenance.notificationStatus).font(.caption)
             }
-        }.padding(22) }.navigationTitle("Ark maintenance").background(WalletBackdrop())
+        }.walletPageContent() }.navigationTitle("Ark maintenance").walletPageBackground()
     }
 }
 
@@ -224,10 +224,10 @@ struct DonationView: View {
                     Text("Send any amount to this address using the XBT network. Donations are optional.")
                         .font(.caption).foregroundStyle(PaperclipTheme.muted)
                 }
-            }.padding(22)
+            }.walletPageContent()
         }
         .navigationTitle("Support Paperclip")
         .navigationBarTitleDisplayMode(.inline)
-        .background(WalletBackdrop())
+        .walletPageBackground()
     }
 }

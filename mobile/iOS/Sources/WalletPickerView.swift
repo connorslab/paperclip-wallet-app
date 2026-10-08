@@ -42,8 +42,8 @@ struct WalletPickerView: View {
                     .font(.caption).foregroundStyle(PaperclipTheme.muted)
                 if store.busy { ProgressView() }
                 if !store.message.isEmpty { Text(store.message).font(.caption).foregroundStyle(PaperclipTheme.muted) }
-            }.padding(22)
-        }.background(WalletBackdrop()).navigationTitle("Wallets").navigationBarTitleDisplayMode(.inline)
+            }.walletPageContent()
+        }.walletPageBackground().navigationTitle("Wallets").navigationBarTitleDisplayMode(.inline)
             .disabled(store.busy)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done", systemImage: "checkmark") { dismiss() } } }
             .sheet(item: $removing) { profile in
@@ -84,7 +84,7 @@ struct AddWalletView: View {
                 }.buttonStyle(.plain)
             }
             Text("Hardware and watch-only wallets are on-chain wallets. Their private keys are never imported into Paperclip.").font(.caption).foregroundStyle(PaperclipTheme.muted)
-        }.padding(22) }.background(WalletBackdrop()).navigationTitle("Add wallet").navigationBarTitleDisplayMode(.inline)
+        }.walletPageContent() }.walletPageBackground().navigationTitle("Add wallet").navigationBarTitleDisplayMode(.inline)
     }
 }
 
@@ -180,7 +180,7 @@ struct PublicWalletImportView: View {
             }
             if store.busy { ProgressView("Adding wallet…") }
             if !store.message.isEmpty { Text(store.message).font(.caption).foregroundStyle(PaperclipTheme.muted).textSelection(.enabled) }
-        }.padding(22).textFieldStyle(WalletInputStyle()) }.background(WalletBackdrop())
+        }.walletPageContent().textFieldStyle(WalletInputStyle()) }.walletPageBackground()
             .navigationTitle(hardware ? "Hardware wallet" : "Watch-only wallet").navigationBarTitleDisplayMode(.inline)
             .disabled(store.busy)
             .task { if name.isEmpty { name = hardware ? "Hardware wallet" : "Watch-only wallet" }; network = store.network }
@@ -247,8 +247,8 @@ struct RemoveWalletView: View {
                 if store.busy { ProgressView() }
                 if !store.message.isEmpty { Text(store.message).font(.caption) }
             }
-        }.padding(22).textFieldStyle(WalletInputStyle()).disabled(store.busy) }
-        .background(WalletBackdrop()).navigationTitle("Remove wallet").navigationBarTitleDisplayMode(.inline)
+        }.walletPageContent().textFieldStyle(WalletInputStyle()).disabled(store.busy) }
+        .walletPageBackground().navigationTitle("Remove wallet").navigationBarTitleDisplayMode(.inline)
         .interactiveDismissDisabled(store.busy)
         .toolbar { Button("Cancel") { dismiss() }.disabled(store.busy) }
         .alert("Permanently remove “\(profile.name)” from this device?", isPresented: $confirming) {

@@ -58,7 +58,7 @@ struct BackupView: View {
             }
             }
             if !status.isEmpty { WalletSection { Text(status) } }
-        }.padding(22).textFieldStyle(WalletInputStyle()) }.navigationTitle(restoreOnly ? "Restore backup" : "Encrypted backup").background(WalletBackdrop())
+        }.walletPageContent().textFieldStyle(WalletInputStyle()) }.navigationTitle(restoreOnly ? "Restore backup" : "Encrypted backup").walletPageBackground()
             .fileExporter(isPresented: $exporting, document: document, contentType: .data,
                 defaultFilename: "Paperclip-\(Date().formatted(.iso8601.year().month().day())).pcbackup") { result in
                 switch result {

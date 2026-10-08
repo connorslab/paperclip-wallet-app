@@ -84,8 +84,8 @@ struct SendView: View {
                         Button("Done") { dismiss() }.modifier(GlassAction())
                     }
                 }
-            }.padding(22).textFieldStyle(WalletInputStyle())
-        }.background(WalletBackdrop()).navigationTitle(onchain ? "Send XBT" : "Pay from Ark")
+            }.walletPageContent().textFieldStyle(WalletInputStyle())
+        }.walletPageBackground().navigationTitle(onchain ? "Send XBT" : "Pay from Ark")
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done", systemImage: "checkmark") { dismiss() } } }
             .task {
                 if let overview = try? await store.engine.onchainOverview() { store.onchain = (overview["total_sat"] as? NSNumber)?.uint64Value }
@@ -274,7 +274,7 @@ struct ReceiveView: View {
                 Text(store.message).font(.caption).foregroundStyle(.secondary)
             }.frame(maxWidth: .infinity).padding(24)
         }.frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(WalletBackdrop()).navigationTitle("Receive XBT").toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done", systemImage: "checkmark") { dismiss() } } }
+            .walletPageBackground().navigationTitle("Receive XBT").toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done", systemImage: "checkmark") { dismiss() } } }
             .navigationBarTitleDisplayMode(.inline)
             .sheet(isPresented: $choosingMethod) {
                 NavigationStack {
@@ -297,7 +297,7 @@ struct ReceiveView: View {
                                 }.buttonStyle(.plain)
                             }
                         }.padding(24)
-                    }.background(WalletBackdrop()).navigationTitle("Receive method")
+                    }.walletPageBackground().navigationTitle("Receive method")
                         .navigationBarTitleDisplayMode(.inline)
                         .toolbar { Button("Done") { choosingMethod = false } }
                 }.presentationDragIndicator(.visible)
@@ -449,8 +449,8 @@ struct ArkToolsView: View {
             }
             if page != .exit && !status.isEmpty { WalletSection { Text(status).font(.caption).textSelection(.enabled) } }
             WalletSection { if store.busy { ProgressView() }; Text(store.message).font(.caption) }
-          }.padding(22).textFieldStyle(WalletInputStyle())
-        }.background(WalletBackdrop()).navigationTitle(page.title).disabled(store.busy)
+          }.walletPageContent().textFieldStyle(WalletInputStyle())
+        }.walletPageBackground().navigationTitle(page.title).disabled(store.busy)
             .task {
                 recoveryRequired = UserDefaults.standard.bool(forKey: "seedRecoveryRequired-" + store.walletID)
                     || (store.walletID == "legacy" && UserDefaults.standard.bool(forKey: "seedRecoveryRequired"))
@@ -513,8 +513,8 @@ struct ArkLightningReceivesView: View {
             }
             if hashes.isEmpty { Text("No pending Lightning receives loaded.") }
             Text(store.message).font(.caption)
-          }.padding(22)
-        }.background(WalletBackdrop()).navigationTitle("Lightning receives")
+          }.walletPageContent()
+        }.walletPageBackground().navigationTitle("Lightning receives")
             .toolbar { Button("Refresh") { refresh() }.disabled(store.busy) }
             .task { refresh() }
     }
@@ -565,7 +565,7 @@ struct OnchainAddressesView: View {
                         ScrollView {
                             ReceiveCode(value: entry.address).frame(maxWidth: .infinity).padding(24)
                         }.frame(maxWidth: .infinity, maxHeight: .infinity)
-                            .background(WalletBackdrop())
+                            .walletPageBackground()
                             .navigationTitle("Address #\(entry.id)")
                     } label: {
                         VStack(alignment: .leading, spacing: 8) {
@@ -585,8 +585,8 @@ struct OnchainAddressesView: View {
                 if loading { ProgressView() }
                 if !error.isEmpty { Text(error).font(.caption) }
             }
-        }.padding(22) }.navigationTitle("On-chain addresses")
-            .scrollContentBackground(.hidden).background(WalletBackdrop())
+        }.walletPageContent() }.navigationTitle("On-chain addresses")
+            .scrollContentBackground(.hidden).walletPageBackground()
             .onChange(of: change) { _, _ in start = 0 }
             .task(id: "\(start)-\(change)") {
                 loading = true; error = ""

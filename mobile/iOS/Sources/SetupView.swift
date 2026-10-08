@@ -91,7 +91,7 @@ struct SetupView: View {
                     if store.busy { ProgressView() }
                     if !setupMessage.isEmpty { Text(setupMessage).font(.caption).foregroundStyle(PaperclipTheme.orange) }
                 }.padding(24)
-            }.background(WalletBackdrop()).disabled(store.busy)
+            }.walletPageBackground().disabled(store.busy)
                 .navigationTitle(verifying ? "Verify seed" : (!phrase.isEmpty ? "Back up seed" : "Mobile wallet"))
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbarBackground(PaperclipTheme.navy, for: .navigationBar)
@@ -128,7 +128,7 @@ struct SetupView: View {
                                 }.disabled(![12, 24].contains(importedPhrase.split(whereSeparator: \.isWhitespace).count) || store.busy)
                             }
                             Text(store.message).foregroundStyle(PaperclipTheme.orange)
-                        }.padding(22) }.background(WalletBackdrop()).navigationTitle("Import wallet").toolbar {
+                        }.walletPageContent() }.walletPageBackground().navigationTitle("Import wallet").toolbar {
                             ToolbarItem(placement: .topBarLeading) {
                                 Button { importing = false; importedPhrase = "" } label: { Label("Back", systemImage: "chevron.left") }
                                     .disabled(store.busy).accessibilityIdentifier("import-back")

@@ -23,7 +23,7 @@ import PaperclipMobile
                         Text("Your XBT. Your keys.").font(.title.bold())
                         Button("Unlock Paperclip") { Task { await lock.unlock() } }.buttonStyle(WalletPrimaryButtonStyle())
                         Text(lock.error).font(.caption).foregroundStyle(.secondary)
-                    }.frame(maxWidth: .infinity, maxHeight: .infinity).background(WalletBackdrop())
+                    }.frame(maxWidth: .infinity, maxHeight: .infinity).walletPageBackground()
                 }
                 if scene != .active {
                     PaperclipTheme.navy.ignoresSafeArea().overlay(Image("PaperclipLogo").resizable().scaledToFit().frame(width: 72, height: 72))
@@ -86,7 +86,7 @@ struct WalletView: View {
                 }
                 .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: selectedTab)
             }
-        }.background(WalletBackdrop())
+        }.walletPageBackground()
     }
 }
 
@@ -165,8 +165,8 @@ struct DashboardView: View {
                     HStack { if store.busy { ProgressView() }; Text(store.message).font(.caption).foregroundStyle(PaperclipTheme.muted) }
                     if store.supportsArk, let date = store.observed { Text("Ark last checked \(date.formatted(date: .omitted, time: .shortened))").font(.caption2).foregroundStyle(.secondary) }
                 }
-            }.padding(22)
-        }.background {
+            }.walletPageContent()
+        }.frame(maxWidth: .infinity, maxHeight: .infinity).background {
             ZStack {
                 PaperclipTheme.navy
                 RadialGradient(colors: [PaperclipTheme.orange.opacity(0.10), .clear], center: .topLeading, startRadius: 0, endRadius: 420)
@@ -243,8 +243,8 @@ struct ActivityView: View {
                 }
             }
             Text(store.message).font(.caption)
-          }.padding(22)
-        }.scrollContentBackground(.hidden).background(WalletBackdrop()).navigationTitle("Activity")
+          }.walletPageContent()
+        }.scrollContentBackground(.hidden).walletPageBackground().navigationTitle("Activity")
             .toolbar { Button("Refresh") { store.run { try await store.refreshActivity() } }.disabled(store.busy) }
     }
 }
@@ -305,9 +305,9 @@ struct OnchainOverviewView: View {
                     }.buttonStyle(.plain)
                 }
             }
-          }.padding(22)
+          }.walletPageContent()
         }.navigationTitle("On-chain")
-            .scrollContentBackground(.hidden).background(WalletBackdrop())
+            .scrollContentBackground(.hidden).walletPageBackground()
             .toolbar {
                 Button { Task { await refresh() } } label: {
                     if loading { ProgressView() } else { Image(systemName: "arrow.clockwise") }
@@ -383,8 +383,8 @@ struct ArkOverviewView: View {
                     }
                 }
                 if !store.message.isEmpty { Text(store.message).font(.caption).foregroundStyle(PaperclipTheme.muted) }
-            }.padding(22)
-        }.background(WalletBackdrop()).navigationTitle("Ark")
+            }.walletPageContent()
+        }.walletPageBackground().navigationTitle("Ark")
             .toolbar { Button { refresh() } label: { Image(systemName: "arrow.clockwise") }.disabled(store.busy).accessibilityLabel("Refresh Ark") }
             .task { refresh() }
             .refreshable { refresh() }
@@ -466,7 +466,7 @@ struct OnchainTransactionView: View {
                         Text("Opens the public explorer in your browser.").font(.caption).foregroundStyle(PaperclipTheme.muted)
                     }
                 }
-            }.padding(22)
-        }.background(WalletBackdrop()).navigationTitle("Transaction").navigationBarTitleDisplayMode(.inline)
+            }.walletPageContent()
+        }.walletPageBackground().navigationTitle("Transaction").navigationBarTitleDisplayMode(.inline)
     }
 }

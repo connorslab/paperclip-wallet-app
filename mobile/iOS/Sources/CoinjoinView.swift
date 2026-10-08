@@ -58,7 +58,7 @@ struct CoinjoinView: View {
                 pageButton(.guide, subtitle: "How it works, privacy, and recovery", icon: "info.circle")
             }
             status
-        }.padding(22) }.background(WalletBackdrop()).navigationTitle("Coinjoin").navigationBarTitleDisplayMode(.inline)
+        }.walletPageContent() }.walletPageBackground().navigationTitle("Coinjoin").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .primaryAction) {
                 Button { model.perform { try await model.action("coinjoin_sync") } } label: { Image(systemName: "arrow.clockwise") }
                     .accessibilityLabel("Refresh Coinjoin account").disabled(model.busy)
@@ -77,7 +77,7 @@ struct CoinjoinView: View {
                         case .guide: guideContent
                         }
                         status
-                    }.padding(22) }.background(WalletBackdrop())
+                    }.walletPageContent() }.walletPageBackground()
                         .navigationTitle(destination.rawValue).navigationBarTitleDisplayMode(.inline)
                         .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { page = nil } } }
                 }
@@ -234,7 +234,7 @@ struct CoinjoinView: View {
                 Button("Connect") { model.perform { try await model.connect(); showConnection = false } }.buttonStyle(WalletPrimaryButtonStyle())
             }.disabled(model.busy)
             if model.busy { ProgressView() }; Text(model.message).font(.caption)
-        }.padding(22).textFieldStyle(WalletInputStyle()) }.background(WalletBackdrop()).navigationTitle("Coinjoin relay")
+        }.walletPageContent().textFieldStyle(WalletInputStyle()) }.walletPageBackground().navigationTitle("Coinjoin relay")
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { showConnection = false } } }
     }
     private func roundTitle(_ phase: String) -> String {
@@ -353,7 +353,7 @@ private struct CoinjoinPoolForm: View {
                 Button(pool == nil ? "Review new pool" : "Review join") { confirming = true }.buttonStyle(WalletPrimaryButtonStyle()).disabled(change == nil || model.busy || !model.connected)
             }
             Text(model.message).font(.caption)
-        }.padding(22).textFieldStyle(WalletInputStyle()) }.background(WalletBackdrop()).navigationTitle(pool == nil ? "Create pool" : "Join pool").navigationBarTitleDisplayMode(.inline)
+        }.walletPageContent().textFieldStyle(WalletInputStyle()) }.walletPageBackground().navigationTitle(pool == nil ? "Create pool" : "Join pool").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
             .onChange(of: minimum) { _, n in maximum = max(maximum, n) }
             .confirmationDialog("Reserve this coin and join?", isPresented: $confirming) {
@@ -384,7 +384,7 @@ private struct CoinjoinSignView: View {
                 Button("Approve & share signature") { confirming = true }.buttonStyle(WalletPrimaryButtonStyle()).disabled(model.busy || !model.connected)
             }
             Text(model.message).font(.caption)
-        }.padding(22) }.background(WalletBackdrop()).navigationTitle("Sign Coinjoin")
+        }.walletPageContent() }.walletPageBackground().navigationTitle("Sign Coinjoin")
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
             .alert("Release your transaction signature?", isPresented: $confirming) {
                 Button("Sign transaction") { model.perform {
@@ -448,7 +448,7 @@ private struct CoinjoinTransferView: View {
                 }
             }
             Text(model.message).font(.caption)
-        }.padding(22).textFieldStyle(WalletInputStyle()) }.background(WalletBackdrop()).navigationTitle("Manage coin").navigationBarTitleDisplayMode(.inline)
+        }.walletPageContent().textFieldStyle(WalletInputStyle()) }.walletPageBackground().navigationTitle("Manage coin").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
             .onChange(of: action) { _, _ in quote = nil }.onChange(of: amount) { _, _ in quote = nil }.onChange(of: rate) { _, _ in quote = nil }.onChange(of: destination) { _, _ in quote = nil }
             .confirmationDialog("Send this single-coin transfer?", isPresented: $confirming) {

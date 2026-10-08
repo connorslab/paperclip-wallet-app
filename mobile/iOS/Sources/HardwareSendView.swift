@@ -84,7 +84,7 @@ struct HardwareSendView: View {
             if !status.isEmpty { WalletSection { Text(status).font(.subheadline) } }
             if store.busy { ProgressView("Working…") }
             Text(store.message).font(.caption).foregroundStyle(PaperclipTheme.muted)
-        }.padding(22).textFieldStyle(WalletInputStyle()) }.background(WalletBackdrop())
+        }.walletPageContent().textFieldStyle(WalletInputStyle()) }.walletPageBackground()
             .navigationTitle("Hardware payment").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done", systemImage: "checkmark") { dismiss() } } }
             .task { if let overview = try? await store.engine.onchainOverview() { store.onchain = (overview["total_sat"] as? NSNumber)?.uint64Value } }
@@ -147,7 +147,7 @@ struct SigningQRDisplay: View {
             }
             Text("This request contains no private keys. Verify every payment detail on your signer, then return to scan its signed response.")
                 .font(.subheadline).foregroundStyle(PaperclipTheme.muted).multilineTextAlignment(.center)
-        }.padding(24) }.background(WalletBackdrop()).navigationTitle("Signing request").navigationBarTitleDisplayMode(.inline)
+        }.padding(24) }.walletPageBackground().navigationTitle("Signing request").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done", systemImage: "checkmark") { dismiss() } } }
             .onReceive(timer) { _ in if !paused && frames.count > 1 { index = (index + 1) % frames.count } }
     }

@@ -47,7 +47,7 @@ struct WalletCard<Content: View>: View {
     @ViewBuilder var content: Content
     var body: some View {
         VStack(alignment: .leading, spacing: 16) { content }
-            .frame(maxWidth: 676, alignment: .leading).padding(22)
+            .frame(maxWidth: .infinity, alignment: .leading).padding(22)
             .modifier(GlassCardSurface())
             .overlay {
                 RoundedRectangle(cornerRadius: 26).stroke(
@@ -194,5 +194,16 @@ struct WalletBalanceNumber: View {
     var body: some View {
         Text(styled).monospacedDigit()
             .accessibilityLabel(hidden ? "Balance hidden" : unit.display(sats))
+    }
+}
+
+// Limit the whole content column, never individual cards inside a row.
+extension View {
+    func walletPageContent() -> some View {
+        self.frame(maxWidth: 760).padding(22).frame(maxWidth: .infinity)
+    }
+    func walletPageBackground() -> some View {
+        self.frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background { WalletBackdrop().ignoresSafeArea() }
     }
 }

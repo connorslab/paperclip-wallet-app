@@ -79,8 +79,8 @@ struct LightningView: View {
             Text("Your node connection is shared across all wallets. Funds and channel backups stay on your node.")
                 .font(.caption).foregroundStyle(PaperclipTheme.muted).frame(maxWidth: .infinity, alignment: .leading)
             if busy { ProgressView("Connecting…") }
-          }.padding(22).textFieldStyle(WalletInputStyle())
-        }.navigationTitle("Lightning").background(WalletBackdrop()).disabled(busy)
+          }.walletPageContent().textFieldStyle(WalletInputStyle())
+        }.navigationTitle("Lightning").walletPageBackground().disabled(busy)
             .navigationDestination(item: $page) { selected in
                 ScrollView {
                     VStack(spacing: 20) {
@@ -92,8 +92,8 @@ struct LightningView: View {
                         case .status: statusCard
                         }
                         if busy || !message.isEmpty { WalletSection { if busy { ProgressView() }; Text(message).font(.caption) } }
-                    }.padding(22).textFieldStyle(WalletInputStyle()).disabled(busy)
-                }.background(WalletBackdrop()).navigationTitle(selected.rawValue).navigationBarTitleDisplayMode(.inline)
+                    }.walletPageContent().textFieldStyle(WalletInputStyle()).disabled(busy)
+                }.walletPageBackground().navigationTitle(selected.rawValue).navigationBarTitleDisplayMode(.inline)
             .confirmationDialog("Pay this Lightning invoice?", isPresented: $confirming) {
                 Button("Pay invoice") { pay() }
             } message: { Text("\(reviewAmount)\nMaximum fee: \(maximumFee) \(unit.title)\n\(payInvoice)") }

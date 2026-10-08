@@ -25,8 +25,8 @@ struct BuyXBTView: View {
                     Text("Exchange links open in your browser. Check each exchange’s current verification rules, availability, fees, and withdrawal requirements before depositing. Paperclip does not handle your purchase.")
                         .font(.caption).foregroundStyle(PaperclipTheme.muted)
                 }
-            }.padding(22)
-        }.background(WalletBackdrop()).navigationTitle("Buy XBT").navigationBarTitleDisplayMode(.inline)
+            }.walletPageContent()
+        }.walletPageBackground().navigationTitle("Buy XBT").navigationBarTitleDisplayMode(.inline)
     }
 
     private func exchange(_ name: String, market: String, domain: String, url: String) -> some View {

@@ -42,8 +42,8 @@ struct MessageSigningView: View {
                     }
                 }
                 if working || !status.isEmpty { WalletSection { if working { ProgressView() }; Text(status).font(.caption) } }
-            }.padding(22).textFieldStyle(WalletInputStyle()).disabled(working)
-        }.background(WalletBackdrop()).navigationTitle("Message signing")
+            }.walletPageContent().textFieldStyle(WalletInputStyle()).disabled(working)
+        }.walletPageBackground().navigationTitle("Message signing")
             .onChange(of: address) { _, _ in signature = ""; status = "" }
             .onChange(of: message) { _, _ in signature = ""; status = "" }
     }

@@ -89,7 +89,7 @@ struct HardwareBoardView: View {
             if store.busy { ProgressView("Working…") }
             if !status.isEmpty { WalletSection { Text(status) } }
             Text(store.message).font(.caption).foregroundStyle(PaperclipTheme.muted)
-        }.padding(22).textFieldStyle(WalletInputStyle()) }.background(WalletBackdrop())
+        }.walletPageContent().textFieldStyle(WalletInputStyle()) }.walletPageBackground()
             .navigationTitle("Board from QR wallet").navigationBarTitleDisplayMode(.inline)
             .sheet(isPresented: $showingQR) { NavigationStack { SigningQRDisplay(frames: frames) } }
             .fullScreenCover(isPresented: $scanning) {
