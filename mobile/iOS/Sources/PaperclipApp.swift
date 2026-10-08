@@ -154,6 +154,9 @@ struct DashboardView: View {
                         balanceCard("Ark", subtitle: "Available", icon: "square.stack.3d.up", amount: store.ark)
                     }.buttonStyle(.plain).accessibilityHint("View Ark balances, payments, and activity") }
                 }
+                NavigationLink { BuyXBTView() } label: {
+                    WalletCard { WalletNavigationRow("Buy XBT", subtitle: "Explore exchanges", icon: "plus.circle") }
+                }.buttonStyle(.plain)
                 if let pending = store.pending, pending > 0 { Label("\(unit.display(pending)) pending", systemImage: "clock").font(.subheadline) }
                 if store.observed == nil {
                     NavigationLink { ConnectionsView() } label: { Label("Configure your connection", systemImage: "network") }
