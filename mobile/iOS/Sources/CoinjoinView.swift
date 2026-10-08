@@ -21,6 +21,7 @@ struct CoinjoinView: View {
                     Text("Experimental").font(.caption.bold()).foregroundStyle(PaperclipTheme.orange)
                 }
                 Text(amount(model.snapshot["balance_sat"])).font(.largeTitle.bold()).contentTransition(.numericText())
+                USDValue(sats: (model.snapshot["balance_sat"] as? NSNumber)?.uint64Value, mainnet: store.network == "xbt-mainnet")
                 Text("Separate coins. Shared transactions.").foregroundStyle(PaperclipTheme.muted)
                 ViewThatFits(in: .horizontal) {
                     HStack { receiveAction; poolsAction }

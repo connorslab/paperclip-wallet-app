@@ -26,6 +26,7 @@ struct HardwareSendView: View {
                 Text("Your keys stay on your hardware wallet. Paperclip prepares the payment, then checks its signature before broadcast.")
                     .font(.subheadline).foregroundStyle(PaperclipTheme.muted)
                 LabeledContent("Balance", value: unit.display(store.onchain)).font(.headline)
+                    USDValue(sats: store.onchain, mainnet: store.network == "xbt-mainnet")
                 Label("Unified sighash required · 0x21", systemImage: "checkmark.shield").font(.caption).foregroundStyle(PaperclipTheme.orange)
             }
             if prepared == nil {

@@ -45,6 +45,7 @@ struct LightningView: View {
                     }
                     Text(balance.map { unit.display($0.sendableMsat / 1000) } ?? "—")
                         .font(.system(size: 36, weight: .semibold, design: .rounded)).minimumScaleFactor(0.6).lineLimit(1).privacySensitive()
+                    USDValue(sats: balance.map { $0.sendableMsat / 1000 }, mainnet: store.network == "xbt-mainnet")
                     Text(balance == nil ? "Balance unavailable · open details to retry" : "Available to send from your node").font(.subheadline).foregroundStyle(PaperclipTheme.muted)
                     HStack {
                         Button { page = .pay } label: { Label("Pay", systemImage: "arrow.up.right").frame(maxWidth: .infinity) }.modifier(GlassAction())
@@ -134,6 +135,7 @@ struct LightningView: View {
     private var balanceCard: some View {
         WalletSection("Channel balance") {
             LabeledContent("Available to send", value: balance.map { unit.display($0.sendableMsat / 1000) } ?? "—")
+            USDValue(sats: balance.map { $0.sendableMsat / 1000 }, mainnet: store.network == "xbt-mainnet")
             LabeledContent("Receive capacity", value: balance.map { unit.display($0.receivableMsat / 1000) } ?? "—")
             if let balance { LabeledContent("Active channels", value: "\(balance.activeChannels)") }
             Text("These are estimates. Routes, channel liquidity, and fees can limit individual payments.").font(.caption).foregroundStyle(PaperclipTheme.muted)

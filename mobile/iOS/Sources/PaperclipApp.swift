@@ -105,6 +105,7 @@ struct DashboardView: View {
                     Text("Your XBT.\nWithin reach.").font(.largeTitle.bold())
                     Text(total).font(.system(size: 42, weight: .semibold, design: .rounded)).minimumScaleFactor(0.5).lineLimit(1).privacySensitive()
                         .contentTransition(.numericText())
+                    USDValue(sats: store.onchain.flatMap { chain in store.supportsArk ? store.ark.map { chain + $0 } : chain }, hidden: hideBalance, mainnet: store.network == "xbt-mainnet")
                     Text("\(unit.title.uppercased()) · " + (store.supportsArk ? "ON-CHAIN + ARK" : "ON-CHAIN")).font(.caption2).tracking(2).foregroundStyle(PaperclipTheme.muted)
                     HStack(spacing: 12) {
                         if !store.isWatchOnly { Button { sending = true } label: { Label("Send", systemImage: "arrow.up.right").frame(maxWidth: .infinity) }.modifier(GlassAction()) }
@@ -157,6 +158,7 @@ struct DashboardView: View {
             Label(title, systemImage: icon).font(.subheadline).foregroundStyle(PaperclipTheme.muted)
             Text(hideBalance ? "••••" : amount.map { unit.number($0) } ?? "—").font(.title2.bold()).lineLimit(1).minimumScaleFactor(0.6).privacySensitive()
             Text(unit.title).font(.caption).foregroundStyle(.secondary)
+            USDValue(sats: amount, hidden: hideBalance, mainnet: store.network == "xbt-mainnet")
         }
     }
 }
@@ -229,6 +231,7 @@ struct OnchainOverviewView: View {
                 }
             }
             WalletSection("Balance") {
+                USDValue(sats: store.onchain, mainnet: store.network == "xbt-mainnet")
                 LabeledContent("Confirmed", value: sats(confirmed))
                 LabeledContent("Unconfirmed", value: sats(unconfirmed))
                 if let immature, immature > 0 { LabeledContent("Immature mining rewards", value: sats(immature)) }
@@ -301,6 +304,7 @@ struct ArkOverviewView: View {
             VStack(spacing: 20) {
                 WalletSection("Ark balance") {
                     Text(unit.display(store.ark)).font(.largeTitle.bold()).privacySensitive().contentTransition(.numericText())
+                    USDValue(sats: store.ark, mainnet: store.network == "xbt-mainnet")
                     Text("Available to spend").font(.subheadline).foregroundStyle(PaperclipTheme.muted)
                     LabeledContent("Pending", value: unit.display(store.pending))
                     HStack {

@@ -28,6 +28,7 @@ struct SendView: View {
                 WalletSection("Pay from") {
                     Picker("Wallet", selection: $onchain) { Text("On-chain").tag(true); Text("Ark").tag(false) }.pickerStyle(.segmented).disabled(store.busy || submitted)
                     LabeledContent("Balance", value: unit.display(onchain ? store.onchain : store.ark)).font(.headline)
+                    USDValue(sats: onchain ? store.onchain : store.ark, mainnet: store.network == "xbt-mainnet")
                     if onchain { Text(store.onchainAccount == "segwit" ? "SegWit account" : "Taproot account").font(.caption).foregroundStyle(PaperclipTheme.muted) }
                     Text(onchain ? "Send XBT to an on-chain address." : "Pay Lightning invoices, BOLT12 offers, Ark addresses, or withdraw to on-chain.").font(.subheadline).foregroundStyle(PaperclipTheme.muted)
                 }
