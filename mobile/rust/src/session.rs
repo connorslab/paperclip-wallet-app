@@ -32,6 +32,21 @@ struct HardwareBoardRequest {
 	backend: Arc<bark::chain::ChainSource>,
 }
 
+async fn prepare_payment(wallet: &mut OnchainWallet, address: bitcoin::Address, request: &Value, rate: bitcoin::FeeRate) -> anyhow::Result<(bitcoin::Psbt,u64)> {
+	if request["send_max"] == true {
+		ensure!(!wallet.inner.is_mine(address.script_pubkey()), "Send Max needs a destination outside this account");
+		let psbt = wallet.prepare_drain_tx(address.clone(), rate).await?;
+		ensure!(psbt.unsigned_tx.output.len() == 1 && psbt.unsigned_tx.output[0].script_pubkey == address.script_pubkey(), "Unexpected Send Max outputs");
+		let amount = psbt.unsigned_tx.output[0].value.to_sat();
+		ensure!(amount > 0, "Balance is too small after fees");
+		Ok((psbt,amount))
+	} else {
+		let amount = request["amount_sat"].as_u64().context("amount required")?;
+		ensure!(amount > 0, "amount must be positive");
+		Ok((wallet.prepare_tx(&[(address, Amount::from_sat(amount))],rate).await?,amount))
+	}
+}
+
 fn account_setting(dir: &std::path::Path, set: Option<&str>) -> anyhow::Result<String> {
 	let c = rusqlite::Connection::open(dir.join("db.sqlite"))?;
 	c.execute("CREATE TABLE IF NOT EXISTS paperclip_account (id INTEGER PRIMARY KEY CHECK(id=1), kind TEXT NOT NULL)", [])?;
@@ -83,6 +98,33 @@ impl Drop for Session {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn send_max_deducts_fees_without_change_for_both_accounts() {
+		let rt = tokio::runtime::Runtime::new().unwrap();
+		rt.block_on(async {
+			let path = std::env::temp_dir().join(format!("paperclip-max-{}.sqlite", bitcoin::secp256k1::rand::random::<u64>()));
+			let db = SqliteClient::open(&path).unwrap();
+			for segwit in [false,true] {
+				let mut w = if segwit { OnchainWallet::load_segwit_account(Network::Regtest,[22;64],Arc::new(db.clone().with_bdk_namespace("segwit")),0).await.unwrap() }
+					else { OnchainWallet::load_or_create(Network::Regtest,[22;64],Arc::new(db.clone())).await.unwrap() };
+				let dest = bitcoin::Address::p2wpkh(&bitcoin::CompressedPublicKey(bitcoin::secp256k1::SecretKey::from_slice(&[31;32]).unwrap().public_key(&bitcoin::secp256k1::Secp256k1::new())),Network::Regtest);
+				assert!(prepare_payment(&mut w,dest.clone(),&json!({"send_max":true}),bitcoin::FeeRate::from_sat_per_vb(2).unwrap()).await.is_err());
+				bdk_wallet::test_utils::insert_checkpoint(&mut w.inner,bdk_wallet::chain::BlockId{height:1000,hash:"00".repeat(32).parse().unwrap()});
+				bdk_wallet::test_utils::receive_output_in_latest_block(&mut w.inner,Amount::from_sat(30000));
+				bdk_wallet::test_utils::receive_output_in_latest_block(&mut w.inner,Amount::from_sat(40000));
+				let (mut psbt,amount) = prepare_payment(&mut w,dest.clone(),&json!({"send_max":true}),bitcoin::FeeRate::from_sat_per_vb(2).unwrap()).await.unwrap();
+				assert_eq!(psbt.unsigned_tx.input.len(),2); assert_eq!(psbt.unsigned_tx.output.len(),1);
+				assert_eq!(psbt.unsigned_tx.output[0].script_pubkey,dest.script_pubkey());
+				assert_eq!(amount+psbt.fee().unwrap().to_sat(),70000);
+				assert!(bitcoin_ext::unified_wallet::sign(&w.inner,&mut psbt).unwrap());
+				assert!(psbt.fee().unwrap().to_sat() >= psbt.clone().extract_tx().unwrap().vsize() as u64 * 2);
+				let (_,higher_fee_amount) = prepare_payment(&mut w,dest,&json!({"send_max":true}),bitcoin::FeeRate::from_sat_per_vb(10).unwrap()).await.unwrap();
+				assert!(higher_fee_amount < amount);
+			}
+			std::fs::remove_file(path).unwrap();
+		});
+	}
 
 	#[test]
 	fn mobile_address_accounts_keep_balances_and_survive_restore() {
@@ -755,10 +797,10 @@ pub fn dispatch(state: &mut Option<Session>, request: Value, seed: [u8; 64]) -> 
 			"hardware_prepare" => {
 				*hardware_request = None;
 				let address = text(&request, "destination")?.parse::<bitcoin::Address<_>>()?.require_network(network)?;
-				let amount = request["amount_sat"].as_u64().context("amount required")?;
-				ensure!(amount > 0, "amount must be positive");
 				w.chain().update_fee_rates(w.config().fallback_fee_rate).await?;
-				let mut psbt = onchain.write().await.prepare_tx(&[(address, Amount::from_sat(amount))], w.chain().fee_rates().await.regular).await?;
+				let mut chain = onchain.write().await;
+				chain.sync(w.chain()).await?;
+				let (mut psbt, amount) = prepare_payment(&mut chain, address, &request, w.chain().fee_rates().await.regular).await?;
 				crate::hardware::prepare(&mut psbt)?;
 				let fee = psbt.fee()?.to_sat();
 				let encoded = STANDARD.encode(psbt.serialize());
@@ -795,11 +837,11 @@ pub fn dispatch(state: &mut Option<Session>, request: Value, seed: [u8; 64]) -> 
 				*onchain_quote = None;
 				let destination = text(&request, "destination")?;
 				let address = destination.parse::<bitcoin::Address<_>>()?.require_network(network)?;
-				let amount = request["amount_sat"].as_u64().context("amount required")?;
-				ensure!(amount > 0, "amount must be positive");
 				w.chain().update_fee_rates(w.config().fallback_fee_rate).await.context("reading chain backend fee rates")?;
 				let rate = w.chain().fee_rates().await.regular;
-				let psbt = onchain.write().await.prepare_tx(&[(address, Amount::from_sat(amount))], rate).await?;
+				let mut chain = onchain.write().await;
+				chain.sync(w.chain()).await?;
+				let (psbt, amount) = prepare_payment(&mut chain, address, &request, rate).await?;
 				let fee = psbt.fee()?.to_sat();
 				*onchain_quote = Some((destination.into(), amount, psbt, Instant::now()));
 				Ok(json!({"amount_sat": amount, "fee_sat": fee, "total_sat": amount.checked_add(fee).context("amount overflow")?}))

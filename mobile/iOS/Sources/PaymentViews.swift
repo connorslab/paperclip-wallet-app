@@ -9,6 +9,7 @@ struct SendView: View {
     @State private var onchain = true
     @State private var destination = ""
     @State private var amount = ""
+    @State private var sendMax = false
     @State private var reviewedAmount: UInt64?
     @State private var total: UInt64?
     @State private var fee: UInt64?
@@ -26,6 +27,8 @@ struct SendView: View {
             VStack(spacing: 20) {
                 WalletSection("Pay from") {
                     Picker("Wallet", selection: $onchain) { Text("On-chain").tag(true); Text("Ark").tag(false) }.pickerStyle(.segmented).disabled(store.busy || submitted)
+                    LabeledContent("Balance", value: unit.display(onchain ? store.onchain : store.ark)).font(.headline)
+                    if onchain { Text(store.onchainAccount == "segwit" ? "SegWit account" : "Taproot account").font(.caption).foregroundStyle(PaperclipTheme.muted) }
                     Text(onchain ? "Send XBT to an on-chain address." : "Pay Lightning invoices, BOLT12 offers, Ark addresses, or withdraw to on-chain.").font(.subheadline).foregroundStyle(PaperclipTheme.muted)
                 }
                 WalletSection("Recipient") {
@@ -45,7 +48,12 @@ struct SendView: View {
                     TextField(onchain ? "XBT address" : "Paste an invoice, offer, or address", text: $destination, axis: .vertical)
                         .textInputAutocapitalization(.never).autocorrectionDisabled().disabled(store.busy || submitted)
                     if !invoice || needsAmount {
-                        TextField(unit.amountPrompt, text: $amount).keyboardType(.decimalPad).disabled(store.busy || submitted)
+                        if sendMax { Text("Maximum after fees").font(.headline) }
+                        else { TextField(unit.amountPrompt, text: $amount).keyboardType(.decimalPad).disabled(store.busy || submitted) }
+                        if onchain {
+                            Button(sendMax ? "Use a specific amount" : "Send Max") { sendMax.toggle(); reset() }.disabled(store.busy || submitted)
+                            if sendMax { Text("Uses all spendable coins in the selected account, minus the network fee. Reserved or immature funds may remain. Review the final amount below.").font(.caption).foregroundStyle(PaperclipTheme.muted) }
+                        }
                         if needsAmount { Text("This request has no fixed amount. Choose the amount to send.").font(.caption) }
                     } else {
                         Label("Amount comes from the invoice", systemImage: "bolt.fill").font(.subheadline).foregroundStyle(PaperclipTheme.muted)
@@ -78,10 +86,14 @@ struct SendView: View {
             }.padding(22).textFieldStyle(WalletInputStyle())
         }.background(PaperclipTheme.navy.ignoresSafeArea()).navigationTitle(onchain ? "Send XBT" : "Pay from Ark")
             .toolbar { Button("Done") { dismiss() } }
+            .task {
+                if let overview = try? await store.engine.onchainOverview() { store.onchain = (overview["total_sat"] as? NSNumber)?.uint64Value }
+            }
             .fullScreenCover(isPresented: $scanning) {
                 QRScannerView { value in
                     do {
                         let request = try PaymentInput.scanned(value)
+                        sendMax = false
                         destination = request.destination
                         amount = request.amountSat.map { unit.input($0) } ?? ""
                         status = "Scanned. Review the recipient and amount before sending."
@@ -91,7 +103,7 @@ struct SendView: View {
             .onChange(of: unit) { old, new in amount = old.parse(amount).map { new.input($0) } ?? ""; reset() }
             .onChange(of: destination) { _, _ in reset(); needsAmount = false }
             .onChange(of: amount) { _, _ in reset() }
-            .onChange(of: onchain) { _, _ in reset(); needsAmount = false }
+            .onChange(of: onchain) { _, _ in reset(); needsAmount = false; sendMax = false }
             .confirmationDialog("Send this payment?", isPresented: $confirmation) {
                 Button("Send payment") { send() }
             } message: { Text("Total debit: \(unit.display(total)) from \(onchain ? "on-chain" : "Ark").") }
@@ -110,8 +122,15 @@ struct SendView: View {
                         needsAmount = true; status = "Enter the amount, then review your payment."; return
                     }
                 }
-                guard let sats, sats > 0 else { throw WalletFailure(message: "Enter a positive amount. XBT supports up to 8 decimal places.") }
-                let quote = try await store.engine.quote(destination: recipient, amount: sats, onchain: source)
+                let quote: [String: Any]
+                if source && sendMax {
+                    quote = try await store.engine.operation("quote_onchain", fields: ["destination": recipient, "send_max": true])
+                    sats = (quote["amount_sat"] as? NSNumber)?.uint64Value
+                } else {
+                    guard let value = sats, value > 0 else { throw WalletFailure(message: "Enter a positive amount. XBT supports up to 8 decimal places.") }
+                    quote = try await store.engine.quote(destination: recipient, amount: value, onchain: source)
+                }
+                guard let sats, sats > 0 else { throw WalletFailure(message: "No spendable amount after fees.") }
                 guard recipient == target, source == onchain, entered == amount, selectedUnit == unit else { return }
                 guard let quoted = quote["total_sat"] as? NSNumber else { throw WalletFailure(message: "No valid quote was returned.") }
                 reviewedAmount = sats; total = quoted.uint64Value; fee = (quote["fee_sat"] as? NSNumber)?.uint64Value

@@ -8,6 +8,7 @@ struct HardwareSendView: View {
     @AppStorage("displayUnit") private var unit: BitcoinUnit = .sats
     @State private var destination = ""
     @State private var amount = ""
+    @State private var sendMax = false
     @State private var prepared: [String: Any]?
     @State private var frames: [String] = []
     @State private var showingQR = false
@@ -24,22 +25,30 @@ struct HardwareSendView: View {
                 Label(store.selectedProfile?.name ?? "Hardware wallet", systemImage: "qrcode").font(.headline)
                 Text("Your keys stay on your hardware wallet. Paperclip prepares the payment, then checks its signature before broadcast.")
                     .font(.subheadline).foregroundStyle(PaperclipTheme.muted)
+                LabeledContent("Balance", value: unit.display(store.onchain)).font(.headline)
                 Label("Unified sighash required · 0x21", systemImage: "checkmark.shield").font(.caption).foregroundStyle(PaperclipTheme.orange)
             }
             if prepared == nil {
                 WalletSection("1 · Prepare payment") {
                     Button { scanningDestination = true } label: { Label("Scan recipient", systemImage: "qrcode.viewfinder") }
                     TextField("XBT address", text: $destination, axis: .vertical).textInputAutocapitalization(.never).autocorrectionDisabled()
-                    TextField(unit.amountPrompt, text: $amount).keyboardType(.decimalPad)
+                    if sendMax { Text("Maximum after fees").font(.headline) }
+                    else { TextField(unit.amountPrompt, text: $amount).keyboardType(.decimalPad) }
+                    Button(sendMax ? "Use a specific amount" : "Send Max") { sendMax.toggle() }.disabled(store.busy)
+                    if sendMax { Text("Send this account’s spendable balance minus the network fee. The review and signing QR include the exact amount.").font(.caption).foregroundStyle(PaperclipTheme.muted) }
                     Button("Review payment") {
                         store.run {
-                            guard let sats = unit.parse(amount), sats > 0 else { throw WalletFailure(message: "Enter a positive amount.") }
-                            let result = try await store.engine.operation("hardware_prepare", fields: ["destination": destination.trimmingCharacters(in: .whitespacesAndNewlines), "amount_sat": sats])
+                            var fields: [String: Any] = ["destination": destination.trimmingCharacters(in: .whitespacesAndNewlines), "send_max": sendMax]
+                            if !sendMax {
+                                guard let sats = unit.parse(amount), sats > 0 else { throw WalletFailure(message: "Enter a positive amount.") }
+                                fields["amount_sat"] = sats
+                            }
+                            let result = try await store.engine.operation("hardware_prepare", fields: fields)
                             guard let text = result["psbt"] as? String, let data = Data(base64Encoded: text) else { throw SigningQRError.invalid }
                             frames = try SigningQR.frames(data); prepared = result; status = ""
                         }
                     }.buttonStyle(.borderedProminent).disabled(store.busy || destination.isEmpty)
-                }
+                }.disabled(store.busy)
             } else {
                 WalletSection("Review payment") {
                     Text(destination).font(.caption.monospaced()).textSelection(.enabled)
@@ -77,10 +86,11 @@ struct HardwareSendView: View {
         }.padding(22).textFieldStyle(WalletInputStyle()) }.background(PaperclipTheme.navy)
             .navigationTitle("Hardware payment").navigationBarTitleDisplayMode(.inline)
             .toolbar { Button("Done") { dismiss() } }
+            .task { if let overview = try? await store.engine.onchainOverview() { store.onchain = (overview["total_sat"] as? NSNumber)?.uint64Value } }
             .sheet(isPresented: $showingQR) { NavigationStack { SigningQRDisplay(frames: frames) } }
             .fullScreenCover(isPresented: $scanningDestination) { QRScannerView { scanned in
                 do {
-                    let request = try PaymentInput.scanned(scanned); destination = request.destination
+                    let request = try PaymentInput.scanned(scanned); sendMax = false; destination = request.destination
                     if let sats = request.amountSat { amount = unit.input(sats) }
                 } catch { status = error.localizedDescription }
             } }
