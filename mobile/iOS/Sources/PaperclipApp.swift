@@ -70,11 +70,11 @@ struct WalletView: View {
             else if !store.hasWallet { SetupView() }
             else {
                 TabView {
-                    NavigationStack { DashboardView() }.tabItem { Label("Wallet", systemImage: "wallet.pass") }
-                    if store.supportsArk { NavigationStack { LightningView() }.tabItem { Label("Lightning", systemImage: "bolt.fill") } }
-                    NavigationStack { ActivityView() }.tabItem { Label("Activity", systemImage: "clock.arrow.circlepath") }
-                    NavigationStack { SettingsView() }.tabItem { Label("Settings", systemImage: "slider.horizontal.3") }
-                }.id(store.walletID)
+                    NavigationStack { DashboardView() }.id(store.walletID).tabItem { Label("Wallet", systemImage: "wallet.pass") }
+                    NavigationStack { LightningView() }.tabItem { Label("Lightning", systemImage: "bolt.fill") }
+                    NavigationStack { ActivityView() }.id(store.walletID).tabItem { Label("Activity", systemImage: "clock.arrow.circlepath") }
+                    NavigationStack { SettingsView() }.id(store.walletID).tabItem { Label("Settings", systemImage: "slider.horizontal.3") }
+                }
             }
         }.background(WalletBackdrop())
     }

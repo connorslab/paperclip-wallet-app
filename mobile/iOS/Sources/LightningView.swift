@@ -3,7 +3,9 @@ import PaperclipMobile
 
 struct LightningView: View {
     @AppStorage("displayUnit") private var unit: BitcoinUnit = .sats
-    @EnvironmentObject var store: WalletStore
+    @State private var busy = false
+    @State private var message = ""
+    @State private var nodeNetwork: LightningNetwork?
     private enum Page: String, Hashable { case balance = "Node balance", connection = "Node connection", receive = "Receive on your node", pay = "Pay from your node", status = "Payment status" }
     @State private var page: Page?
     @State private var scanning = false
@@ -40,12 +42,12 @@ struct LightningView: View {
                     HStack {
                         Label("Lightning balance", systemImage: "bolt.fill").foregroundStyle(PaperclipTheme.muted)
                         Spacer()
-                        Button { store.run { await refreshBalance() } } label: { Image(systemName: "arrow.clockwise") }
+                        Button { run { await refreshBalance() } } label: { Image(systemName: "arrow.clockwise") }
                             .accessibilityLabel("Refresh Lightning balance")
                     }
                     Text(balance.map { unit.display($0.sendableMsat / 1000) } ?? "—")
                         .font(.system(size: 36, weight: .semibold, design: .rounded)).minimumScaleFactor(0.6).lineLimit(1).privacySensitive()
-                    USDValue(sats: balance.map { $0.sendableMsat / 1000 }, mainnet: store.network == "xbt-mainnet")
+                    USDValue(sats: balance.map { $0.sendableMsat / 1000 }, mainnet: nodeNetwork == .mainnet)
                     Text(balance == nil ? "Balance unavailable · open details to retry" : "Available to send from your node").font(.subheadline).foregroundStyle(PaperclipTheme.muted)
                     HStack {
                         Button { page = .pay } label: { Label("Pay", systemImage: "arrow.up.right").frame(maxWidth: .infinity) }.modifier(GlassAction())
@@ -74,11 +76,11 @@ struct LightningView: View {
                     WalletNavigationRow("Payments", subtitle: pending == nil ? "View your latest payment status" : "Payment in progress · checking automatically", icon: pending == nil ? "clock.arrow.circlepath" : "clock")
                 }.buttonStyle(.plain)
             }
-            Text("Funds and channel backups stay on your node. Paperclip is your connection to it.")
+            Text("Your node connection is shared across all wallets. Funds and channel backups stay on your node.")
                 .font(.caption).foregroundStyle(PaperclipTheme.muted).frame(maxWidth: .infinity, alignment: .leading)
-            if store.busy { ProgressView("Connecting…") }
+            if busy { ProgressView("Connecting…") }
           }.padding(22).textFieldStyle(WalletInputStyle())
-        }.navigationTitle("Lightning").background(WalletBackdrop()).disabled(store.busy)
+        }.navigationTitle("Lightning").background(WalletBackdrop()).disabled(busy)
             .navigationDestination(item: $page) { selected in
                 ScrollView {
                     VStack(spacing: 20) {
@@ -89,8 +91,8 @@ struct LightningView: View {
                         case .pay: payCard
                         case .status: statusCard
                         }
-                        if store.busy || !store.message.isEmpty { WalletSection { if store.busy { ProgressView() }; Text(store.message).font(.caption) } }
-                    }.padding(22).textFieldStyle(WalletInputStyle()).disabled(store.busy)
+                        if busy || !message.isEmpty { WalletSection { if busy { ProgressView() }; Text(message).font(.caption) } }
+                    }.padding(22).textFieldStyle(WalletInputStyle()).disabled(busy)
                 }.background(WalletBackdrop()).navigationTitle(selected.rawValue).navigationBarTitleDisplayMode(.inline)
             .confirmationDialog("Pay this Lightning invoice?", isPresented: $confirming) {
                 Button("Pay invoice") { pay() }
@@ -106,7 +108,7 @@ struct LightningView: View {
                         }
                     }
             }
-            .task { await load() }
+            .task { if client == nil { await load() } }
             .onChange(of: payments.completedHash) { _, _ in
                 status = payments.status; resolvedInvoice = nil; reviewedHash = nil
                 Task { await refreshBalance() }
@@ -129,17 +131,17 @@ struct LightningView: View {
             .onChange(of: payOffer) { _, _ in reviewedHash = nil; resolvedInvoice = nil }
             .onChange(of: offerAmount) { _, _ in reviewedHash = nil; resolvedInvoice = nil }
             .onChange(of: maximumFee) { _, _ in reviewedHash = nil }
-            .onChange(of: connection) { old, _ in if !old.endpoint.isEmpty { client = nil; reviewedHash = nil; balance = nil; receiveInvoice = ""; receiveOffer = false } }
+            .onChange(of: connection) { old, _ in if !old.endpoint.isEmpty { client = nil; nodeNetwork = nil; reviewedHash = nil; balance = nil; receiveInvoice = ""; receiveOffer = false } }
 
     }
     private var balanceCard: some View {
         WalletSection("Channel balance") {
             LabeledContent("Available to send", value: balance.map { unit.display($0.sendableMsat / 1000) } ?? "—")
-            USDValue(sats: balance.map { $0.sendableMsat / 1000 }, mainnet: store.network == "xbt-mainnet")
+            USDValue(sats: balance.map { $0.sendableMsat / 1000 }, mainnet: nodeNetwork == .mainnet)
             LabeledContent("Receive capacity", value: balance.map { unit.display($0.receivableMsat / 1000) } ?? "—")
             if let balance { LabeledContent("Active channels", value: "\(balance.activeChannels)") }
             Text("These are estimates. Routes, channel liquidity, and fees can limit individual payments.").font(.caption).foregroundStyle(PaperclipTheme.muted)
-            Button("Refresh balance") { store.run { await refreshBalance() } }.buttonStyle(.bordered)
+            Button("Refresh balance") { run { await refreshBalance() } }.buttonStyle(.bordered)
             if !balanceStatus.isEmpty { Text(balanceStatus).font(.caption).foregroundStyle(PaperclipTheme.muted) }
         }
     }
@@ -172,7 +174,7 @@ struct LightningView: View {
                     }.pickerStyle(.segmented)
                     TextField(receiveOffer ? unit.amountPrompt + " (optional)" : unit.amountPrompt, text: $amount).keyboardType(.decimalPad)
                     if receiveOffer { TextField("Offer description", text: $offerDescription) }
-                    Button(receiveOffer ? "Create BOLT12 offer" : "Create Lightning invoice") { store.run {
+                    Button(receiveOffer ? "Create BOLT12 offer" : "Create Lightning invoice") { run {
                         guard let client else { return }
                         receiveInvoice = ""
                         if receiveOffer {
@@ -225,6 +227,14 @@ struct LightningView: View {
                     Button("Check now") { Task { await payments.checkNow() } }.disabled(payments.checking || pending == nil)
                 }
     }
+    private func run(_ action: @escaping @MainActor () async throws -> Void) {
+        guard !busy else { return }
+        busy = true; message = ""
+        Task { @MainActor in
+            defer { busy = false }
+            do { try await action() } catch { message = error.localizedDescription }
+        }
+    }
     private func load() async {
         if maximumFee.isEmpty { maximumFee = unit.input(100) }
         do {
@@ -235,6 +245,7 @@ struct LightningView: View {
                 let node = try await makeNode()
                 guard selected == connection else { return }
                 let info = try JSONSerialization.jsonObject(with: await node.info()) as? [String: Any] ?? [:]
+                nodeNetwork = try LightningNetwork.decode(info, implementation: connection.implementation)
                 client = node; payments.useNode(node)
                 nodeName = info["alias"] as? String ?? connection.implementation.title
                 await refreshBalance()
@@ -253,30 +264,25 @@ struct LightningView: View {
         return try LightningNode(connection: resolved)
     }
     private func connect() {
-        store.run {
+        run {
             guard pending == nil else { throw WalletFailure(message: "Reconcile the saved node payment before changing nodes.") }
             let node = try await makeNode()
             let info = try JSONSerialization.jsonObject(with: await node.info()) as? [String: Any] ?? [:]
-            // Both forks retain the upstream network names. The node must be configured for XBT.
-            if connection.implementation == .cln {
-                guard info["network"] as? String == (store.network == "xbt-mainnet" ? "bitcoin" : "regtest") else { throw WalletFailure(message: "Node network does not match the wallet.") }
-            } else {
-                let chains = info["chains"] as? [[String: String]] ?? []
-                guard chains.contains(where: { $0["chain"] == "bitcoin" && $0["network"] == (store.network == "xbt-mainnet" ? "mainnet" : "regtest") }) else { throw WalletFailure(message: "Node network does not match the wallet.") }
-            }
+            let network = try LightningNetwork.decode(info, implementation: connection.implementation)
             try WalletKeychain.save(JSONEncoder().encode(connection), account: configAccount)
+            nodeNetwork = network
             client = node; payments.useNode(node); nodeName = info["alias"] as? String ?? connection.implementation.title
-            page = nil; store.message = "Lightning node connected."
+            page = nil; message = "Lightning node connected."
             await refreshBalance()
         }
     }
     private func review() {
         let request = PaymentInput.normalized(payInvoice), feeText = maximumFee, selectedUnit = unit, chosenAmount = offerAmount
         let isOffer = payOffer || request.lowercased().hasPrefix("lno1")
-        store.run {
+        run {
             reviewedHash = nil; resolvedInvoice = nil; reviewedPayment = nil; status = ""
             do {
-                guard let client, let fee = selectedUnit.parse(feeText), fee <= UInt64.max / 1000,
+                guard let client, let nodeNetwork, let fee = selectedUnit.parse(feeText), fee <= UInt64.max / 1000,
                       !request.contains(where: \.isWhitespace) else { throw WalletFailure(message: "Enter a Lightning request and a valid fee limit.") }
                 var invoice = request
                 var expectedMsat: UInt64?
@@ -291,7 +297,7 @@ struct LightningView: View {
                     expectedMsat = try offer.requestedAmount(enteredSats: sats)
                     invoice = try await client.fetchOfferInvoice(request, amountMsat: expectedMsat)
                 } else {
-                    guard request.lowercased().hasPrefix(store.network == "xbt-mainnet" ? "lnbc" : "lnbcrt") ||
+                    guard request.lowercased().hasPrefix(nodeNetwork == .mainnet ? "lnbc" : "lnbcrt") ||
                           (connection.implementation == .cln && request.lowercased().hasPrefix("lni1")) else {
                         throw WalletFailure(message: "Enter an invoice for this network, or choose BOLT12 offer.")
                     }
@@ -311,7 +317,7 @@ struct LightningView: View {
         }
     }
     private func pay() {
-        store.run {
+        run {
             guard let client, let hash = reviewedHash, let invoice = resolvedInvoice, let reviewedPayment,
                   let fee = unit.parse(maximumFee), pending == nil else { return }
             // Revalidate expiry and bind the saved attempt to the exact reviewed invoice.
