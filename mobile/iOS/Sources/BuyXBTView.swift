@@ -14,14 +14,17 @@ struct BuyXBTView: View {
                     exchange("SafeTrade", market: "XBT / USDT", domain: "safetrade.com",
                              url: "https://safetrade.com/exchange/XBT-USDT?type=pro")
                     Divider()
-                    exchange("NeoxEx", market: "XBT / USDC", domain: "neoxa.exchange · Referral link",
-                             url: "https://neoxa.exchange/register?ref=NEXE5E25284")
+                    exchange("NeoxEx", market: "XBT / USDC", domain: "neoxa.exchange",
+                             url: "https://neoxa.exchange/trade/BTCB2_USDC")
                     Divider()
-                    exchange("NeoxEx", market: "XBT / BTC", domain: "neoxa.exchange · Referral link",
-                             url: "https://neoxa.exchange/register?ref=NEXE5E25284")
+                    exchange("NeoxEx", market: "XBT / BTC", domain: "neoxa.exchange",
+                             url: "https://neoxa.exchange/trade/BTCB2_BTC")
                 }
-                Text("NeoxEx links open referral registration. After signing in, choose the XBT/USDC or XBT/BTC market.")
-                    .font(.caption).foregroundStyle(PaperclipTheme.muted)
+                WalletSection {
+                    Link("Create a NeoxEx account · Referral link", destination: URL(string: "https://neoxa.exchange/register?ref=NEXE5E25284")!)
+                    Text("New to NeoxEx? Use our referral sign-up link to support Paperclip. The market buttons above open each trading pair directly.")
+                        .font(.caption).foregroundStyle(PaperclipTheme.muted)
+                }
                 WalletSection("Bring it home") {
                     Text("Choose the Bitcoin BLAKE2b (XBT) network when withdrawing. NeoxEx also uses BTCB2 in its market links.")
                     Text("Exchange links open in your browser. Check each exchange’s current verification rules, availability, fees, and withdrawal requirements before depositing. Paperclip does not handle your purchase.")
