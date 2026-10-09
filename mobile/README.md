@@ -141,9 +141,9 @@ make physical camera capture unavailable. Test the scanner directly on the iPhon
 
 ## Connections
 
-- Default: `ssl://pool.paperclippool.xyz:50002` (operator is preparing this endpoint).
+- Default: `ssl://pool.paperclip-xbt.xyz:50002` (operator is preparing this endpoint).
 - Custom Electrum TLS/TCP, Esplora HTTP(S), and authenticated XBT Knots RPC.
-- Ark default: `https://ark.paperclippool.xyz`.
+- Ark default: `https://ark.paperclip-xbt.xyz`.
 - Core Lightning CLNRest with a rune, or LND REST with a hex macaroon.
 
 Electrum verifies the genesis network and an activated 164-byte XBT header before

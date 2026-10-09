@@ -54,7 +54,7 @@ jobs:
             sleep 2
           done
           docker exec wallet-smoke python3 /usr/local/lib/paperclip/health.py
-          docker exec wallet-smoke python3 -c "import os; assert os.environ['BARKD_UI_DEFAULT_ARK_SERVER']=='https://ark.paperclippool.xyz'"
+          docker exec wallet-smoke python3 -c "import os; assert os.environ['BARKD_UI_DEFAULT_ARK_SERVER']=='https://ark.paperclip-xbt.xyz'"
           docker rm -f wallet-smoke
           docker push "$IMAGE"
   manifest:

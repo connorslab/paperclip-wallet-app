@@ -25,7 +25,7 @@ Open the platform's private wallet interface. Umbrel users unlock with their
 app password. StartOS owners use **Actions → Show wallet access token**, then
 paste the token into the wallet. This token grants spending access.
 
-On a new installation, choose XBT mainnet or regtest, keep the preset https://ark.paperclippool.xyz server URL,
+On a new installation, choose XBT mainnet or regtest, keep the preset https://ark.paperclip-xbt.xyz server URL,
 and enter your selected XBT Knots RPC endpoint and credentials. Use the
 platform's private service network or a trusted encrypted tunnel. Do not expose
 Knots RPC or wallet ports directly to the Internet. No Bitcoin-node app ID,

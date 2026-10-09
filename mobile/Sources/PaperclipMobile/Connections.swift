@@ -39,18 +39,27 @@ private func validateField(_ field: String, hint: String, _ validate: () throws 
 public struct WalletConnection: Codable, Equatable, Sendable {
     public var arkRPC: ArkRPCConnection? = nil
     public var backend: ChainBackend = .electrum
-    public var endpoint = "ssl://pool.paperclippool.xyz:50002"
+    public var endpoint = "ssl://pool.paperclip-xbt.xyz:50002"
     public var certificateSHA256 = ""
-    public var arkServer = "https://ark.paperclippool.xyz"
+    public var arkServer = "https://ark.paperclip-xbt.xyz"
     public var username = ""
     public var password = ""
     public var useTor = false
     public var torProxy = "builtin"
     public init() {}
+    /// Move only the former public presets; retain custom routes, credentials, and pins.
+    public mutating func migratePaperclipDomain() {
+        if backend == .electrum && endpoint == "ssl://pool.paperclippool.xyz:50002" {
+            endpoint = "ssl://pool.paperclip-xbt.xyz:50002"
+        }
+        if arkServer == "https://ark.paperclippool.xyz" || arkServer == "https://ark.paperclippool.xyz/" {
+            arkServer = "https://ark.paperclip-xbt.xyz"
+        }
+    }
     public func validate() throws {
         if backend == .rpc && (username.isEmpty || password.isEmpty) { throw ConnectionError.invalidCredential }
         try arkRPC?.validate()
-        try validateField("Ark server", hint: "Use https://ark.paperclippool.xyz or your server's full URL.") {
+        try validateField("Ark server", hint: "Use https://ark.paperclip-xbt.xyz or your server's full URL.") {
             _ = try EndpointPolicy.validate(arkServer, tor: arkRPC?.useTor ?? useTor)
         }
         let hint = backend == .electrum

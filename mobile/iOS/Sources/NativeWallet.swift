@@ -244,7 +244,9 @@ actor NativeWallet: WalletEngine, WalletBackupEngine {
     }
     func savedConnection() throws -> WalletConnection? {
         guard let data = try WalletKeychain.read(loadedCatalog().selected?.connectionAccount ?? "wallet-connection-v2") else { return nil }
-        return try JSONDecoder().decode(WalletConnection.self, from: data)
+        var settings = try JSONDecoder().decode(WalletConnection.self, from: data)
+        settings.migratePaperclipDomain()
+        return settings
     }
     func saveConnection(_ settings: WalletConnection) throws {
         guard !transitioning else { throw WalletFailure(message: "Wait for the wallet switch to finish.") }
@@ -357,9 +359,10 @@ actor NativeWallet: WalletEngine, WalletBackupEngine {
         let path = root.appendingPathComponent("PaperclipWallets", isDirectory: true).appendingPathComponent(profile.id, isDirectory: true)
         var fields: [String: Any] = ["directory": path.path, "descriptor": descriptor, "identity": key.seed.base64EncodedString()]
         if withConnection {
-            let settings: WalletConnection
+            var settings: WalletConnection
             if let data = try WalletKeychain.read(profile.connectionAccount) { settings = try JSONDecoder().decode(WalletConnection.self, from: data) }
             else { settings = WalletConnection() }
+            settings.migratePaperclipDomain()
             fields["config"] = try await chainConfiguration(settings)
         }
         return fields

@@ -46,7 +46,7 @@ final class ConnectionTests: XCTestCase {
     func testPaperclipDefaultAndTorDNSPolicy() throws {
         let connection = WalletConnection()
         XCTAssertEqual(connection.backend, .electrum)
-        XCTAssertEqual(connection.endpoint, "ssl://pool.paperclippool.xyz:50002")
+        XCTAssertEqual(connection.endpoint, "ssl://pool.paperclip-xbt.xyz:50002")
         try connection.validate()
         XCTAssertThrowsError(try EndpointPolicy.validate("tcp://example.onion:50001", tor: false, electrum: true))
         XCTAssertNoThrow(try EndpointPolicy.validate("tcp://example.onion:50001", tor: true, electrum: true))
@@ -83,7 +83,7 @@ final class ConnectionTests: XCTestCase {
         rpc.endpoint = "https://rpc.example"
         connection.arkRPC = rpc
         XCTAssertNoThrow(try connection.validate())
-        XCTAssertEqual(connection.endpoint, "ssl://pool.paperclippool.xyz:50002")
+        XCTAssertEqual(connection.endpoint, "ssl://pool.paperclip-xbt.xyz:50002")
         connection.useTor = true
         XCTAssertNoThrow(try connection.validate())
         connection.useTor = false

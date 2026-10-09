@@ -54,7 +54,7 @@ struct ConnectionsView: View {
                     .accessibilityIdentifier("chain-endpoint")
                 if settings.backend == .electrum {
                     Text("Local Electrum: tcp://192.168.1.10:50001. For TLS use ssl://host:50002. Use your server's configured port.").font(.caption)
-                    Button("Use Paperclip Pool (default)") { settings.endpoint = "ssl://pool.paperclippool.xyz:50002"; settings.certificateSHA256 = "" }
+                    Button("Use Paperclip Pool (default)") { settings.endpoint = "ssl://pool.paperclip-xbt.xyz:50002"; settings.certificateSHA256 = "" }
                     TextField("Certificate SHA256 (optional)", text: $settings.certificateSHA256)
                         .textInputAutocapitalization(.never).autocorrectionDisabled()
                     Text("For self-signed TLS, obtain the certificate fingerprint from the server operator. A changed certificate will block the connection.").font(.caption)
@@ -75,7 +75,7 @@ struct ConnectionsView: View {
                     if arkRPC.useTor { TorProxyPicker(selection: $arkRPC.torProxy) }
                 } else { Text("Ark shares your on-chain backend and Tor setting.").font(.caption) }
                 TextField("Ark server", text: $settings.arkServer).textInputAutocapitalization(.never).autocorrectionDisabled()
-                Text("Paperclip default: ark.paperclippool.xyz").font(.caption)
+                Text("Paperclip default: ark.paperclip-xbt.xyz").font(.caption)
                 if !isSetup { Button("Check saved backend for Ark") { store.run {
                     _ = try await store.engine.operation("ark_backend_check")
                     store.message = "Backend reports the required Ark relay capabilities and policy."

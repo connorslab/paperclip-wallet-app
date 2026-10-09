@@ -1,6 +1,6 @@
 # Electrum backend requirements for Ark
 
-The app defaults to `ssl://pool.paperclippool.xyz:50002`. Keep the backing Knots
+The app defaults to `ssl://pool.paperclip-xbt.xyz:50002`. Keep the backing Knots
 RPC private. The wallet needs only the following public Electrum methods, over
 TLS or its configured Tor SOCKS transport.
 

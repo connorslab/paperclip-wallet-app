@@ -1,11 +1,11 @@
 # Paperclip Wallet · Beta
 
 A self-hosted Bitcoin Blake2b (XBT) wallet based on Bark by Second and the Bark
-contributors. This edition presets new wallets to **https://ark.paperclippool.xyz**.
+contributors. This edition presets new wallets to **https://ark.paperclip-xbt.xyz**.
 Existing wallet configuration is preserved. Wallet keys stay on your device.
 
 **Public beta. Paperclip Ark is open for XBT deposits, Ark transfers, and Lightning payments.**
-The current release is **0.8.1 beta**. Check [service status](https://ark.paperclippool.xyz/) before funding.
+The current release is **0.8.1 beta**. Check [service status](https://ark.paperclip-xbt.xyz/) before funding.
 
 Current beta limits: boarding starts at **20,000 sats**; Lightning payments are
 limited to **250,000 sats**. Fees and recovery reserves apply. Very small Lightning
@@ -85,8 +85,8 @@ are not compatible. No private RPC credentials or wallet keys are included.
 
 ## Install
 
-See [wallet apps](https://ark.paperclippool.xyz/wallet/) and the
-[connection guide](https://ark.paperclippool.xyz/connect/). Packages use immutable
+See [wallet apps](https://ark.paperclip-xbt.xyz/wallet/) and the
+[connection guide](https://ark.paperclip-xbt.xyz/connect/). Packages use immutable
 container digests. A source wrapper is not an install-tested binary release.
 The [StartOS 0.4 wrapper](https://github.com/connorslab/paperclip-wallet-startos) is separate. The legacy 0.3.5 generator is not the current release target.
 

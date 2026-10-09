@@ -16,7 +16,7 @@ COPY deployment/health.py /usr/local/lib/paperclip/
 COPY deployment/pruned_rpc.py deployment/managed-chain.py /usr/local/lib/paperclip/
 USER 1000:1000
 ENV BARKD_DATADIR=/data/wallet BARKD_BIND_HOST=0.0.0.0 BARKD_BIND_PORT=3000
-ENV BARKD_UI_DEFAULT_ARK_SERVER=https://ark.paperclippool.xyz
+ENV BARKD_UI_DEFAULT_ARK_SERVER=https://ark.paperclip-xbt.xyz
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s CMD ["python3", "/usr/local/lib/paperclip/health.py"]
 ENTRYPOINT ["/usr/bin/tini", "--", "python3", "/usr/local/lib/paperclip/managed-chain.py", "run"]
