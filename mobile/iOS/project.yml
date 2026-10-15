@@ -28,12 +28,17 @@ targets:
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         SWIFT_OBJC_BRIDGING_HEADER: Sources/Bridge.h
         'LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]': ['$(inherited)', '$(SRCROOT)/../../target/aarch64-apple-ios-sim/debug']
-        'LIBRARY_SEARCH_PATHS[sdk=iphoneos*]': ['$(inherited)', '$(SRCROOT)/../../target/aarch64-apple-ios/debug']
+        'LIBRARY_SEARCH_PATHS[sdk=iphoneos*]': ['$(inherited)', '$(SRCROOT)/../../target/aarch64-apple-ios/$(PAPERCLIP_RUST_PROFILE)']
         OTHER_LDFLAGS: ['$(inherited)', '-lpaperclip_mobile', '-lc++', '-lsqlite3', '-framework', 'Security', '-framework', 'SystemConfiguration']
         MARKETING_VERSION: '0.2.0'
-        CURRENT_PROJECT_VERSION: '45'
+        CURRENT_PROJECT_VERSION: '46'
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_UIBackgroundModes: [fetch, processing]
+      configs:
+        Debug:
+          PAPERCLIP_RUST_PROFILE: debug
+        Release:
+          PAPERCLIP_RUST_PROFILE: release
     info:
       path: Generated-Info.plist
       properties:

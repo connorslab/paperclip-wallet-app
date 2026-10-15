@@ -266,6 +266,29 @@ artifacts also require your development signing and provisioning before install.
 Apple's instructions:
 https://developer.apple.com/documentation/xcode/running-your-app-on-simulated-or-physical-devices
 
+## Private TestFlight build
+
+Build the native library before archiving. Device Release builds link the release
+library; Debug builds keep using the debug library. The release helper pins the
+C dependencies to iOS 17, matching the app's deployment target.
+
+```sh
+mobile/iOS/Scripts/build-release-library.sh
+xcodegen generate --spec mobile/iOS/project.yml
+```
+
+Archive the Paperclip scheme with the approved Apple Developer team, then use
+App Store Connect distribution. Keep the existing bundle identifier when updating
+an installed wallet. Archives and exported packages belong in the ignored
+`mobile/Archives/` and `mobile/Exports/` directories.
+
+Create a private TestFlight group without a public link. Internal testers must
+already be eligible App Store Connect users; external testers require Apple's
+beta review before their first build. Complete export-compliance questions based
+on the bundled wallet, backup, and Tor cryptography rather than declaring the app
+TLS-only. Do not include wallet seeds, credentials, or user databases in review
+attachments or builds.
+
 ## Lightning node dashboard
 
 The Lightning tab shows active-channel send and receive estimates. CLN uses
