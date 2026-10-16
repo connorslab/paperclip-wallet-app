@@ -197,6 +197,21 @@ mod tests {
 	}
 
 	#[test]
+	fn mobile_seed_entropy_bip39_vectors() {
+		let mut state = None;
+		for (length, last) in [(16, "about"), (32, "art")] {
+			let result = dispatch(&mut state, json!({"op": "seed_from_entropy", "entropy": STANDARD.encode(vec![0; length])}), [0; 64]).unwrap();
+			let phrase = result["phrase"].as_str().unwrap();
+			let expected = format!("{} {}", vec!["abandon"; if length == 16 { 11 } else { 23 }].join(" "), last);
+			assert_eq!(phrase, expected);
+		}
+		for length in [0, 15, 17, 20, 31, 33] {
+			assert!(dispatch(&mut state, json!({"op": "seed_from_entropy", "entropy": STANDARD.encode(vec![0; length])}), [0; 64]).is_err());
+		}
+		assert!(dispatch(&mut state, json!({"op": "seed_from_entropy", "entropy": "invalid!"}), [0; 64]).is_err());
+	}
+
+	#[test]
 	fn mobile_seed_import_checks_length_checksum_and_derivation() {
 		let mut state = None;
 		let phrase = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
@@ -324,6 +339,14 @@ pub fn dispatch(state: &mut Option<Session>, request: Value, seed: [u8; 64]) -> 
 	let op = text(&request, "op")?;
 	if op == "seed_generate" {
 		let phrase = bip39::Mnemonic::generate(24)?;
+		return Ok(json!({"phrase": phrase.to_string()}));
+	}
+	if op == "seed_from_entropy" {
+		let encoded = text(&request, "entropy")?;
+		ensure!(encoded.len() <= 44, "invalid BIP39 entropy length");
+		let entropy = STANDARD.decode(encoded)?;
+		ensure!([16, 32].contains(&entropy.len()), "use 128 or 256 bits of entropy");
+		let phrase = bip39::Mnemonic::from_entropy(&entropy)?;
 		return Ok(json!({"phrase": phrase.to_string()}));
 	}
 	if op == "seed_derive" {

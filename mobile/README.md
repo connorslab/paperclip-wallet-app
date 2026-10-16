@@ -437,3 +437,52 @@ Validation covers the upstream production vectors in the standalone library, sim
 round replay/restart/vote/sign/timeout behavior, the named-account backup round trip,
 single-coin selection and unified signing, and read-only live relay discovery. This does
 not constitute a live funded Paperclip ↔ Kilowallet/StartOS round or an independent audit.
+
+### Seed creation and entropy
+
+New mobile wallets offer 12 words (128-bit BIP39 entropy plus a 4-bit checksum)
+or 24 words (256-bit entropy plus an 8-bit checksum). The subsequent 512-bit
+BIP39 seed expansion does not add entropy. Write-down and full-phrase verification
+remain mandatory. Imported wallets are unchanged.
+
+- **System random:** iOS `SecRandomCopyBytes(kSecRandomDefault, ...)`, failing closed
+  on any RNG error. The UI describes the requested byte count, not an independent
+  measurement of Apple's internal entropy pool.
+- **Physical dice only:** D6 needs 50/100 rolls, D12 needs 36/72, and D20 needs
+  30/60 for 12/24 words. The estimate is `rolls * log2(sides)` and assumes fair,
+  independent physical rolls. Paperclip cannot validate that assumption. No system
+  randomness is mixed into this deterministic mode. Hash the UTF-8 bytes of
+  `Paperclip/dice/v1/sides=N`, followed by one LF byte, followed by decimal results
+  separated by commas (no spaces, trailing comma, or final newline) with SHA-256.
+  Use the first 16 digest bytes for 12 words or all 32 for 24 words, then standard
+  BIP39 encoding. This is a Paperclip-specific format; back up the resulting words,
+  not just the dice transcript. Changing die type or word length clears the rolls.
+- **Sensors plus system random:** optional camera frames, microphone buffers, and
+  gyroscope samples feed a streaming SHA-256 digest. Each sample has a source byte
+  and big-endian UInt64 length. The stream begins with `Paperclip/sensor-stream/v1`.
+  Mix `Paperclip/seed-sensors/v1` + NUL + one byte for the entropy byte count + fresh
+  system randomness + the 32-byte sensor digest using SHA-256; truncate to the
+  selected entropy size. Samples receive **no credited entropy-bit estimate**.
+  Permissions are requested only after explicit collection. Collection is limited
+  to 30 seconds and stops on completion, cancellation, disappearance, or backgrounding.
+  Raw samples are not persisted or transmitted; transient state is discarded.
+
+No dice or sensor inputs are written to wallet metadata. Swift value semantics and
+framework-owned sample buffers mean discarding state is not a guarantee that every
+memory copy has been physically overwritten. Real-device sensor/permission testing
+is required in addition to simulator UI and cryptographic unit tests.
+
+Sensor diagnostics operate on raw input **before** conditioning: up to 4096 bytes
+per packet (256 spatially distributed, 16-byte spans for larger packets), a byte
+histogram, `-log2(max observed byte frequency)` as empirical marginal min-entropy,
+identical-packet detection, and sampled-byte run lengths. Motion timestamps are
+excluded. The empirical statistic has no confidence bound or independence proof;
+a deterministic counter can score 8 bits/byte. Tests explicitly demonstrate this.
+It must not be multiplied by sample count or credited to seed security. Entire raw
+packets are hashed to detect repetition; those digests and histogram state are
+transient too. Fewer than three packets/256 sampled bytes, constant input, or three
+consecutive identical packets cannot alone complete collection. These are practical
+fault diagnostics, **not** NIST SP 800-90B validation or calibrated RCT/APT thresholds.
+A validated rate requires a source model, device-specific raw-noise assessment,
+restart testing and suitable non-IID estimators; processed phone media is not
+presumed to meet that standard. See https://csrc.nist.gov/pubs/sp/800/90/b/final.

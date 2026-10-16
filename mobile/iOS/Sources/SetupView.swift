@@ -9,6 +9,9 @@ struct SetupView: View {
     @EnvironmentObject var store: WalletStore
     @Environment(\.scenePhase) private var phase
     @State private var phrase = ""
+    @State private var generating = false
+    @State private var seedWords = 24
+    @State private var seedSource = "Secure system random"
     @State private var confirmation = ""
     @State private var verifying = false
     @State private var importing = false
@@ -29,7 +32,7 @@ struct SetupView: View {
                     Text("On-chain · Lightning · Ark").foregroundStyle(PaperclipTheme.muted)
                     if verifying {
                         WalletCard {
-                            Text("Enter all 24 words in order from your written copy. The phrase stays hidden during verification.")
+                            Text("Enter all \(seedWords) words in order from your written copy. The phrase stays hidden during verification.")
                             TextEditor(text: $confirmation).frame(minHeight: 130).privacySensitive().accessibilityIdentifier("seed-confirmation")
                                 .textInputAutocapitalization(.never).autocorrectionDisabled()
                             Button("Verify and create wallet") { create(phrase, confirmation: confirmation) }
@@ -39,7 +42,8 @@ struct SetupView: View {
                         }
                     } else if !phrase.isEmpty {
                         WalletCard {
-                            Label("Write down these 24 words", systemImage: "pencil.and.list.clipboard").font(.headline)
+                            Label("Write down these \(seedWords) words", systemImage: "pencil.and.list.clipboard").font(.headline)
+                            Text("\(seedWords == 12 ? 128 : 256)-bit BIP39 entropy · \(seedSource)").font(.caption).foregroundStyle(PaperclipTheme.muted)
                             Text("Keep the words offline and in this order. Anyone with these words can spend your XBT.").font(.subheadline)
                             LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], alignment: .leading, spacing: 14) {
                                 ForEach(Array(phrase.split(separator: " ").enumerated()), id: \.offset) { index, word in
@@ -53,7 +57,7 @@ struct SetupView: View {
                         WalletSection("Mobile wallet") {
                             TextField("Wallet name", text: $walletName).textFieldStyle(WalletInputStyle())
                             Text("Create a wallet with keys stored securely on this iPhone. We’ll guide you through writing down and verifying your seed.").font(.subheadline).foregroundStyle(PaperclipTheme.muted)
-                            Button { store.run { phrase = try await store.engine.generatePhrase() } } label: {
+                            Button { generating = true } label: {
                                 Label("Create a wallet", systemImage: "plus").frame(maxWidth: .infinity)
                             }.buttonStyle(WalletPrimaryButtonStyle()).controlSize(.large).accessibilityIdentifier("create-wallet")
                         }
@@ -108,6 +112,15 @@ struct SetupView: View {
                         }
                     }
                 }
+                .sheet(isPresented: $generating) {
+                    NavigationStack {
+                        SeedGenerationView { entropy, words, source in
+                            let generated = try await store.engine.generatePhrase(entropy: entropy)
+                            guard phase == .active, generating else { throw WalletFailure(message: "Seed creation canceled. Start again while the app is active.") }
+                            seedWords = words; seedSource = source; phrase = generated
+                        }
+                    }
+                }
                 .sheet(isPresented: $importing) {
                     NavigationStack {
                         ScrollView { VStack(spacing: 20) {
@@ -142,7 +155,7 @@ struct SetupView: View {
                     #endif
                 }
                 .onChange(of: phase) { _, phase in
-                    if phase == .background { phrase = ""; confirmation = ""; importedPhrase = ""; verifying = false; importing = false }
+                    if phase == .background { phrase = ""; confirmation = ""; importedPhrase = ""; verifying = false; importing = false; generating = false }
                 }
     }
     private func create(_ phrase: String, confirmation: String, recovery: Bool = false) {

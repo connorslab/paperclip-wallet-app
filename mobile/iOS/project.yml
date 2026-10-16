@@ -31,7 +31,7 @@ targets:
         'LIBRARY_SEARCH_PATHS[sdk=iphoneos*]': ['$(inherited)', '$(SRCROOT)/../../target/aarch64-apple-ios/$(PAPERCLIP_RUST_PROFILE)']
         OTHER_LDFLAGS: ['$(inherited)', '-lpaperclip_mobile', '-lc++', '-lsqlite3', '-framework', 'Security', '-framework', 'SystemConfiguration']
         MARKETING_VERSION: '0.2.0'
-        CURRENT_PROJECT_VERSION: '46'
+        CURRENT_PROJECT_VERSION: '47'
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_UIBackgroundModes: [fetch, processing]
       configs:
@@ -43,7 +43,9 @@ targets:
       path: Generated-Info.plist
       properties:
         CFBundleDisplayName: Paperclip
-        NSCameraUsageDescription: Scan payment addresses, Lightning invoices, public wallet keys, and hardware signing QR codes.
+        NSCameraUsageDescription: Scan wallet QR codes, or optionally contribute local camera samples when creating a seed.
+        NSMicrophoneUsageDescription: Optionally contribute local audio samples when creating a seed. Audio is not recorded or uploaded.
+        NSMotionUsageDescription: Optionally contribute local gyroscope samples when creating a seed.
         NSFaceIDUsageDescription: Unlock your Paperclip wallet.
         NSLocalNetworkUsageDescription: Connect to your XBT, Lightning, or Tor node on your local network.
         NSAppTransportSecurity:

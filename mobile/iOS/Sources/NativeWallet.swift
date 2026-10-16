@@ -177,8 +177,9 @@ actor NativeWallet: WalletEngine, WalletBackupEngine {
     private var network = "xbt-mainnet"
     func hasWallet() throws -> Bool { try record() != nil }
     func walletNetwork() throws -> String { try record()?.network ?? "xbt-mainnet" }
-    func generatePhrase() async throws -> String {
-        let result = try await call(["op": "seed_generate"], seed: Data(repeating: 0, count: 64))
+    func generatePhrase(entropy: Data) async throws -> String {
+        guard [16, 32].contains(entropy.count) else { throw SeedEntropy.Failure.invalidSize }
+        let result = try await call(["op": "seed_from_entropy", "entropy": entropy.base64EncodedString()], seed: Data(repeating: 0, count: 64))
         guard let phrase = result["phrase"] as? String else { throw WalletFailure(message: "Seed generation failed.") }
         return phrase
     }
