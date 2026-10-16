@@ -62,7 +62,7 @@ struct SeedGenerationView: View {
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { sensors.clear(); dismiss() }.disabled(busy) } }
             .onChange(of: method) { _, _ in sensors.clear(); rolls.removeAll(); acknowledged = false; error = "" }
             .onChange(of: sides) { _, _ in rolls.removeAll(); acknowledged = false }
-            .onChange(of: words) { _, _ in rolls.removeAll(); sensors.clear(); acknowledged = false }
+            .onChange(of: words) { _, _ in sensors.clear(); acknowledged = false }
             .onChange(of: phase) { _, value in if value == .background { sensors.clear(); rolls.removeAll(); acknowledged = false } }
             .onDisappear { sensors.clear(); rolls.removeAll() }
             .disabled(busy)
@@ -95,8 +95,8 @@ struct SeedGenerationView: View {
                     }.buttonStyle(.plain).accessibilityLabel("D\(die), \((try? SeedEntropy.requiredRolls(words: words, sides: die)) ?? 0) rolls").accessibilityAddTraits(sides == die ? .isSelected : [])
                 }
             }
-            Text("Roll a fair physical D\(sides) and enter each result in order. Do not invent a sequence or use an online dice roller. Changing the die or phrase length clears your rolls.").font(.subheadline).foregroundStyle(PaperclipTheme.muted)
-            HStack { Text("\(rolls.count) / \(required) rolls").font(.headline).monospacedDigit(); Spacer(); Button("Undo") { if !rolls.isEmpty { rolls.removeLast() } }.disabled(rolls.isEmpty) }
+            Text("Roll a fair physical D\(sides) and enter each result in order. Do not invent a sequence or use an online dice roller. Every roll contributes, including extra rolls. Switching phrase length keeps your rolls; changing the die clears them.").font(.subheadline).foregroundStyle(PaperclipTheme.muted)
+            HStack { Text("\(rolls.count) rolls · \(required) minimum").font(.headline).monospacedDigit(); Spacer(); Button("Undo") { if !rolls.isEmpty { rolls.removeLast() } }.disabled(rolls.isEmpty) }
             ProgressView(value: Double(min(rolls.count, required)), total: Double(required)).tint(PaperclipTheme.orange)
             Text("≈ \(Double(rolls.count) * log2(Double(sides)), specifier: "%.1f") input bits estimated · \(bits)-bit output").font(.caption).monospacedDigit()
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: sides == 6 ? 3 : 4), spacing: 10) {
@@ -104,54 +104,73 @@ struct SeedGenerationView: View {
                     Button { rolls.append(face) } label: {
                         Text(String(face)).font(.title3.weight(.semibold)).monospacedDigit().frame(maxWidth: .infinity).frame(height: 46)
                             .background(PaperclipTheme.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 12))
-                    }.buttonStyle(.plain).disabled(rolls.count >= required).accessibilityLabel("Rolled \(face)")
+                    }.buttonStyle(.plain).disabled(rolls.count >= SeedEntropy.maximumDiceRolls).accessibilityLabel("Rolled \(face)")
                 }
             }
             if !rolls.isEmpty { Text("Last roll: \(rolls.last!)").font(.caption).privacySensitive() }
+            Text(rolls.count >= SeedEntropy.maximumDiceRolls ? "1,000-roll limit reached. All rolls will be used." : (rolls.count >= required ? "Ready when you are. Keep rolling or generate your phrase below." : "Enter at least \(required - rolls.count) more rolls to continue.")).font(.caption).foregroundStyle(PaperclipTheme.muted)
             Toggle("I used fair physical dice and recorded every independent roll accurately.", isOn: $acknowledged).font(.subheadline).tint(PaperclipTheme.orange)
             DisclosureGroup("How dice become seed words") {
-                Text("Dice-only mode adds no system randomness. Paperclip hashes the UTF-8 text ‘Paperclip/dice/v1/sides=N’, a newline, and your comma-separated decimal results with SHA-256. It uses the first 16 bytes for 12 words, or all 32 bytes for 24 words. This is a Paperclip format, not an AirGap or Coldcard recovery format. Back up the words.").font(.caption)
+                Text("Dice-only mode adds no system randomness. Paperclip hashes the UTF-8 text ‘Paperclip/dice/v1/sides=N’, a newline, and your comma-separated decimal results with SHA-256. It uses the first 16 bytes for 12 words, or all 32 bytes for 24 words. Every recorded roll is hashed before the output is sized—even for 12 words. Extra rolls contribute to the result but cannot increase the phrase beyond its 128- or 256-bit limit. Back up the words.").font(.caption)
                 Text("The estimate is rolls × log₂(sides), assuming fair, independent rolls. Hashing cannot make predictable or biased rolls random, and the app cannot verify how you rolled.").font(.caption)
             }
         }
     }
     private var sensorSection: some View {
-        WalletSection("Collect your surroundings") {
-            Text("Optional local samples are mixed with fresh secure system randomness. Nothing is recorded to a file or uploaded. Collection stops after 30 seconds, or whenever you finish.").font(.subheadline).foregroundStyle(PaperclipTheme.muted)
-            Group {
-                Toggle("Camera", isOn: $camera)
-                Toggle("Microphone", isOn: $microphone)
-                Toggle("Gyroscope", isOn: $gyro)
-            }.tint(PaperclipTheme.orange).disabled(sensors.collecting || sensors.digest != nil)
-            HStack { sampleCount("Frames", sensors.counts[0]); Spacer(); sampleCount("Audio", sensors.counts[1]); Spacer(); sampleCount("Motion", sensors.counts[2]) }
-            Text("\(bits)-bit system-random input · 0 additional sensor bits credited until validated").font(.caption)
-            DisclosureGroup("Sensor measurements") {
-                ForEach(0..<3, id: \.self) { index in
-                    let health = sensors.health[index]
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text(["Camera", "Microphone", "Gyroscope"][index]).font(.headline)
-                        Text(health.status).font(.caption).foregroundStyle(health.looksStuck ? PaperclipTheme.orange : PaperclipTheme.muted)
-                        Text("\(health.bytes.formatted()) raw bytes sampled · \(health.distinctValues)/256 byte values").font(.caption)
-                        if health.bytes > 0 {
-                            Text("Empirical min-entropy: \(health.empiricalMinEntropy, specifier: "%.2f") bits/byte (distribution only)").font(.caption)
-                            Text("Most common byte: \(health.mostCommonFraction * 100, specifier: "%.1f")% · repeated packets: \(health.repeatedPackets) · longest sampled-byte run: \(health.longestByteRun)").font(.caption)
-                        }
-                    }
-                    if index < 2 { Divider() }
+        VStack(spacing: 24) {
+            WalletSection("Choose your sensors") {
+                Text("Add local samples to secure system randomness. Choose your sources, then collect for up to 30 seconds.").font(.subheadline).foregroundStyle(PaperclipTheme.muted)
+                Group {
+                    Toggle(isOn: $camera) { Label("Camera", systemImage: "camera") }
+                    Divider()
+                    Toggle(isOn: $microphone) { Label("Microphone", systemImage: "mic") }
+                    Divider()
+                    Toggle(isOn: $gyro) { Label("Motion", systemImage: "gyroscope") }
+                }.tint(PaperclipTheme.orange).disabled(sensors.collecting || sensors.digest != nil)
+            }
+            WalletSection("Collect samples") {
+                Label(sensors.collecting ? "Collecting your surroundings" : (sensors.digest != nil ? "Samples ready" : "Ready to collect"), systemImage: sensors.digest != nil ? "checkmark.circle" : "waveform")
+                    .font(.headline).foregroundStyle(PaperclipTheme.orange)
+                if sensors.collecting || sensors.digest != nil {
+                    HStack { sampleCount("Frames", sensors.counts[0]); Spacer(); sampleCount("Audio", sensors.counts[1]); Spacer(); sampleCount("Motion", sensors.counts[2]) }
                 }
-                Text("Measured before hashing, with timestamps excluded from motion diagnostics. These checks detect some stuck or repetitive inputs. Correlated or predictable inputs can still score well; this is not a validated cryptographic entropy rate and is never multiplied into a seed-strength claim.").font(.caption).foregroundStyle(PaperclipTheme.muted)
+                Text("Samples stay on this device and are never saved or uploaded.").font(.subheadline).foregroundStyle(PaperclipTheme.muted)
+                if sensors.collecting {
+                    Button { sensors.finish() } label: {
+                        HStack { ProgressView(); Text(sensors.finishing ? "Finishing…" : "Finish collecting") }.frame(maxWidth: .infinity)
+                    }.buttonStyle(WalletPrimaryButtonStyle()).disabled(sensors.finishing)
+                } else if sensors.digest != nil {
+                    Text("Continue with Generate \(words) words below.").font(.subheadline)
+                    Button("Discard and collect again") { sensors.clear() }
+                } else {
+                    Button { Task { await sensors.start(camera: camera, microphone: microphone, gyro: gyro) } } label: {
+                        Label("Start collecting", systemImage: "waveform").frame(maxWidth: .infinity)
+                    }.buttonStyle(WalletPrimaryButtonStyle()).disabled(!camera && !microphone && !gyro)
+                }
+                if !sensors.message.isEmpty { Text(sensors.message).font(.caption).foregroundStyle(PaperclipTheme.muted) }
             }
-            if sensors.collecting {
-                Button("Finish collecting") { sensors.finish() }.disabled(sensors.finishing)
-                ProgressView().tint(PaperclipTheme.orange)
-            } else if sensors.digest != nil {
-                Button("Discard and collect again") { sensors.clear() }
-            } else {
-                Button("Start collecting") { Task { await sensors.start(camera: camera, microphone: microphone, gyro: gyro) } }.disabled(!camera && !microphone && !gyro)
-            }
-            if !sensors.message.isEmpty { Text(sensors.message).font(.caption).foregroundStyle(PaperclipTheme.muted) }
-            DisclosureGroup("How samples are mixed") {
-                Text("Camera frames, audio buffers, and gyroscope samples feed a local SHA-256 digest with source tags and lengths. That digest is hashed together with fresh SecRandomCopyBytes output and a Paperclip-specific label. Sensors never replace system randomness. Canceling or leaving the app discards the collection.").font(.caption)
+            WalletSection("Privacy & seed strength") {
+                Text("\(bits) bits from secure system randomness").font(.subheadline.weight(.semibold))
+                Text("Sensors add input, but their unpredictable entropy cannot be verified. No extra security bits are claimed.").font(.caption).foregroundStyle(PaperclipTheme.muted)
+                DisclosureGroup("Sensor measurements") {
+                    ForEach(0..<3, id: \.self) { index in
+                        let health = sensors.health[index]
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(["Camera", "Microphone", "Gyroscope"][index]).font(.headline)
+                            Text(health.status).font(.caption).foregroundStyle(health.looksStuck ? PaperclipTheme.orange : PaperclipTheme.muted)
+                            Text("\(health.bytes.formatted()) raw bytes sampled · \(health.distinctValues)/256 byte values").font(.caption)
+                            if health.bytes > 0 {
+                                Text("Empirical min-entropy: \(health.empiricalMinEntropy, specifier: "%.2f") bits/byte (distribution only)").font(.caption)
+                                Text("Most common byte: \(health.mostCommonFraction * 100, specifier: "%.1f")% · repeated packets: \(health.repeatedPackets) · longest sampled-byte run: \(health.longestByteRun)").font(.caption)
+                            }
+                        }
+                        if index < 2 { Divider() }
+                    }
+                    Text("Measured before hashing, with timestamps excluded from motion diagnostics. These checks detect some stuck or repetitive inputs. Correlated or predictable inputs can still score well; this is not a validated cryptographic entropy rate and is never multiplied into a seed-strength claim.").font(.caption).foregroundStyle(PaperclipTheme.muted)
+                }
+                DisclosureGroup("How samples are mixed") {
+                    Text("Camera frames, audio buffers, and gyroscope samples feed a local SHA-256 digest with source tags and lengths. That digest is hashed together with fresh SecRandomCopyBytes output and a Paperclip-specific label. Sensors never replace system randomness. Canceling or leaving the app discards the collection.").font(.caption)
+                }
             }
         }
     }

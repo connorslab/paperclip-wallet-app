@@ -456,7 +456,9 @@ remain mandatory. Imported wallets are unchanged.
   separated by commas (no spaces, trailing comma, or final newline) with SHA-256.
   Use the first 16 digest bytes for 12 words or all 32 for 24 words, then standard
   BIP39 encoding. This is a Paperclip-specific format; back up the resulting words,
-  not just the dice transcript. Changing die type or word length clears the rolls.
+  not just the dice transcript. All rolls (up to 1,000) feed the hash before output
+  sizing, including rolls beyond the minimum. Extra rolls do not increase the
+  BIP39 output size. Changing word length preserves rolls; changing die type clears them.
 - **Sensors plus system random:** optional camera frames, microphone buffers, and
   gyroscope samples feed a streaming SHA-256 digest. Each sample has a source byte
   and big-endian UInt64 length. The stream begins with `Paperclip/sensor-stream/v1`.

@@ -19,6 +19,23 @@ final class SeedEntropyTests: XCTestCase {
         XCTAssertThrowsError(try SeedEntropy.requiredRolls(words: 12, sides: 8))
         XCTAssertThrowsError(try SeedEntropy.system(words: 15))
     }
+    func testEveryExtraRollContributesForBothPhraseLengths() throws {
+        for sides in [6, 12, 20] {
+            for words in [12, 24] {
+                let minimum = try SeedEntropy.requiredRolls(words: words, sides: sides)
+                let rolls = (0..<minimum).map { $0 % sides + 1 }
+                let original = try SeedEntropy.dice(rolls, sides: sides, words: words)
+                let extra = try SeedEntropy.dice(rolls + [1], sides: sides, words: words)
+                XCTAssertNotEqual(original, extra)
+                XCTAssertNotEqual(extra, try SeedEntropy.dice(rolls + [2], sides: sides, words: words))
+                var maximum = Array(repeating: 1, count: SeedEntropy.maximumDiceRolls)
+                let first = try SeedEntropy.dice(maximum, sides: sides, words: words)
+                maximum[maximum.count - 1] = sides
+                XCTAssertNotEqual(first, try SeedEntropy.dice(maximum, sides: sides, words: words))
+                XCTAssertThrowsError(try SeedEntropy.dice(maximum + [1], sides: sides, words: words))
+            }
+        }
+    }
     func testMixRequiresSystemRandomAndFixedDigest() throws {
         let system = Data(repeating: 1, count: 32), sensor = Data(repeating: 2, count: 32)
         let first = try SeedEntropy.mix(system: system, sensorDigest: sensor, words: 24)

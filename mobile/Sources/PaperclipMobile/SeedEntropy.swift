@@ -4,6 +4,8 @@ import Security
 
 /// Entropy bytes for BIP39, before its checksum and PBKDF2 seed expansion.
 public enum SeedEntropy {
+    public static let maximumDiceRolls = 1000
+
     public enum Failure: Error, LocalizedError {
         case invalidSize, invalidRolls, insufficientRolls, randomUnavailable, invalidSupplement
         public var errorDescription: String? {
@@ -33,11 +35,12 @@ public enum SeedEntropy {
         return bytes
     }
     /// SHA256("Paperclip/dice/v1/sides=N\n" + comma-separated decimal rolls),
-    /// truncated to 16 bytes for 12 words. No RNG is added.
+    /// Every supplied roll feeds the hash, including rolls beyond the minimum.
+    /// The digest is truncated to 16 bytes for 12 words. No RNG is added.
     public static func dice(_ rolls: [Int], sides: Int, words: Int) throws -> Data {
         let count = try byteCount(words: words)
         let required = try requiredRolls(words: words, sides: sides)
-        guard rolls.count <= 1000, rolls.allSatisfy({ (1...sides).contains($0) }) else { throw Failure.invalidRolls }
+        guard rolls.count <= maximumDiceRolls, rolls.allSatisfy({ (1...sides).contains($0) }) else { throw Failure.invalidRolls }
         guard rolls.count >= required else { throw Failure.insufficientRolls }
         let input = "Paperclip/dice/v1/sides=\(sides)\n" + rolls.map(String.init).joined(separator: ",")
         return Data(SHA256.hash(data: Data(input.utf8)).prefix(count))
