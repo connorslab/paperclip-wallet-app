@@ -184,8 +184,8 @@ struct DashboardView: View {
                     do { try await Task.sleep(for: .seconds(5)) } catch { return }
                 }
             }
-            .toolbar { Button { store.run { try await store.synchronize() } } label: { Image(systemName: "arrow.clockwise") }.disabled(store.busy).accessibilityLabel("Synchronize wallet") }
-            .refreshable { guard !store.busy else { return }; store.run { try await store.synchronize() } }
+            .toolbar { Button { Task { await XBTPrice.shared.refresh(force: true) }; store.run { try await store.synchronize() } } label: { Image(systemName: "arrow.clockwise") }.disabled(store.busy).accessibilityLabel("Synchronize wallet") }
+            .refreshable { store.run { try await store.synchronize() }; await XBTPrice.shared.refresh(force: true) }
             .animation(reduceMotion ? nil : .smooth(duration: 0.3), value: store.onchain)
             .sheet(isPresented: $sending) { NavigationStack { WalletSendView() } }
             .sheet(isPresented: $receiving) { NavigationStack { ReceiveView() } }

@@ -488,3 +488,15 @@ fault diagnostics, **not** NIST SP 800-90B validation or calibrated RCT/APT thre
 A validated rate requires a source model, device-specific raw-noise assessment,
 restart testing and suitable non-IID estimators; processed phone media is not
 presumed to meet that standard. See https://csrc.nist.gov/pubs/sp/800/90/b/final.
+
+### USD estimates
+
+The shared price service fetches the public `https://xbt.live/api/widget` quote
+without wallet identifiers or amounts. Successful quotes refresh every five
+minutes; failures retry after 30 seconds while a USD display is active. Manual
+retry and dashboard refresh bypass that delay. The request survives view
+cancellation so tab switching cannot cancel it for other wallet cards.
+
+A validated quote is cached locally for subsequent launches. Rates older than
+15 minutes are marked stale, and rates at least 24 hours old are not displayed.
+Missing wallet balances are labeled separately from unavailable market prices.
