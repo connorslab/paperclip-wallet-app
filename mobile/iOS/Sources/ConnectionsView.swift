@@ -141,6 +141,14 @@ struct SettingsView: View {
                     if store.supportsArk { NavigationLink { MessageSigningView() } label: { WalletNavigationRow("Sign a message", subtitle: "Prove ownership of an on-chain address", icon: "signature") }
                     NavigationLink { ArkMaintenanceView() } label: { WalletNavigationRow("Ark maintenance", subtitle: "Refresh funds and expiry reminders", icon: "arrow.triangle.2.circlepath") } }
                 }
+                WalletSection("Help & privacy") {
+                    NavigationLink { WalletSupportView() } label: {
+                        WalletNavigationRow("Contact support", subtitle: "Get help with your wallet", icon: "questionmark.circle")
+                    }
+                    Link(destination: WalletHelp.privacy) {
+                        WalletNavigationRow("Privacy policy", subtitle: "Your data, connections, and choices", icon: "hand.raised")
+                    }
+                }
                 WalletSection {
                     NavigationLink { DonationView() } label: {
                         WalletNavigationRow("Support Paperclip", subtitle: "Donate XBT to support development", icon: "heart")
