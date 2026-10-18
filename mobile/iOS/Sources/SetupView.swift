@@ -45,10 +45,24 @@ struct SetupView: View {
                             Label("Write down these \(seedWords) words", systemImage: "pencil.and.list.clipboard").font(.headline)
                             Text("\(seedWords == 12 ? 128 : 256)-bit BIP39 entropy · \(seedSource)").font(.caption).foregroundStyle(PaperclipTheme.muted)
                             Text("Keep the words offline and in this order. Anyone with these words can spend your XBT.").font(.subheadline)
-                            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], alignment: .leading, spacing: 14) {
-                                ForEach(Array(phrase.split(separator: " ").enumerated()), id: \.offset) { index, word in
-                                    HStack { Text(String(index + 1)).foregroundStyle(.secondary).frame(width: 24); Text(String(word)).fontWeight(.medium) }
-                                        .font(.system(.body, design: .monospaced))
+                            Text("Read down the left column, then down the right.").font(.caption).foregroundStyle(PaperclipTheme.muted)
+                            let words = phrase.split(separator: " ")
+                            let rows = (words.count + 1) / 2
+                            HStack(alignment: .top, spacing: 16) {
+                                ForEach(0..<2, id: \.self) { column in
+                                    VStack(alignment: .leading, spacing: 14) {
+                                        ForEach((column * rows)..<min((column + 1) * rows, words.count), id: \.self) { index in
+                                            HStack {
+                                                Text(String(index + 1)).foregroundStyle(.secondary).frame(width: 24, alignment: .trailing)
+                                                Text(String(words[index])).fontWeight(.medium)
+                                            }
+                                            .font(.system(.body, design: .monospaced))
+                                            .accessibilityElement(children: .ignore)
+                                            .accessibilityLabel("Word \(index + 1), \(words[index])")
+                                            .accessibilitySortPriority(Double(words.count - index))
+                                        }
+                                    }.frame(maxWidth: .infinity, alignment: .leading)
+                                        .accessibilityElement(children: .contain)
                                 }
                             }.privacySensitive().accessibilityIdentifier("seed-words")
                             Button("I wrote down every word") { verifying = true }.buttonStyle(WalletPrimaryButtonStyle())
