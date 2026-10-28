@@ -2,11 +2,14 @@ name: Publish verified wallet images
 on:
   workflow_dispatch:
     inputs:
+      amd64_only:
+        type: boolean
+        default: false
       amd64_sha256:
         required: true
         type: string
       arm64_sha256:
-        required: true
+        required: false
         type: string
 permissions:
   contents: read
@@ -15,12 +18,7 @@ jobs:
   publish:
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - arch: amd64
-            runner: ubuntu-24.04
-          - arch: arm64
-            runner: ubuntu-24.04-arm
+      matrix: ${{ fromJSON(inputs.amd64_only && '{"include":[{"arch":"amd64","runner":"ubuntu-24.04"}]}' || '{"include":[{"arch":"amd64","runner":"ubuntu-24.04"},{"arch":"arm64","runner":"ubuntu-24.04-arm"}]}') }}
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
@@ -50,6 +48,7 @@ jobs:
           docker tag "$source" "$target"
           docker push "$target"
   manifest:
+    if: ${{ !inputs.amd64_only }}
     needs: publish
     runs-on: ubuntu-24.04
     steps:
