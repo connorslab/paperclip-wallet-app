@@ -35,16 +35,16 @@ jobs:
         run: |
           set -euo pipefail
           [[ "$EXPECTED" =~ ^[0-9a-f]{64}$ ]]
-          gh release download v0.9.0-beta.1 -R "$GITHUB_REPOSITORY" -p "wallet-$ARCH.tar.gz"
+          gh release download v0.9.1-beta.1 -R "$GITHUB_REPOSITORY" -p "wallet-$ARCH.tar.gz"
           printf '%s  %s\n' "$EXPECTED" "wallet-$ARCH.tar.gz" | sha256sum -c -
           docker load -i "wallet-$ARCH.tar.gz"
-          build=40777820596
-          if [ "$ARCH" = arm64 ]; then build=40780015596; fi
-          source="ghcr.io/connorslab/paperclip-wallet-app:build-$build-$ARCH"
+          build=40786311361
+          if [ "$ARCH" = arm64 ]; then build=40786311361; fi
+          source="ghcr.io/connorslab/paperclip-wallet-app:hotfix-$build-$ARCH"
           docker image inspect "$source" > image.json
-          docker run --rm --network none --entrypoint paperclip-wallet "$source" --version | grep -F '0.9.0'
+          docker run --rm --network none --entrypoint paperclip-wallet "$source" --version | grep -F '0.9.1'
           docker run --rm --network none -v "$PWD:/tests:ro" --entrypoint python3 "$source" /tests/deployment/test_daemon.py
-          target="ghcr.io/connorslab/paperclip-wallet-app:0.9.0-$ARCH"
+          target="ghcr.io/connorslab/paperclip-wallet-app:0.9.1-$ARCH"
           docker tag "$source" "$target"
           docker push "$target"
   manifest:
@@ -62,8 +62,8 @@ jobs:
         run: |
           set -euo pipefail
           image=ghcr.io/connorslab/paperclip-wallet-app
-          docker buildx imagetools create -t "$image:0.9.0" "$image:0.9.0-amd64" "$image:0.9.0-arm64"
-          docker buildx imagetools inspect "$image:0.9.0" > image.txt
+          docker buildx imagetools create -t "$image:0.9.1" "$image:0.9.1-amd64" "$image:0.9.1-arm64"
+          docker buildx imagetools inspect "$image:0.9.1" > image.txt
       - uses: actions/upload-artifact@v4
         with:
           name: release-image

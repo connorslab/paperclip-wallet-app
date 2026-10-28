@@ -4,10 +4,11 @@ let network = null;
 let uncertainMutation = sessionRead('paperclip.uncertain') === '1';
 let lightningEnabled = false;
 let setupPending = false;
+let setupDefaultsLoaded = false;
 const $ = id => document.getElementById(id);
 const status = text => { $('status').textContent = text; };
 async function api(path, body, method, signal) {
-  const response = await fetch('/api/v1/' + path, {
+  const response = await fetch(path.startsWith('/') ? path : '/api/v1/' + path, {
     signal, method: method || (body === undefined ? 'GET' : 'POST'), cache: 'no-store', redirect: 'error',
     headers: {Authorization: 'Bearer ' + token, 'Content-Type': 'application/json'},
     ...(body === undefined ? {} : {body: JSON.stringify(body)})
@@ -67,6 +68,18 @@ $('unlock').addEventListener('submit', event => { event.preventDefault(); run(ev
     setupPending = false;
     if (existing.fingerprint === null) {
       $('login').hidden = true; $('setup').hidden = false;
+      if (!setupDefaultsLoaded) {
+        const defaults = await api('/api/config').catch(() => null);
+        if (typeof defaults?.arkServer === 'string') {
+          try {
+            const url = new URL(defaults.arkServer);
+            if (['https:', 'http:'].includes(url.protocol) && !url.username && !url.password) {
+              $('setup-asp').value = defaults.arkServer;
+            }
+          } catch {}
+        }
+        setupDefaultsLoaded = true;
+      }
       const installed = await api('wallet/platform-node').catch(() => ({available: false}));
       $('setup-installed').disabled = !installed.available;
       $('setup-backend').value = installed.available ? 'installed' : 'manual';
