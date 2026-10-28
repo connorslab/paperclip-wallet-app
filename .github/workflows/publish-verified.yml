@@ -40,7 +40,9 @@ jobs:
           gh release download v0.9.0-beta.1 -R "$GITHUB_REPOSITORY" -p "wallet-$ARCH.tar.gz"
           printf '%s  %s\n' "$EXPECTED" "wallet-$ARCH.tar.gz" | sha256sum -c -
           docker load -i "wallet-$ARCH.tar.gz"
-          source="ghcr.io/connorslab/paperclip-wallet-app:build-40777820596-$ARCH"
+          build=40777820596
+          if [ "$ARCH" = arm64 ]; then build=40780015596; fi
+          source="ghcr.io/connorslab/paperclip-wallet-app:build-$build-$ARCH"
           docker image inspect "$source" > image.json
           docker run --rm --network none --entrypoint paperclip-wallet "$source" --version | grep -F '0.9.0'
           docker run --rm --network none -v "$PWD:/tests:ro" --entrypoint python3 "$source" /tests/deployment/test_daemon.py
