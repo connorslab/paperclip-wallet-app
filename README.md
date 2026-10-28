@@ -5,7 +5,7 @@ contributors. This edition presets new wallets to **https://ark.paperclippool.xy
 Existing wallet configuration is preserved. Wallet keys stay on your device.
 
 **Public beta. Paperclip Ark is open for XBT deposits, Ark transfers, and Lightning payments.**
-The current release is **[0.9.0 beta](https://github.com/connorslab/paperclip-wallet-app/releases/tag/v0.9.0-beta.1)**. Check [service status](https://ark.paperclippool.xyz/) before funding.
+The current release is **[0.9.1 beta](https://github.com/connorslab/paperclip-wallet-app/releases/tag/v0.9.1-beta.1)**. Check [service status](https://ark.paperclippool.xyz/) before funding.
 
 Current beta limits: boarding starts at **20,000 sats**; Lightning payments are
 limited to **250,000 sats**. Fees and recovery reserves apply. Very small Lightning
@@ -16,6 +16,13 @@ payments can be below the funded-HTLC minimum. The server can change these limit
 **Not independently audited.** Paperclip Wallet and its Ark integration are
 experimental and provided without warranty. Functional tests are not a security
 audit. Bugs can cause loss of funds. Use only amounts you can afford to lose.
+
+## 0.9.1 setup hotfix
+
+Restores the configured ASP URL in setup and fixes checkbox and button layout.
+Paperclip is prefilled for new wallets; custom server settings and edits are
+preserved. Existing wallet data, payment logic, recovery formats, and fees are
+unchanged. Update in place after backing up the complete wallet.
 
 ## 0.9.0
 
