@@ -38,7 +38,7 @@ jobs:
           gh release download v0.9.1-beta.1 -R "$GITHUB_REPOSITORY" -p "wallet-$ARCH.tar.gz"
           printf '%s  %s\n' "$EXPECTED" "wallet-$ARCH.tar.gz" | sha256sum -c -
           docker load -i "wallet-$ARCH.tar.gz"
-          build=40786311361
+          build=40789384982
           if [ "$ARCH" = arm64 ]; then build=40786311361; fi
           source="ghcr.io/connorslab/paperclip-wallet-app:hotfix-$build-$ARCH"
           docker image inspect "$source" > image.json
