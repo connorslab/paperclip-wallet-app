@@ -224,6 +224,7 @@ impl Wallet {
 		change_keypair: Keypair,
 		change_pieces: Option<Vec<Amount>>,
 		small_anchor_transfer: bool,
+		economical_transfer: bool,
 	) -> Result<ArkoorCreateResult, ArkoorCreateError> {
 		let (mut srv, _) = self.require_server().await?;
 		let input_ids = inputs.into_iter().map(|v| v.id()).collect::<Vec<_>>();
@@ -266,7 +267,8 @@ impl Wallet {
 		// The profile fixes the output allocation. Older split-piece hints cannot
 		// change recipient amounts or create dust recovery outputs.
 		let _ = change_pieces;
-		let funding = if small_anchor_transfer { ark::exit_policy::small_anchor_transfer_funding() }
+		let funding = if economical_transfer { ark::exit_policy::economical_transfer_funding() }
+			else if small_anchor_transfer { ark::exit_policy::small_anchor_transfer_funding() }
 			else { ark::exit_policy::paperclip_funding() };
 		let (builder, recovery_reserve) = ArkoorPackageBuilder::new_funded_payment_with_funding(
 			inputs, arkoor_dest.clone(), VtxoPolicy::new_pubkey(change_pubkey), funding,
@@ -337,11 +339,13 @@ impl Wallet {
 	/// Read-only plan shared by estimates and sends. No keys, locks or signatures are created.
 	pub(crate) async fn plan_arkoor_payment(
 		&self, amount: Amount, policy: VtxoPolicy, change: PublicKey,
-	) -> anyhow::Result<(Vec<WalletVtxo>, Amount, bool)> {
+	) -> anyhow::Result<(Vec<WalletVtxo>, Amount, bool, bool)> {
 		self.inner.chain.require_funded_policy().await?;
 		let (_, info) = self.require_server().await?;
 		let small_anchor_transfer = info.small_anchor_transfers;
-		let funding = if small_anchor_transfer { ark::exit_policy::small_anchor_transfer_funding() }
+		let economical_transfer = info.economical_transfers;
+		let funding = if economical_transfer { ark::exit_policy::economical_transfer_funding() }
+			else if small_anchor_transfer { ark::exit_policy::small_anchor_transfer_funding() }
 			else { ark::exit_policy::paperclip_funding() };
 		ensure!(amount > Amount::ZERO, "payment amount must be positive");
 		let tip = self.inner.chain.tip().await?;
@@ -372,7 +376,7 @@ impl Wallet {
 				.and_then(|v| v.checked_add(tip.to_u32())).context("exit deadline overflow")?;
 			ensure!(deadline < input.expiry_height().to_u32(), "refresh required before another transfer");
 		}
-		Ok((inputs, recovery_reserve, small_anchor_transfer))
+		Ok((inputs, recovery_reserve, small_anchor_transfer, economical_transfer))
 	}
 
 	/// Returns every in-progress arkoor send checkpoint.
