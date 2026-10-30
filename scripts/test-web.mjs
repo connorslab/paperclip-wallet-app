@@ -341,7 +341,7 @@ for (const state of ['paid', 'settled', 'failed', 'payment-initiated', 'unknown'
   f.context.fetch = (path, options) => path.includes('/lightning/sends/') ? Promise.resolve({ok:true,status:200,json:async()=>({state,payment_hash:'hash'})}) : original(path,options);
   f.element('ln-identifier').value = 'hash'; f.element('ln-direction').value = 'sends';
   await f.trigger('ln-check', 'onsubmit');
-  assert.equal(f.element('transaction-result').dataset.kind, ['paid','settled'].includes(state) ? 'success' : state === 'failed' ? 'failed' : 'pending');
+  assert.equal(f.element('transaction-result').dataset.kind, ['paid','settled'].includes(state) ? 'success' : state === 'failed' ? 'failed' : state === 'unknown' ? 'unknown' : 'pending');
 }
 console.log('PASS: stalled-node login, partial data, uncertain submission guard, lock cleanup, actual Lightning result states');
 

@@ -202,7 +202,7 @@ $('send').addEventListener('submit', event => { event.preventDefault(); run(even
   await mutate('wallet/send', {destination, amount_sat: amount, max_total_sat: quote.total_debit_sat});
   $('destination').value = ''; $('amount').value = ''; $('ark-estimate').hidden = true;
   transactionResult('success', 'Transaction succeeded', 'Your Ark transfer completed.');
-  void update();
+  void update().catch(() => {});
 }); });
 for (const id of ['destination', 'amount']) $(id).addEventListener('input', () => { $('ark-estimate').hidden = true; });
 $('refresh').onclick = event => run(event.target, async () => {
@@ -311,16 +311,20 @@ $('ln-check').onsubmit = event => { event.preventDefault(); run(event.submitter,
   paymentSummary(state, descriptions[state] || 'Status from your wallet. Check the technical details before retrying; an unfamiliar status does not mean payment failed.');
   if (['paid', 'settled', 'succeeded', 'completed'].includes(state)) transactionResult('success', 'Transaction succeeded', 'Your wallet confirms this Lightning payment completed.', result.payment_hash || '');
   else if (state === 'failed') transactionResult('failed', 'Transaction failed', 'Your wallet reports a failed payment. Check refund or recovery status before trying again.', result.payment_hash || '');
-  else transactionResult('pending', 'Payment not complete', descriptions[state] || 'Check payment status again before trying another payment.');
+  else transactionResult(state === 'unknown' ? 'unknown' : 'pending', state === 'unknown' ? 'Result not confirmed' : 'Payment not complete', descriptions[state] || 'Check payment status again before trying another payment.');
   status('Payment status updated.');
 }); };
 $('history-load').onclick = event => run(event.target, async () => {
-  const [ark, onchain, receives] = await Promise.all([
+  const session = token;
+  const results = await Promise.allSettled([
     api('history'), api('onchain/transactions'), api('lightning/receives')
   ]);
+  if (!token || token !== session || $('wallet').hidden) return;
+  const [ark, onchain, receives] = results.map(result => result.status === 'fulfilled' ? result.value : null);
   $('history').textContent = JSON.stringify({ark, onchain, lightning_receives: receives}, null, 2);
-  renderActivity(ark);
-  status('Activity updated.');
+  if (ark) renderActivity(ark);
+  else { $('activity-list').replaceChildren(); $('activity-summary').textContent = 'Activity is unavailable. Check connections and try again.'; }
+  status(results.some(result => result.status === 'rejected') ? 'Some activity is unavailable. This does not mean a payment failed.' : 'Activity updated.');
 });
 const lockSession = $('lock').onclick;
 $('lock').onclick = () => {
