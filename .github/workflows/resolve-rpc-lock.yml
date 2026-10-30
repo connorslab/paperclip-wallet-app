@@ -1,5 +1,8 @@
 name: Resolve RPC hotfix dependencies
 on:
+  push:
+    branches: [fix/rpc-connection-recovery]
+    paths: [.github/workflows/resolve-rpc-lock.yml]
   workflow_dispatch:
 permissions:
   contents: read
