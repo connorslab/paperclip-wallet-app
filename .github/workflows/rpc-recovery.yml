@@ -35,4 +35,3 @@ jobs:
           fi
           cat /tmp/old-test.log
           grep -q 'connection is permanently stuck' /tmp/old-test.log
-
