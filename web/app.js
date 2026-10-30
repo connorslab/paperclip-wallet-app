@@ -8,8 +8,14 @@ let setupDefaultsLoaded = false;
 const $ = id => document.getElementById(id);
 const status = text => { $('status').textContent = text; };
 async function api(path, body, method, signal) {
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+  if (signal?.aborted) abort();
+  signal?.addEventListener('abort', abort, {once: true});
+  const timer = setTimeout(abort, body === undefined ? 10000 : 60000);
+  try {
   const response = await fetch(path.startsWith('/') ? path : '/api/v1/' + path, {
-    signal, method: method || (body === undefined ? 'GET' : 'POST'), cache: 'no-store', redirect: 'error',
+    signal: controller.signal, method: method || (body === undefined ? 'GET' : 'POST'), cache: 'no-store', redirect: 'error',
     headers: {Authorization: 'Bearer ' + token, 'Content-Type': 'application/json'},
     ...(body === undefined ? {} : {body: JSON.stringify(body)})
   });
@@ -20,18 +26,41 @@ async function api(path, body, method, signal) {
     if (message.toLowerCase().includes('dust') || message.includes('funded-HTLC minimum') || message.includes('No constructible Lightning input')) message = path === 'fees/ark/send' ? 'Ark payment or change is too small after recovery reserves. Check your balance and amount, or refresh eligible inputs. No payment was sent.' : 'Available Ark inputs cannot cover this payment with valid recovery reserves and change. Refresh eligible inputs to consolidate funds, or add Ark funds. Check Sent status before retrying.';
     throw new Error(message || 'Wallet request failed (' + response.status + '). Check wallet access and local services.');
   }
-  return response.status === 204 ? null : response.json();
+  return response.status === 204 ? null : await response.json();
+  } catch (error) {
+    if (controller.signal.aborted) throw new Error('The wallet request timed out. Check connections in Settings.');
+    throw error;
+  } finally {
+    clearTimeout(timer);
+    signal?.removeEventListener('abort', abort);
+  }
 }
+let updateInFlight = null;
 async function update() {
+  if (updateInFlight?.session === token) return updateInFlight.promise;
   const sessionToken = token;
-  const [balance, chain, vtxos, exits, tip] = await Promise.all([api('wallet/balance'), api('onchain/balance'), api('wallet/vtxos'), api('exits/status/all'), api('bitcoin/tip').catch(() => null)]);
+  const promise = updateBalances(sessionToken);
+  updateInFlight = {session: sessionToken, promise};
+  try { return await promise; }
+  finally { if (updateInFlight?.promise === promise) updateInFlight = null; }
+}
+async function updateBalances(sessionToken) {
+  const results = await Promise.allSettled(['wallet/balance', 'onchain/balance', 'wallet/vtxos', 'exits/status/all', 'bitcoin/tip'].map(path => api(path)));
   if (!token || token !== sessionToken) return;
+  const [balance, chain, vtxos, exits, tip] = results.map(result => result.status === 'fulfilled' ? result.value : null);
   $('exits').textContent = JSON.stringify(exits, null, 2);
-  $('ark-balance').textContent = Number.isSafeInteger(balance.spendable_sat) ? balance.spendable_sat.toLocaleString() : 'See details';
-  $('chain-balance').textContent = Number.isSafeInteger(chain.confirmed_sat) ? chain.confirmed_sat.toLocaleString() : 'See details';
+  $('ark-balance').textContent = Number.isSafeInteger(balance?.spendable_sat) ? balance.spendable_sat.toLocaleString() : 'Unavailable';
+  $('chain-balance').textContent = Number.isSafeInteger(chain?.confirmed_sat) ? chain.confirmed_sat.toLocaleString() : 'Unavailable';
   $('vtxos').textContent = JSON.stringify({balance, onchain: chain, vtxos}, null, 2);
-  vtxoSnapshot = {balance, rows: Array.isArray(vtxos) ? vtxos : [], tip: Number.isSafeInteger(tip?.tip_height) ? tip.tip_height : null};
+  vtxoSnapshot = {balance: balance || {}, rows: Array.isArray(vtxos) ? vtxos : [], tip: Number.isSafeInteger(tip?.tip_height) ? tip.tip_height : null};
   renderVtxos();
+  if (!vtxos || !balance) {
+    $('vtxo-list').replaceChildren(); $('vtxo-summary').textContent = 'Recovery balances are unavailable. Check connections and try again.';
+  }
+  const incomplete = results.some(result => result.status === 'rejected');
+  $('wallet-readiness').hidden = !incomplete;
+  $('wallet-readiness').textContent = incomplete ? 'Some wallet data is unavailable. Your node may be syncing or busy. Check connections in Settings before sending.' : '';
+  return !incomplete;
 }
 async function run(button, operation) {
   button.disabled = true;
@@ -47,18 +76,21 @@ function accessToken(value) {
   return value;
 }
 async function connectWallet() {
+    const session = token;
     const info = await api('wallet/identity');
+    if (!session || token !== session) return;
     if (!['bitcoin', 'regtest'].includes(info.network) || info.exit_profile !== 2) throw new Error('Unsupported network or ASP recovery profile.');
     network = info.network;
     lightningEnabled = info.lightning_enabled === true;
     $('ln-controls').disabled = !lightningEnabled;
     $('ln-capability').textContent = lightningEnabled ? 'Experimental XBT Lightning enabled. Channel and Ark pool liquidity are required. Recovery reserves are included in your payment cost.' : 'This ASP has not enabled funded Lightning. Payment controls are unavailable.';
     $('network').textContent = network === 'bitcoin' ? 'XBT MAINNET \u00b7 EXPERIMENTAL' : 'XBT REGTEST';
-    await update();
     $('setup').hidden = true; $('login').hidden = true; $('wallet').hidden = false;
+    $('ark-balance').textContent = 'Loading\u2026'; $('chain-balance').textContent = 'Loading\u2026';
     $('submission-warning').hidden = !uncertainMutation;
     if ($('remember-session').checked) sessionWrite('paperclip.session', token);
-    status('Wallet connected. Verify the displayed network before funding.');
+    status('Signed in. Loading balances\u2026');
+    void update().then(complete => { if (token === session) status(complete ? 'Wallet updated.' : 'Signed in. Some wallet data is unavailable.'); }).catch(() => { if (token === session) status('Signed in. Check connections in Settings.'); });
 }
 $('unlock').addEventListener('submit', event => { event.preventDefault(); run(event.submitter, async () => {
   token = accessToken($('token').value.trim()); $('token').value = '';
@@ -165,7 +197,9 @@ $('send').addEventListener('submit', event => { event.preventDefault(); run(even
   if (token !== sessionToken || !network || $('destination').value.trim() !== destination || Number($('amount').value) !== amount) throw new Error('Payment details changed. Review again.');
   status('Submitting once. If the connection fails, check history before trying again.');
   await mutate('wallet/send', {destination, amount_sat: amount, max_total_sat: quote.total_debit_sat});
-  $('destination').value = ''; $('amount').value = ''; $('ark-estimate').hidden = true; await update(); status('Transfer completed.');
+  $('destination').value = ''; $('amount').value = ''; $('ark-estimate').hidden = true;
+  transactionResult('success', 'Transaction succeeded', 'Your Ark transfer completed.');
+  void update();
 }); });
 for (const id of ['destination', 'amount']) $(id).addEventListener('input', () => { $('ark-estimate').hidden = true; });
 $('refresh').onclick = event => run(event.target, async () => {
@@ -179,11 +213,33 @@ async function mutate(path, body) {
   if (uncertainMutation) throw new Error('A prior submission needs checking. Review Activity and payment status, then acknowledge the result before retrying.');
   uncertainMutation = true; sessionWrite('paperclip.uncertain', '1');
   $('submission-warning').hidden = false;
-  const result = await api(path, body);
+  const session = token;
+  let result;
+  try { result = await api(path, body); }
+  catch (error) {
+    if (token === session && token) transactionResult('unknown', 'Result not confirmed', 'The wallet could not confirm the result. Check Activity and payment status before trying again.');
+    throw error;
+  }
+  if (token !== session || !token) throw new Error('Wallet locked while submitting. Check Activity after signing in again.');
   uncertainMutation = false; sessionWrite('paperclip.uncertain', null);
   $('submission-warning').hidden = true;
   return result;
 }
+
+function transactionResult(kind, title, detail, reference = '') {
+  if (!token || $('wallet').hidden) return;
+  $('transaction-result').dataset.kind = kind;
+  $('transaction-result-title').textContent = title;
+  $('transaction-result-detail').textContent = detail;
+  $('transaction-result-reference').textContent = reference;
+  $('transaction-result-reference').hidden = !reference;
+  $('transaction-result').showModal();
+  $('transaction-result-done').focus();
+}
+$('transaction-result-done').onclick = () => $('transaction-result').close();
+$('transaction-result-activity').onclick = () => {
+  $('transaction-result').close(); showView('activity'); $('history-load').click();
+};
 
 function sats(id, optional = false) {
   const value = $(id).value.trim();
@@ -200,6 +256,7 @@ $('chain-send').onsubmit = event => { event.preventDefault(); run(event.submitte
   const result = await mutate('onchain/send', {destination, amount_sat: amount});
   $('chain-result').textContent = result.txid;
   $('chain-destination').value = ''; $('chain-amount').value = '';
+  transactionResult('pending', 'Transaction submitted', 'Waiting for confirmation on the XBT network. Do not send it again.', result.txid);
   status('Transaction submitted. Wait for confirmation; do not send again.');
 }); };
 $('ln-pay').onsubmit = event => { event.preventDefault(); run(event.submitter, async () => {
@@ -220,6 +277,7 @@ $('ln-pay').onsubmit = event => { event.preventDefault(); run(event.submitter, a
   if (!token || token !== paymentSession || $('wallet').hidden) return;
   $('ln-result').textContent = JSON.stringify(result, null, 2);
   paymentSummary('Submitted', 'Payment submitted once. Check Sent status before trying again.');
+  transactionResult('pending', 'Payment submitted', 'Check Sent status to confirm whether the Lightning payment succeeded. Do not send it again.', result.payment_hash);
   if (result.payment_hash) { $('ln-identifier').value = result.payment_hash; $('ln-direction').value = 'sends'; }
   $('ln-destination').value = ''; $('ln-amount').value = '';
   status('Payment submitted. Check its status before making another payment.');
@@ -246,8 +304,11 @@ $('ln-check').onsubmit = event => { event.preventDefault(); run(event.submitter,
   if (!token || token !== checkedSession || $('wallet').hidden || identifier !== $('ln-identifier').value.trim() || direction !== $('ln-direction').value) return;
   $('ln-result').textContent = JSON.stringify(result, null, 2);
   const state = typeof result.state === 'string' ? result.state : 'See details';
-  const descriptions = {pending: 'Payment is still in progress. Do not send it again.', succeeded: 'Your wallet reports this payment completed.', completed: 'Your wallet reports this payment completed.', failed: 'Payment failed. Check any refund or recovery status before retrying.', expired: 'The invoice expired. Check activity for a payment or refund before creating another.', unknown: 'The payment outcome is not confirmed. Check activity and the recipient before retrying.'};
+  const descriptions = {paid: 'Payment completed.', settled: 'Payment received.', 'start': 'Preparing payment.', 'htlc-received': 'Preparing the Lightning payment.', 'payment-initiated': 'Payment is in progress. Do not send it again.', 'revocable-htlcs': 'Payment did not complete. Recovering the reserved funds.', 'revocation-stuck': 'Payment recovery needs attention. Check recovery status before retrying.', 'awaiting-reimbursement': 'Waiting for the payment refund.', 'awaiting-payment': 'Waiting for someone to pay this invoice.', 'htlcs-ready': 'Receiving payment.', 'preimage-revealed': 'Finishing payment settlement.', delivering: 'Delivering the received funds.', pending: 'Payment is still in progress. Do not send it again.', succeeded: 'Your wallet reports this payment completed.', completed: 'Your wallet reports this payment completed.', failed: 'Payment failed. Check any refund or recovery status before retrying.', expired: 'The invoice expired. Check activity for a payment or refund before creating another.', unknown: 'The payment outcome is not confirmed. Check activity and the recipient before retrying.'};
   paymentSummary(state, descriptions[state] || 'Status from your wallet. Check the technical details before retrying; an unfamiliar status does not mean payment failed.');
+  if (['paid', 'settled', 'succeeded', 'completed'].includes(state)) transactionResult('success', 'Transaction succeeded', 'Your wallet confirms this Lightning payment completed.', result.payment_hash || '');
+  else if (state === 'failed') transactionResult('failed', 'Transaction failed', 'Your wallet reports a failed payment. Check refund or recovery status before trying again.', result.payment_hash || '');
+  else transactionResult('pending', 'Payment not complete', descriptions[state] || 'Check payment status again before trying another payment.');
   status('Payment status updated.');
 }); };
 $('history-load').onclick = event => run(event.target, async () => {
@@ -261,6 +322,9 @@ $('history-load').onclick = event => run(event.target, async () => {
 const lockSession = $('lock').onclick;
 $('lock').onclick = () => {
   lockSession();
+  $('transaction-result').close();
+  $('transaction-result-reference').textContent = ''; $('transaction-result-detail').textContent = '';
+  $('wallet-readiness').hidden = true;
   $('ark-estimate').hidden = true; $('ark-estimate-values').textContent = '';
   lightningEnabled = false; $('ln-controls').disabled = true;
   for (const id of ['ln-offer-output', 'ln-invoice', 'ln-result', 'chain-result', 'history', 'ark-balance', 'chain-balance']) $(id).textContent = '';
@@ -327,7 +391,9 @@ function renderActivity(records) {
     const explanation = document.createElement('p');
     explanation.textContent = row.status === 'pending' ? 'Still in progress. Check the result before attempting another payment.' : row.status === 'failed' ? 'This operation failed. Check any related refund or recovery before retrying.' : 'Balance change includes the effect recorded by your wallet. Fee information is shown above.';
     const record = document.createElement('pre'); record.textContent = JSON.stringify(row, null, 2);
-    more.append(summary, explanation, record);
+    const resultButton = document.createElement('button'); resultButton.className = 'secondary'; resultButton.textContent = 'View result';
+    resultButton.onclick = () => transactionResult(row.status === 'successful' ? 'success' : row.status === 'failed' ? 'failed' : 'pending', row.status === 'successful' ? 'Transaction succeeded' : row.status === 'failed' ? 'Transaction failed' : 'Transaction pending', explanation.textContent);
+    more.append(summary, explanation, record); card.append(resultButton);
     card.append(heading, value, badge, detail, more); list.append(card);
   }
 }
@@ -355,7 +421,7 @@ let refreshing = false;
 setInterval(async () => {
   if (!token || !network || $('wallet').hidden || document.hidden || refreshing) return;
   refreshing = true;
-  try { await update(); $('refresh-state').textContent = 'Updated ' + new Date().toLocaleTimeString(); }
+  try { const complete = await update(); if (token && !$('wallet').hidden) $('refresh-state').textContent = complete ? 'Updated ' + new Date().toLocaleTimeString() : 'Some data unavailable'; }
   catch { $('refresh-state').textContent = 'Update unavailable \u00b7 retry with Update'; }
   finally { refreshing = false; }
 }, 30000);

@@ -23,3 +23,16 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible{ou
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
 
 .activity-state{display:inline-block;padding:4px 9px;border:1px solid var(--stroke);border-radius:999px;font-size:12px;color:#d4dfed}.activity-row details{grid-column:1/-1}.activity-row pre{white-space:pre-wrap;overflow-wrap:anywhere}.connection-list{border-block:1px solid var(--stroke);margin:20px 0;padding:8px 0}
+
+.connection-notice { padding: 1rem 1.25rem; border-left: 3px solid #ff783e; border-radius: .75rem; background: #263447; }
+.transaction-result { width: min(30rem, calc(100vw - 3rem)); padding: 2rem; border: 1px solid #40516a; border-radius: 1.5rem; background: #172437; color: #f5f7fb; text-align: center; }
+.transaction-result::backdrop { background: #07111fcc; }
+.transaction-result output { display: block; overflow-wrap: anywhere; margin: 1rem 0; font-size: .85rem; }
+.transaction-result output[hidden] { display: none; }
+.result-mark { margin: 0 auto 1.25rem; width: 4rem; height: 4rem; border-radius: 50%; background: #30455c; display: grid; place-items: center; font-size: 2rem; }
+.result-mark::after { content: '…'; }
+[data-kind="success"] .result-mark { background: #14573e; }
+[data-kind="success"] .result-mark::after { content: '✓'; }
+[data-kind="failed"] .result-mark { background: #7a2833; }
+[data-kind="failed"] .result-mark::after { content: '×'; }
+[data-kind="unknown"] .result-mark::after { content: '?'; }

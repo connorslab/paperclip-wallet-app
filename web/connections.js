@@ -4,7 +4,7 @@ async function checkConnections() {
   const session = token;
   const targets = [
     ['connection-wallet', 'wallet/identity', () => 'Wallet service reachable'],
-    ['connection-node', 'bitcoin/tip', result => Number.isSafeInteger(result?.tip_height) ? 'Node reachable · block ' + result.tip_height.toLocaleString() : 'Node response unavailable'],
+    ['connection-node', 'bitcoin/tip', result => Number.isSafeInteger(result?.tip_height) ? 'Node responding · block ' + result.tip_height.toLocaleString() : 'Node response unavailable'],
     ['connection-asp', 'wallet/next-round', () => 'Ark server reachable']
   ];
   await Promise.all(targets.map(async ([id, path, describe]) => {
@@ -15,7 +15,7 @@ async function checkConnections() {
       const result = await api(path, undefined, 'GET', controller.signal);
       if (token === session && token) $(id).textContent = describe(result);
     } catch {
-      if (token === session && token) $(id).textContent = 'Check unavailable — retry or check your server';
+      if (token === session && token) $(id).textContent = 'Not responding in time. Check this service in StartOS or Umbrel.';
     } finally { clearTimeout(timeout); }
   }));
 }

@@ -9,12 +9,12 @@ function fixture(network, lightningEnabled = true, empty = false) {
   const elements = new Map(), calls = [];
   const element = id => {
     assert(ids.has(id), 'UI element must exist in the HTML: ' + id);
-    if (!elements.has(id)) elements.set(id, {value: '', textContent: '', hidden: false,
+    if (!elements.has(id)) elements.set(id, {value: '', textContent: '', hidden: false, dataset: {}, showModal() { this.open = true; }, close() { this.open = false; }, focus() {},
       closest() { return this; }, setAttribute() {}, replaceChildren() {}, append() {}, addEventListener(type, fn) { this[type] = fn; }});
     return elements.get(id);
   };
   let failPath = null;
-  const context = vm.createContext({PaperclipReview: {ask: async () => true, cancel() {}}, PaperclipReceive: {show() {}, clear() {}}, document: {getElementById: element, createElement: () => ({textContent:'',append() {}})}, confirm: () => true, URL, btoa, setInterval: () => {}, sessionStorage: { getItem: () => null, setItem() {}, removeItem() {} },
+  const context = vm.createContext({PaperclipReview: {ask: async () => true, cancel() {}}, PaperclipReceive: {show() {}, clear() {}}, document: {getElementById: element, createElement: () => ({textContent:'',append() {}})}, confirm: () => true, URL, btoa, AbortController, setTimeout, clearTimeout, setInterval: () => {}, sessionStorage: { getItem: () => null, setItem() {}, removeItem() {} },
     fetch: async (path, options) => {
       calls.push({path, options});
       if (failPath && path.endsWith(failPath)) throw Error('Transport interrupted');
@@ -297,3 +297,50 @@ for (const mode of ['approve', 'cancel', 'error', 'malformed', 'lock', 'edit']) 
   if (mode === 'approve' || mode === 'cancel') assert.match(review, /Estimated total: 56,000 sats/);
 }
 console.log('PASS: Lightning cost review, cancellation, failed/malformed quotes, edit and lock safety');
+
+// Slow node requests must not block authentication or survive a locked session.
+{
+  const f = fixture('bitcoin');
+  const original = f.context.fetch;
+  let pending = [];
+  f.context.fetch = (path, options) => {
+    if (['/wallet/balance', '/onchain/balance', '/bitcoin/tip'].some(s => path.endsWith(s))) {
+      return new Promise((resolve, reject) => {
+        pending.push(() => reject(new Error('Node unavailable')));
+        options.signal.addEventListener('abort', () => reject(new Error('aborted')));
+      });
+    }
+    return original(path, options);
+  };
+  f.element('token').value = 'test-token'; await f.trigger('unlock', 'submit');
+  assert.equal(f.element('wallet').hidden, false, 'login must finish before balances');
+  assert.equal(f.element('unlock').disabled, false);
+  for (const finish of pending) finish();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(f.element('ark-balance').textContent, 'Unavailable');
+  assert.equal(f.element('wallet-readiness').hidden, false);
+  await f.trigger('lock');
+  assert.equal(f.element('wallet').hidden, true);
+}
+{
+  const f = fixture('bitcoin');
+  f.element('token').value = 'test-token'; await f.trigger('unlock', 'submit');
+  f.element('destination').value = 'ark-test'; f.element('amount').value = '1000';
+  f.fail('/wallet/send'); await f.trigger('send', 'submit');
+  assert.equal(f.element('transaction-result').dataset.kind, 'unknown');
+  assert.equal(f.element('transaction-result-title').textContent, 'Result not confirmed');
+  assert.equal(f.element('submission-warning').hidden, false);
+  await f.trigger('send', 'submit');
+  assert.equal(f.calls.filter(c => c.path.endsWith('/wallet/send')).length, 1);
+  await f.trigger('lock'); assert.equal(f.element('transaction-result').open, false);
+}
+for (const state of ['paid', 'settled', 'failed', 'payment-initiated', 'unknown', 'awaiting-reimbursement']) {
+  const f = fixture('bitcoin');
+  f.element('token').value = 'test-token'; await f.trigger('unlock', 'submit');
+  const original = f.context.fetch;
+  f.context.fetch = (path, options) => path.includes('/lightning/sends/') ? Promise.resolve({ok:true,status:200,json:async()=>({state,payment_hash:'hash'})}) : original(path,options);
+  f.element('ln-identifier').value = 'hash'; f.element('ln-direction').value = 'sends';
+  await f.trigger('ln-check', 'onsubmit');
+  assert.equal(f.element('transaction-result').dataset.kind, ['paid','settled'].includes(state) ? 'success' : state === 'failed' ? 'failed' : 'pending');
+}
+console.log('PASS: stalled-node login, partial data, uncertain submission guard, lock cleanup, actual Lightning result states');
