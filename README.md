@@ -17,6 +17,21 @@ payments can be below the funded-HTLC minimum. The server can change these limit
 experimental and provided without warranty. Functional tests are not a security
 audit. Bugs can cause loss of funds. Use only amounts you can afford to lose.
 
+## 0.9.2 candidate
+
+Sign-in no longer waits for blockchain balances. Slow connections have bounded
+requests, unavailable data is labeled clearly, and automatic checks back off when
+a service is busy. Settings explains why reaching the chain tip after a snapshot
+import does not mean transaction indexing is complete.
+
+Transaction result screens distinguish completed, failed, pending, and unconfirmed
+outcomes. An interrupted submission is never automatically retried. Lightning
+status recognizes the wallet's `paid` and `settled` states. On-chain submission
+is shown as pending confirmation, not a confirmed payment.
+
+These changes preserve the existing wallet database, keys, connection settings,
+fees, and recovery format. The same UI is packaged for StartOS and Umbrel.
+
 ## 0.9.1 setup hotfix
 
 Restores the configured ASP URL in setup and fixes checkbox and button layout.

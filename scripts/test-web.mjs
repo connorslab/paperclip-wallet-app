@@ -344,3 +344,14 @@ for (const state of ['paid', 'settled', 'failed', 'payment-initiated', 'unknown'
   assert.equal(f.element('transaction-result').dataset.kind, ['paid','settled'].includes(state) ? 'success' : state === 'failed' ? 'failed' : 'pending');
 }
 console.log('PASS: stalled-node login, partial data, uncertain submission guard, lock cleanup, actual Lightning result states');
+
+{
+  const f = fixture('bitcoin');
+  let abort;
+  f.context.setTimeout = callback => { abort = callback; return 1; };
+  f.context.clearTimeout = () => {};
+  f.context.fetch = (_path, options) => new Promise((_resolve, reject) => options.signal.addEventListener('abort', () => reject(new Error('aborted'))));
+  const request = vm.runInContext("api('wallet')", f.context);
+  abort(); await assert.rejects(request, /timed out/);
+}
+console.log('PASS: bounded request timeout');

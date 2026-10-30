@@ -20,6 +20,7 @@ async function api(path, body, method, signal) {
     ...(body === undefined ? {} : {body: JSON.stringify(body)})
   });
   if (!response.ok) {
+    if (response.status === 401) throw new Error('Access denied. Use the wallet access token from StartOS or the app password from Umbrel.');
     let message = '';
     try { const detail = await response.json(); message = typeof detail.message === 'string' ? detail.message.slice(0, 900) : ''; } catch {}
     if (message.includes('no pending lightning receive')) message = 'No received payment matches this invoice in this wallet. An invoice from another wallet belongs in Pay someone, not Received status.';
@@ -36,6 +37,7 @@ async function api(path, body, method, signal) {
   }
 }
 let updateInFlight = null;
+let nextAutomaticUpdate = 0;
 async function update() {
   if (updateInFlight?.session === token) return updateInFlight.promise;
   const sessionToken = token;
@@ -58,6 +60,7 @@ async function updateBalances(sessionToken) {
     $('vtxo-list').replaceChildren(); $('vtxo-summary').textContent = 'Recovery balances are unavailable. Check connections and try again.';
   }
   const incomplete = results.some(result => result.status === 'rejected');
+  nextAutomaticUpdate = Date.now() + (incomplete ? 120000 : 30000);
   $('wallet-readiness').hidden = !incomplete;
   $('wallet-readiness').textContent = incomplete ? 'Some wallet data is unavailable. Your node may be syncing or busy. Check connections in Settings before sending.' : '';
   return !incomplete;
@@ -419,7 +422,7 @@ $('submission-reviewed').onclick = async () => {
 };
 let refreshing = false;
 setInterval(async () => {
-  if (!token || !network || $('wallet').hidden || document.hidden || refreshing) return;
+  if (!token || !network || $('wallet').hidden || document.hidden || refreshing || Date.now() < nextAutomaticUpdate) return;
   refreshing = true;
   try { const complete = await update(); if (token && !$('wallet').hidden) $('refresh-state').textContent = complete ? 'Updated ' + new Date().toLocaleTimeString() : 'Some data unavailable'; }
   catch { $('refresh-state').textContent = 'Update unavailable \u00b7 retry with Update'; }

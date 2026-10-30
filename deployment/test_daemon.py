@@ -56,6 +56,8 @@ with tempfile.TemporaryDirectory(prefix='paperclip-platform-') as temporary:
             except HTTPError as error:
                 assert error.code == 401, error.code
             assert b'id="create-wallet"' in request('/', authenticated=False)
+            assert b'id="transaction-result"' in request('/', authenticated=False)
+            assert b'id="wallet-readiness"' in request('/', authenticated=False)
             assert b"api('wallet')" in request('/app.js', authenticated=False)
             assert b'value="https://ark.paperclippool.xyz"' in request('/', authenticated=False)
             assert b"api('/api/config')" in request('/app.js', authenticated=False)
