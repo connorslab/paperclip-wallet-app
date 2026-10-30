@@ -20,7 +20,7 @@ async function api(path, body, method, signal) {
     ...(body === undefined ? {} : {body: JSON.stringify(body)})
   });
   if (!response.ok) {
-    if (response.status === 401) throw new Error('Access denied. Use the wallet access token from StartOS or the app password from Umbrel.');
+    if (response.status === 401) throw new Error('Access denied. Check the login instructions and the credential provided by your wallet app.');
     let message = '';
     try { const detail = await response.json(); message = typeof detail.message === 'string' ? detail.message.slice(0, 900) : ''; } catch {}
     if (message.includes('no pending lightning receive')) message = 'No received payment matches this invoice in this wallet. An invoice from another wallet belongs in Pay someone, not Received status.';
@@ -411,12 +411,12 @@ $('lock').onclick = () => { reviewLock(); PaperclipReceive.clear(); $('activity-
 function sessionRead(key) { try { return sessionStorage.getItem(key); } catch { return null; } }
 function sessionWrite(key, value) { try { if (value === null) sessionStorage.removeItem(key); else sessionStorage.setItem(key, value); } catch {} }
 function passwordToggle(buttonId, inputId) {
-  $(buttonId).onclick = () => { const shown = $(inputId).type === 'password'; $(inputId).type = shown ? 'text' : 'password'; $(buttonId).setAttribute('aria-pressed', String(shown)); $(buttonId).textContent = shown ? 'Hide password' : 'Show password'; };
+  $(buttonId).onclick = () => { const shown = $(inputId).type === 'password'; $(inputId).type = shown ? 'text' : 'password'; $(buttonId).setAttribute('aria-pressed', String(shown)); $(buttonId).textContent = buttonId === 'show-token' ? (shown ? 'Hide' : 'Show') : (shown ? 'Hide password' : 'Show password'); };
 }
 passwordToggle('show-token', 'token'); passwordToggle('show-rpc-password', 'setup-password');
 $('remember-session').onchange = () => { if (!$('remember-session').checked) sessionWrite('paperclip.session', null); };
 const sessionLock = $('lock').onclick;
-$('lock').onclick = () => { sessionWrite('paperclip.session', null); sessionLock(); $('token').type = 'password'; $('show-token').textContent = 'Show password'; $('show-token').setAttribute('aria-pressed', 'false'); };
+$('lock').onclick = () => { sessionWrite('paperclip.session', null); sessionLock(); $('token').type = 'password'; $('show-token').textContent = 'Show'; $('show-token').setAttribute('aria-pressed', 'false'); };
 const sessionSetupLock = $('setup-lock').onclick;
 $('setup-lock').onclick = () => { sessionWrite('paperclip.session', null); sessionSetupLock(); };
 $('submission-reviewed').onclick = async () => {

@@ -50,6 +50,7 @@ with tempfile.TemporaryDirectory(prefix='paperclip-platform-') as temporary:
             else:
                 raise AssertionError('Daemon never became ready')
             assert state == {'fingerprint': None}, state
+            assert json.loads(request('/api/ui-platform', authenticated=False)) == {'platform': 'umbrel'}
             try:
                 request('/api/v1/wallet', authenticated=False)
                 raise AssertionError('Unauthenticated wallet API was accessible')

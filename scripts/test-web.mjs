@@ -355,3 +355,15 @@ console.log('PASS: stalled-node login, partial data, uncertain submission guard,
   abort(); await assert.rejects(request, /timed out/);
 }
 console.log('PASS: bounded request timeout');
+
+const platformSource = readFileSync(new URL('../web/login-platform.js', import.meta.url), 'utf8');
+for (const platform of ['startos','umbrel','standalone']) {
+  const f = fixture('bitcoin');
+  f.context.AbortSignal = AbortSignal;
+  f.context.fetch = async () => ({ok:true,json:async()=>({platform})});
+  await vm.runInContext(platformSource, f.context);
+  const copy = f.element('login-instructions').textContent;
+  if (platform === 'startos') { assert.match(copy, /Actions.*Show wallet access token/); assert(!copy.includes('Umbrel')); assert.equal(f.element('token-label').textContent,'Wallet access token'); }
+  if (platform === 'umbrel') { assert.match(copy,/app password/); assert(!copy.includes('StartOS')); assert.equal(f.element('token-label').textContent,'App password'); }
+}
+console.log('PASS: platform-specific login help without cross-platform wording');

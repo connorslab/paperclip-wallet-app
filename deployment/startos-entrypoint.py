@@ -14,4 +14,5 @@ os.setgroups([])
 os.setgid(1000)
 os.setuid(1000)
 os.environ['PAPERCLIP_XBT_MAINNET'] = '1'
+os.environ['BARKD_UI_PLATFORM'] = 'startos'
 os.execvp('python3', ['python3', '/usr/local/lib/paperclip/managed-chain.py', 'run'])

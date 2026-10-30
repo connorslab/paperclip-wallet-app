@@ -73,10 +73,21 @@ pub(crate) fn attach_web_routes(
 
 	let ret = router
 		.merge(authed)
+		.route("/api/ui-platform", get(ui_platform))
 		.nest("/api/barkd/api/v1", crate::api::v1::router(state))
 		.nest("/barkd-ws/api/v1", crate::api::v1::router(state))
 		.fallback(spa_fallback);
 	(ret, true)
+}
+
+// Public presentation metadata only. Never expose connection settings or credentials.
+async fn ui_platform() -> Json<serde_json::Value> {
+	let platform = match std::env::var("BARKD_UI_PLATFORM").as_deref() {
+		Ok("startos") => "startos",
+		Ok("umbrel") => "umbrel",
+		_ => "standalone",
+	};
+	Json(serde_json::json!({ "platform": platform }))
 }
 
 async fn config_handler(State(state): State<Arc<ServerState>>) -> Response {
