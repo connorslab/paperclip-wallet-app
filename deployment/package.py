@@ -34,7 +34,7 @@ def package(platform, image, destination, app='paperclip-wallet'):
             'support': 'https://github.com/connorslab/paperclip-wallet-app/issues',
             'icon': 'https://raw.githubusercontent.com/connorslab/paperclip-wallet-app/main/web/icon.svg', 'dependencies': [], 'gallery': [], 'path': '', 'defaultUsername': '',
             'deterministicPassword': True, 'submitter': 'Paperclip',
-            'releaseNotes': 'Reduces ordinary single-input Ark recovery allocation to 1,056 sats without change or 1,584 sats with change on compatible servers. Preserves existing signed exits and older-wallet support; Lightning and tree reserves are unchanged. Adds payment review, smoother navigation, clearer activity and connection settings. Back up the complete wallet before upgrading. Beta, not independently audited.'
+            'releaseNotes': 'Fixes blockchain RPC connections that could remain stuck after a canceled request or a closed server connection, leaving Ark balances unavailable. Connections can recover without restarting the wallet. Existing keys, authentication, settings, fees, recovery data, and older-client compatibility are unchanged. Interrupted payments are not automatically retried. Back up the complete wallet before updating.'
         })
         write(out / 'docker-compose.yml', {'services': {
             'app_proxy': {'environment': {'APP_HOST': app + '_wallet_1', 'APP_PORT': '3000'}},
