@@ -1,11 +1,11 @@
-# Paperclip Wallet · Beta
+# Paperclip Wallet Â· Beta
 
 A self-hosted Bitcoin Blake2b (XBT) wallet based on Bark by Second and the Bark
 contributors. This edition presets new wallets to **https://ark.paperclippool.xyz**.
 Existing wallet configuration is preserved. Wallet keys stay on your device.
 
 **Public beta. Paperclip Ark is open for XBT deposits, Ark transfers, and Lightning payments.**
-The current release is **[0.9.3 beta](https://github.com/connorslab/paperclip-wallet-app/releases/tag/v0.9.3-beta.1)**. Check [service status](https://ark.paperclippool.xyz/) before funding.
+The current release is **[0.10.0 beta](https://github.com/connorslab/paperclip-wallet-app/releases/tag/v0.10.0-beta.1)**. Check [service status](https://ark.paperclippool.xyz/) before funding.
 
 Current beta limits: boarding starts at **20,000 sats**; Lightning payments are
 limited to **250,000 sats**. Fees and recovery reserves apply. Very small Lightning
@@ -16,6 +16,14 @@ payments can be below the funded-HTLC minimum. The server can change these limit
 **Not independently audited.** Paperclip Wallet and its Ark integration are
 experimental and provided without warranty. Functional tests are not a security
 audit. Bugs can cause loss of funds. Use only amounts you can afford to lose.
+
+## 0.10.0 source update
+
+The next release integrates upstream Bark 0.8.1. It fixes Lightning sends that
+remain pending after payment, rejects expired WebSocket tickets, and improves
+payment-URI parsing and invoice-expiry controls. Existing Paperclip setup,
+sign-in, transaction-result screens, and XBT recovery support are retained.
+See [upgrade and compatibility notes](docs/upgrade-0.10.0.md).
 
 ## 0.9.3
 
