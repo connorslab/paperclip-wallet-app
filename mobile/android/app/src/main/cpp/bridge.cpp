@@ -2,6 +2,7 @@
 #include <array>
 #include <string>
 #include <cstring>
+#include <cstdint>
 
 extern "C" char* paperclip_mobile_call(const char*, const unsigned char*);
 extern "C" void paperclip_mobile_free(char*);
@@ -36,4 +37,10 @@ Java_xyz_paperclip_wallet_NativeBridge_call(JNIEnv* env, jobject, jbyteArray inp
     if (output) env->SetByteArrayRegion(output, 0, length, reinterpret_cast<jbyte*>(result));
     paperclip_mobile_free(result);
     return output;
+}
+
+extern "C" void paperclip_mobile_cancel_sync(uint64_t);
+extern "C" JNIEXPORT void JNICALL
+Java_xyz_paperclip_wallet_NativeBridge_cancelSync(JNIEnv*, jobject, jlong id) {
+    if (id > 0) paperclip_mobile_cancel_sync(static_cast<uint64_t>(id));
 }

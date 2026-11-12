@@ -10,8 +10,8 @@ android {
         applicationId = "xyz.paperclip.wallet.android.preview"
         minSdk = 28
         targetSdk = 35
-        versionCode = 2
-        versionName = "0.1.0-mainnet.1"
+        versionCode = 3
+        versionName = "0.2.0-parity.1"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk { abiFilters += (project.findProperty("abis")?.toString() ?: "arm64-v8a,x86_64").split(',') }
         externalNativeBuild { cmake { arguments += "-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON" } }
@@ -23,6 +23,13 @@ android {
     buildTypes { release { isMinifyEnabled = false } }
 }
 dependencies {
+    implementation("com.journeyapps:zxing-android-embedded:4.3.0")
+    implementation("com.sparrowwallet:hummingbird:1.7.6")
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    implementation("org.java-websocket:Java-WebSocket:1.6.0")
+    implementation("androidx.work:work-runtime-ktx:2.10.5")
+    testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
+    testImplementation("com.squareup.okhttp3:okhttp-tls:4.12.0")
     implementation("info.guardianproject:tor-android:0.4.9.14")
     implementation(platform("androidx.compose:compose-bom:2025.04.01"))
     implementation("androidx.activity:activity-compose:1.10.1")

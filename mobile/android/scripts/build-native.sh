@@ -23,7 +23,8 @@ for abi in "${@:-arm64-v8a}"; do
     rustup target add --toolchain 1.91.0 "$target"
     variable=${target//-/_}
     export "CC_$variable=$cc" "AR_$variable=llvm-ar"
-    export "CARGO_TARGET_${variable^^}_LINKER=$cc"
+    target_env=$(printf '%s' "$variable" | tr '[:lower:]' '[:upper:]')
+    export "CARGO_TARGET_${target_env}_LINKER=$cc"
     rustup run 1.91.0 cargo build --locked --profile "$profile" -p paperclip-mobile --lib --target "$target"
     mkdir -p "$android/native/$abi"
     cp "$CARGO_TARGET_DIR/$target/$output/libpaperclip_mobile.a" "$android/native/$abi/"

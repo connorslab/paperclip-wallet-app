@@ -1,0 +1,19 @@
+Paperclip experimental Kilojoin v1 implementation
+
+Protocol and round logic adapted from Kilombino Kilowallet / Kilojoin.
+Copyright Kilombino contributors. Licensed under Apache License 2.0.
+See Kilojoin-LICENSE.txt.
+
+Reference code: https://github.com/Kilombino/kilowallet
+Commit: 102ff2f4f7a8097d81e79eb1b87e42ff413c119e
+Protocol and production vectors: https://github.com/Kilombino/kilojoin
+Commit: 45a6ddb9477c92c5f31afb6017d48ebf249e155b
+
+Paperclip modifications: Rust port, iOS transport/UI, persisted outbox,
+single-coin Ark boarding, account separation, input reservation after signing,
+and separate SOCKS-auth-isolated output connections. No endorsement implied.
+
+Paperclip original code and modifications are MIT licensed; see
+Paperclip-Kilojoin-MIT.txt. Adapted upstream portions retain Apache-2.0;
+see Kilojoin-LICENSE.txt. The standalone package declares MIT AND Apache-2.0.
+Public Rust library: https://github.com/connorslab/paperclip-kilojoin-rs

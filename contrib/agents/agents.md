@@ -26,6 +26,22 @@ Use the skills in `contrib/agents/skills/` extensively:
 | `corrections.md` | When corrected, encode the fix into skill files |
 | `debug-ci.md` | Debugging CI failures — `debug <url to failed pipeline>` |
 
+## iOS and Android backend parity
+
+For every iOS backend fix, implement the corresponding fix on
+`feature/android-wallet` in `connorslab/paperclip-wallet-app` as part of the same
+task. Check both branches before changing shared Rust engine code, JNI/FFI
+contracts, payment validation, fee accounting, persistence, recovery, or network
+behavior. Port equivalent behavior in platform-specific backend adapters where
+needed; copying Swift files alone does not update Android's Kotlin/JNI backend.
+
+Preserve each branch's unrelated changes. Run appropriate regression checks for
+both platforms and report the branch/commit or patch containing each fix and what
+was actually verified. If Android lacks the corresponding feature or validation
+is blocked, state the gap explicitly rather than claiming parity. Keep platform
+build, publication, and App Store submission actions within the user's authorized
+scope.
+
 ## Testing
 
 **Never run integration tests with `cargo test` directly.** They require environment variables set by `just`.
