@@ -11,6 +11,8 @@ import androidx.biometric.BiometricPrompt
 import androidx.compose.runtime.mutableStateOf
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.launch
 
 class MainActivity : FragmentActivity() {
     private val model: WalletModel by viewModels()
@@ -24,16 +26,25 @@ class MainActivity : FragmentActivity() {
         val key = restoreKey; restoreKey = ""
         if (uri != null) model.restoreBackupFile(uri, key)
     }
-    fun exportBackup() { export.launch("paperclip-regtest.backup") }
+    fun exportBackup() { export.launch("paperclip-wallet.backup") }
     fun restoreBackup(key: String) { restoreKey = key; restore.launch(arrayOf("*/*")) }
     private val screenshots get() = BuildConfig.DEBUG && intent.getBooleanExtra("regtestScreenshots", false)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        if (!screenshots) window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
         setContent { PaperclipApp(model, unlocked.value, authError.value, ::unlock) }
-        if (screenshots) { unlocked.value = true; model.load() }
+        if (screenshots) lifecycleScope.launch {
+            val network = WalletEngine.shared(applicationContext).network()
+            if (network == null || network == "xbt-regtest") {
+                window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+                unlocked.value = true; model.load(screenshots = true)
+            } else {
+                authError.value = "Screenshot mode cannot open a mainnet wallet. Restart normally to unlock."
+            }
+        }
     }
     private fun unlock() {
+        if (screenshots) return
         val prompt = BiometricPrompt(this, ContextCompat.getMainExecutor(this), object : BiometricPrompt.AuthenticationCallback() {
             override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
                 unlocked.value = true; authError.value = ""; model.load()

@@ -16,6 +16,7 @@ internal object NativeBridge {
 }
 
 class WalletEngine private constructor(context: Context) {
+    private val appContext = context.applicationContext
     companion object {
         @Volatile private var instance: WalletEngine? = null
         fun shared(context: Context): WalletEngine = instance ?: synchronized(this) {
@@ -40,12 +41,16 @@ class WalletEngine private constructor(context: Context) {
     private suspend fun <T> serial(work: () -> T): T = withContext(Dispatchers.IO) { mutex.withLock { work() } }
     suspend fun hasWallet() = serial { vault.read("wallet")?.also { it.fill(0) } != null }
     suspend fun phrase() = serial { invoke("seed_generate").getString("phrase") }
-    suspend fun create(phrase: String) = serial {
+    suspend fun network(): String? = serial {
+        vault.read("wallet")?.let { bytes -> try { JSONObject(String(bytes)).getString("network") } finally { bytes.fill(0) } }
+    }
+    suspend fun create(phrase: String, network: String = "xbt-regtest") = serial {
+        require(network in listOf("xbt-mainnet", "xbt-regtest")) { "Unsupported network" }
         check(vault.read("wallet") == null) { "A wallet already exists" }
         val derived = invoke("seed_derive", JSONObject().put("phrase", phrase))
         val id = UUID.randomUUID().toString()
         val next = JSONObject().put("seed", derived.getString("seed")).put("phrase", phrase)
-            .put("network", "xbt-regtest").put("id", id).put("provisioning", true)
+            .put("network", network).put("id", id).put("provisioning", true)
         // Persist identity first so interrupted provisioning reopens the same wallet.
         vault.write("wallet", next.toString().toByteArray())
         record = next
@@ -58,7 +63,7 @@ class WalletEngine private constructor(context: Context) {
             record = try { JSONObject(String(bytes, Charsets.UTF_8)) } finally { bytes.fill(0) }
         }
         val r = record!!
-        check(r.getString("network") == "xbt-regtest") { "Mainnet remains disabled until Android recovery and device validation are complete" }
+        check(r.getString("network") in listOf("xbt-mainnet", "xbt-regtest")) { "Unsupported wallet network" }
         val id = UUID.fromString(r.getString("id")).toString()
         val directory = File(root, id)
         val exists = File(directory, "db.sqlite").exists()
@@ -77,7 +82,11 @@ class WalletEngine private constructor(context: Context) {
             try { Connection.from(JSONObject(String(bytes, Charsets.UTF_8))) } finally { bytes.fill(0) }
         } ?: Connection()
     }
-    suspend fun connect(settings: Connection) = serial {
+    suspend fun connect(settings: Connection) {
+        settings.validate()
+        serial { connected = false }
+        val route = if (settings.proxy == "builtin") EmbeddedTor.proxy(appContext) else settings.proxy
+        serial {
         settings.validate(); openStored(); connected = false
         val config = invoke("config_template").put("server_address", settings.server)
             .put("electrum_address", if (settings.backend == "electrum") settings.endpoint else JSONObject.NULL)
@@ -85,16 +94,17 @@ class WalletEngine private constructor(context: Context) {
             .put("bitcoind_address", if (settings.backend == "rpc") settings.endpoint else JSONObject.NULL)
             .put("bitcoind_user", settings.username).put("bitcoind_pass", settings.password)
             .put("electrum_certificate_sha256", settings.certificatePin.ifEmpty { null } ?: JSONObject.NULL)
-            .put("socks5_proxy", settings.proxy.ifEmpty { null } ?: JSONObject.NULL)
-            .put("user_agent", "paperclip-android/0.1.0-dev")
+            .put("socks5_proxy", route.ifEmpty { null } ?: JSONObject.NULL)
+            .put("user_agent", "paperclip-android/${BuildConfig.VERSION_NAME}")
         invoke("connect", JSONObject().put("config", config))
         invoke("chain_health") // Never equate a constructed client with a healthy backend.
         vault.write("connection", settings.json().toString().toByteArray())
         connected = true
+        }
     }
     suspend fun call(op: String, fields: JSONObject = JSONObject()): JSONObject = serial {
         openStored()
-        if (op !in listOf("overview_onchain", "address_onchain", "addresses_onchain", "exit_status")) check(connected) { "Connect your regtest node in Settings first" }
+        if (op !in listOf("overview_onchain", "address_onchain", "addresses_onchain", "exit_status")) check(connected) { "Connect your chain backend in Settings first" }
         invoke(op, fields)
     }
     suspend fun backup(key: String): ByteArray = serial {
@@ -108,11 +118,13 @@ class WalletEngine private constructor(context: Context) {
         val plain = archive.toString().toByteArray()
         try { BackupCodec.seal(plain, key) } finally { plain.fill(0) }
     }
-    suspend fun restore(bytes: ByteArray, key: String) = serial {
+    suspend fun restore(bytes: ByteArray, key: String, testOnly: Boolean = false) = serial {
         check(vault.read("wallet") == null) { "Restore requires an empty app; existing wallets are never overwritten" }
         val plain = BackupCodec.open(bytes, key)
         val archive = try { JSONObject(String(plain, Charsets.UTF_8)) } finally { plain.fill(0) }
-        require(archive.getInt("version") == 1 && archive.getString("network") == "xbt-regtest") { "This preview accepts regtest backups only" }
+        require(archive.getInt("version") == 1 && archive.getString("network") in listOf("xbt-mainnet", "xbt-regtest")) { "Unsupported backup network or version" }
+        val network = archive.getString("network")
+        require(!testOnly || network == "xbt-regtest") { "Screenshot mode cannot import a mainnet wallet" }
         val seed = Base64.getDecoder().decode(archive.getString("seed"))
         require(seed.size == 64) { "Invalid recovery seed" }
         val phrase = if (archive.isNull("seedPhrase")) "" else archive.optString("seedPhrase")
@@ -121,9 +133,9 @@ class WalletEngine private constructor(context: Context) {
             require(derived.getString("seed") == archive.getString("seed")) { "Backup words do not match its seed" }
         }
         val id = UUID.randomUUID().toString()
-        invoke("restore", JSONObject().put("network", "xbt-regtest").put("directory", File(root, id).absolutePath)
+        invoke("restore", JSONObject().put("network", network).put("directory", File(root, id).absolutePath)
             .put("database", archive.getString("recoveryState")), seed)
-        val next = JSONObject().put("network", "xbt-regtest").put("id", id)
+        val next = JSONObject().put("network", network).put("id", id)
             .put("seed", archive.getString("seed")).put("phrase", phrase)
         vault.write("wallet", next.toString().toByteArray()); record = next; openStored()
     }

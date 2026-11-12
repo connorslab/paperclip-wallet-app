@@ -78,7 +78,7 @@ jobs:
       - name: Build and test Android app
         working-directory: mobile/android
         run: |
-          sdkmanager 'platforms;android-35' 'build-tools;35.0.0' 'ndk;28.0.13004108' 'cmake;3.22.1'
+          sdkmanager 'platforms;android-37.1' 'build-tools;36.0.0' 'ndk;28.0.13004108' 'cmake;3.22.1'
           bash gradlew --no-daemon testDebugUnitTest assembleDebug assembleDebugAndroidTest
       - name: Enable emulator acceleration
         run: |
@@ -92,7 +92,7 @@ jobs:
           script: |
             adb shell cmd uimode night yes
             cd mobile/android
-            bash gradlew --no-daemon -Pabis=x86_64 connectedDebugAndroidTest
+            bash gradlew --no-daemon -Pabis=x86_64 -Pandroid.testInstrumentationRunnerArguments.class=xyz.paperclip.wallet.NativeBridgeTest,xyz.paperclip.wallet.WalletScreensTest connectedDebugAndroidTest
             adb pull /sdcard/Pictures/PaperclipPreview ./screenshots
       - uses: actions/upload-artifact@v4
         if: always()

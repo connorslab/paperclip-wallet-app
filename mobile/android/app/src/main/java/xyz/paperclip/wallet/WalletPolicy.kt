@@ -28,10 +28,10 @@ data class PaymentReview(val destination: String, val amount: Long, val fee: Lon
 
 data class Connection(val backend: String = "electrum", val endpoint: String = "ssl://pool.paperclip-xbt.xyz:50002",
     val server: String = "https://ark.paperclip-xbt.xyz", val username: String = "", val password: String = "",
-    val proxy: String = "", val certificatePin: String = "") {
+    val proxy: String = "builtin", val certificatePin: String = "") {
     fun validate() {
         require(backend in listOf("electrum", "esplora", "rpc")) { "Choose a chain backend" }
-        if (proxy.isNotEmpty()) {
+        if (proxy.isNotEmpty() && proxy != "builtin") {
             val p = URI(proxy)
             require(p.scheme == "socks5h" && !p.host.isNullOrBlank() && p.port in 1..65535 &&
                 p.rawUserInfo == null && p.rawQuery == null && p.rawFragment == null && p.rawPath.isNullOrEmpty()) {

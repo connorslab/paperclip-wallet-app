@@ -107,11 +107,12 @@ private val Panel = Color(0xff1a293e)
                                     "Activity" -> Activity(s, model)
                                     "Settings" -> {
                                         CardBlock("Your wallet") {
-                                            Text("Regtest development wallet", style = MaterialTheme.typography.titleMedium)
-                                            Text("No real funds. Mainnet is disabled while the Android port is being validated.")
+                                            Text(if (s.network == "xbt-mainnet") "XBT mainnet wallet" else "Regtest development wallet", style = MaterialTheme.typography.titleMedium)
+                                            Text("Keep your recovery words and a current encrypted full backup somewhere safe.")
                                         }
                                         NavCard("Connection settings", "Chain backend, Ark server and Tor route", Icons.Default.SettingsEthernet) { navigate("Connections") }
                                         NavCard("Full encrypted backup", "Protect your keys and Ark recovery data", Icons.Default.Shield) { navigate("Backup") }
+                                        NavCard("Emergency exit", "Recover Ark funds without the Ark server", Icons.Default.Security) { navigate("Emergency exit"); model.checkExit() }
                                         CardBlock("Appearance") { Choices(listOf("System", "Light", "Dark"), appearance) {
                                             appearance = it; preferences.edit().putString("mode", it).apply()
                                         } }
@@ -119,6 +120,7 @@ private val Panel = Color(0xff1a293e)
                                     }
                                     "Connections" -> Connections(s, model)
                                     "Backup" -> Backup(s, model)
+                                    "Emergency exit" -> EmergencyExit(s, model)
                                 }
                             }
                         }
@@ -172,7 +174,7 @@ private val Panel = Color(0xff1a293e)
     var hidden by rememberSaveable { mutableStateOf(false) }
     Row(verticalAlignment = Alignment.CenterVertically) {
         Icon(Icons.Default.Circle, null, Modifier.size(8.dp), tint = if (s.connected) Color(0xff53b88c) else MaterialTheme.colorScheme.onSurfaceVariant)
-        Text("  REGTEST · ${if (s.connected) "Connected" else "Offline"}", Modifier.weight(1f), style = MaterialTheme.typography.labelMedium)
+        Text("  ${if (s.network == "xbt-mainnet") "XBT MAINNET" else "REGTEST"} · ${if (s.connected) "Connected" else "Offline"}", Modifier.weight(1f), style = MaterialTheme.typography.labelMedium)
         IconButton(onClick = { hidden = !hidden }) { Icon(if (hidden) Icons.Default.VisibilityOff else Icons.Default.Visibility, "Toggle balance visibility") }
     }
     CardBlock("Your Keys. Your Bitcoin.") {
@@ -188,9 +190,14 @@ private val Panel = Color(0xff1a293e)
         BalanceRow("On-chain", if (hidden) "••••" else s.chain?.let { "$it sats" } ?: "Unavailable")
         HorizontalDivider(); BalanceRow("Ark", if (hidden) "••••" else s.ark?.let { "$it sats" } ?: "Connect to sync")
     }
-    if (!s.connected) NavCard("Connect your wallet", "Configure your regtest node and Ark server", Icons.Default.SettingsEthernet) { navigate("Connections") }
+    if (s.expiryHeight != null) CardBlock("Ark maintenance") {
+        BalanceRow("Earliest expiry", "Block ${s.expiryHeight}")
+        Text("Open and sync regularly. Refresh eligible funds before expiry, or use an emergency exit. Background refresh is not yet available on Android.", style = MaterialTheme.typography.bodySmall)
+        OutlinedButton(onClick = model::refreshArk, enabled = s.connected && !s.busy, modifier = Modifier.fillMaxWidth()) { Text("Refresh eligible funds") }
+    }
+    if (!s.connected) NavCard("Connect your wallet", "Chain backend, Ark server and Tor route", Icons.Default.SettingsEthernet) { navigate("Connections") }
     else OutlinedButton(onClick = model::sync, enabled = !s.busy, modifier = Modifier.fillMaxWidth()) { Text("Sync wallet") }
-    CardBlock("Android preview") { Text("Built on the same wallet engine as iPhone. Use a disposable regtest wallet while testing.") }
+    CardBlock("Recovery reminder") { Text("Save a fresh full backup after using Ark. Recovery words alone do not include your Ark exit data.") }
 }
 @Composable private fun BalanceRow(name: String, amount: String) { Row(Modifier.fillMaxWidth()) { Text(name, Modifier.weight(1f)); Text(amount, fontWeight = FontWeight.SemiBold) } }
 
@@ -224,21 +231,21 @@ private val Panel = Color(0xff1a293e)
         }
     } else if (mode == "import") CardBlock("Import seed words") {
         var phrase by remember { mutableStateOf("") }
-        OutlinedTextField(phrase, { phrase = it }, label = { Text("12 or 24 test recovery words") }, modifier = Modifier.fillMaxWidth(), minLines = 4, shape = RoundedCornerShape(16.dp), keyboardOptions = KeyboardOptions(autoCorrectEnabled = false))
+        OutlinedTextField(phrase, { phrase = it }, label = { Text("12 or 24 recovery words") }, modifier = Modifier.fillMaxWidth(), minLines = 4, shape = RoundedCornerShape(16.dp), keyboardOptions = KeyboardOptions(autoCorrectEnabled = false))
         Text("Seed-only recovery does not restore complete Ark recovery data. Use a full backup for an existing Ark wallet.", style = MaterialTheme.typography.bodySmall)
-        Button(onClick = { model.create(phrase) }, enabled = phrase.isNotBlank() && !s.busy, modifier = Modifier.fillMaxWidth()) { Text("Restore test seed") }
+        Button(onClick = { model.create(phrase) }, enabled = phrase.isNotBlank() && !s.busy, modifier = Modifier.fillMaxWidth()) { Text("Import seed words") }
         TextButton(onClick = { mode = "welcome" }) { Text("Back") }
     } else if (mode == "backup") CardBlock("Restore a backup") {
         RestoreBackup(s.busy); TextButton(onClick = { mode = "welcome" }) { Text("Back") }
     } else {
         CardBlock("Mobile wallet") {
             Text("Create a wallet with keys stored securely on this device. We’ll guide you through backing up and verifying your seed.", style = MaterialTheme.typography.bodyMedium)
-            Button(onClick = model::generate, enabled = !s.busy, modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp)) { Text("Create a test wallet") }
+            Button(onClick = model::generate, enabled = !s.busy, modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp)) { Text(if (s.network == "xbt-mainnet") "Create a wallet" else "Create a test wallet") }
         }
         NavCard("Import seed words", "Restore a 12- or 24-word phrase", Icons.Default.Key) { mode = "import" }
         NavCard("Restore a backup", "Recover your encrypted wallet and Ark data", Icons.Default.Shield) { mode = "backup" }
     }
-    Text("Regtest preview · Use test wallets only. Mainnet is disabled.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    Text(if (s.network == "xbt-mainnet") "XBT mainnet · Your keys stay on this device." else "Regtest · Test funds only.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     s.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
 }
 
@@ -294,7 +301,7 @@ private val Panel = Color(0xff1a293e)
             Text(if (source == "Ark") "Ark address, on-chain withdrawal, BOLT11 invoice or BOLT12 offer." else "Send from your on-chain balance.", style = MaterialTheme.typography.bodySmall)
             Button(onClick = { model.quote(destination, amount, source == "On-chain") }, enabled = !s.busy && s.connected,
                 modifier = Modifier.fillMaxWidth()) { Text("Review payment") }
-            if (!s.connected) Text("Connect your regtest backend in Settings first.")
+            if (!s.connected) Text("Connect your chain backend in Settings first.")
         }
     }
 }
@@ -340,13 +347,18 @@ private val Panel = Color(0xff1a293e)
 @Composable private fun Connections(s: WalletState, model: WalletModel) {
     var c by remember(s.connection) { mutableStateOf(s.connection) }
     CardBlock("Connection settings") {
-        Text("For this preview, replace these iPhone presets with your regtest endpoints. The engine checks the network before use.")
+        Text(if (s.network == "xbt-mainnet") "Paperclip mainnet endpoints are filled in for you. You can use your own compatible servers." else "Enter your regtest endpoints. The engine verifies the network before use.")
         Choices(listOf("electrum", "esplora", "rpc"), c.backend) { c = c.copy(backend = it) }
         Field("Chain endpoint", c.endpoint) { c = c.copy(endpoint = it) }; Field("Ark server", c.server) { c = c.copy(server = it) }
         if (c.backend == "rpc") { Field("RPC username", c.username) { c = c.copy(username = it) }; Field("RPC password", c.password, secret = true) { c = c.copy(password = it) } }
         if (c.backend == "electrum") Field("Certificate SHA256 (optional)", c.certificatePin) { c = c.copy(certificatePin = it) }
-        Field("Tor SOCKS proxy (optional)", c.proxy) { c = c.copy(proxy = it) }
-        Text("Use socks5h://host:port. Android currently needs an external Tor proxy; there is no direct fallback when it fails.", style = MaterialTheme.typography.bodySmall)
+        Text("Connection privacy", fontWeight = FontWeight.SemiBold)
+        Choices(listOf("Built-in Tor", "External Tor", "Direct"), if (c.proxy == "builtin") "Built-in Tor" else if (c.proxy.isEmpty()) "Direct" else "External Tor") {
+            c = c.copy(proxy = when (it) { "Built-in Tor" -> "builtin"; "External Tor" -> "socks5h://127.0.0.1:9050"; else -> "" })
+        }
+        if (c.proxy.isNotEmpty() && c.proxy != "builtin") Field("Tor SOCKS proxy", c.proxy) { c = c.copy(proxy = it) }
+        Text(if (c.proxy.isEmpty()) "Direct connections reveal your IP address to the server." else "Remote server traffic and DNS use Tor. If Tor is unavailable, the connection fails without falling back to direct access. Localhost services stay local; select Direct for a LAN node.", style = MaterialTheme.typography.bodySmall)
+        if (s.busy && c.proxy == "builtin") Text("Connecting through Tor… First startup can take a few minutes.")
         Button(onClick = { model.connect(c) }, enabled = !s.busy, modifier = Modifier.fillMaxWidth()) { Text("Save and connect") }
     }
 }
@@ -372,4 +384,30 @@ private val Panel = Color(0xff1a293e)
     val activity = LocalContext.current as MainActivity
     Field("Full-backup recovery key", key, secret = true) { key = it }
     OutlinedButton(onClick = { activity.restoreBackup(key); key = "" }, enabled = !busy && key.isNotBlank()) { Text("Restore full backup") }
+}
+
+@Composable private fun EmergencyExit(s: WalletState, model: WalletModel) {
+    var confirmed by remember { mutableStateOf(false) }
+    var destination by remember { mutableStateOf("") }
+    CardBlock("Recover on-chain") {
+        Text("An emergency exit uses your saved Ark recovery data and the chain backend. It does not require the Ark server to be online.")
+        Text("Exits incur on-chain fees and take time to become claimable. Keep a full backup and enough on-chain funds for fees.", style = MaterialTheme.typography.bodySmall)
+        s.exitStatus?.let {
+            BalanceRow("Pending exit", if (it.optBoolean("pending")) "Yes" else "No")
+            if (!it.isNull("claimable_height")) BalanceRow("Claimable at height", it.optString("claimable_height"))
+            BalanceRow("Claimable outputs", it.optInt("claimable_count").toString())
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Checkbox(confirmed, { confirmed = it }); Text("I understand the fees and waiting period")
+        }
+        Button(onClick = model::startExit, enabled = confirmed && s.connected && !s.busy, modifier = Modifier.fillMaxWidth()) { Text("Start emergency exit") }
+        OutlinedButton(onClick = model::progressExit, enabled = s.connected && !s.busy, modifier = Modifier.fillMaxWidth()) { Text("Continue exit and broadcast") }
+        TextButton(onClick = model::checkExit, enabled = !s.busy) { Text("Check exit status") }
+        if ((s.exitStatus?.optInt("claimable_count") ?: 0) > 0) {
+            Field("On-chain destination", destination) { destination = it }
+            Text("Claiming sends the matured outputs to this address, less the on-chain fee. Verify the address before confirming.", style = MaterialTheme.typography.bodySmall)
+            Button(onClick = { confirmed = false; model.claimExit(destination) }, enabled = confirmed && s.connected && !s.busy && destination.isNotBlank() && s.result == null) { Text("Confirm and claim outputs") }
+        }
+        s.result?.let { Text(PaymentStatus.from(it.optString("state")).title) }
+    }
 }

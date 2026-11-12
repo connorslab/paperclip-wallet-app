@@ -25,7 +25,8 @@ class WalletPolicyTest {
         listOf("http://example.com", "https://user:pw@example.com", "https://example.com?secret=x", "http://10.evil.com").forEach { url ->
             assertThrows(IllegalArgumentException::class.java) { Connection(server = url).validate() }
         }
-        assertThrows(IllegalArgumentException::class.java) { Connection(server = "http://example.onion").validate() }
+        assertThrows(IllegalArgumentException::class.java) { Connection(server = "http://example.onion", proxy = "").validate() }
+        Connection(server = "http://example.onion", proxy = "builtin").validate()
         assertThrows(IllegalArgumentException::class.java) { Connection(proxy = "socks5://localhost:9050").validate() }
         Connection(server = "http://example.onion", proxy = "socks5h://127.0.0.1:9050").validate()
     }
