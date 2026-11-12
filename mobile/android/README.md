@@ -61,9 +61,11 @@ storage, set dark mode, then run:
 
 ```sh
 adb shell cmd uimode night yes
-./gradlew -Pabis=x86_64 \
-  -Pandroid.testInstrumentationRunnerArguments.class=xyz.paperclip.wallet.NativeBridgeTest,xyz.paperclip.wallet.WalletScreensTest \
-  connectedDebugAndroidTest
+for test in NativeBridgeTest WalletScreensTest; do
+  ./gradlew -Pabis=x86_64 \
+    "-Pandroid.testInstrumentationRunnerArguments.class=xyz.paperclip.wallet.$test" \
+    connectedDebugAndroidTest
+done
 adb pull /sdcard/Pictures/PaperclipPreview ./screenshots
 ```
 
