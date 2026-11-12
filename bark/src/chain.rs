@@ -279,6 +279,27 @@ impl ChainSource {
 		Ok(())
 	}
 
+	/// Isolate Electrum scanning so interrupting it cannot close a payment socket.
+	pub async fn isolated_scan_source(&self) -> anyhow::Result<Option<Self>> {
+		#[cfg(feature = "electrum")]
+		if let ChainSourceClient::Electrum(client) = self.inner() {
+			return Ok(Some(Self {
+				inner: ChainSourceClient::Electrum(client.isolated_read_connection().await?),
+				network: self.network, zmq_endpoint: None,
+				fee_rates: RwLock::new(self.fee_rates.read().await.clone()),
+				fee_rates_fetched_at: RwLock::new(None), tip_cache: RwLock::new(None),
+			}));
+		}
+		Ok(None)
+	}
+
+	/// Abandon an Electrum read without waiting for the full address scan.
+	/// Call only when cancelling a read-only operation, never a broadcast.
+	pub fn interrupt_read(&self) {
+		#[cfg(feature = "electrum")]
+		if let ChainSourceClient::Electrum(client) = self.inner() { client.interrupt_read(); }
+	}
+
 	pub(crate) fn inner(&self) -> &ChainSourceClient {
 		&self.inner
 	}

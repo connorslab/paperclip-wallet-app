@@ -61,7 +61,7 @@
 
 mod inputs;
 
-pub use inputs::{FeeScheme, InputSelection, SelectedFeeInfos};
+pub use inputs::{FeeScheme, InputSelection, NoConstructibleInputs, SelectedFeeInfos};
 
 use std::borrow::Borrow;
 use std::collections::HashSet;

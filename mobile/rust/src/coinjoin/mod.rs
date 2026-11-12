@@ -1,4 +1,4 @@
-//! Experimental Kilojoin v1 account, isolated from ordinary wallet coin selection.
+//! Experimental Kilojoin v4 account, isolated from ordinary wallet coin selection.
 use paperclip_kilojoin::{crypto, protocol, round};
 #[cfg(test)]
 mod tests;
@@ -16,7 +16,7 @@ use bitcoin::{
 	secp256k1::{Secp256k1, SecretKey},
 };
 use crypto::{Event, bytes, hex};
-use protocol::{Coin, Seat, Terms};
+use protocol::{Coin, Terms};
 use round::Round;
 use rusqlite::OptionalExtension;
 use serde::{Deserialize, Serialize};
@@ -44,9 +44,19 @@ struct Quote {
 }
 pub(crate) fn legacy_account(path: &Path) -> anyhow::Result<bool> {
 	let c = rusqlite::Connection::open(path)?;
-	let exists: bool = c.query_row("SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE name='named_bdk_account')", [], |r| r.get(0))?;
-	if !exists { return Ok(false); }
-	Ok(c.query_row("SELECT EXISTS(SELECT 1 FROM named_bdk_account WHERE name='kilojoin-bip84')", [], |r| r.get(0))?)
+	let exists: bool = c.query_row(
+		"SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE name='named_bdk_account')",
+		[],
+		|r| r.get(0),
+	)?;
+	if !exists {
+		return Ok(false);
+	}
+	Ok(c.query_row(
+		"SELECT EXISTS(SELECT 1 FROM named_bdk_account WHERE name='kilojoin-bip84')",
+		[],
+		|r| r.get(0),
+	)?)
 }
 fn now() -> u64 {
 	std::time::SystemTime::now()
@@ -118,13 +128,16 @@ fn coin(
 	Ok((coin, path, key))
 }
 fn available(s: &State, out: OutPoint) -> bool {
-	!s.rounds
+	!s.rounds.iter().any(|r| {
+		r.locked()
+			&& r.mine
+				.all_coins()
+				.iter()
+				.any(|c| c.name() == out.to_string())
+	}) && !s
+		.pending
 		.iter()
-		.any(|r| r.locked() && r.mine.coin.name() == out.to_string())
-		&& !s
-			.pending
-			.iter()
-			.any(|t| t.input.iter().any(|i| i.previous_output == out))
+		.any(|t| t.input.iter().any(|i| i.previous_output == out))
 }
 
 fn sign_single_coin(psbt: &mut Psbt, coin: &Coin, key: &SecretKey) -> anyhow::Result<()> {
@@ -154,7 +167,9 @@ fn sign_single_coin(psbt: &mut Psbt, coin: &Coin, key: &SecretKey) -> anyhow::Re
 		);
 	}
 	ensure!(
-		psbt.inputs[0].sighash_type.is_none_or(|s| s.to_u32() == 0x21)
+		psbt.inputs[0]
+			.sighash_type
+			.is_none_or(|s| s.to_u32() == 0x21)
 			&& psbt.inputs[0].final_script_witness.is_none()
 			&& psbt.inputs[0].final_script_sig.is_none(),
 		"unsupported existing signature"
@@ -179,8 +194,10 @@ fn sign_single_coin(psbt: &mut Psbt, coin: &Coin, key: &SecretKey) -> anyhow::Re
 	let mut encoded = signature.serialize_der().to_vec();
 	encoded.push(0x21);
 	psbt.inputs[0].sighash_type = Some(bitcoin::psbt::PsbtSighashType::from_u32(0x21));
-	psbt.inputs[0].final_script_witness =
-		Some(bitcoin::Witness::from_slice(&[encoded, coin.key()?.to_bytes()]));
+	psbt.inputs[0].final_script_witness = Some(bitcoin::Witness::from_slice(&[
+		encoded,
+		coin.key()?.to_bytes(),
+	]));
 	Ok(())
 }
 fn single_coin_tx(
@@ -191,7 +208,10 @@ fn single_coin_tx(
 	rate: bitcoin::FeeRate,
 ) -> anyhow::Result<Psbt> {
 	let mut builder = wallet.build_tx();
-	builder.add_utxo(out)?.manually_selected_only().fee_rate(rate);
+	builder
+		.add_utxo(out)?
+		.manually_selected_only()
+		.fee_rate(rate);
 	if let Some(amount) = amount {
 		builder.add_recipient(destination, Amount::from_sat(amount));
 	} else {
@@ -204,16 +224,23 @@ fn single_coin_tx(
 	);
 	Ok(psbt)
 }
-async fn check(chain: &bark::chain::ChainSource, coin: &Coin) -> anyhow::Result<bool> {
+async fn check_type(
+	chain: &bark::chain::ChainSource,
+	coin: &Coin,
+	script: &str,
+) -> anyhow::Result<bool> {
 	chain
 		.unspent_output(
 			coin.outpoint()?,
 			&TxOut {
 				value: Amount::from_sat(coin.value),
-				script_pubkey: coin.script()?,
+				script_pubkey: coin.script_for(script)?,
 			},
 		)
 		.await
+}
+async fn check(chain: &bark::chain::ChainSource, coin: &Coin) -> anyhow::Result<bool> {
+	check_type(chain, coin, "p2wpkh").await
 }
 fn text<'a>(r: &'a Value, k: &str) -> anyhow::Result<&'a str> {
 	r[k].as_str().with_context(|| format!("missing {k}"))
@@ -230,7 +257,8 @@ fn summary(s: &State, w: &OnchainWallet) -> Value {
 	let activity:Vec<_>=w.list_transaction_infos().unwrap_or_default().iter().map(|t|json!({"txid":t.txid.to_string(),"change_sat":t.balance_change.to_sat(),"confirmed":t.confirmation.is_some(),"timestamp":t.timestamp})).collect();
 	let rounds:Vec<_>=s.rounds.iter().rev().map(|r| {
 		let plan=r.plan().ok();
-		json!({"id":r.terms.id,"phase":r.phase,"reason":r.reason,"terms":r.terms,"creator":r.creator,"relay":r.relay,"tor":r.tor,"peers":r.seats.len(),"deadline":r.deadline,"signed":r.signed,"voted":r.voted==r.vote,"txid":r.txid,"input":r.mine.coin.value,"amount_sat":r.terms.denomination,"change_sat":r.mine.change_value,"fee_sat":r.mine.coin.value-r.terms.denomination-r.mine.change_value,"total_fee_sat":plan.as_ref().map(|p|p.fee),"plan_id":plan.as_ref().map(|p|p.tx.compute_txid().to_string()),"mix_script":r.mix,"subscriptions":[crypto::public(&r.join_secret).unwrap_or_default(),r.terms.public_key.clone()],"outbox":r.outbox,"active":!r.terminal(),"can_broadcast":r.signed&&r.signatures.len()==r.round.len()&&r.phase!="confirmed"})
+		let subscriptions = { let mut keys=vec![crypto::public(&r.join_secret).unwrap_or_default(),r.terms.public_key.clone()]; if r.creator && r.terms.v>=3 { keys.push(r.terms.creator.clone()); } keys };
+		json!({"id":r.terms.id,"phase":r.phase,"reason":r.reason,"terms":r.terms,"creator":r.creator,"relay":r.relay,"tor":r.tor,"peers":r.seats.len(),"deadline":r.deadline,"signed":r.signed,"voted":r.voted==r.vote,"txid":r.txid,"input":r.mine.value(),"amount_sat":r.terms.mix_total(),"outputs":r.terms.outputs,"input_count":r.mine.all_coins().len(),"change_sat":r.mine.change_value,"fee_sat":r.mine.value()-r.terms.mix_total()-r.mine.change_value,"total_fee_sat":plan.as_ref().map(|p|p.fee),"plan_id":plan.as_ref().map(|p|p.tx.compute_txid().to_string()),"mix_script":r.mix,"subscriptions":subscriptions,"outbox":r.outbox,"active":!r.terminal(),"can_broadcast":r.signed&&plan.as_ref().is_some_and(|p|r.signatures.len()==p.coins.len())&&r.phase!="confirmed"})
 	}).collect();
 	json!({"balance_sat":w.inner.balance().total().to_sat(),"coins":coins,"rounds":rounds,"activity":activity,"address":w.peek_address(KeychainKind::External,w.derivation_index(KeychainKind::External).unwrap_or(0)).address.to_string()})
 }
@@ -256,9 +284,16 @@ pub async fn dispatch(
 	let path = dir.join("db.sqlite");
 	let mut s = load(&path)?;
 	let legacy = legacy_account(&path)?;
-	let db = Arc::new(SqliteClient::open(&path)?.with_bdk_namespace(if legacy { "kilojoin-bip84" } else { "kilojoin-bip84-v2" }));
-	let mut w = if legacy { OnchainWallet::load_coinjoin(network, seed, db).await? }
-		else { OnchainWallet::load_segwit_account(network, seed, db, 1).await? };
+	let db = Arc::new(SqliteClient::open(&path)?.with_bdk_namespace(if legacy {
+		"kilojoin-bip84"
+	} else {
+		"kilojoin-bip84-v2"
+	}));
+	let mut w = if legacy {
+		OnchainWallet::load_coinjoin(network, seed, db).await?
+	} else {
+		OnchainWallet::load_segwit_account(network, seed, db, 1).await?
+	};
 	// Revealing the first address is durable, including on an empty account.
 	if w.derivation_index(KeychainKind::External).is_none() {
 		w.address().await?;
@@ -268,14 +303,30 @@ pub async fn dispatch(
 		"coinjoin_status" => {}
 		"coinjoin_migrate" => {
 			ensure!(legacy, "Coinjoin already uses its separate account");
-			ensure!(s.rounds.iter().all(|r| !r.locked()) && s.pending.is_empty(), "Finish and refresh all rounds and transfers before upgrading");
+			ensure!(
+				s.rounds.iter().all(|r| !r.locked()) && s.pending.is_empty(),
+				"Finish and refresh all rounds and transfers before upgrading"
+			);
 			let mut c = rusqlite::Connection::open(&path)?;
 			let tx = c.transaction()?;
-			let exists: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM named_bdk_account WHERE name='main-bip84')", [], |r| r.get(0))?;
-			ensure!(!exists, "Main SegWit account already exists; do not overwrite it");
+			let exists: bool = tx.query_row(
+				"SELECT EXISTS(SELECT 1 FROM named_bdk_account WHERE name='main-bip84')",
+				[],
+				|r| r.get(0),
+			)?;
+			ensure!(
+				!exists,
+				"Main SegWit account already exists; do not overwrite it"
+			);
 			tx.execute("CREATE TABLE IF NOT EXISTS paperclip_coinjoin_legacy (id INTEGER PRIMARY KEY, state TEXT NOT NULL)", [])?;
-			tx.execute("INSERT INTO paperclip_coinjoin_legacy VALUES(1,?1)", [serde_json::to_string(&s)?])?;
-			tx.execute("UPDATE named_bdk_account SET name='main-bip84' WHERE name='kilojoin-bip84'", [])?;
+			tx.execute(
+				"INSERT INTO paperclip_coinjoin_legacy VALUES(1,?1)",
+				[serde_json::to_string(&s)?],
+			)?;
+			tx.execute(
+				"UPDATE named_bdk_account SET name='main-bip84' WHERE name='kilojoin-bip84'",
+				[],
+			)?;
 			tx.execute("DELETE FROM paperclip_coinjoin", [])?;
 			tx.commit()?;
 			return Ok(json!({"migrated":true}));
@@ -297,14 +348,20 @@ pub async fn dispatch(
 					if chain.tx_confirmed(txid).await?.is_some() {
 						r.phase = "confirmed".into();
 						r.txid = Some(txid.to_string());
-						s.labels.insert(r.mix.clone(), "mixed".into());
+						for mix in r.mix_scripts() {
+							s.labels.insert(mix, "mixed".into());
+						}
 					}
 				}
 				// A conflicting confirmed spend proves the released signature unusable.
 				if r.locked()
 					&& r.phase != "confirmed"
-					&& chain.tx_confirmed(r.mine.coin.outpoint()?.txid).await?.is_some()
-					&& chain.outpoint_spent_confirmed(r.mine.coin.outpoint()?).await?
+					&& chain
+						.tx_confirmed(r.mine.coin.outpoint()?.txid)
+						.await?
+						.is_some() && chain
+					.outpoint_spent_confirmed(r.mine.coin.outpoint()?)
+					.await?
 				{
 					r.signed = false;
 					r.phase = "aborted".into();
@@ -329,12 +386,37 @@ pub async fn dispatch(
 				"Coinjoin history limit reached; export backup before further rounds"
 			);
 			let creator = op == "coinjoin_create";
-			let poolsecret = if creator { Some(crypto::secret()) } else { None };
+			let poolsecret = if creator {
+				Some(crypto::secret())
+			} else {
+				None
+			};
+			let outputs = request["outputs"].as_u64().unwrap_or(1) as usize;
+			ensure!(
+				(1..=5).contains(&outputs),
+				"choose one to five mixed outputs"
+			);
+			let creator_secret = if creator {
+				Some(crypto::secret())
+			} else {
+				None
+			};
+			let (blind_key, blind_secret) = if creator {
+				let (p, s) = paperclip_kilojoin::blind::generate()?;
+				(p, Some(s))
+			} else {
+				(String::new(), None)
+			};
 			let terms = if let Some(secret) = &poolsecret {
 				let hours = request["hours"].as_u64().unwrap_or(24);
 				ensure!((1..=168).contains(&hours), "duration must be 1–168 hours");
 				Terms {
-					v: 1,
+					v: if outputs == 1 { 3 } else { 4 },
+					script: "p2wpkh".into(),
+					max_inputs: 10,
+					outputs,
+					creator: crypto::public(creator_secret.as_deref().context("creator key")?)?,
+					blind_key,
 					network: "blake2b".into(),
 					id: hex(&crypto::random(8)),
 					public_key: crypto::public(secret)?,
@@ -351,6 +433,11 @@ pub async fn dispatch(
 				Terms::event(&serde_json::from_value(request["event"].clone())?)?
 			};
 			terms.validate()?;
+			ensure!(terms.mix_total() >= 10_000, "Each participant must mix at least 10,000 sats in total");
+			ensure!(
+				terms.v >= 3 && terms.script == "p2wpkh",
+				"Choose a v3/v4 native SegWit pool for this Coinjoin account"
+			);
 			ensure!(
 				terms.state == "open" && terms.timeout > time && terms.peers < terms.max_peers,
 				"pool is unavailable"
@@ -360,21 +447,51 @@ pub async fn dispatch(
 				relay.starts_with("wss://") && relay.len() < 2048,
 				"secure WebSocket relay required"
 			);
-			let out: OutPoint = text(request, "outpoint")?.parse()?;
-			ensure!(available(&s, out), "coin reserved");
+			let selected: Vec<String> = if request["outpoints"].is_array() {
+				serde_json::from_value(request["outpoints"].clone())?
+			} else {
+				vec![text(request, "outpoint")?.into()]
+			};
+			ensure!(
+				!selected.is_empty()
+					&& selected.len() <= terms.max_inputs
+					&& selected
+						.iter()
+						.collect::<std::collections::BTreeSet<_>>()
+						.len() == selected.len(),
+				"Choose distinct coins within the pool input limit"
+			);
 			let chain = chain_wallet.context("connect a chain backend")?.chain();
 			w.sync(chain).await?;
-			let (coin, path, key) = coin(&w, out, &seed, network, if legacy { 0 } else { 1 })?;
-			ensure!(check(chain, &coin).await?, "coin is not unspent");
-			let change = protocol::change(coin.value, terms.denomination, terms.fee_rate)?;
-			let mix = w.address().await?.script_pubkey().to_hex_string();
+			let mut selected_coins = Vec::new();
+			for name in selected {
+				let out: OutPoint = name.parse()?;
+				ensure!(available(&s, out), "coin reserved");
+				let c = coin(&w, out, &seed, network, if legacy { 0 } else { 1 })?;
+				ensure!(check(chain, &c.0).await?, "coin is not unspent");
+				selected_coins.push(c);
+			}
+			let change = terms.change(
+				selected_coins.iter().map(|c| c.0.value).sum(),
+				selected_coins.len(),
+			)?;
+			let mut mixes = Vec::new();
+			for _ in 0..terms.outputs {
+				mixes.push(w.address().await?.script_pubkey().to_hex_string());
+			}
+			let mix = mixes.remove(0);
 			let change_script = if change > 0 {
 				w.address().await?.script_pubkey().to_hex_string()
 			} else {
 				String::new()
 			};
+			let (coin, path, key) = selected_coins.remove(0);
 			let mut r = Round::new(
 				round::RoundConfig {
+					creator_secret,
+					blind_secret,
+					extra_coins: selected_coins,
+					extra_mixes: mixes,
 					terms,
 					relay: relay.into(),
 					tor: request["tor"].as_bool().unwrap_or(true),
@@ -397,52 +514,38 @@ pub async fn dispatch(
 		"coinjoin_event" => {
 			let e: Event = serde_json::from_value(request["event"].clone())?;
 			let r = round_mut(&mut s, request)?;
-			// Invalid relay traffic cannot mutate the durable round.
-			if let Ok(m) = r.decode(&e) {
-				// Reject malformed/replayed requests before performing chain I/O.
-				let candidate = (|| -> anyhow::Result<Seat> {
-					ensure!(
-						r.creator
-							&& r.phase == "open" && m["type"] == "join"
-							&& !r.seen.contains(&e.id)
-							&& !r.joins.contains_key(&e.pubkey),
-						"not a new join"
-					);
-					let seat: Seat = serde_json::from_value(m["seat"].clone())?;
-					seat.validate(&r.terms)?;
-					ensure!(
-						!r.seats.iter().any(|s| s.coin.name() == seat.coin.name()),
-						"duplicate coin"
-					);
-					protocol::verify_proof(
-						&seat.coin,
-						protocol::ownership(&r.terms.id, &e.pubkey, &seat.coin),
-						text(&m, "proof")?,
-					)?;
-					protocol::verify_proof(
-						&seat.coin,
-						protocol::change_hash(&r.terms.id, &seat),
-						text(&m, "change_sig")?,
-					)?;
-					Ok(seat)
-				})();
-				let unspent = match (candidate, chain_wallet) {
-					(Ok(seat), Some(chain)) => check(chain.chain(), &seat.coin).await.unwrap_or(false),
-					_ => false,
-				};
+			// Verify authenticated ownership proofs before chain I/O; never let relay data authorize signing.
+			if r.decode(&e).is_ok() {
+				let candidates = r.verification_coins(&e);
+				let mut unspent = false;
+				if let (Ok(coins), Some(wallet)) = (candidates, chain_wallet) {
+					if !coins.is_empty() {
+						unspent = true;
+						for c in coins {
+							if !check_type(wallet.chain(), &c, &r.terms.script)
+								.await
+								.unwrap_or(false)
+							{
+								unspent = false;
+								break;
+							}
+						}
+					}
+				}
 				let mut next = r.clone();
 				if next.handle(&e, time, unspent).is_ok() {
 					*r = next;
 				}
 			}
 		}
+
 		"coinjoin_ack" => {
 			let r = round_mut(&mut s, request)?;
 			let id = text(request, "event_id")?;
 			if let Some(item) = r.outbox.iter().find(|o| o.event.id == id).cloned() {
 				if r.decode(&item.event).is_ok() {
 					let mut next = r.clone();
-					if next.handle(&item.event, time, false).is_ok() {
+					if next.handle(&item.event, time, true).is_ok() {
 						*r = next;
 					}
 				}
@@ -455,9 +558,8 @@ pub async fn dispatch(
 			}
 		}
 		"coinjoin_close" => round_mut(&mut s, request)?.request_close(time)?,
-		"coinjoin_vote" => {
-			round_mut(&mut s, request)?.vote(request["accept"].as_bool().context("vote required")?, time)?
-		}
+		"coinjoin_vote" => round_mut(&mut s, request)?
+			.vote(request["accept"].as_bool().context("vote required")?, time)?,
 		"coinjoin_leave" => round_mut(&mut s, request)?.leave(time)?,
 		"coinjoin_sign" => {
 			let r = round_mut(&mut s, request)?;
@@ -470,12 +572,23 @@ pub async fn dispatch(
 			chain.invalidate_caches().await;
 			for c in &plan.coins {
 				ensure!(
-					check(chain, c).await?,
+					check_type(chain, c, &r.terms.script).await?,
 					"a round input is spent or has incorrect value"
 				);
 			}
-			let signature = plan.sign(&r.mine.coin, &derive(&seed, network, &r.path)?)?;
-			r.signed_message(signature, time)?;
+			let paths = r.coin_paths();
+			ensure!(
+				paths.len() == r.mine.all_coins().len(),
+				"missing input derivations"
+			);
+			let signatures = r
+				.mine
+				.all_coins()
+				.iter()
+				.zip(paths)
+				.map(|(c, p)| plan.sign(c, &derive(&seed, network, &p)?))
+				.collect::<anyhow::Result<Vec<_>>>()?;
+			r.signed_messages(signatures, time)?;
 		}
 		"coinjoin_broadcast" => {
 			let r = round_mut(&mut s, request)?;
@@ -488,16 +601,21 @@ pub async fn dispatch(
 			let mut tx = plan.tx.clone();
 			for (name, sig) in &r.signatures {
 				let i = plan.verify(name, sig)?;
-				tx.input[i].witness =
-					bitcoin::Witness::from_slice(&[bytes(sig)?, bytes(&plan.coins[i].pubkey)?]);
+				tx.input[i].witness = if plan.script == "p2tr" {
+					bitcoin::Witness::from_slice(&[bytes(sig)?])
+				} else {
+					bitcoin::Witness::from_slice(&[bytes(sig)?, bytes(&plan.coins[i].pubkey)?])
+				};
 			}
 			let chain = chain_wallet.context("connect a chain backend")?.chain();
 			chain.invalidate_caches().await;
 			if chain.tx_confirmed(tx.compute_txid()).await?.is_some() {
 				r.txid = Some(tx.compute_txid().to_string());
 				r.phase = "confirmed".into();
-				let mixed_script = r.mix.clone();
-				s.labels.insert(mixed_script, "mixed".into());
+				let scripts = r.mix_scripts();
+				for script in scripts {
+					s.labels.insert(script, "mixed".into());
+				}
 				save(&path, &s)?;
 				w.sync(chain).await?;
 				return Ok(summary(&s, &w));
@@ -505,8 +623,10 @@ pub async fn dispatch(
 			r.txid = Some(tx.compute_txid().to_string());
 			r.phase = "broadcast".into();
 			r.announce(time)?;
-			let mixed_script = r.mix.clone();
-			s.labels.insert(mixed_script, "mixed".into());
+			let scripts = r.mix_scripts();
+			for script in scripts {
+				s.labels.insert(script, "mixed".into());
+			}
 			save(&path, &s)?;
 			w.register_tx(&tx).await?;
 			chain_wallet
@@ -562,11 +682,17 @@ pub async fn dispatch(
 					);
 					w.address().await?
 				} else {
-					bitcoin::Address::from_str(text(request, "destination")?)?.require_network(network)?
+					bitcoin::Address::from_str(text(request, "destination")?)?
+						.require_network(network)?
 				};
 			let exact = if action == "exact" {
-				let amount = request["amount_sat"].as_u64().context("exact amount required")?;
-				ensure!((10000..=100100000).contains(&amount), "exact amount out of range");
+				let amount = request["amount_sat"]
+					.as_u64()
+					.context("exact amount required")?;
+				ensure!(
+					(10000..=501000000).contains(&amount),
+					"exact amount out of range"
+				);
 				Some(amount)
 			} else {
 				None
@@ -682,11 +808,22 @@ pub async fn dispatch(
 	save(&path, &s)?;
 	let mut result = summary(&s, &w);
 	let c = rusqlite::Connection::open(&path)?;
-	let archived: bool = c.query_row("SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE name='paperclip_coinjoin_legacy')", [], |r| r.get(0))?;
+	let archived: bool = c.query_row(
+		"SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE name='paperclip_coinjoin_legacy')",
+		[],
+		|r| r.get(0),
+	)?;
 	if archived {
-		let raw: String = c.query_row("SELECT state FROM paperclip_coinjoin_legacy WHERE id=1", [], |r| r.get(0))?;
+		let raw: String = c.query_row(
+			"SELECT state FROM paperclip_coinjoin_legacy WHERE id=1",
+			[],
+			|r| r.get(0),
+		)?;
 		let old: State = serde_json::from_str(&raw)?;
-		if let (Some(current), Some(previous)) = (result["rounds"].as_array_mut(), summary(&old, &w)["rounds"].as_array()) {
+		if let (Some(current), Some(previous)) = (
+			result["rounds"].as_array_mut(),
+			summary(&old, &w)["rounds"].as_array(),
+		) {
 			current.extend(previous.iter().cloned());
 		}
 	}

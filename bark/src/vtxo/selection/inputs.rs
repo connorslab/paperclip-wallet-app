@@ -20,6 +20,10 @@ pub type FeeAmount = Amount;
 /// before we give up on the fee converging.
 const MAX_FEE_ITERATIONS: usize = 100;
 
+#[derive(Debug, thiserror::Error)]
+#[error("No combination of available Ark inputs can fund this amount and its recovery costs")]
+pub struct NoConstructibleInputs;
+
 /// Parameters controlling which VTXOs may be selected as inputs for a payment.
 ///
 /// Builder pattern is used. By default there is no limit on the number of inputs and no
@@ -148,7 +152,7 @@ impl InputSelection {
 				if attempts >= 2048 { break; }
 			}
 		}
-		bail!("No constructible Lightning input combination found after fees and recovery reserves; refresh or consolidate eligible Ark inputs, or add Ark funds")
+		Err(NoConstructibleInputs.into())
 	}
 
 	/// Create a new [InputSelection] with no input limit, no exclusions, and no fee scheme.
@@ -479,6 +483,22 @@ mod test {
 	}
 
 	#[test]
+	fn funded_max_transfer_uses_two_reserves_per_input() {
+		let (_, first) = funded_input(20_000, 1000);
+		let (_, second) = funded_input(30_000, 1100);
+		let key = DummyTestVtxoSpec::default().user_keypair.public_key();
+		let policy = VtxoPolicy::new_pubkey(key);
+		let inputs = vec![first, second];
+		let (_, reserve) = ArkoorPackageBuilder::new_funded_payment(inputs.clone(),
+			ArkoorDestination { total_amount: Amount::from_sat(42_000), policy: policy.clone() }, policy.clone(),
+		).unwrap();
+		assert_eq!(reserve.to_sat(), 8_000);
+		assert!(ArkoorPackageBuilder::new_funded_payment(inputs,
+			ArkoorDestination { total_amount: Amount::from_sat(42_001), policy: policy.clone() }, policy,
+		).is_err());
+	}
+
+	#[test]
 	fn constructible_lightning_real_builder_regressions() {
 		let key = DummyTestVtxoSpec::default().user_keypair.public_key();
 		let destination = ArkoorDestination { total_amount: Amount::from_sat(50_000),
@@ -534,6 +554,67 @@ mod test {
 			}).unwrap();
 			assert_eq!(amounts(&chosen), expected);
 			assert_eq!(reserve.to_sat(), cost);
+		}
+	}
+
+	#[test]
+	fn economical_ark_selection_matches_send_max_and_change_budget() {
+		let key = DummyTestVtxoSpec::default().user_keypair.public_key();
+		for (values, expected, cost) in [
+			(vec![11_056], vec![11_056], 1_056),
+			(vec![30_000, 11_056], vec![11_056], 1_056),
+			(vec![30_000], vec![30_000], 1_584),
+			(vec![6_056, 6_056], vec![6_056, 6_056], 2_112),
+		] {
+			let inputs = values.iter().enumerate().map(|(i, v)| funded_input(*v, 1000 + i as u32)).collect::<Vec<_>>();
+			let (chosen, reserve) = InputSelection::new().select_ark_constructible(
+				inputs.iter().map(|(v, _)| v.clone()).collect(), |chosen| {
+				let full = chosen.iter().map(|v| inputs.iter().find(|(w, _)| w.id() == v.id()).unwrap().1.clone()).collect();
+				match ArkoorPackageBuilder::new_funded_payment_with_funding(full, ArkoorDestination {
+					total_amount: Amount::from_sat(10_000), policy: VtxoPolicy::new_pubkey(key),
+				}, VtxoPolicy::new_pubkey(key), ark::exit_policy::economical_transfer_funding()) {
+					Ok((_, reserve)) => Ok(Some(reserve)),
+					Err(ArkoorConstructionError::Dust | ArkoorConstructionError::Unbalanced { .. }) => Ok(None),
+					Err(error) => Err(error.into()),
+				}
+			}).unwrap();
+			assert_eq!(amounts(&chosen), expected);
+			assert_eq!(reserve.to_sat(), cost);
+		}
+	}
+
+	#[test]
+	fn fragmented_ark_balance_reports_builder_validated_amounts() {
+		let key = DummyTestVtxoSpec::default().user_keypair.public_key();
+		let policy = VtxoPolicy::new_pubkey(key);
+		for values in [[5724, 7878], [7878, 5724]] {
+			let inputs = values.iter().enumerate().map(|(i, v)| funded_input(*v, 1000 + i as u32)).collect::<Vec<_>>();
+			let full = inputs.iter().map(|(_, v)| v.clone()).collect::<Vec<_>>();
+			let funding = ark::exit_policy::economical_transfer_funding();
+			let build = |amount, full: Vec<ark::Vtxo<ark::vtxo::Full>>| ArkoorPackageBuilder::new_funded_payment_with_funding(
+				full, ArkoorDestination { total_amount: Amount::from_sat(amount), policy: policy.clone() }, policy.clone(), funding);
+			let rejected = InputSelection::new().select_ark_constructible(inputs.iter().map(|(v, _)| v.clone()).collect(), |chosen| {
+				let hydrated = chosen.iter().map(|v| inputs.iter().find(|(w, _)| w.id() == v.id()).unwrap().1.clone()).collect();
+				match build(10_000, hydrated) {
+					Ok((_, reserve)) => Ok(Some(reserve)),
+					Err(ArkoorConstructionError::Dust | ArkoorConstructionError::Unbalanced { .. }) => Ok(None),
+					Err(e) => Err(e.into()),
+				}
+			}).unwrap_err();
+			assert!(rejected.downcast_ref::<NoConstructibleInputs>().is_some());
+			assert!(!rejected.to_string().contains("Lightning"));
+			let issue = crate::arkoor::arkoor_amount_error(full.clone(), Amount::from_sat(10_000), policy.clone(), policy.clone(), funding);
+			assert!(issue.message.contains("962 sats"));
+			assert!(issue.message.contains("1330 sats"));
+			assert_eq!(issue.suggested_amount, Some(Amount::from_sat(9632)));
+			assert_eq!(issue.maximum_amount, Some(Amount::from_sat(11490)));
+			assert_eq!(build(9632, full.clone()).unwrap().1.to_sat(), 2640);
+			assert_eq!(build(11490, full.clone()).unwrap().1.to_sat(), 2112);
+			assert!(build(9633, full.clone()).is_err());
+			assert!(build(11489, full.clone()).is_err());
+			assert!(build(11491, full.clone()).is_err());
+			let insufficient = crate::arkoor::arkoor_amount_error(full, Amount::from_sat(20_000), policy.clone(), policy.clone(), funding);
+			assert!(!insufficient.message.contains("would leave"));
 		}
 	}
 

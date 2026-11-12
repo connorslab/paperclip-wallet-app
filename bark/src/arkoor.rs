@@ -39,6 +39,41 @@ pub enum ArkoorAddressError {
 	Other(String),
 }
 
+/// A rejected amount with builder-checked alternatives. These are not signed quotes;
+/// selecting an alternative must run the normal review and admission checks again.
+#[derive(Debug, thiserror::Error)]
+#[error("{message}")]
+pub struct ArkoorAmountError {
+	pub message: String,
+	pub suggested_amount: Option<Amount>,
+	pub maximum_amount: Option<Amount>,
+}
+
+pub(crate) fn arkoor_amount_error(
+	inputs: Vec<Vtxo<Full>>, requested: Amount, policy: VtxoPolicy, change: VtxoPolicy,
+	funding: ark::tree::signed::TreeExitFunding,
+) -> ArkoorAmountError {
+	let reserve = funding.per_transaction();
+	let floor = bitcoin_ext::P2TR_DUST + ark::exit_policy::paperclip_policy().claim_fee;
+	let total = inputs.iter().try_fold(Amount::ZERO, |sum, v| sum.checked_add(v.amount()));
+	let full_amount = reserve.checked_mul(inputs.len() as u64).and_then(|v| v.checked_mul(2))
+		.and_then(|cost| total.and_then(|sum| sum.checked_sub(cost)));
+	let valid = |amount: Amount| ArkoorPackageBuilder::new_funded_payment_with_funding(
+		inputs.clone(), ArkoorDestination { total_amount: amount, policy: policy.clone() }, change.clone(), funding,
+	).is_ok();
+	let maximum_amount = full_amount.filter(|v| *v > Amount::ZERO && valid(*v));
+	let suggested_amount = full_amount.and_then(|v| v.checked_sub(reserve))
+		.and_then(|v| v.checked_sub(floor)).filter(|v| *v > Amount::ZERO && *v < requested && valid(*v));
+	let leftover = full_amount.and_then(|v| v.checked_sub(requested)).and_then(|v| v.checked_sub(reserve));
+	let message = if maximum_amount.is_some() && leftover.is_some_and(|v| v < floor) {
+		format!("This amount would leave {} sats of change after recovery funding. Ark requires at least {} sats of recoverable change. Choose a smaller amount, or use Send Max to avoid change.",
+			leftover.unwrap().to_sat(), floor.to_sat())
+	} else {
+		"The available Ark inputs cannot cover this amount and recovery funding. Choose a smaller amount or review Send Max. Pending or reserved funds cannot be used.".into()
+	};
+	ArkoorAmountError { message, suggested_amount, maximum_amount }
+}
+
 /// Split a change amount into the piece amounts of the change destinations.
 ///
 /// Change exceeding the payment is split in `split_factor` pieces
@@ -354,7 +389,7 @@ impl Wallet {
 		let ids = candidates.iter().map(|v| v.id()).collect::<Vec<_>>();
 		let full = self.inner.db.get_full_vtxos(&ids).await?.into_iter()
 			.map(|v| (v.id(), v)).collect::<HashMap<_, _>>();
-		let (inputs, recovery_reserve) = selection.select_ark_constructible(candidates, |inputs| {
+		let (inputs, recovery_reserve) = selection.select_ark_constructible(candidates.clone(), |inputs| {
 			let hydrated = inputs.iter().map(|v| full.get(&v.id()).cloned()
 				.context("Missing Ark input ancestry")).collect::<anyhow::Result<Vec<_>>>()?;
 			match ArkoorPackageBuilder::new_funded_payment_with_funding(hydrated,
@@ -365,6 +400,10 @@ impl Wallet {
 				Err(ArkoorConstructionError::Dust | ArkoorConstructionError::Unbalanced { .. }) => Ok(None),
 				Err(error) => Err(error.into()),
 			}
+		}).map_err(|error| {
+			if error.downcast_ref::<crate::vtxo::selection::NoConstructibleInputs>().is_none() { return error; }
+			let inputs = candidates.iter().filter_map(|v| full.get(&v.id()).cloned()).collect();
+			arkoor_amount_error(inputs, amount, policy.clone(), VtxoPolicy::new_pubkey(change), funding).into()
 		})?;
 		let ids = inputs.iter().map(|v| v.id()).collect::<Vec<_>>();
 		let full = self.inner.db.get_full_vtxos(&ids).await?;

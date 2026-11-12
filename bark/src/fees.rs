@@ -2,11 +2,20 @@
 
 use anyhow::Context;
 use bitcoin::Amount;
+use bitcoin::secp256k1::Keypair;
 
 use ark::{Vtxo, VtxoId};
 use ark::fees::VtxoFeeInfo;
 
 use crate::Wallet;
+use crate::movement::PaymentMethod;
+
+// A quote must not reveal keys. Both outputs use future seed-derived keys;
+// peek_keypair requires a stored key and cannot preview the change index.
+fn preview_offboard_keys(seed: &crate::WalletSeed, index: u32) -> anyhow::Result<(Keypair, Keypair)> {
+	let change_index = index.checked_add(1).context("key index overflow")?;
+	Ok((seed.derive_vtxo_keypair(index), seed.derive_vtxo_keypair(change_index)))
+}
 
 /// Result of a fee estimation containing the total cost, fee amount, and VTXOs used. It's very
 /// important to consider that fees can change over time, so you should expect to renew this
@@ -40,7 +49,60 @@ impl FeeEstimate {
 	}
 }
 
+/// A full transfer pays two recovery transactions per input, without change.
+fn max_transfer_amount(amounts: impl IntoIterator<Item = Amount>, funding: ark::tree::signed::TreeExitFunding) -> anyhow::Result<Amount> {
+	let reserve = funding.per_transaction() * 2;
+	let floor = bitcoin_ext::P2TR_DUST + ark::exit_policy::paperclip_policy().claim_fee;
+	let mut total = Amount::ZERO;
+	for amount in amounts {
+		let net = amount.checked_sub(reserve).filter(|a| *a >= floor)
+			.context("An Ark input cannot cover recovery funding; refresh before Send Max")?;
+		total = total.checked_add(net).context("amount overflow")?;
+	}
+	ensure!(total > Amount::ZERO, "No eligible Ark funds to send");
+	Ok(total)
+}
+
 impl Wallet {
+	/// Eligible inputs for a complete Ark transfer; shared by the quote and send planner.
+	pub(crate) async fn max_transfer_inputs(&self) -> anyhow::Result<(Vec<crate::WalletVtxo>, Amount)> {
+		let tip = self.inner.chain.tip().await?;
+		let selection = self.spend_input_selection().await?.expires_after(tip);
+		let inputs = selection.eligible(self.spendable_vtxos().await?);
+		let (_, info) = self.require_server().await?;
+		let funding = if info.economical_transfers { ark::exit_policy::economical_transfer_funding() }
+			else if info.small_anchor_transfers { ark::exit_policy::small_anchor_transfer_funding() }
+			else { ark::exit_policy::paperclip_funding() };
+		let amount = max_transfer_amount(inputs.iter().map(|v| v.amount()), funding)?;
+		Ok((inputs, amount))
+	}
+
+	/// Maximum address payment. Fixed invoices must be handled by the caller.
+	/// Whole offboards do not create a new recovery split; Ark transfers do.
+	pub async fn estimate_max_address_payment(&self, method: &crate::movement::PaymentMethod)
+		-> anyhow::Result<FeeEstimate>
+	{
+		match method {
+			PaymentMethod::Ark(address) => {
+				let (_, amount) = self.max_transfer_inputs().await?;
+				self.estimate_arkoor_send(address, amount).await
+			},
+			PaymentMethod::Bitcoin(address) => {
+				let (_, info) = self.require_server().await?;
+				let inputs = self.spendable_vtxos().await?;
+				ensure!(!inputs.is_empty(), "No spendable Ark funds");
+				ensure!(inputs.len() <= info.max_offboard_inputs,
+					"Too many Ark inputs for one withdrawal; refresh or withdraw a smaller amount first");
+				let address = address.assume_checked_ref();
+				let estimate = self.estimate_offboard(address, &inputs).await?;
+				ensure!(estimate.net_amount >= address.script_pubkey().minimal_non_dust(),
+					"Not enough Ark funds after withdrawal fees");
+				Ok(estimate)
+			},
+			_ => bail!("Send Max is available for Ark and on-chain addresses. Enter an amount for Lightning payments"),
+		}
+	}
+
 	/// Estimate fees for a board operation. `FeeEstimate::net_amount` will be the amount of the
 	/// newly boarded VTXO. Note: This doesn't include the onchain cost of creating the chain
 	/// anchor transaction.
@@ -239,8 +301,8 @@ impl Wallet {
 		let (inputs, fee) = selection.select(self.spendable_vtxos().await?, amount)?;
 		let vtxo_ids = inputs.iter().map(|v| v.id()).collect::<Vec<_>>();
 		let full = self.inner.db.get_full_vtxos(&vtxo_ids).await?;
-		let (destination_key, index) = self.peek_next_keypair().await?;
-		let change_key = self.peek_keypair(index.checked_add(1).context("key index overflow")?).await?;
+		let (_, index) = self.peek_next_keypair().await?;
+		let (destination_key, change_key) = preview_offboard_keys(&self.inner.seed, index)?;
 		let (_, reserve) = ark::arkoor::package::ArkoorPackageBuilder::new_funded_payment(
 			full, ark::arkoor::ArkoorDestination {
 				total_amount: amount.checked_add(fee).context("amount overflow")?,
@@ -267,5 +329,42 @@ impl Wallet {
 		self.exit_mgr()
 			.estimate_emergency_exit_fee(vtxos, self, fee_rate, destination, fee_margin)
 			.await
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::{preview_offboard_keys, max_transfer_amount};
+	use bitcoin::Amount;
+	use crate::WalletSeed;
+	use bitcoin::Network;
+
+	#[test]
+	fn max_transfer_deducts_negotiated_recovery_for_every_input() {
+		for (funding, cost) in [
+			(ark::exit_policy::paperclip_funding(), 4000),
+			(ark::exit_policy::small_anchor_transfer_funding(), 2660),
+			(ark::exit_policy::economical_transfer_funding(), 1056),
+		] {
+			let reserve = Amount::from_sat(cost);
+			let a = Amount::from_sat(100_000);
+			assert_eq!(max_transfer_amount([a], funding).unwrap(), a - reserve);
+			assert_eq!(max_transfer_amount([a, a], funding).unwrap(), (a - reserve) * 2);
+			assert!(max_transfer_amount([], funding).is_err());
+			assert!(max_transfer_amount([reserve], funding).is_err());
+			assert!(max_transfer_amount([a, reserve], funding).is_err());
+		}
+	}
+
+	#[test]
+	fn offboard_preview_uses_two_unrevealed_seed_keys() {
+		let seed = WalletSeed::new_from_seed(Network::Regtest, &[42; 64]);
+		// Index 21 must be usable in a quote without any stored-key lookup.
+		let (destination, change) = preview_offboard_keys(&seed, 20).unwrap();
+		assert_eq!(destination, seed.derive_vtxo_keypair(20));
+		assert_eq!(change, seed.derive_vtxo_keypair(21));
+		assert_ne!(destination.public_key(), change.public_key());
+		assert_eq!(preview_offboard_keys(&seed, 20).unwrap(), (destination, change));
+		assert!(preview_offboard_keys(&seed, u32::MAX).is_err());
 	}
 }

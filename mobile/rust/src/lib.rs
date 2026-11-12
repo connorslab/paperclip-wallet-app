@@ -7,6 +7,25 @@ mod coinjoin;
 use std::ffi::{c_char, CStr, CString};
 use std::sync::{mpsc, OnceLock};
 
+static CANCELLED_SYNC: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Interrupt only the identified read-only on-chain refresh, never a payment.
+#[unsafe(no_mangle)]
+pub extern "C" fn paperclip_mobile_cancel_sync(id: u64) {
+	CANCELLED_SYNC.store(id, std::sync::atomic::Ordering::SeqCst);
+}
+
+fn is_sync_cancelled(id: u64) -> bool {
+	id != 0 && CANCELLED_SYNC.load(std::sync::atomic::Ordering::SeqCst) == id
+}
+
+async fn sync_cancelled(id: u64) {
+	loop {
+		if is_sync_cancelled(id) { return; }
+		tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+	}
+}
+
 struct Operation {
 	request: serde_json::Value,
 	seed: [u8; 64],
@@ -82,6 +101,16 @@ pub unsafe extern "C" fn paperclip_mobile_probe(seed: *const u8, out: *mut u8) -
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[tokio::test]
+	async fn cancellation_is_bound_to_the_requested_sync() {
+		let id = 918273645;
+		paperclip_mobile_cancel_sync(id - 1);
+		assert!(tokio::time::timeout(std::time::Duration::from_millis(120), sync_cancelled(id)).await.is_err());
+		paperclip_mobile_cancel_sync(id);
+		tokio::time::timeout(std::time::Duration::from_millis(120), sync_cancelled(id)).await.unwrap();
+		assert!(tokio::time::timeout(std::time::Duration::from_millis(120), sync_cancelled(id + 1)).await.is_err());
+	}
 
 	#[test]
 	fn ffi_receive_address_runs_from_small_ios_style_stack() {

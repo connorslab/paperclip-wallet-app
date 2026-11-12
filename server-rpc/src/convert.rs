@@ -886,6 +886,25 @@ mod test {
 	}
 
 	#[test]
+	fn ark_info_transfer_capabilities_default_off_and_roundtrip() {
+		let mut baseline = baseline_ark_info_proto();
+		baseline.fees = Some(ark::fees::FeeSchedule::default().into());
+		let legacy = ark::ArkInfo::try_from(baseline.clone()).unwrap();
+		assert!(!legacy.small_anchor_transfers && !legacy.economical_transfers);
+		for (small, economical) in [(true, false), (false, true), (true, true)] {
+			let mut proto = baseline.clone();
+			proto.small_anchor_transfers = small;
+			proto.economical_transfers = economical;
+			let info = ark::ArkInfo::try_from(proto).unwrap();
+			assert_eq!(info.small_anchor_transfers, small);
+			assert_eq!(info.economical_transfers, economical);
+			let encoded: protos::ArkInfo = info.into();
+			assert_eq!(encoded.small_anchor_transfers, small);
+			assert_eq!(encoded.economical_transfers, economical);
+		}
+	}
+
+	#[test]
 	fn ark_info_rejects_oversized_vtxo_exit_delta() {
 		let mut proto = baseline_ark_info_proto();
 		proto.vtxo_exit_delta = ark::vtxo::policy::MAX_BLOCK_DELTA.to_u32() + 1;

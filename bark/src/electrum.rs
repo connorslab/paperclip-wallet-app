@@ -1,7 +1,7 @@
 //! XBT Electrum transport. All blocking socket work runs outside the async executor.
 use std::io::{Read, Write};
 use std::net::{TcpStream, ToSocketAddrs};
-use std::sync::Arc;
+use std::sync::{Arc, atomic::{AtomicU64, Ordering}};
 use std::time::Duration;
 
 use anyhow::{Context, ensure};
@@ -18,7 +18,29 @@ impl<T: Read + Write + Send> Transport for T {}
 pub type Client = BdkElectrumClient<RawClient<Box<dyn Transport>>>;
 
 #[derive(Clone)]
-pub struct Electrum(Arc<std::sync::Mutex<Connection>>);
+pub struct Electrum(Arc<std::sync::Mutex<Connection>>, Arc<AtomicU64>, Arc<std::sync::Mutex<Option<TcpStream>>>);
+
+// An interrupted read must not continue scanning on a replacement connection.
+struct InterruptibleTransport {
+	inner: Box<dyn Transport>,
+	generation: Arc<AtomicU64>,
+	epoch: u64,
+}
+impl InterruptibleTransport {
+	fn check(&self) -> std::io::Result<()> {
+		if self.generation.load(Ordering::SeqCst) != self.epoch {
+			return Err(std::io::Error::new(std::io::ErrorKind::ConnectionAborted, "Electrum refresh interrupted"));
+		}
+		Ok(())
+	}
+}
+impl Read for InterruptibleTransport {
+	fn read(&mut self, data: &mut [u8]) -> std::io::Result<usize> { self.check()?; self.inner.read(data) }
+}
+impl Write for InterruptibleTransport {
+	fn write(&mut self, data: &[u8]) -> std::io::Result<usize> { self.check()?; self.inner.write(data) }
+	fn flush(&mut self) -> std::io::Result<()> { self.check()?; self.inner.flush() }
+}
 
 struct Connection {
 	client: Option<Client>,
@@ -51,14 +73,17 @@ impl ServerCertVerifier for CertificatePin {
 impl Electrum {
 	pub async fn connect(url: String, proxy: Option<String>, pin: Option<String>, network: Network) -> anyhow::Result<Self> {
 		tokio::task::spawn_blocking(move || {
-			let client = Self::connect_blocking(url.clone(), proxy.clone(), pin.clone(), network)?;
+			let generation = Arc::new(AtomicU64::new(0));
+			let socket = Arc::new(std::sync::Mutex::new(None));
+			let client = Self::connect_blocking(url.clone(), proxy.clone(), pin.clone(), network, &generation, &socket)?;
 			Ok(Self(Arc::new(std::sync::Mutex::new(Connection {
 				client: Some(client), url, proxy, pin, network,
-			}))))
+			})), generation, socket))
 		}).await?
 	}
 
-	fn connect_blocking(url: String, proxy: Option<String>, pin: Option<String>, network: Network) -> anyhow::Result<Client> {
+	fn connect_blocking(url: String, proxy: Option<String>, pin: Option<String>, network: Network, generation: &Arc<AtomicU64>, socket: &Arc<std::sync::Mutex<Option<TcpStream>>>) -> anyhow::Result<Client> {
+		let epoch = generation.load(Ordering::SeqCst);
 		let endpoint: url::Url = url.parse()?;
 		let host = endpoint.host_str().context("Electrum host required")?;
 		let port = endpoint.port().context("Electrum port required")?;
@@ -81,6 +106,11 @@ impl Electrum {
 			}
 			connected.context("could not connect to Electrum")?
 		};
+		{
+			let mut active = socket.lock().map_err(|_| anyhow::anyhow!("Electrum socket lock poisoned"))?;
+			ensure!(generation.load(Ordering::SeqCst) == epoch, "Electrum refresh interrupted");
+			*active = Some(stream.try_clone()?);
+		}
 		stream.set_read_timeout(Some(timeout))?;
 		stream.set_write_timeout(Some(timeout))?;
 		let transport: Box<dyn Transport> = if endpoint.scheme() == "ssl" {
@@ -96,6 +126,7 @@ impl Electrum {
 			let connection = rustls::ClientConnection::new(Arc::new(config), ServerName::try_from(host.to_owned())?)?;
 			Box::new(rustls::StreamOwned::new(connection, stream))
 		} else { Box::new(stream) };
+		let transport: Box<dyn Transport> = Box::new(InterruptibleTransport { inner: transport, generation: generation.clone(), epoch });
 		let raw = RawClient::from(transport);
 		let version = raw.raw_call("server.version", [Param::String("paperclip-mobile".into()), Param::Array(vec![Param::String("1.8".into()), Param::String("1.8".into())])])?;
 		ensure!(version.get(1).and_then(|v| v.as_str()) == Some("1.8"), "Electrum must negotiate XBT protocol 1.8");
@@ -104,8 +135,27 @@ impl Electrum {
 		ensure!(tip.header.len() == 164, "Electrum must serve activated BLAKE2b XBT headers");
 		Ok(BdkElectrumClient::new(raw))
 	}
+	/// A separate socket for interruptible scans, isolated from payment traffic.
+	pub async fn isolated_read_connection(&self) -> anyhow::Result<Self> {
+		let connection = self.0.clone();
+		let (url, proxy, pin, network) = tokio::task::spawn_blocking(move || {
+			let c = connection.lock().map_err(|_| anyhow::anyhow!("Electrum connection lock poisoned"))?;
+			Ok::<_, anyhow::Error>((c.url.clone(), c.proxy.clone(), c.pin.clone(), c.network))
+		}).await??;
+		Self::connect(url, proxy, pin, network).await
+	}
+	/// Only call when abandoning a read-only operation. Never cancel a broadcast.
+	pub fn interrupt_read(&self) {
+		self.1.fetch_add(1, Ordering::SeqCst);
+		if let Ok(socket) = self.2.lock() {
+			if let Some(socket) = socket.as_ref() { let _ = socket.shutdown(std::net::Shutdown::Both); }
+		}
+	}
 	pub async fn run<T: Send + 'static>(&self, call: impl FnOnce(&Client) -> anyhow::Result<T> + Send + 'static) -> anyhow::Result<T> {
 		let connection = self.0.clone();
+		let generation = self.1.clone();
+		let socket = self.2.clone();
+		let epoch = generation.load(Ordering::SeqCst);
 		tokio::task::spawn_blocking(move || {
 			let mut connection = connection.lock().map_err(|_| anyhow::anyhow!("Electrum connection lock poisoned"))?;
 			// Probe before invoking an operation: reconnecting must never replay a
@@ -113,11 +163,13 @@ impl Electrum {
 			if connection.client.as_ref().is_some_and(|client| client.inner.ping().is_err()) {
 				connection.client = None;
 			}
+			ensure!(generation.load(Ordering::SeqCst) == epoch, "Electrum refresh interrupted");
 			if connection.client.is_none() {
 				connection.client = Some(Self::connect_blocking(connection.url.clone(),
-					connection.proxy.clone(), connection.pin.clone(), connection.network)
+					connection.proxy.clone(), connection.pin.clone(), connection.network, &generation, &socket)
 					.context("reconnecting to Electrum")?);
 			}
+			ensure!(generation.load(Ordering::SeqCst) == epoch, "Electrum refresh interrupted");
 			let result = call(connection.client.as_ref().expect("connected above"));
 			// Discard a potentially dead socket. The caller receives the original
 			// failure; the next operation gets a freshly validated connection.

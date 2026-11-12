@@ -512,6 +512,56 @@ impl OnchainWalletTrait for OnchainWallet {
 	}
 }
 
+// Each interruptible mobile scan has a fresh socket. Reuse immutable data from
+// the persisted graph, but always ask the server for histories and current headers.
+#[cfg(feature = "electrum")]
+struct ElectrumSyncCache {
+	txs: Vec<Arc<Transaction>>,
+	anchors: Vec<(Txid, Vec<bdk_wallet::chain::ConfirmationBlockTime>)>,
+	prevouts: HashSet<bitcoin::OutPoint>,
+}
+
+#[cfg(feature = "electrum")]
+impl ElectrumSyncCache {
+	fn new(wallet: &BdkWallet) -> Self {
+		let graph = wallet.tx_graph();
+		Self {
+			txs: graph.full_txs().map(|node| node.tx.clone()).collect(),
+			anchors: graph.full_txs().map(|node| (node.txid, node.anchors.iter().copied().collect())).collect(),
+			prevouts: graph.all_txouts().map(|(outpoint, _)| outpoint).collect(),
+		}
+	}
+	fn populate(&self, client: &crate::electrum::Client) {
+		client.populate_tx_cache(self.txs.iter().cloned());
+		// BDK keys these by block hash, and still fetches current headers. A
+		// reorg therefore cannot reuse a proof for the replaced block.
+		client.populate_anchor_cache(self.anchors.iter().cloned());
+	}
+	fn complete_prevouts(
+		&self,
+		update: &mut bdk_wallet::chain::TxUpdate<bdk_wallet::chain::ConfirmationBlockTime>,
+		mut fetch: impl FnMut(Txid) -> anyhow::Result<Arc<Transaction>>,
+	) -> anyhow::Result<()> {
+		let mut parents = std::collections::HashMap::new();
+		for tx in &update.txs {
+			if tx.is_coinbase() { continue; }
+			for input in &tx.input {
+				let outpoint = input.previous_output;
+				if self.prevouts.contains(&outpoint) || update.txouts.contains_key(&outpoint) { continue; }
+				if !parents.contains_key(&outpoint.txid) {
+					let parent = fetch(outpoint.txid)?;
+					ensure!(parent.compute_txid() == outpoint.txid, "Electrum returned a different parent transaction");
+					parents.insert(outpoint.txid, parent);
+				}
+				let txout = parents[&outpoint.txid].output.get(outpoint.vout as usize)
+					.context("Electrum parent output does not exist")?.clone();
+				update.txouts.insert(outpoint, txout);
+			}
+		}
+		Ok(())
+	}
+}
+
 impl OnchainWallet {
 	pub async fn sync(&mut self, chain: &ChainSource) -> anyhow::Result<()> {
 		debug!("Starting wallet sync...");
@@ -523,7 +573,13 @@ impl OnchainWallet {
 			ChainSourceClient::Electrum(client) => {
 				let request = self.inner.start_sync_with_revealed_spks_at(bark_runtime::timestamp_secs())
 					.outpoints(self.list_unspent().iter().map(|o| o.outpoint)).build();
-				let mut update = client.run(move |c| Ok(c.sync(request, 20, true)?)).await?;
+				let cache = ElectrumSyncCache::new(&self.inner);
+				let mut update = client.run(move |c| {
+					cache.populate(c);
+					let mut update = c.sync(request, 20, false)?;
+					cache.complete_prevouts(&mut update.tx_update, |txid| Ok(c.fetch_tx(txid)?))?;
+					Ok(update)
+				}).await?;
 				let now = bark_runtime::timestamp_secs();
 				let recent: HashSet<Txid> = self.inner.transactions().filter_map(|tx| match tx.chain_position {
 					ChainPosition::Unconfirmed { last_seen: Some(seen), .. } if now.saturating_sub(seen) < ONCHAIN_EVICTION_GRACE_SECS => Some(tx.tx_node.txid),
@@ -842,7 +898,13 @@ impl OnchainWallet {
 			#[cfg(feature = "electrum")]
 			ChainSourceClient::Electrum(client) => {
 				let request = self.inner.start_full_scan_at(bark_runtime::timestamp_secs()).build();
-				let update = client.run(move |c| Ok(c.full_scan(request, STOP_GAP, 20, true)?)).await?;
+				let cache = ElectrumSyncCache::new(&self.inner);
+				let update = client.run(move |c| {
+					cache.populate(c);
+					let mut update = c.full_scan(request, STOP_GAP, 20, false)?;
+					cache.complete_prevouts(&mut update.tx_update, |txid| Ok(c.fetch_tx(txid)?))?;
+					Ok(update)
+				}).await?;
 				self.inner.apply_update(update)?;
 				self.persist().await?;
 			},
@@ -1228,5 +1290,129 @@ mod test {
 		}
 		assert_eq!(wallet.list_unused_addresses(KEYCHAIN).count(), 0);
 		assert_eq!(wallet.next_unused_address(KEYCHAIN).index, change_index + 1);
+	}
+}
+
+#[cfg(all(test, feature = "electrum"))]
+mod sync_cache_tests {
+	use super::*;
+	use bitcoin::{OutPoint, TxIn, absolute, transaction};
+
+	fn parent(index: u32) -> Transaction {
+		Transaction {
+			version: transaction::Version::TWO, lock_time: absolute::LockTime::from_consensus(index),
+			input: vec![TxIn::default()],
+			output: vec![TxOut { value: Amount::from_sat(50_000), script_pubkey: bitcoin::ScriptBuf::new() }; 2],
+		}
+	}
+	fn child(parent: &Transaction) -> Arc<Transaction> {
+		let mut tx = parent.clone();
+		tx.input = (0..2).map(|vout| TxIn { previous_output: OutPoint::new(parent.compute_txid(), vout), ..TxIn::default() }).collect();
+		Arc::new(tx)
+	}
+	fn cache(prevouts: HashSet<OutPoint>) -> ElectrumSyncCache {
+		ElectrumSyncCache { txs: vec![], anchors: vec![], prevouts }
+	}
+
+	#[test]
+	fn sync_cache_still_refreshes_history_and_revalidates_reorg_proofs() {
+		use std::io::{BufRead, BufReader, Write};
+		use bdk_wallet::chain::{BlockId, ConfirmationBlockTime, spk_client::SyncRequest};
+		use serde_json::{json, Value};
+		let tx = Arc::new(parent(1));
+		let txid = tx.compute_txid();
+		let mut header = bitcoin::constants::genesis_block(Network::Bitcoin).header;
+		let old_hash = header.block_hash();
+		header.merkle_root = bitcoin::TxMerkleNode::from_raw_hash(txid.to_raw_hash());
+		let new_hash = header.block_hash();
+		assert_ne!(old_hash, new_hash);
+		let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+		let stream = std::net::TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+		let server = std::thread::spawn(move || {
+			let (mut socket, _) = listener.accept().unwrap();
+			socket.set_read_timeout(Some(std::time::Duration::from_secs(5))).unwrap();
+			let mut reader = BufReader::new(socket.try_clone().unwrap());
+			let mut histories = 0; let mut proofs = 0;
+			loop {
+				let mut line = String::new();
+				if reader.read_line(&mut line).unwrap() == 0 { break; }
+				let request: Value = serde_json::from_str(&line).unwrap();
+				let result = match request["method"].as_str().unwrap() {
+					"blockchain.scripthash.get_history" => { histories += 1; json!([{"tx_hash":txid,"height":1}]) },
+					"blockchain.block.header" => json!(bitcoin::consensus::encode::serialize_hex(&header)),
+					"blockchain.transaction.get_merkle" => { proofs += 1; json!({"block_height":1,"merkle":[],"pos":0}) },
+					other => panic!("unexpected request {other}: stored transaction must not be downloaded"),
+				};
+				writeln!(socket, "{}", json!({"id":request["id"],"result":result})).unwrap();
+			}
+			assert_eq!(histories, 1); assert_eq!(proofs, 1);
+		});
+		let transport: Box<dyn crate::electrum::Transport> = Box::new(stream);
+		let client = crate::electrum::Client::new(bdk_electrum::electrum_client::raw_client::RawClient::from(transport));
+		let mut cached = cache(HashSet::new()); cached.txs.push(tx);
+		cached.anchors.push((txid, vec![ConfirmationBlockTime { block_id: BlockId { height: 1, hash: old_hash }, confirmation_time: 0 }]));
+		cached.populate(&client);
+		let request = SyncRequest::builder().spks([bitcoin::ScriptBuf::new()]).build();
+		let update = client.sync(request, 20, false).unwrap();
+		assert!(update.tx_update.anchors.iter().any(|(anchor, id)| *id == txid && anchor.block_id.hash == new_hash));
+		drop(client); server.join().unwrap();
+	}
+
+	#[test]
+	fn sync_cache_is_seeded_from_the_wallet_graph() {
+		let (wallet, txid) = bdk_wallet::test_utils::get_funded_wallet_wpkh();
+		let cached = ElectrumSyncCache::new(&wallet);
+		assert!(cached.txs.iter().any(|tx| tx.compute_txid() == txid));
+		assert!(cached.anchors.iter().any(|(id, anchors)| *id == txid && !anchors.is_empty()));
+		for output in wallet.list_unspent() { assert!(cached.prevouts.contains(&output.outpoint)); }
+	}
+
+	#[test]
+	fn sync_cache_fetches_only_new_parents_and_preserves_fee_inputs() {
+		let parents: Vec<_> = (0..200).map(parent).collect();
+		let mut update = bdk_wallet::chain::TxUpdate::default();
+		update.txs = parents.iter().map(child).collect();
+		let mut cold_requests = 0;
+		cache(HashSet::new()).complete_prevouts(&mut update, |id| {
+			cold_requests += 1;
+			Ok(Arc::new(parents.iter().find(|p| p.compute_txid() == id).unwrap().clone()))
+		}).unwrap();
+		assert_eq!(cold_requests, 200); // Two inputs per parent, one download.
+		assert_eq!(update.txouts.len(), 400);
+		let known = update.txouts.keys().copied().collect();
+		update.txouts.clear();
+		cache(known).complete_prevouts(&mut update, |_| panic!("stored prevout downloaded again")).unwrap();
+		assert!(update.txouts.is_empty()); // Existing graph retains fee inputs.
+		let fresh = parent(201);
+		update.txs.push(child(&fresh));
+		let known = parents.iter().flat_map(|p| (0..2).map(move |v| OutPoint::new(p.compute_txid(), v))).collect();
+		let mut requests = 0;
+		cache(known).complete_prevouts(&mut update, |id| {
+			requests += 1; assert_eq!(id, fresh.compute_txid()); Ok(Arc::new(fresh.clone()))
+		}).unwrap();
+		assert_eq!(requests, 1);
+		assert_eq!(update.txouts.len(), 2);
+	}
+
+	#[test]
+	fn sync_cache_rejects_wrong_parent_and_missing_output() {
+		let p = parent(1);
+		let mut update = bdk_wallet::chain::TxUpdate::default();
+		update.txs = vec![child(&p)];
+		assert!(cache(HashSet::new()).complete_prevouts(&mut update, |_| Ok(Arc::new(parent(2)))).is_err());
+		let mut invalid = (*child(&p)).clone(); invalid.input[0].previous_output.vout = 9;
+		update.txs = vec![Arc::new(invalid)];
+		assert!(cache(HashSet::new()).complete_prevouts(&mut update, |_| Ok(Arc::new(p.clone()))).is_err());
+	}
+
+	#[test]
+	fn sync_cache_reuses_transaction_without_socket_io_and_skips_coinbase_parent() {
+		let tx = Arc::new(parent(1));
+		let transport: Box<dyn crate::electrum::Transport> = Box::new(std::io::Cursor::new(Vec::<u8>::new()));
+		let client = crate::electrum::Client::new(bdk_electrum::electrum_client::raw_client::RawClient::from(transport));
+		let mut cached = cache(HashSet::new()); cached.txs.push(tx.clone()); cached.populate(&client);
+		assert_eq!(client.fetch_tx(tx.compute_txid()).unwrap(), tx);
+		let mut update = bdk_wallet::chain::TxUpdate::default(); update.txs = vec![tx];
+		cached.complete_prevouts(&mut update, |_| panic!("coinbase has no parent")).unwrap();
 	}
 }

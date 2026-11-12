@@ -409,7 +409,7 @@ mod recovery;
 mod psbtext;
 mod utils;
 
-pub use self::arkoor::{ArkoorCreateResult, ArkoorAddressError};
+pub use self::arkoor::{ArkoorCreateResult, ArkoorAddressError, ArkoorAmountError};
 pub use self::balance::{Balance, BalanceSummary};
 pub use self::payment_request::{
 	AvailablePaymentMethod, PaymentInitOutput, PaymentMethodParsingError, PaymentRequest,

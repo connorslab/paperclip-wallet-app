@@ -83,7 +83,7 @@ pub struct Session {
 	_lock: Box<dyn LockManager>,
 	fingerprint: String,
 	network: Network,
-	quote: Option<(String, u64, u64, Instant)>,
+	quote: Option<(String, u64, u64, Instant, Option<Vec<ark::VtxoId>>)>,
 	onchain_quote: Option<(String, u64, bitcoin::Psbt, Instant)>,
 	board_quote: Option<(u64, u64, u64, bitcoin::Psbt, bitcoin::secp256k1::Keypair, bitcoin_ext::BlockHeight, Instant)>,
 }
@@ -95,8 +95,34 @@ impl Drop for Session {
 	}
 }
 
+/// An amount suggestion is not a quote and never grants permission to send.
+fn arkoor_review_issue(issue: &bark::ArkoorAmountError, fixed_amount: bool) -> Value {
+	json!({"review_issue": {
+		"message": if fixed_amount { "This request has a fixed amount that the available Ark inputs cannot fund after recovery costs. Add funds or ask the recipient for a different amount." } else { &issue.message },
+		"suggested_amount_sat": (!fixed_amount).then_some(issue.suggested_amount).flatten().map(|v| v.to_sat()),
+		"maximum_amount_sat": (!fixed_amount).then_some(issue.maximum_amount).flatten().map(|v| v.to_sat()),
+	}})
+}
+
 #[cfg(test)]
 mod tests {
+	#[test]
+	fn arkoor_alternatives_are_not_sendable_quotes_or_fixed_invoice_overrides() {
+		let issue = bark::ArkoorAmountError {
+			message: "Change below the recovery minimum".into(),
+			suggested_amount: Some(bitcoin::Amount::from_sat(9632)),
+			maximum_amount: Some(bitcoin::Amount::from_sat(11490)),
+		};
+		let result = super::arkoor_review_issue(&issue, false);
+		assert_eq!(result["review_issue"]["suggested_amount_sat"], 9632);
+		assert_eq!(result["review_issue"]["maximum_amount_sat"], 11490);
+		assert!(result.get("total_sat").is_none());
+		assert!(result.get("fee_sat").is_none());
+		let fixed = super::arkoor_review_issue(&issue, true);
+		assert!(fixed["review_issue"]["suggested_amount_sat"].is_null());
+		assert!(fixed["review_issue"]["maximum_amount_sat"].is_null());
+	}
+
 	use super::*;
 
 	#[test]
@@ -128,7 +154,10 @@ mod tests {
 				assert_eq!(psbt.unsigned_tx.output[0].script_pubkey,dest.script_pubkey());
 				assert_eq!(amount+psbt.fee().unwrap().to_sat(),70000);
 				psbt = OnchainWalletTrait::sign_psbt(&mut w, psbt).await.unwrap();
-				assert!(psbt.fee().unwrap().to_sat() >= psbt.clone().extract_tx().unwrap().vsize() as u64 * 2);
+				// FeeRate is sat/kwu: round the fee once, not the vsize before multiplying.
+				let signed_weight = psbt.clone().extract_tx().unwrap().weight();
+				let required_fee = bitcoin::FeeRate::from_sat_per_vb(2).unwrap() * signed_weight;
+				assert!(psbt.fee().unwrap() >= required_fee, "account={account:?} fee={} required={required_fee}", psbt.fee().unwrap());
 				let (_,higher_fee_amount) = prepare_payment(&mut w,dest,&json!({"send_max":true}),bitcoin::FeeRate::from_sat_per_vb(10).unwrap()).await.unwrap();
 				assert!(higher_fee_amount < amount);
 			}
@@ -637,16 +666,30 @@ pub fn dispatch(state: &mut Option<Session>, request: Value, seed: [u8; 64]) -> 
 				Ok(json!({"connected": true, "tip": tip}))
 			},
 			"sync_onchain" => {
-				w.chain().invalidate_caches().await;
-				let c = rusqlite::Connection::open(dir.join("db.sqlite"))?;
-				c.execute("CREATE TABLE IF NOT EXISTS paperclip_account_scan (kind TEXT PRIMARY KEY)", [])?;
-				let selected = account_setting(dir, None)?;
-				let scanned: bool = c.query_row("SELECT EXISTS(SELECT 1 FROM paperclip_account_scan WHERE kind=?1)", [&selected], |r| r.get(0))?;
-				if (kind == "hot" && selected == "segwit" && !scanned) || onchain.read().await.derivation_index(bdk_wallet::KeychainKind::External).is_none() {
-					onchain.write().await.initial_wallet_scan(chain_wallet.chain(), None).await?;
-				} else { chain_wallet.sync_onchain().await.context("synchronizing on-chain backend")?; }
-				c.execute("INSERT OR IGNORE INTO paperclip_account_scan VALUES(?1)", [&selected])?;
-				Ok(json!({"onchain_sat": onchain.read().await.balance().total().to_sat(), "tip": w.chain().tip().await?}))
+				let id = request["sync_id"].as_u64().unwrap_or(0);
+				ensure!(!crate::is_sync_cancelled(id), "On-chain refresh paused.");
+				let isolated = chain_wallet.chain().isolated_scan_source().await?;
+				let scan_chain = isolated.as_ref().unwrap_or(chain_wallet.chain());
+				tokio::select! {
+					biased;
+					_ = crate::sync_cancelled(id) => {
+						if isolated.is_some() { scan_chain.interrupt_read(); }
+						anyhow::bail!("On-chain refresh paused.");
+					},
+					result = async {
+						scan_chain.invalidate_caches().await;
+						let c = rusqlite::Connection::open(dir.join("db.sqlite"))?;
+						c.execute("CREATE TABLE IF NOT EXISTS paperclip_account_scan (kind TEXT PRIMARY KEY)", [])?;
+						let selected = account_setting(dir, None)?;
+						let scanned: bool = c.query_row("SELECT EXISTS(SELECT 1 FROM paperclip_account_scan WHERE kind=?1)", [&selected], |r| r.get(0))?;
+						if (kind == "hot" && selected == "segwit" && !scanned) || onchain.read().await.derivation_index(bdk_wallet::KeychainKind::External).is_none() {
+							onchain.write().await.initial_wallet_scan(scan_chain, None).await?;
+						} else { onchain.write().await.sync(scan_chain).await.context("synchronizing on-chain backend")?; }
+						c.execute("INSERT OR IGNORE INTO paperclip_account_scan VALUES(?1)", [&selected])?;
+						Ok(json!({"onchain_sat": onchain.read().await.balance().total().to_sat(), "tip": scan_chain.tip().await?}))
+					} => result,
+				}
+
 			},
 			"ark_hardware_prepare" => {
 				*hardware_board = None;
@@ -897,22 +940,38 @@ pub fn dispatch(state: &mut Option<Session>, request: Value, seed: [u8; 64]) -> 
 			"inspect_payment" => {
 				let payment = w.parse_payment_request(text(&request, "destination")?).await?;
 				ensure!(payment.default_option().is_some(), "invalid payment destination");
-				Ok(json!({"amount_sat": payment.amount.map(|a| a.to_sat())}))
+				Ok(json!({"amount_sat": payment.amount.map(|a| a.to_sat()), "can_send_max": payment.amount.is_none() && payment.default_option().is_some_and(|o| matches!(o.method, bark::movement::PaymentMethod::Ark(_) | bark::movement::PaymentMethod::Bitcoin(_)))}))
 			},
 			"quote" => {
 				*quote = None;
 				let destination = text(&request, "destination")?;
 				let payment = w.parse_payment_request(destination).await?;
-				let amount = request["amount_sat"].as_u64().map(Amount::from_sat).or(payment.amount).context("amount required")?;
-				ensure!(amount > Amount::ZERO, "amount must be positive");
-				if let Some(fixed) = payment.amount { ensure!(fixed == amount, "invoice amount mismatch"); }
 				let option = payment.default_option().context("invalid payment destination")?;
-				let estimate = w.estimate_payment_fee(option, amount).await?;
-				*quote = Some((destination.into(), amount.to_sat(), estimate.gross_amount.to_sat(), Instant::now()));
-				Ok(json!({"amount_sat": amount.to_sat(), "total_sat": estimate.gross_amount.to_sat(), "fee_sat": estimate.fee.to_sat()}))
+				let maximum = request["send_max"] == true;
+				let estimate = if maximum {
+					ensure!(payment.amount.is_none(), "This payment requests a fixed amount; Send Max is unavailable");
+					w.estimate_max_address_payment(&option.method).await?
+				} else {
+					let amount = request["amount_sat"].as_u64().map(Amount::from_sat).or(payment.amount).context("amount required")?;
+					ensure!(amount > Amount::ZERO, "amount must be positive");
+					if let Some(fixed) = payment.amount { ensure!(fixed == amount, "invoice amount mismatch"); }
+					match w.estimate_payment_fee(option, amount).await {
+						Ok(estimate) => estimate,
+						Err(error) => {
+							if let Some(issue) = error.downcast_ref::<bark::ArkoorAmountError>() {
+								return Ok(arkoor_review_issue(issue, payment.amount.is_some()));
+							}
+							return Err(error);
+						}
+					}
+				};
+				let whole_offboard = maximum && option.method.is_bitcoin();
+				*quote = Some((destination.into(), estimate.net_amount.to_sat(), estimate.gross_amount.to_sat(), Instant::now(),
+					whole_offboard.then(|| estimate.vtxos_spent.clone())));
+				Ok(json!({"amount_sat": estimate.net_amount.to_sat(), "total_sat": estimate.gross_amount.to_sat(), "fee_sat": estimate.fee.to_sat()}))
 			},
 			"send" => {
-				let (destination, amount, total, time) = quote.take().context("review a new quote before sending")?;
+				let (destination, amount, total, time, offboard_inputs) = quote.take().context("review a new quote before sending")?;
 				ensure!(time.elapsed() < Duration::from_secs(60), "quote expired");
 				ensure!(text(&request, "destination")? == destination && request["amount_sat"].as_u64() == Some(amount)
 					&& request["total_sat"].as_u64() == Some(total), "payment changed; review a new quote");
@@ -921,7 +980,12 @@ pub fn dispatch(state: &mut Option<Session>, request: Value, seed: [u8; 64]) -> 
 				let preflight = async {
 					let payment = w.parse_payment_request(&destination).await?;
 					let option = payment.default_option().context("invalid destination")?;
-					let estimate = w.estimate_payment_fee(option, Amount::from_sat(amount)).await?;
+					let estimate = if let Some(ref ids) = offboard_inputs {
+						let estimate = w.estimate_max_address_payment(&option.method).await?;
+						ensure!(&estimate.vtxos_spent == ids && estimate.net_amount.to_sat() == amount,
+							"inputs or withdrawal fee changed; review a new quote");
+						estimate
+					} else { w.estimate_payment_fee(option, Amount::from_sat(amount)).await? };
 					ensure!(estimate.gross_amount.to_sat() == total, "cost changed; review a new quote");
 					Ok::<_, anyhow::Error>(option.method.clone())
 				}.await;
@@ -929,7 +993,10 @@ pub fn dispatch(state: &mut Option<Session>, request: Value, seed: [u8; 64]) -> 
 					Ok(method) => method,
 					Err(error) => return Ok(json!({"state": "not_sent", "reason": format!("{error:#}")})),
 				};
-				let result = w.send_payment(&method, Some(Amount::from_sat(amount)), None::<&str>, false).await?;
+				let result = if let Some(ids) = offboard_inputs {
+					let bark::movement::PaymentMethod::Bitcoin(address) = method else { bail!("invalid withdrawal quote"); };
+					PaymentInitOutput::Onchain(w.offboard_vtxos(ids, address.assume_checked()).await?.txid)
+				} else { w.send_payment(&method, Some(Amount::from_sat(amount)), None::<&str>, false).await? };
 				Ok(match result {
 					PaymentInitOutput::Ark(movement_id) => json!({"state": "completed", "movement_id": movement_id}),
 					PaymentInitOutput::Lightning(invoice) => json!({"state": "pending", "invoice": invoice.to_string(), "payment_hash": invoice.payment_hash().to_string()}),
