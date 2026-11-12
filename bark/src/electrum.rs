@@ -97,7 +97,8 @@ impl Electrum {
 			Box::new(rustls::StreamOwned::new(connection, stream))
 		} else { Box::new(stream) };
 		let raw = RawClient::from(transport);
-		raw.raw_call("server.version", [bdk_electrum::electrum_client::Param::String("paperclip-ios".into()), bdk_electrum::electrum_client::Param::Array(vec![Param::String("1.4".into()), Param::String("1.6".into())])])?;
+		let version = raw.raw_call("server.version", [Param::String("paperclip-mobile".into()), Param::Array(vec![Param::String("1.8".into()), Param::String("1.8".into())])])?;
+		ensure!(version.get(1).and_then(|v| v.as_str()) == Some("1.8"), "Electrum must negotiate XBT protocol 1.8");
 		ensure!(raw.block_header(0)?.block_hash() == bitcoin::constants::genesis_block(network).block_hash(), "Electrum network mismatch");
 		let tip = raw.block_headers_subscribe_raw()?;
 		ensure!(tip.header.len() == 164, "Electrum must serve activated BLAKE2b XBT headers");

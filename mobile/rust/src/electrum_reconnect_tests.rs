@@ -27,7 +27,10 @@ fn electrum_recovers_closed_socket_without_replaying_operation() {
 					break; // Response lost: client must not replay the write.
 				}
 				let result = match method {
-					"server.version" => json!(["test", "1.4"]),
+					"server.version" => {
+						assert_eq!(request["params"][1], json!(["1.8", "1.8"]));
+						json!(["test", "1.8"])
+					},
 					"blockchain.block.header" => json!(bitcoin::consensus::encode::serialize_hex(&bitcoin::constants::genesis_block(bitcoin::Network::Bitcoin).header)),
 					"blockchain.headers.subscribe" => json!({"height": 975000, "hex": "00".repeat(164)}),
 					"server.ping" => Value::Null,
