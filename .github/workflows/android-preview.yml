@@ -1,0 +1,95 @@
+name: Android development preview
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: android-preview-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  native:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        abi: [arm64-v8a, x86_64]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - name: Install native prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang libclang-dev protobuf-compiler pkg-config
+          sdkmanager 'ndk;28.0.13004108'
+          rustup toolchain install 1.91.0 --profile minimal
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target/android
+          key: android-native-${{ matrix.abi }}-${{ hashFiles('Cargo.lock', 'mobile/android/scripts/build-native.sh') }}-${{ github.sha }}
+          restore-keys: android-native-${{ matrix.abi }}-${{ hashFiles('Cargo.lock', 'mobile/android/scripts/build-native.sh') }}-
+      - name: Build shared native wallet
+        env:
+          PAPERCLIP_RUST_PROFILE: dev
+          CARGO_PROFILE_DEV_DEBUG: '0'
+          CARGO_INCREMENTAL: '0'
+        run: |
+          export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/28.0.13004108"
+          bash mobile/android/scripts/build-native.sh '${{ matrix.abi }}'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-native-${{ matrix.abi }}
+          path: mobile/android/native/${{ matrix.abi }}/libpaperclip_mobile.a
+  app:
+    needs: native
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - uses: actions/download-artifact@v4
+        with:
+          name: android-native-arm64-v8a
+          path: mobile/android/native/arm64-v8a
+      - uses: actions/download-artifact@v4
+        with:
+          name: android-native-x86_64
+          path: mobile/android/native/x86_64
+      - name: Build and test Android app
+        working-directory: mobile/android
+        run: |
+          sdkmanager 'platforms;android-35' 'build-tools;35.0.0' 'ndk;28.0.13004108' 'cmake;3.22.1'
+          bash gradlew --no-daemon testDebugUnitTest assembleDebug assembleDebugAndroidTest
+      - name: Enable emulator acceleration
+        run: |
+          sudo chmod 666 /dev/kvm
+      - uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          script: |
+            adb shell cmd uimode night yes
+            cd mobile/android
+            bash gradlew --no-daemon -Pabis=x86_64 connectedDebugAndroidTest
+            adb pull /sdcard/Android/data/xyz.paperclip.wallet.android.preview/files/screenshots ./screenshots
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Paperclip-Android-preview
+          path: |
+            mobile/android/app/build/outputs/apk/debug/*.apk
+            mobile/android/app/build/reports
+            mobile/android/screenshots
