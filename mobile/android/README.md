@@ -55,12 +55,14 @@ storage, set dark mode, then run:
 ```sh
 adb shell cmd uimode night yes
 ./gradlew -Pabis=x86_64 connectedDebugAndroidTest
-adb pull /sdcard/Android/data/xyz.paperclip.wallet.android.preview/files/screenshots ./screenshots
+adb pull /sdcard/Pictures/PaperclipPreview ./screenshots
 ```
 
 The navigation test creates a disposable wallet through the real Rust engine and
 captures onboarding, wallet, send, receive QR, Lightning, activity, connections,
-and light/dark settings. It never captures recovery words or recovery keys.
+and light/dark settings. The seed-layout capture uses only the disposable regtest
+wallet created by the test; never use that photographed seed for funds. Recovery
+keys and existing user wallets are not captured.
 The native test rejects malformed JNI inputs and verifies a database backup/restore
 preserves the next derived address. Clear app data before repeating the screenshot
 test; never clear a funded wallet to run tests.
@@ -88,7 +90,7 @@ offline Ark recovery backup. Cross-platform funded recovery still requires testi
 | Area | Android status |
 | --- | --- |
 | Navigation, branding, light/dark appearance | Implemented |
-| Native wallet creation/import, local on-chain receive, QR display | Implemented; emulator validation required |
+| Native wallet creation, seed confirmation, local on-chain receive, QR display | Validated in the API 35 emulator; physical-device validation remaining |
 | On-chain / Ark / BOLT11 / BOLT12 sends | Shared native calls and review/result UI wired; funded Android tests required |
 | Ark Lightning invoices | Shared native receive call wired; claim/status UX needs completion |
 | Electrum, Esplora, Knots RPC, certificate pinning | Connection UI and shared transport wired; deployment tests required |

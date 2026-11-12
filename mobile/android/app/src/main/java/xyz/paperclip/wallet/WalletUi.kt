@@ -7,6 +7,7 @@ import android.graphics.Bitmap
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
@@ -26,8 +27,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
@@ -39,7 +46,7 @@ import com.google.zxing.qrcode.QRCodeWriter
 
 private val Orange = Color(0xfff56835)
 private val Navy = Color(0xff111c2e)
-private val Panel = Color(0xff1d2c41)
+private val Panel = Color(0xff1a293e)
 
 @Composable fun PaperclipApp(model: WalletModel, unlocked: Boolean, authError: String, unlock: () -> Unit) {
     val s by model.state.collectAsStateWithLifecycle()
@@ -48,8 +55,10 @@ private val Panel = Color(0xff1d2c41)
     var appearance by remember { mutableStateOf(preferences.getString("mode", "System") ?: "System") }
     val dark = appearance == "Dark" || (appearance == "System" && isSystemInDarkTheme())
     val colors = if (dark) darkColorScheme(primary = Orange, background = Navy, surface = Panel,
-        onPrimary = Color(0xff20140c), secondary = Orange, surfaceVariant = Color(0xff293b54))
-        else lightColorScheme(primary = Color(0xffac390f), background = Color(0xfff6f5f2), surface = Color.White, secondary = Color(0xffac390f))
+        onPrimary = Color.White, onSurface = Color(0xfff1f4fa), onBackground = Color(0xfff1f4fa), onSurfaceVariant = Color(0xffafbdd1), secondary = Orange, secondaryContainer = Color(0xff49332c),
+        onSecondaryContainer = Color(0xffffba9d), surfaceVariant = Color(0xff293b54))
+        else lightColorScheme(primary = Color(0xffb93c0c), background = Color(0xfff2f5fa), surface = Color.White,
+            secondary = Color(0xffac390f), secondaryContainer = Color(0xffffdbc9), onSecondaryContainer = Color(0xff6e280e))
     MaterialTheme(colorScheme = colors, shapes = Shapes(large = RoundedCornerShape(26.dp))) {
         if (!unlocked) {
             Surface(Modifier.fillMaxSize(), color = colors.background) {
@@ -72,7 +81,7 @@ private val Panel = Color(0xff1d2c41)
             if (s.hasWallet) NavigationBar(containerColor = colors.surface) {
                 listOf("Wallet" to Icons.Default.AccountBalanceWallet, "Lightning" to Icons.Default.Bolt,
                     "Activity" to Icons.Default.History, "Settings" to Icons.Default.Tune).forEach { (label, icon) ->
-                    NavigationBarItem(selected = tab == label, enabled = !s.busy,
+                    NavigationBarItem(modifier = Modifier.testTag("tab-$label"), selected = tab == label, enabled = !s.busy,
                         onClick = { tab = label; navigate(label) }, icon = { Icon(icon, label) }, label = { Text(label) })
                 }
             }
@@ -82,7 +91,7 @@ private val Panel = Color(0xff1d2c41)
                 if (!s.loaded) { Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }; return@Column }
                 Column(Modifier.fillMaxSize().verticalScroll(scroll).padding(horizontal = 22.dp, vertical = 22.dp),
                     verticalArrangement = Arrangement.spacedBy(20.dp)) {
-                    if (!s.hasWallet) Setup(model, s) else {
+                    if (!s.hasWallet) Setup(model, s, scroll) else {
                         if (route == tab) Brand() else Row(verticalAlignment = Alignment.CenterVertically) {
                             IconButton(onClick = { navigate(tab) }, enabled = !s.busy) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") }
                             Text(route, style = MaterialTheme.typography.headlineSmall)
@@ -128,7 +137,7 @@ private val Panel = Color(0xff1d2c41)
     }
 }
 @Composable private fun CardBlock(title: String, content: @Composable ColumnScope.() -> Unit) {
-    Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(26.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+    Card(Modifier.fillMaxWidth(), border = BorderStroke(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = .09f)), shape = RoundedCornerShape(26.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
         Column(Modifier.padding(22.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
                 Box(Modifier.width(3.dp).height(15.dp).background(Orange, RoundedCornerShape(2.dp)))
@@ -139,16 +148,17 @@ private val Panel = Color(0xff1d2c41)
     }
 }
 @Composable private fun NavCard(title: String, subtitle: String, icon: androidx.compose.ui.graphics.vector.ImageVector, action: () -> Unit) {
-    Card(onClick = action, shape = RoundedCornerShape(26.dp)) {
+    Card(onClick = action, shape = RoundedCornerShape(26.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
         Row(Modifier.fillMaxWidth().padding(22.dp), horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(icon, null, tint = Orange)
-            Column(Modifier.weight(1f)) { Text(title, fontWeight = FontWeight.SemiBold); Text(subtitle, style = MaterialTheme.typography.bodySmall) }
+            Icon(icon, null, Modifier.background(Orange.copy(alpha = .09f), RoundedCornerShape(12.dp)).padding(10.dp).size(22.dp), tint = MaterialTheme.colorScheme.primary)
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) { Text(title, fontWeight = FontWeight.SemiBold); Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
             Icon(Icons.Default.ChevronRight, null)
         }
     }
 }
+@OptIn(ExperimentalLayoutApi::class)
 @Composable private fun Choices(values: List<String>, selected: String, choose: (String) -> Unit) {
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+    FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         values.forEach { value -> FilterChip(selected = selected == value, onClick = { choose(value) }, label = { Text(value) }) }
     }
 }
@@ -166,9 +176,9 @@ private val Panel = Color(0xff1d2c41)
         IconButton(onClick = { hidden = !hidden }) { Icon(if (hidden) Icons.Default.VisibilityOff else Icons.Default.Visibility, "Toggle balance visibility") }
     }
     CardBlock("Your Keys. Your Bitcoin.") {
-        Text(if (hidden) "••••••" else if (s.chain != null && s.ark != null) "${s.chain + s.ark} sats" else "Balance unavailable",
+        Text(if (hidden) "••••••" else if (s.chain != null && s.ark != null) "${s.chain + s.ark} sats" else "— sats",
             style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.SemiBold)
-        Text("On-chain + Ark", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(if (s.chain != null && s.ark != null) "On-chain + Ark" else "Connect and sync to see your total balance", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Button(onClick = { navigate("Send") }, enabled = !s.busy, modifier = Modifier.weight(1f)) { Text("Send") }
             OutlinedButton(onClick = { navigate("Receive") }, enabled = !s.busy, modifier = Modifier.weight(1f)) { Text("Receive") }
@@ -184,26 +194,69 @@ private val Panel = Color(0xff1d2c41)
 }
 @Composable private fun BalanceRow(name: String, amount: String) { Row(Modifier.fillMaxWidth()) { Text(name, Modifier.weight(1f)); Text(amount, fontWeight = FontWeight.SemiBold) } }
 
-@Composable private fun Setup(model: WalletModel, s: WalletState) {
-    Brand(); Text("Your XBT.\nYour keys.", style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold)
-    CardBlock("Welcome to Paperclip") {
-        Text("The Android development preview uses regtest only. Never import a real wallet seed.")
-        Button(onClick = model::generate, enabled = !s.busy, modifier = Modifier.fillMaxWidth()) { Text("Create a test wallet") }
-        if (s.phrase.isNotEmpty()) {
-            SelectionContainer { Text(s.phrase, style = MaterialTheme.typography.bodyLarge) }
-            var confirmed by remember { mutableStateOf(false) }
-            Row(verticalAlignment = Alignment.CenterVertically) { Checkbox(confirmed, { confirmed = it }); Text("I saved these test recovery words") }
-            Button(onClick = { model.create(s.phrase) }, enabled = confirmed && !s.busy) { Text("Open test wallet") }
+@Composable private fun Setup(model: WalletModel, s: WalletState, scroll: ScrollState) {
+    val keyboard = LocalSoftwareKeyboardController.current
+    val focus = LocalFocusManager.current
+    var mode by remember { mutableStateOf("welcome") }
+    LaunchedEffect(mode, s.phrase) { scroll.scrollTo(0) }
+    var confirmation by remember(s.phrase) { mutableStateOf("") }
+    val words = s.phrase.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }
+    BackHandler(mode != "welcome" && !s.busy) { mode = "welcome"; confirmation = "" }
+    Brand()
+    Text(if (mode == "verify") "Verify your seed" else if (words.isNotEmpty()) "Back up your wallet" else "Your XBT starts here",
+        style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
+    Text("On-chain · Lightning · Ark", color = MaterialTheme.colorScheme.onSurfaceVariant)
+    if (words.isNotEmpty()) {
+        if (mode == "verify") CardBlock("Verify your seed") {
+            Text("Enter all ${words.size} words in order from your written copy. Your phrase stays hidden during verification.")
+            OutlinedTextField(confirmation, { confirmation = it }, modifier = Modifier.fillMaxWidth().testTag("seed-confirmation"),
+                label = { Text("Recovery words") }, minLines = 4, shape = RoundedCornerShape(16.dp),
+                keyboardOptions = KeyboardOptions(autoCorrectEnabled = false))
+            val matches = confirmation.trim().lowercase().split(Regex("\\s+")) == words
+            Button(onClick = { focus.clearFocus(); keyboard?.hide(); model.create(s.phrase); confirmation = "" }, enabled = matches && !s.busy,
+                modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp)) { Text("Verify and create wallet") }
+            TextButton(onClick = { mode = "welcome"; confirmation = "" }) { Text("Show words again") }
+        } else CardBlock("Write down these ${words.size} words") {
+            Text("Keep these words offline and in order. Anyone with them can access your wallet.", style = MaterialTheme.typography.bodyMedium)
+            Text("Read down the left column, then down the right.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            SeedWords(words)
+            Button(onClick = { mode = "verify" }, enabled = !s.busy, modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp)) { Text("I wrote down every word") }
+        }
+    } else if (mode == "import") CardBlock("Import seed words") {
+        var phrase by remember { mutableStateOf("") }
+        OutlinedTextField(phrase, { phrase = it }, label = { Text("12 or 24 test recovery words") }, modifier = Modifier.fillMaxWidth(), minLines = 4, shape = RoundedCornerShape(16.dp), keyboardOptions = KeyboardOptions(autoCorrectEnabled = false))
+        Text("Seed-only recovery does not restore complete Ark recovery data. Use a full backup for an existing Ark wallet.", style = MaterialTheme.typography.bodySmall)
+        Button(onClick = { model.create(phrase) }, enabled = phrase.isNotBlank() && !s.busy, modifier = Modifier.fillMaxWidth()) { Text("Restore test seed") }
+        TextButton(onClick = { mode = "welcome" }) { Text("Back") }
+    } else if (mode == "backup") CardBlock("Restore a backup") {
+        RestoreBackup(s.busy); TextButton(onClick = { mode = "welcome" }) { Text("Back") }
+    } else {
+        CardBlock("Mobile wallet") {
+            Text("Create a wallet with keys stored securely on this device. We’ll guide you through backing up and verifying your seed.", style = MaterialTheme.typography.bodyMedium)
+            Button(onClick = model::generate, enabled = !s.busy, modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp)) { Text("Create a test wallet") }
+        }
+        NavCard("Import seed words", "Restore a 12- or 24-word phrase", Icons.Default.Key) { mode = "import" }
+        NavCard("Restore a backup", "Recover your encrypted wallet and Ark data", Icons.Default.Shield) { mode = "backup" }
+    }
+    Text("Regtest preview · Use test wallets only. Mainnet is disabled.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    s.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+}
+
+@Composable internal fun SeedWords(words: List<String>) {
+    val rows = (words.size + 1) / 2
+    Row(Modifier.fillMaxWidth().testTag("seed-words"), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+        repeat(2) { column ->
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                for (index in column * rows until minOf((column + 1) * rows, words.size)) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.semantics(mergeDescendants = true) { contentDescription = "Word ${index + 1}, ${words[index]}" }) {
+                        Text("${index + 1}", Modifier.width(24.dp), color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp, fontFamily = FontFamily.Monospace)
+                        Text(words[index], fontFamily = FontFamily.Monospace, fontSize = 15.sp, fontWeight = FontWeight.Medium, modifier = Modifier.testTag("seed-word-$index"))
+                    }
+                }
+            }
         }
     }
-    CardBlock("Restore test wallet") {
-        var phrase by remember { mutableStateOf("") }
-        OutlinedTextField(phrase, { phrase = it }, label = { Text("12 or 24 test recovery words") }, modifier = Modifier.fillMaxWidth())
-        Text("Seed-only recovery does not restore complete Ark recovery data. Use a full backup for an existing Ark wallet.", style = MaterialTheme.typography.bodySmall)
-        Button(onClick = { model.create(phrase) }, enabled = phrase.isNotBlank() && !s.busy) { Text("Restore test seed") }
-        RestoreBackup(s.busy)
-    }
-    s.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
 }
 @Composable private fun Send(s: WalletState, model: WalletModel) {
     val result = s.result
@@ -239,8 +292,8 @@ private val Panel = Color(0xff1d2c41)
             Field("Address, invoice or offer", destination) { destination = it }
             Field("Amount in sats", amount, number = true) { amount = it }
             Text(if (source == "Ark") "Ark address, on-chain withdrawal, BOLT11 invoice or BOLT12 offer." else "Send from your on-chain balance.", style = MaterialTheme.typography.bodySmall)
-            Button(onClick = { model.quote(destination, amount, source == "On-chain") }, enabled = !s.busy && s.connected &&
-                (result == null || PaymentStatus.from(result.optString("state")) in listOf(PaymentStatus.COMPLETE, PaymentStatus.NOT_SENT)), modifier = Modifier.fillMaxWidth()) { Text("Review payment") }
+            Button(onClick = { model.quote(destination, amount, source == "On-chain") }, enabled = !s.busy && s.connected,
+                modifier = Modifier.fillMaxWidth()) { Text("Review payment") }
             if (!s.connected) Text("Connect your regtest backend in Settings first.")
         }
     }

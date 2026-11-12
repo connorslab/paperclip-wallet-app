@@ -21,7 +21,7 @@ data class WalletState(
 )
 
 class WalletModel(app: Application) : AndroidViewModel(app) {
-    private val engine = WalletEngine(app)
+    private val engine = WalletEngine.shared(app)
     private val mutable = MutableStateFlow(WalletState())
     val state = mutable.asStateFlow()
     private fun change(f: (WalletState) -> WalletState) { mutable.value = f(mutable.value) }

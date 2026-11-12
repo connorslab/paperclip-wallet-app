@@ -15,7 +15,13 @@ internal object NativeBridge {
     external fun call(request: ByteArray, seed: ByteArray): ByteArray
 }
 
-class WalletEngine(context: Context) {
+class WalletEngine private constructor(context: Context) {
+    companion object {
+        @Volatile private var instance: WalletEngine? = null
+        fun shared(context: Context): WalletEngine = instance ?: synchronized(this) {
+            instance ?: WalletEngine(context.applicationContext).also { instance = it }
+        }
+    }
     private val vault = SecureStore(context)
     private val root = File(context.noBackupFilesDir, "wallets").apply { mkdirs() }
     private val mutex = Mutex()

@@ -6,9 +6,11 @@ import org.junit.Assert.*
 import org.junit.Test
 import java.io.File
 import java.util.UUID
+import kotlinx.coroutines.runBlocking
 
 class NativeBridgeTest {
     @Test fun nativeBoundaryAndFullDatabaseRecovery() {
+        runBlocking { WalletEngine.shared(InstrumentationRegistry.getInstrumentation().targetContext).close() }
         val seed = ByteArray(64) { 37 }
         fun call(op: String, fields: JSONObject = JSONObject()): JSONObject {
             val response = JSONObject(String(NativeBridge.call(fields.put("op", op).toString().toByteArray(), seed)))
