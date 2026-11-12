@@ -28,6 +28,22 @@ pub fn paperclip_funding() -> crate::tree::signed::TreeExitFunding {
 		.with_format(bitcoin_ext::fee::ExitFormat::StandardV2)
 }
 
+/// Ordinary-transfer budget for servers advertising small_anchor_transfers.
+/// Retains the legacy miner-fee floor and encoding while reducing the standard
+/// P2WSH anchor to its dust threshold at the supported 3 sat/vB dust policy.
+/// Server capability negotiation is required before wallets use this budget.
+pub fn small_anchor_transfer_funding() -> crate::tree::signed::TreeExitFunding {
+	crate::tree::signed::TreeExitFunding::new(Amount::from_sat(330), Amount::from_sat(1000))
+		.expect("constant funded transfer budget is valid")
+		.with_format(bitcoin_ext::fee::ExitFormat::StandardV2)
+}
+
+/// Opt-in ordinary transfers: 330-sat anchor plus 198-sat miner fee.
+/// Builders check the signed-size relay floor before any signature is made.
+pub fn economical_transfer_funding() -> crate::tree::signed::TreeExitFunding {
+	crate::tree::signed::TreeExitFunding::economical_transfer()
+}
+
 pub fn paperclip_policy() -> FundedExitPolicy {
 	FundedExitPolicy {
 		minimum_relay: FeeRate::from_sat_per_kwu(250),

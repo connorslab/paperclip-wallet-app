@@ -1,11 +1,11 @@
-# Paperclip Wallet · Beta
+# Paperclip Wallet Â· Beta
 
 A self-hosted Bitcoin Blake2b (XBT) wallet based on Bark by Second and the Bark
 contributors. This edition presets new wallets to **https://ark.paperclip-xbt.xyz**.
 Existing wallet configuration is preserved. Wallet keys stay on your device.
 
 **Public beta. Paperclip Ark is open for XBT deposits, Ark transfers, and Lightning payments.**
-The current release is **0.8.1 beta**. Check [service status](https://ark.paperclip-xbt.xyz/) before funding.
+The current release is **[0.10.0 beta](https://github.com/connorslab/paperclip-wallet-app/releases/tag/v0.10.0-beta.1)**. Check [service status](https://ark.paperclip-xbt.xyz/) before funding.
 
 Current beta limits: boarding starts at **20,000 sats**; Lightning payments are
 limited to **250,000 sats**. Fees and recovery reserves apply. Very small Lightning
@@ -16,6 +16,75 @@ payments can be below the funded-HTLC minimum. The server can change these limit
 **Not independently audited.** Paperclip Wallet and its Ark integration are
 experimental and provided without warranty. Functional tests are not a security
 audit. Bugs can cause loss of funds. Use only amounts you can afford to lose.
+
+## 0.10.0 source update
+
+This release integrates upstream Bark 0.8.1. It fixes Lightning sends that
+remain pending after payment, rejects expired WebSocket tickets, and improves
+payment-URI parsing and invoice-expiry controls. Existing Paperclip setup,
+sign-in, transaction-result screens, and XBT recovery support are retained.
+See [upgrade and compatibility notes](docs/upgrade-0.10.0.md).
+
+## 0.9.3
+
+Fixes blockchain RPC connections that could remain stuck after a canceled request or a closed server connection, leaving Ark balances unavailable. Connections can recover without restarting the wallet. Existing keys, authentication, settings, fees, recovery data, and older-client compatibility are unchanged. Interrupted payments are not automatically retried. Back up the complete wallet before updating.
+
+## 0.9.2
+
+Sign-in no longer waits for blockchain balances. Slow connections have bounded
+requests, unavailable data is labeled clearly, and automatic checks back off when
+a service is busy. Settings explains why reaching the chain tip after a snapshot
+import does not mean transaction indexing is complete.
+
+Transaction result screens distinguish completed, failed, pending, and unconfirmed
+outcomes. An interrupted submission is never automatically retried. Lightning
+status recognizes the wallet's `paid` and `settled` states. On-chain submission
+is shown as pending confirmation, not a confirmed payment.
+
+These changes preserve the existing wallet database, keys, connection settings,
+fees, and recovery format. The same UI is packaged for StartOS and Umbrel.
+
+## 0.9.1 setup hotfix
+
+Restores the configured ASP URL in setup and fixes checkbox and button layout.
+Paperclip is prefilled for new wallets; custom server settings and edits are
+preserved. Existing wallet data, payment logic, recovery formats, and fees are
+unchanged. Update in place after backing up the complete wallet.
+
+## 0.9.0
+
+Ordinary Ark sends on compatible servers allocate 1,056 sats without change or
+1,584 sats with change for one input. Existing recovery signatures and older
+wallet support are preserved. Lightning and tree recovery budgets are unchanged.
+The browser wallet adds smoother navigation, explicit payment review, clearer
+status, and connection settings. Installed compatible node connections can be
+configured without copying RPC credentials into the browser.
+
+P2A is not enabled: it requires a new recovery format and recipient negotiation.
+See [fee validation and compatibility](docs/fees-0.9.0.md). The production ASP supports the new allocation and previous wallet versions.
+Release assets are signed; platform-specific validation limits are listed in the release notes.
+
+## What changed in 0.8.3
+
+Lightning sends check invoice expiry and request server-side route preflight
+before committing funds. Compatible servers reimburse recorded recovery costs
+for eligible failures before dispatch; the wallet validates the grant and safely
+retries pending compensation. REST payment starts report initiated status and
+require checking the final outcome. Recovery funding and signatures are preserved.
+The updated ASP also supports older wallets, delivering their eligible credits
+as separate Ark inbox payments. Historical incidents are reconciled separately.
+Back up the complete wallet and do not downgrade with pending reimbursement
+actions. See [recovery accounting](docs/recovery-costs.md).
+
+## What changed in 0.8.2
+
+Ordinary Ark transfers negotiate smaller recovery anchors with compatible servers.
+One input allocates **2,660 sats without change** or **3,990 sats with change**,
+a 33.5% reduction, with no separate Ark-send service fee. Multiple inputs cost more.
+Lightning reserves remain unchanged. Older servers and wallets retain the legacy
+budget; existing signed recovery history is preserved. Back up the complete wallet
+and do not downgrade while transfers are pending. See [validation evidence and
+limitations](docs/small-anchor-validation.md).
 
 ## What changed in 0.8.1
 
@@ -92,8 +161,8 @@ The [StartOS 0.4 wrapper](https://github.com/connorslab/paperclip-wallet-startos
 
 Current releases:
 
-- [Umbrel community store](https://github.com/connorslab/paperclip-umbrel-app-store): wallet 0.8.1, with a pinned image.
-- [StartOS 0.4 installers](https://github.com/connorslab/paperclip-wallet-startos/releases/tag/v0.8.1-beta.1): x86-64 and ARM64 beta packages.
+- [Umbrel community store](https://github.com/connorslab/paperclip-umbrel-app-store): wallet 0.8.3, with a pinned image.
+- [StartOS 0.4 installers](https://github.com/connorslab/paperclip-wallet-startos/releases): x86-64 and ARM64 beta packages.
 
 See [platform instructions](deployment/PLATFORMS.md) for authentication,
 backend setup, packaging, and restore requirements.
@@ -144,3 +213,9 @@ generate wallet keys. No shared seed or platform seed is used.
 See [UPSTREAM.md](UPSTREAM.md) and the original MIT [LICENSE](LICENSE).
 Internal Bark crate and RPC names are retained for source compatibility.
 See [FUNDED-EXITS.md](FUNDED-EXITS.md) for recovery reserves and limitations.
+
+## Recovery costs
+
+See [recovery cost accounting and reduction work](docs/recovery-costs.md). Zero
+Ark transfer service fees do not mean zero total cost. Recovery allocations are
+not separately refundable and are not immediate miner fees.

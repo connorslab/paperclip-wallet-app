@@ -21,6 +21,7 @@ pub mod lightning;
 pub mod mailbox;
 pub mod musig;
 pub mod offboard;
+pub mod recovery;
 pub mod rounds;
 pub mod message;
 pub mod tree;
@@ -57,6 +58,10 @@ pub struct ArkInfo {
 	pub exit_profile: u32,
 	/// Explicit opt-in to funded XBT Lightning contracts.
 	pub funded_lightning: bool,
+	/// Supports 330-sat anchors on ordinary out-of-round transfers.
+	pub small_anchor_transfers: bool,
+	/// Supports the opt-in smaller ordinary-transfer miner reserve.
+	pub economical_transfers: bool,
 	/// The bitcoin network the server operates on
 	pub network: Network,
 	/// The Ark server pubkey

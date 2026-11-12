@@ -100,24 +100,34 @@ mod tests {
 	use super::*;
 
 	#[test]
-	fn send_max_deducts_fees_without_change_for_both_accounts() {
+	fn send_max_signs_reopened_taproot_and_segwit_accounts() {
 		let rt = tokio::runtime::Runtime::new().unwrap();
 		rt.block_on(async {
 			let path = std::env::temp_dir().join(format!("paperclip-max-{}.sqlite", bitcoin::secp256k1::rand::random::<u64>()));
 			let db = SqliteClient::open(&path).unwrap();
-			for segwit in [false,true] {
-				let mut w = if segwit { OnchainWallet::load_segwit_account(Network::Regtest,[22;64],Arc::new(db.clone().with_bdk_namespace("segwit")),0).await.unwrap() }
+			for account in [None, Some(0), Some(1)] {
+				let namespace = format!("segwit-{account:?}");
+				let mut w = if let Some(account) = account { OnchainWallet::load_segwit_account(Network::Regtest,[22;64],Arc::new(db.clone().with_bdk_namespace(&namespace)),account).await.unwrap() }
 					else { OnchainWallet::load_or_create(Network::Regtest,[22;64],Arc::new(db.clone())).await.unwrap() };
 				let dest = bitcoin::Address::p2wpkh(&bitcoin::CompressedPublicKey(bitcoin::secp256k1::SecretKey::from_slice(&[31;32]).unwrap().public_key(&bitcoin::secp256k1::Secp256k1::new())),Network::Regtest);
 				assert!(prepare_payment(&mut w,dest.clone(),&json!({"send_max":true}),bitcoin::FeeRate::from_sat_per_vb(2).unwrap()).await.is_err());
 				bdk_wallet::test_utils::insert_checkpoint(&mut w.inner,bdk_wallet::chain::BlockId{height:1000,hash:"00".repeat(32).parse().unwrap()});
 				bdk_wallet::test_utils::receive_output_in_latest_block(&mut w.inner,Amount::from_sat(30000));
-				bdk_wallet::test_utils::receive_output_in_latest_block(&mut w.inner,Amount::from_sat(40000));
+				let change = w.inner.reveal_next_address(bdk_wallet::KeychainKind::Internal).address;
+				let anchor = bdk_wallet::chain::ConfirmationBlockTime {
+					block_id: w.inner.latest_checkpoint().block_id(), confirmation_time: 0,
+				};
+				bdk_wallet::test_utils::receive_output_to_address(&mut w.inner, change, Amount::from_sat(40000), anchor);
+				// Reopen the persisted wallet: BDK no longer reloads secret signers implicitly.
+				w.persist().await.unwrap();
+				drop(w);
+				let mut w = if let Some(account) = account { OnchainWallet::load_segwit_account(Network::Regtest,[22;64],Arc::new(db.clone().with_bdk_namespace(&namespace)),account).await.unwrap() }
+					else { OnchainWallet::load_or_create(Network::Regtest,[22;64],Arc::new(db.clone())).await.unwrap() };
 				let (mut psbt,amount) = prepare_payment(&mut w,dest.clone(),&json!({"send_max":true}),bitcoin::FeeRate::from_sat_per_vb(2).unwrap()).await.unwrap();
 				assert_eq!(psbt.unsigned_tx.input.len(),2); assert_eq!(psbt.unsigned_tx.output.len(),1);
 				assert_eq!(psbt.unsigned_tx.output[0].script_pubkey,dest.script_pubkey());
 				assert_eq!(amount+psbt.fee().unwrap().to_sat(),70000);
-				assert!(bitcoin_ext::unified_wallet::sign(&w.inner,&mut psbt).unwrap());
+				psbt = OnchainWalletTrait::sign_psbt(&mut w, psbt).await.unwrap();
 				assert!(psbt.fee().unwrap().to_sat() >= psbt.clone().extract_tx().unwrap().vsize() as u64 * 2);
 				let (_,higher_fee_amount) = prepare_payment(&mut w,dest,&json!({"send_max":true}),bitcoin::FeeRate::from_sat_per_vb(10).unwrap()).await.unwrap();
 				assert!(higher_fee_amount < amount);
@@ -610,10 +620,12 @@ pub fn dispatch(state: &mut Option<Session>, request: Value, seed: [u8; 64]) -> 
 				w.sync_pending_boards().await?;
 				w.sync_pending_offboards().await?;
 				w.sync_mailbox().await?;
+				w.sync_force_exited_vtxos().await?;
+				let recovery_warning = w.catchup_recovery_vtxos().await.err().map(|error| format!("{error:#}"));
 				let balance = w.balance().await?;
 				let tip = w.chain().tip().await?;
 				let vtxos = w.vtxos().await?;
-				Ok(json!({"receive_warning": receive_warning, "tip": tip, "ark_sat": balance.spendable.to_sat(), "pending_sat": balance.pending().to_sat(),
+				Ok(json!({"receive_warning": receive_warning, "recovery_warning": recovery_warning, "tip": tip, "ark_sat": balance.spendable.to_sat(), "pending_sat": balance.pending().to_sat(),
 					"onchain_sat": onchain.read().await.balance().total().to_sat(),
 					"vtxos": vtxos.iter().map(|v| json!({"id": v.id().to_string(), "expiryHeight": v.expiry_height(),
 						"spendable": v.state.kind() == bark::vtxo::VtxoStateKind::Spendable})).collect::<Vec<_>>() }))
@@ -805,10 +817,10 @@ pub fn dispatch(state: &mut Option<Session>, request: Value, seed: [u8; 64]) -> 
 			},
 			"recover" => {
 				let balance = onchain.write().await.initial_wallet_scan(chain_wallet.chain(), None).await?;
-				match w.recover_from_mailbox().await {
-					Ok(report) => Ok(json!({"state": "recovered", "onchain_sat": balance.to_sat(), "report": format!("{report:?}")})),
+				match w.recover_from_seed().await {
+					Ok(report) => Ok(json!({"state": if report.is_complete() { "recovered" } else { "partial" }, "onchain_sat": balance.to_sat(), "report": format!("{report:?}")})),
 					Err(_) => Ok(json!({"state": "partial", "onchain_sat": balance.to_sat(),
-						"report": "On-chain scan completed. Ark mailbox recovery is unavailable; retry with the Ark server online or restore a full backup."})),
+						"report": "On-chain scan completed. Ark server-assisted recovery is unavailable; retry with the Ark server online or restore a full backup."})),
 				}
 			},
 			"address_ark" => Ok(json!({"address": w.new_address().await?.to_string()})),
@@ -919,7 +931,7 @@ pub fn dispatch(state: &mut Option<Session>, request: Value, seed: [u8; 64]) -> 
 				};
 				let result = w.send_payment(&method, Some(Amount::from_sat(amount)), None::<&str>, false).await?;
 				Ok(match result {
-					PaymentInitOutput::Ark => json!({"state": "completed"}),
+					PaymentInitOutput::Ark(movement_id) => json!({"state": "completed", "movement_id": movement_id}),
 					PaymentInitOutput::Lightning(invoice) => json!({"state": "pending", "invoice": invoice.to_string(), "payment_hash": invoice.payment_hash().to_string()}),
 					PaymentInitOutput::Onchain(txid) => json!({"state": "submitted", "txid": txid.to_string()}),
 				})

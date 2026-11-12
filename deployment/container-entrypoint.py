@@ -45,6 +45,8 @@ def prepare_auth(datadir, app_password=None):
 def main():
     os.umask(0o077)
     datadir = os.environ.get('BARKD_DATADIR', '/data/wallet')
+    if os.environ.get('APP_PASSWORD'):
+        os.environ['BARKD_UI_PLATFORM'] = 'umbrel'
     prepare_auth(datadir, os.environ.pop('APP_PASSWORD', None))
     os.environ.pop('APP_SEED', None)
     os.environ['BARKD_DATADIR'] = datadir

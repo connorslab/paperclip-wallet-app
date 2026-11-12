@@ -73,10 +73,21 @@ pub(crate) fn attach_web_routes(
 
 	let ret = router
 		.merge(authed)
+		.route("/api/ui-platform", get(ui_platform))
 		.nest("/api/barkd/api/v1", crate::api::v1::router(state))
 		.nest("/barkd-ws/api/v1", crate::api::v1::router(state))
 		.fallback(spa_fallback);
 	(ret, true)
+}
+
+// Public presentation metadata only. Never expose connection settings or credentials.
+async fn ui_platform() -> Json<serde_json::Value> {
+	let platform = match std::env::var("BARKD_UI_PLATFORM").as_deref() {
+		Ok("startos") => "startos",
+		Ok("umbrel") => "umbrel",
+		_ => "standalone",
+	};
+	Json(serde_json::json!({ "platform": platform }))
 }
 
 async fn config_handler(State(state): State<Arc<ServerState>>) -> Response {
@@ -125,9 +136,9 @@ async fn wallet_config_response(wallet: &Wallet, web: &WebConfig) -> Response {
 				},
 			})
 		},
-		// The UI can't represent user/pass bitcoind auth (and shouldn't
-		// be handed the password), so fall back to the configured value.
-		Ok(ChainSourceSpec::Bitcoind { .. }) | Err(_) => {
+		// Keep credentials private. Backends available only to other wallet
+		// frontends also use the configured web value.
+		Ok(_) | Err(_) => {
 			serde_json::Value::String(web.chain_source.clone())
 		},
 	};

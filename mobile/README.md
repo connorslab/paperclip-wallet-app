@@ -2,6 +2,26 @@
 
 Development branch: `feature/ios-wallet`.
 
+## Ark core compatibility
+
+This branch incorporates the Paperclip 0.10.0 core based on Bark 0.8.1. It uses
+the in-process Rust wallet engine, including the updated Ark protocol, pending
+payment reconciliation, recovery, and emergency exit implementation. Saved Ark
+server and chain connections remain in use; the default Ark server is
+`https://ark.paperclip-xbt.xyz`.
+
+Existing wallet databases migrate when opened. Before upgrading an installed
+wallet, export its complete encrypted backup and retain its recovery key. Keep
+the existing app bundle identifier and wallet namespaces. Do not downgrade a
+migrated database; an older application needs a compatible pre-upgrade backup.
+Seed-assisted Ark recovery requires the Ark server and is not a replacement for the
+complete backup needed for independent recovery. Partial recovery is reported
+as partial rather than successful completion.
+
+Rebuild the Rust library from this branch before building the Swift app. Do not
+reuse a static library from the previous checkout. Native iOS, signing, and
+device validation remain separate from the Linux Rust tests.
+
 The native SwiftUI app uses the Paperclip web colors (`#111c2e` navy and `#f56835`
 orange), reduced-motion preferences, and Liquid Glass actions on iOS 26. Earlier
 versions use system material. It contains an on-chain and Ark wallet, a remote
@@ -221,10 +241,12 @@ regularly. Expiry reminders never include balances, addresses, or VTXO IDs.
 
 ## Build and verification
 
-- Install Rust 1.90, protobuf, CMake, XcodeGen, and full Xcode.
+- Install Rust 1.90, protobuf, CMake, just, XcodeGen, and full Xcode.
 - `cd mobile && swift test` tests policies, endpoint validation, and encrypted backups.
 - `just unit-mobile` tests the C ABI's persistence, seed derivation, and recovery.
 - `just unit-unified` tests unified sighash reference vectors and signer behavior.
+- `just unit-electrum` tests XBT block-header decoding.
+- `just unit-rpc-transport` tests RPC proxy transport.
 - `just checks` checks workspace targets.
 - Generate the app with `cd mobile/iOS && xcodegen generate`.
 - Build the native library for `aarch64-apple-ios-sim` before the simulator app.

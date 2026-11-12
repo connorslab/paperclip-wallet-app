@@ -398,6 +398,9 @@ struct ArkOverviewView: View {
             store.pending = (result["pending_sat"] as? NSNumber)?.uint64Value
             store.observed = Date()
             store.message = (result["receive_warning"] as? String).map { "Pending receive: " + $0 } ?? "Ark synchronized."
+            if let warning = result["recovery_warning"] as? String {
+                store.message += "\nArk recovery registration will retry: " + warning
+            }
             try await store.refreshActivity()
         }
     }

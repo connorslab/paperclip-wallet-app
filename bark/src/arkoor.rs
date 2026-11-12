@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use anyhow::Context;
 use bitcoin::{Amount, NetworkKind};
 use bitcoin::hex::DisplayHex;
@@ -5,7 +7,7 @@ use bitcoin::secp256k1::{Keypair, PublicKey};
 use log::{error, info, warn};
 
 use ark::{ProtocolEncoding, VtxoPolicy};
-use ark::arkoor::ArkoorDestination;
+use ark::arkoor::{ArkoorDestination, ArkoorConstructionError};
 use ark::arkoor::package::{ArkoorPackageBuilder, ArkoorPackageCosignResponse};
 use ark::vtxo::{Full, Vtxo, VtxoId};
 use server_rpc::{protos, ServerConnection};
@@ -13,6 +15,7 @@ use server_rpc::{protos, ServerConnection};
 use crate::{VtxoDelivery, Wallet, WalletVtxo};
 use crate::actions::DriveMode;
 use crate::actions::arkoor_send::{ArkoorSend, start_arkoor_send};
+use crate::movement::MovementId;
 
 /// The result of creating an arkoor transaction
 pub struct ArkoorCreateResult {
@@ -20,24 +23,6 @@ pub struct ArkoorCreateResult {
 	pub inputs: Vec<VtxoId>,
 	pub created: Vec<Vtxo<Full>>,
 	pub change: Vec<Vtxo<Full>>,
-}
-
-/// Error returned by [`Wallet::create_checkpointed_arkoor_with_vtxos`].
-///
-/// The cosign RPC failure is kept as a typed [`tonic::Status`] rather
-/// than flattened into `anyhow`, so a caller driving this as a wallet
-/// action can route a genuine server rejection to its `on_rejection`
-/// path (via `AdvanceError::is_server_rejection`) instead of retrying a
-/// doomed request forever. Every other failure is opaque `Other`.
-#[derive(Debug, thiserror::Error)]
-pub enum ArkoorCreateError {
-	/// The `request_arkoor_cosign` RPC failed. May be a rejection
-	/// (`InvalidArgument`/`NotFound`) or a transient error; the caller
-	/// classifies it via the status code.
-	#[error("server failed to cosign arkoor: {0}")]
-	Cosign(#[source] tonic::Status),
-	#[error(transparent)]
-	Other(#[from] anyhow::Error),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
@@ -221,7 +206,9 @@ impl Wallet {
 		inputs: impl IntoIterator<Item = WalletVtxo>,
 		change_keypair: Keypair,
 		change_pieces: Option<Vec<Amount>>,
-	) -> Result<ArkoorCreateResult, ArkoorCreateError> {
+		small_anchor_transfer: bool,
+		economical_transfer: bool,
+	) -> anyhow::Result<ArkoorCreateResult> {
 		let (mut srv, _) = self.require_server().await?;
 		let input_ids = inputs.into_iter().map(|v| v.id()).collect::<Vec<_>>();
 
@@ -263,8 +250,11 @@ impl Wallet {
 		// The profile fixes the output allocation. Older split-piece hints cannot
 		// change recipient amounts or create dust recovery outputs.
 		let _ = change_pieces;
-		let (builder, recovery_reserve) = ArkoorPackageBuilder::new_funded_payment(
-			inputs, arkoor_dest.clone(), VtxoPolicy::new_pubkey(change_pubkey),
+		let funding = if economical_transfer { ark::exit_policy::economical_transfer_funding() }
+			else if small_anchor_transfer { ark::exit_policy::small_anchor_transfer_funding() }
+			else { ark::exit_policy::paperclip_funding() };
+		let (builder, recovery_reserve) = ArkoorPackageBuilder::new_funded_payment_with_funding(
+			inputs, arkoor_dest.clone(), VtxoPolicy::new_pubkey(change_pubkey), funding,
 		).context("insufficient funded recovery reserves; refresh or select more inputs")?;
 		let builder = builder.generate_user_nonces(&user_keypairs)
 			.context("invalid nb of keypairs")?;
@@ -274,7 +264,7 @@ impl Wallet {
 		);
 
 		let response = srv.client.request_arkoor_cosign(cosign_request).await
-			.map_err(ArkoorCreateError::Cosign)?
+			.context("error requesting arkoor cosign")?
 			.into_inner();
 
 		let cosign_responses = ArkoorPackageCosignResponse::try_from(response)
@@ -306,51 +296,76 @@ impl Wallet {
 	/// Note that a change [Vtxo] may be created as a result of this call. With each payment these
 	/// will become more uneconomical to unilaterally exit, so you should eventually refresh them
 	/// with [Wallet::refresh_vtxos] or periodically call [Wallet::maintenance_refresh].
+	///
+	/// Returns the id of the movement that records this payment, so the caller
+	/// can attach its own data (notes, contacts) to the right history entry
+	/// without matching on amount and time.
 	pub async fn send_arkoor_payment(
 		&self,
 		destination: &ark::Address,
 		amount: Amount,
-	) -> anyhow::Result<()> {
+	) -> anyhow::Result<MovementId> {
 		self.send_arkoor_payment_with_max_cost(destination, amount, None).await
 	}
 
 	/// Send with an optional upper bound on the amount plus recovery reserve.
 	pub async fn send_arkoor_payment_with_max_cost(
 		&self, destination: &ark::Address, amount: Amount, max_total: Option<Amount>,
-	) -> anyhow::Result<()> {
+	) -> anyhow::Result<MovementId> {
 		let action = start_arkoor_send(self, destination.clone(), amount, max_total).await?;
+		let action_id = action.id();
 
-		// Persist the action together with the input locks so the executor has
-		// something to drive on restart; otherwise a crash between this point and
-		// `drive_action` leaves vtxos locked under an action id that has no
-		// checkpoint row.
-		self.inner.db.upsert_wallet_action_checkpoint(&action.id, &action.clone().into()).await?;
+		// Lock the action before its checkpoint exists. Otherwise a wallet sync
+		// can pick up the checkpoint and drive it, and this call would skip
+		// driving and return before the payment is done.
+		let mut checkpoint = self.try_lock_action::<ArkoorSend>(&action_id).await?
+			.context("arkoor send already in progress")?;
 
-		self.drive_action(action, DriveMode::UntilDone).await
+		// Persist the action before driving it, so a crash between this point
+		// and `drive_checkpoint` leaves a checkpoint to resume from. The first
+		// step locks the inputs, so no vtxo is ever locked without a checkpoint
+		// row.
+		checkpoint.create(self, action).await?;
+
+		self.drive_checkpoint(checkpoint, DriveMode::UntilDone).await?;
+
+		// The checkpoint is deleted once the action is done, but the movement
+		// keeps its action index.
+		self.inner.db.get_movement_id_by_action(&action_id).await?
+			.with_context(|| format!("arkoor send {} finished without a movement", action_id))
 	}
 
 	/// Read-only plan shared by estimates and sends. No keys, locks or signatures are created.
 	pub(crate) async fn plan_arkoor_payment(
 		&self, amount: Amount, policy: VtxoPolicy, change: PublicKey,
-	) -> anyhow::Result<(Vec<WalletVtxo>, Amount)> {
+	) -> anyhow::Result<(Vec<WalletVtxo>, Amount, bool, bool)> {
 		self.inner.chain.require_funded_policy().await?;
-		let _ = self.require_server().await?;
+		let (_, info) = self.require_server().await?;
+		let small_anchor_transfer = info.small_anchor_transfers;
+		let economical_transfer = info.economical_transfers;
+		let funding = if economical_transfer { ark::exit_policy::economical_transfer_funding() }
+			else if small_anchor_transfer { ark::exit_policy::small_anchor_transfer_funding() }
+			else { ark::exit_policy::paperclip_funding() };
 		ensure!(amount > Amount::ZERO, "payment amount must be positive");
 		let tip = self.inner.chain.tip().await?;
 		let candidates = self.spendable_vtxos().await?;
 		let selection = self.spend_input_selection().await?.expires_after(tip);
-		let mut inputs = selection.select(candidates.clone(), amount)?;
-		let reserve = ark::exit_policy::paperclip_funding().per_transaction();
-		loop {
-			let count = u64::try_from(inputs.len()).context("input count overflow")?;
-			let required = amount.checked_add(reserve.checked_mul(
-				count.checked_mul(3).context("recovery reserve overflow")?,
-			).context("recovery reserve overflow")?).context("payment amount overflow")?;
-			let selected = selection.select(candidates.clone(), required)?;
-			let same_count = selected.len() == inputs.len();
-			inputs = selected;
-			if same_count { break; }
-		}
+		let candidates = selection.eligible(candidates);
+		let ids = candidates.iter().map(|v| v.id()).collect::<Vec<_>>();
+		let full = self.inner.db.get_full_vtxos(&ids).await?.into_iter()
+			.map(|v| (v.id(), v)).collect::<HashMap<_, _>>();
+		let (inputs, recovery_reserve) = selection.select_ark_constructible(candidates, |inputs| {
+			let hydrated = inputs.iter().map(|v| full.get(&v.id()).cloned()
+				.context("Missing Ark input ancestry")).collect::<anyhow::Result<Vec<_>>>()?;
+			match ArkoorPackageBuilder::new_funded_payment_with_funding(hydrated,
+				ArkoorDestination { total_amount: amount, policy: policy.clone() },
+				VtxoPolicy::new_pubkey(change), funding,
+			) {
+				Ok((_, reserve)) => Ok(Some(reserve)),
+				Err(ArkoorConstructionError::Dust | ArkoorConstructionError::Unbalanced { .. }) => Ok(None),
+				Err(error) => Err(error.into()),
+			}
+		})?;
 		let ids = inputs.iter().map(|v| v.id()).collect::<Vec<_>>();
 		let full = self.inner.db.get_full_vtxos(&ids).await?;
 		for input in &full {
@@ -360,10 +375,7 @@ impl Wallet {
 				.and_then(|v| v.checked_add(tip.to_u32())).context("exit deadline overflow")?;
 			ensure!(deadline < input.expiry_height().to_u32(), "refresh required before another transfer");
 		}
-		let (_, recovery_reserve) = ArkoorPackageBuilder::new_funded_payment(
-			full, ArkoorDestination { total_amount: amount, policy }, VtxoPolicy::new_pubkey(change),
-		).context("payment would leave an unfunded or dust recovery output; refresh first")?;
-		Ok((inputs, recovery_reserve))
+		Ok((inputs, recovery_reserve, small_anchor_transfer, economical_transfer))
 	}
 
 	/// Returns every in-progress arkoor send checkpoint.
@@ -384,7 +396,7 @@ impl Wallet {
 		info!("Syncing {} pending arkoor sends", pending.len());
 		for send in pending {
 			let id = send.id.clone();
-			if let Err(e) = self.drive_action(send, DriveMode::UntilParkOrDone).await {
+			if let Err(e) = self.drive_action::<ArkoorSend>(&id, DriveMode::UntilParkOrDone).await {
 				warn!("Failed to sync arkoor send {}: {:#}", id, e);
 			}
 		}

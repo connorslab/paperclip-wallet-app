@@ -1,0 +1,37 @@
+name: RPC connection recovery regression
+on:
+  push:
+    branches: [fix/rpc-connection-recovery]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  regression:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify patch and reproduce old failure
+        run: |
+          set -euo pipefail
+          curl -fsSL https://crates.io/api/v1/crates/bitreq/0.3.8/download -o /tmp/bitreq.tar.gz
+          python3 - <<'PY'
+          import hashlib,tomllib
+          lock=tomllib.load(open('Cargo.lock','rb'))
+          p=next(p for p in lock['package'] if p['name']=='bitreq')
+          assert p['version']=='0.3.8'
+          assert hashlib.sha256(open('/tmp/bitreq.tar.gz','rb').read()).hexdigest()==p['checksum']
+          PY
+          tar -xf /tmp/bitreq.tar.gz -C /tmp
+          cd /tmp/bitreq-0.3.8
+          cargo test --features async --test cancellation --test stale_connection
+          curl -fsSL https://crates.io/api/v1/crates/bitreq/0.3.7/download -o /tmp/old.tar.gz
+          echo 'b65c2e1ab98050c93cc9ada070d5070e014329c65196d03f6f8f1f75c2666f37  /tmp/old.tar.gz' | sha256sum -c -
+          tar -xf /tmp/old.tar.gz -C /tmp
+          cp /tmp/bitreq-0.3.7/src/connection.rs src/connection.rs
+          if timeout 60 cargo test --features async --test cancellation > /tmp/old-test.log 2>&1; then
+            cat /tmp/old-test.log
+            echo 'Old version unexpectedly passed the regression'
+            exit 1
+          fi
+          cat /tmp/old-test.log
+          grep -q 'connection is permanently stuck' /tmp/old-test.log

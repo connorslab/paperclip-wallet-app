@@ -20,3 +20,6 @@ unit-unified:
 
 unit-rpc-transport:
 	cargo test --locked -p bark-bitcoin-ext --features rpc-socks5-proxy --lib rpc::socks5_transport::tests
+
+generate-bark-rest-client:
+	bash scripts/generate-rest-client.sh

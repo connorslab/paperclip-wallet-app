@@ -93,6 +93,9 @@ import LocalAuthentication
             if let warning = result["receive_warning"] as? String {
                 message = "Wallet synchronized. Pending Ark receive: " + warning
             } else { message = chainWarning == nil ? "Wallet synchronized." : "Ark synchronized." }
+            if let warning = result["recovery_warning"] as? String {
+                message += "\nArk recovery registration will retry: " + warning
+            }
         } catch { message = "Ark refresh: \(error.localizedDescription)" }
         if let chainWarning { message += "\n" + chainWarning }
         try await refreshActivity()
