@@ -1,6 +1,9 @@
 name: Android development preview
 on:
   workflow_dispatch:
+  push:
+    branches: [feature/android-wallet]
+    paths: ['mobile/android/**', 'mobile/rust/**', '.github/workflows/android-preview.yml', 'bark/**', 'bitcoin-ext/**', 'lib/**', 'vendor/**', 'Cargo.toml', 'Cargo.lock']
 permissions:
   contents: read
 concurrency:
