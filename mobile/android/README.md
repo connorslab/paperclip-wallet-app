@@ -24,7 +24,19 @@ automatically retried or displayed as successful.
 The UI follows iPhone's Wallet, Lightning, Activity and Settings tabs, navy/orange
 palette, original orange Paperclip vector logo, rounded cards, balance visibility,
 send review, receive QR codes and explicit payment-result states. Light, dark and
-system appearance are supported.
+system appearance are supported. Navigation uses short fades between tabs and
+directional transitions into task screens, following Android's system animation
+scale. Balances use locale-aware digit grouping. Receive screens explain each
+payment method and confirm when an address or invoice is copied. The Lightning
+receive shortcut opens the invoice form directly. Switching receive methods
+clears the old QR code; it is disabled while a request is running. Recovery words
+switch to a single ordered column when screen width or text size requires it,
+rather than shrinking or splitting words.
+
+Cancelling a payment review retains the in-memory draft, which is discarded when
+leaving the send screen or locking the app. Connection edits are labelled as
+unsaved until applied. Submitted, pending and uncertain payments remain distinct
+from confirmed success, and cannot be dismissed as completed.
 
 ## Build
 
@@ -71,7 +83,8 @@ adb pull /sdcard/Pictures/PaperclipPreview ./screenshots
 
 The navigation test creates a disposable wallet through the real Rust engine and
 captures onboarding, wallet, send, receive QR, Lightning, activity, connections,
-and light/dark settings. The seed-layout capture uses only the disposable regtest
+and light/dark settings. It also checks copy feedback, stale QR removal, the
+Lightning invoice shortcut, and unsaved connection edits. The seed-layout capture uses only the disposable regtest
 wallet created by the test; never use that photographed seed for funds. Recovery
 keys and existing user wallets are not captured.
 The native test rejects malformed JNI inputs and verifies a database backup/restore
