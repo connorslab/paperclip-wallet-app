@@ -24,6 +24,11 @@ final class PreviewTests: XCTestCase {
         }
         let receive = app.buttons["Receive"]
         XCTAssertTrue(receive.waitForExistence(timeout: 30))
+        let switcher = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Active wallet:'")).firstMatch
+        XCTAssertTrue(switcher.waitForExistence(timeout: 10))
+        switcher.tap()
+        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "value BEGINSWITH 'Selected. '")).firstMatch.waitForExistence(timeout: 10))
+        app.buttons["Done"].tap()
         receive.tap()
         app.buttons["Create receive address"].tap()
         let fullAddress = app.buttons["View full address or request"]

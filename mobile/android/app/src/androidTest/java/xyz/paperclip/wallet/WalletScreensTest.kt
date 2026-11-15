@@ -61,6 +61,16 @@ class WalletScreensTest {
 		compose.onNodeWithText(text).performScrollTo().performClick()
 	}
 
+	private fun back() {
+		// Restored content can appear while the authenticated wallet reloads.
+		// A disabled button is not an accepted navigation action.
+		compose.waitUntil(30_000) {
+			compose.onAllNodes(hasContentDescription("Back") and isEnabled())
+				.fetchSemanticsNodes().isNotEmpty()
+		}
+		compose.onNodeWithContentDescription("Back").assertIsEnabled().performClick()
+	}
+
 	@Test
 	fun nativeWalletAndNavigation() {
 		val context = InstrumentationRegistry.getInstrumentation().targetContext
@@ -111,13 +121,18 @@ class WalletScreensTest {
 			click("Verify and create wallet")
 			waitFor("Your Keys. Your Bitcoin.")
 			compose.onNodeWithTag("wallet-switcher").performClick()
-			waitFor("Add or rename a wallet")
-			compose.onNodeWithContentDescription("Back").performClick()
+			waitFor("Add a wallet")
+			click("Rename")
+			compose.onNode(hasText("Wallet name") and hasAnyAncestor(isDialog())).performTextReplacement("Everyday wallet")
+			compose.onNodeWithText("Save").performClick()
+			compose.waitUntil(10_000) { compose.onAllNodes(isDialog()).fetchSemanticsNodes().isEmpty() }
+			waitFor("Everyday wallet")
+			back()
 			capture("02-wallet")
 			click("Send")
 			waitFor("Send XBT")
 			capture("03-send")
-			compose.onNodeWithContentDescription("Back").performClick()
+			back()
 			click("Receive")
 			click("Create address")
 			compose.waitUntil(30_000) {
@@ -132,7 +147,7 @@ class WalletScreensTest {
 			click("Ark")
 			compose.onNodeWithContentDescription("Receive QR code").assertDoesNotExist()
 			compose.onNodeWithText("Create address").assertIsNotEnabled()
-			compose.onNodeWithContentDescription("Back").performClick()
+			back()
 			compose.onNodeWithTag("tab-Lightning").performClick()
 			waitFor("Lightning through Ark")
 			capture("05-lightning")
@@ -141,7 +156,7 @@ class WalletScreensTest {
 			compose.onNodeWithText("Amount in sats").assertExists()
 			compose.onNodeWithText("Create invoice").assertIsNotEnabled()
 			capture("05-lightning-receive")
-			compose.onNodeWithContentDescription("Back").performClick()
+			back()
 			compose.onNodeWithTag("tab-Activity").performClick()
 			waitFor("No activity loaded")
 			capture("06-activity")
@@ -159,18 +174,23 @@ class WalletScreensTest {
 			scenario.recreate()
 			waitFor("Previous CoinJoin")
 			compose.onNodeWithTag("tab-Settings").assertIsSelected()
-			compose.onNodeWithContentDescription("Back").performClick()
+			back()
 			waitFor("JoinBlaket")
-			compose.onNodeWithContentDescription("Back").performClick()
+			back()
 			waitFor("Your wallet")
 			click("Wallets")
-			waitFor("Add or rename a wallet")
+			waitFor("Add a wallet")
 			capture("12-wallets")
-			compose.onNodeWithContentDescription("Back").performClick()
+			click("Krux / QR signer")
+			waitFor("Public descriptor or extended public key")
+			compose.onNodeWithText("12 or 24 recovery words").assertDoesNotExist()
+			compose.onNodeWithText("legacy").performScrollTo().assertIsDisplayed()
+			capture("12-qr-wallet")
+			back()
 			click("Alerts and maintenance")
 			waitFor("Payment status notifications")
 			capture("13-alerts")
-			compose.onNodeWithContentDescription("Back").performClick()
+			back()
 			click("Connection settings")
 			waitFor("Save and connect")
 			capture("08-connections")
@@ -184,7 +204,7 @@ class WalletScreensTest {
 			waitFor("Save and connect")
 			compose.onNodeWithText("Unsaved changes").assertExists()
 			compose.onNodeWithTag("tab-Settings").assertIsSelected()
-			compose.onNodeWithContentDescription("Back").performClick()
+			back()
 			click("Light")
 			compose.onNodeWithText("Your wallet").performScrollTo()
 			capture("09-settings-light")

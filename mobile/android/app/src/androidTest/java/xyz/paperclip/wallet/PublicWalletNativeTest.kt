@@ -37,6 +37,9 @@ class PublicWalletNativeTest {
 						"bc1p5cyxnuxmeuwuvkwfem96lqzszd02n6xdcjrs20cac6yqjjwudpxqkedrcr",
 					),
 				)
+			engine.create(engine.phrase(), "xbt-regtest", "Hot switching fixture")
+			val hot = checkNotNull(engine.activeID())
+			val hotAddresses = mutableSetOf(engine.call("address_onchain").getString("address"))
 			try {
 				for ((script, key, address) in fixtures) {
 					for (hardware in listOf(true, false)) {
@@ -56,6 +59,13 @@ class PublicWalletNativeTest {
 						assertFalse(public.has("phrase"))
 						assertFalse(public.has("identity"))
 						assertTrue(public.getString("descriptor").isNotBlank())
+						engine.select(hot)
+						assertEquals("xbt-regtest", engine.network())
+						assertTrue(hotAddresses.add(engine.call("address_onchain").getString("address")))
+						engine.select(id)
+						assertEquals("xbt-mainnet", engine.network())
+						assertEquals(if (hardware) "hardware" else "watch", engine.profiles().first { it.id == id }.kind)
+						assertNotEquals(address, engine.call("address_onchain").getString("address"))
 						engine.close()
 						engine.open()
 						assertEquals(0L, engine.call("overview_onchain").getLong("total_sat"))
@@ -77,6 +87,7 @@ class PublicWalletNativeTest {
 						true,
 					)
 				}
+				engine.removeWallet(hot, "Hot switching fixture", "REMOVE Hot switching fixture", true)
 				if (original != null && engine.profiles().any { it.id == original })
 					engine.select(original)
 			}

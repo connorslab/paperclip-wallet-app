@@ -6,10 +6,14 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import org.json.JSONObject
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun WalletPicker(s: WalletState, model: WalletModel, initialMode: String = "hot") {
 	var name by remember { mutableStateOf("") }
@@ -23,37 +27,48 @@ internal fun WalletPicker(s: WalletState, model: WalletModel, initialMode: Strin
 	var generating by remember { mutableStateOf(false) }
 	var verifying by remember { mutableStateOf(false) }
 	var confirmation by remember { mutableStateOf("") }
+	var renamed by remember { mutableStateOf<WalletProfile?>(null) }
+	var renameValue by remember { mutableStateOf("") }
 	var removal by remember { mutableStateOf<WalletProfile?>(null) }
 	var backupAcknowledged by remember { mutableStateOf(false) }
 	var scanning by remember { mutableStateOf(false) }
 	var collector by remember { mutableStateOf(SigningQrCollector()) }
 	val context = LocalContext.current
 	val activity = LocalActivity.current as? MainActivity
+	renamed?.let { profile ->
+		AlertDialog(
+			onDismissRequest = { renamed = null },
+			title = { Text("Rename wallet") },
+			text = { OutlinedTextField(renameValue, { renameValue = it }, label = { Text("Wallet name") }, singleLine = true) },
+			confirmButton = { TextButton(onClick = { model.renameWallet(profile.id, renameValue.trim()); renamed = null }, enabled = !s.busy && renameValue.trim().length in 1..60) { Text("Save") } },
+			dismissButton = { TextButton(onClick = { renamed = null }) { Text("Cancel") } },
+		)
+	}
 	DisposableEffect(model) { onDispose { model.clearPhrase() } }
 	Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
 		s.profiles.forEach { p ->
-			OutlinedButton(
-				onClick = { model.selectWallet(p.id) },
-				enabled = !s.busy && p.id != s.activeID,
-				modifier = Modifier.fillMaxWidth(),
-			) {
-				val kind = when (p.kind) { "hardware" -> "QR wallet · Keys offline"; "watch" -> "Watch-only wallet"; else -> "Mobile hot wallet" }
-				Text("${p.name} · $kind${if(p.id==s.activeID)" · selected" else ""}")
+			OutlinedCard(Modifier.fillMaxWidth()) {
+				TextButton(
+					onClick = { if (p.id != s.activeID) model.selectWallet(p.id) },
+					enabled = !s.busy,
+					modifier = Modifier.fillMaxWidth().heightIn(min = 64.dp).semantics { selected = p.id == s.activeID },
+				) {
+					Column(Modifier.weight(1f).padding(horizontal = 8.dp), horizontalAlignment = Alignment.Start) {
+						Text(p.name, style = MaterialTheme.typography.titleMedium)
+						val kind = when (p.kind) { "hardware" -> "QR wallet · Keys offline"; "watch" -> "Watch-only wallet"; else -> "Mobile hot wallet" }
+						Text(kind + if (p.network == "xbt-regtest") " · Regtest" else " · XBT", style = MaterialTheme.typography.bodySmall)
+					}
+					if (p.id == s.activeID) Text("Selected", style = MaterialTheme.typography.labelSmall)
+				}
+				Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+					TextButton(onClick = { renamed = p; renameValue = p.name }, enabled = !s.busy) { Text("Rename") }
+					TextButton(onClick = { removal = p; confirmation = ""; backupAcknowledged = false }, enabled = !s.busy) { Text("Remove", color = MaterialTheme.colorScheme.error) }
+				}
 			}
 			if (p.kind != "hot")
 				TextButton(onClick = { model.exportPublic(p.id) }, enabled = !s.busy) {
 					Text("Export ${p.name} public descriptor")
 				}
-			TextButton(
-				onClick = {
-					removal = p
-					confirmation = ""
-					backupAcknowledged = false
-				},
-				enabled = !s.busy,
-			) {
-				Text("Remove ${p.name} from device")
-			}
 		}
 		s.toolsResult
 			?.takeIf { it.has("descriptor") }
@@ -77,20 +92,14 @@ internal fun WalletPicker(s: WalletState, model: WalletModel, initialMode: Strin
 					Text("Share public export")
 				}
 			}
-		Text(if (s.hasWallet) "Add or rename a wallet" else "Connect a public wallet", style = MaterialTheme.typography.titleLarge)
+		Text(if (s.hasWallet) "Add a wallet" else "Connect a public wallet", style = MaterialTheme.typography.titleLarge)
 		OutlinedTextField(
 			name,
 			{ name = it },
 			label = { Text("Wallet name") },
 			modifier = Modifier.fillMaxWidth(),
 		)
-		if (s.hasWallet) TextButton(
-			onClick = { model.renameWallet(s.activeID, name) },
-			enabled = name.isNotBlank() && !s.busy,
-		) {
-			Text("Rename selected wallet")
-		}
-		Row {
+		FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
 			listOf("hot", "hardware", "watch").forEach { kind ->
 				FilterChip(
 					mode == kind,
@@ -98,7 +107,7 @@ internal fun WalletPicker(s: WalletState, model: WalletModel, initialMode: Strin
 						mode = kind
 						model.clearTools()
 					},
-					label = { Text(kind) },
+					label = { Text(when (kind) { "hardware" -> "Krux / QR signer"; "watch" -> "Watch-only"; else -> "Mobile wallet" }) },
 				)
 			}
 		}
@@ -206,7 +215,7 @@ internal fun WalletPicker(s: WalletState, model: WalletModel, initialMode: Strin
 				label = { Text("Key origin fingerprint/path") },
 				modifier = Modifier.fillMaxWidth(),
 			)
-			Row {
+			FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
 				listOf("segwit", "taproot", "nested", "legacy").forEach { kind ->
 					FilterChip(
 						script == kind,

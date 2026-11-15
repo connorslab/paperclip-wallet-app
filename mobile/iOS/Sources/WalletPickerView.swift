@@ -27,12 +27,15 @@ struct WalletPickerView: View {
                                 }
                                 Spacer()
                                 Image(systemName: store.walletID == profile.id ? "checkmark.circle.fill" : "chevron.right").foregroundStyle(PaperclipTheme.orange)
-                            }.frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
+                            }.frame(maxWidth: .infinity, minHeight: 64, alignment: .leading).contentShape(Rectangle())
                         }.buttonStyle(.plain)
+                            .accessibilityLabel(profile.name)
+                            .accessibilityValue((store.walletID == profile.id ? "Selected. " : "") + profile.kind.title)
+                            .accessibilityHint(store.walletID == profile.id ? "Current wallet" : "Switch to this wallet")
                         HStack {
-                            Button("Rename") { name = profile.name; renamed = profile }
+                            Button("Rename") { name = profile.name; renamed = profile }.frame(minHeight: 44)
                             Spacer()
-                            Button("Remove wallet", role: .destructive) { removing = profile }
+                            Button("Remove wallet", role: .destructive) { removing = profile }.frame(minHeight: 44)
                         }.font(.caption)
                     }
                 }
