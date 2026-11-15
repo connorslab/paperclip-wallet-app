@@ -86,6 +86,7 @@ struct JoinBlaketView: View {
                         Label("JoinBlaket", systemImage: "shuffle").font(.headline)
                         Text("Your CoinJoin wallet").font(.title.bold())
                         Text("Connect your Jam server to manage five separate jars and run a maker.").foregroundStyle(PaperclipTheme.muted)
+                        Link("Set up Kilombino JoinBlaket", destination: URL(string: "https://kilombino.com/joinblaket/")!)
                     }
                     connection
                 } else {
@@ -131,7 +132,7 @@ struct JoinBlaketView: View {
                                     ShareLink(item: address) { Label("Share address", systemImage: "square.and.arrow.up") }
                                 }
                             }
-                    }
+                        }
                     } secondary: {
                         WalletSection("Maker") {
                             Label(model.session?.maker_running == true ? "Running on your server" : "Not running", systemImage: model.session?.maker_running == true ? "checkmark.circle.fill" : "pause.circle")
@@ -141,13 +142,17 @@ struct JoinBlaketView: View {
                                 TextField("Your fee per CoinJoin (sats)", text: $makerFee).keyboardType(.numberPad)
                                 Text("Mining fee contribution: 0 sats. Earnings depend on being selected.").font(.caption).foregroundStyle(PaperclipTheme.muted)
                                 if !model.jars.contains(where: { $0.bond_sat > 0 }) {
-                                    Text("No fidelity bond found. JoinBlaket’s default taker policy selects bonded makers. Create or review a bond in Jam before starting.").font(.subheadline)
+                                    Text("Set up a fidelity bond in Jam. Bond funds stay locked until the date you choose; they are separate from the coins your maker offers.").font(.subheadline)
+                                    jamHandoff
+                                }
+                                if !model.jars.contains(where: { $0.confirmed_sat >= (UInt64(minimum) ?? UInt64.max) }) {
+                                    Text("Add funds to a jar and wait for confirmation. One jar needs enough available coins for your minimum CoinJoin.").font(.subheadline)
                                 }
                             }
                             if model.needsRefresh { Text("Refresh maker status before another action.").font(.subheadline) }
                             Button(model.session?.maker_running == true ? "Stop maker" : "Review maker setup") { confirmMaker = true }
-                                .disabled(model.previewOnly || model.needsRefresh || (model.session?.maker_running != true && !makerReady))
-                    }
+                            .disabled(model.previewOnly || model.needsRefresh || (model.session?.maker_running != true && !makerReady))
+                        }
                     }
                 }
                 if model.busy { ProgressView().frame(maxWidth: .infinity) }
@@ -195,6 +200,14 @@ struct JoinBlaketView: View {
                     model.perform { try await model.unlock(password: entered, passphrase: enteredPassphrase) }
                 }.modifier(GlassAction())
             }
+        }
+    }
+    @ViewBuilder private var jamHandoff: some View {
+        if let url = URL(string: model.connection.endpoint), url.scheme == "https", url.host?.hasSuffix(".onion") == false {
+            Link("Open Jam to set up your bond", destination: url)
+        } else if !model.connection.endpoint.isEmpty {
+            Text("Open your Jam address in a Tor browser, then refresh your jars here.").font(.caption).foregroundStyle(PaperclipTheme.muted)
+            ShareLink(item: model.connection.endpoint) { Label("Jam server address", systemImage: "square.and.arrow.up") }
         }
     }
 }

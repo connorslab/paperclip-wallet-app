@@ -34,7 +34,11 @@ enum Operation { Wallets, Unlock, Status, Coins, Address, StartMaker, StopMaker 
 
 async fn connection(State(state): State<Arc<ServerState>>) -> (StatusCode, Json<Value>) {
 	if state.auth_token().is_none() { return (StatusCode::FORBIDDEN, Json(json!({"message": "Configure wallet authentication first"}))); }
-	(StatusCode::OK, Json(json!({"configured": std::env::var("BARKD_JOINBLAKET_URL").is_ok()})))
+	let proxy = std::env::var("BARKD_JOINBLAKET_TOR_PROXY").ok();
+	let url = std::env::var("BARKD_JOINBLAKET_URL").ok().and_then(|value| endpoint(&value, proxy.as_deref()).ok());
+	let ui_url = url.as_ref().filter(|url| url.scheme() == "https" && !url.host_str().is_some_and(|host| host.ends_with(".onion")));
+	// Only expose a validated, credential-free HTTPS URL for browser handoff.
+	(StatusCode::OK, Json(json!({"configured": url.is_some(), "ui_url": ui_url.map(Url::as_str)})))
 }
 
 fn endpoint(text: &str, proxy: Option<&str>) -> anyhow::Result<Url> {

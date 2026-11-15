@@ -47,7 +47,7 @@
     const ready = values && jars.some(jar => jar.confirmed_sat >= values.minimum_sat) && jars.some(jar => jar.bond_sat > 0) &&
       session?.rescanning === false && session?.coinjoin_in_process === false;
     $('jam-maker-readiness').textContent = needsRefresh ? 'Refresh maker status before another action.' : running ? '' : !jars.some(jar => jar.bond_sat > 0)
-      ? 'No fidelity bond found. JoinBlaket’s default taker policy selects bonded makers. Create or review a bond in Jam before starting.'
+      ? 'Set up a fidelity bond in Jam. Bond funds stay locked until the date you choose; they are separate from the coins your maker offers.'
       : !ready ? 'Check your terms, confirmed jar funds, and Jam sync status.' : 'Review your terms before starting.';
     panel.querySelectorAll('button, input, select').forEach(control => { control.disabled = busy; });
     $('jam-maker').disabled = busy || needsRefresh || (!running && !ready);
@@ -72,6 +72,13 @@
     const config = await api('joinblaket/connection');
     if (identity !== token || ticket !== generation) return;
     if (!config.configured) throw new Error('Connect the JoinBlaket service in your wallet server settings first.');
+    const handoff = $('jam-open'); handoff.hidden = true; handoff.removeAttribute('href');
+    if (typeof config.ui_url === 'string') {
+      const url = new URL(config.ui_url);
+      if (url.protocol === 'https:' && !url.hostname.endsWith('.onion') && !url.username && !url.password && !url.search && !url.hash) {
+        handoff.href = url.href; handoff.hidden = false;
+      }
+    }
     const result = await call('wallets');
     if (!Array.isArray(result.wallets) || result.wallets.some(name => typeof name !== 'string')) throw new Error('Jam returned an invalid wallet list.');
     $('jam-wallet').replaceChildren();
@@ -107,6 +114,7 @@
   new MutationObserver(() => {
     if (!$('wallet').hidden) return;
     generation++; authorization = null; jars = []; session = null; selected = 0;
+    $('jam-open').hidden = true; $('jam-open').removeAttribute('href');
     $('jam-password').value = ''; $('jam-passphrase').value = ''; needsRefresh = false; $('jam-wallet').replaceChildren(); $('jam-unlock-fields').hidden = true;
     clearAddress(); render();
   }).observe($('wallet'), {attributes:true, attributeFilter:['hidden']});

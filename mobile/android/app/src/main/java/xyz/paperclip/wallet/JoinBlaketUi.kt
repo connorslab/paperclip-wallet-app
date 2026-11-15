@@ -12,6 +12,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.CancellationException
@@ -23,6 +24,7 @@ import org.json.JSONObject
 @Composable
 internal fun JoinBlaketPage(onLegacy: () -> Unit) {
 	val context = LocalContext.current
+	val uriHandler = LocalUriHandler.current
 	val scope = rememberCoroutineScope()
 	val unit = LocalBitcoinUnit.current
 	var endpoint by remember { mutableStateOf("") }
@@ -65,6 +67,7 @@ internal fun JoinBlaketPage(onLegacy: () -> Unit) {
 	Text("JoinBlaket", style = MaterialTheme.typography.headlineMedium)
 	if (session == null) {
 		Text("Connect your Jam server to manage five separate jars and run a maker.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+		TextButton(onClick = { uriHandler.openUri("https://kilombino.com/joinblaket/") }) { Text("Set up Kilombino JoinBlaket") }
 		OutlinedTextField(endpoint, { endpoint = it }, label = { Text("HTTPS or onion address") }, enabled = !busy, modifier = Modifier.fillMaxWidth())
 		OutlinedTextField(pin, { pin = it }, label = { Text("Certificate SHA256 (optional)") }, enabled = !busy, modifier = Modifier.fillMaxWidth())
 		Row { Text("Use Tor", Modifier.weight(1f)); Switch(tor, { tor = it }, enabled = !busy) }
@@ -138,7 +141,19 @@ internal fun JoinBlaketPage(onLegacy: () -> Unit) {
 			OutlinedTextField(minimum, { minimum = it }, label = { Text("Minimum CoinJoin (sats)") }, enabled = !busy, modifier = Modifier.fillMaxWidth())
 			OutlinedTextField(makerFee, { makerFee = it }, label = { Text("Your fee per CoinJoin (sats)") }, enabled = !busy, modifier = Modifier.fillMaxWidth())
 			Text("Mining fee contribution: 0 sats. Earnings depend on being selected.")
-			if (!hasBond) Text("No fidelity bond found. JoinBlaket’s default taker policy selects bonded makers. Create or review a bond in Jam before starting.")
+			if (!hasBond) {
+				Text("Set up a fidelity bond in Jam. Bond funds stay locked until the date you choose; they are separate from the coins your maker offers.")
+				val server = runCatching { java.net.URI(endpoint.trim()) }.getOrNull()
+				if (server?.scheme == "https" && server.host?.endsWith(".onion") == false) {
+					TextButton(onClick = { uriHandler.openUri(server.toString()) }) { Text("Open Jam to set up your bond") }
+				} else {
+					Text("Open your Jam address in a Tor browser, then refresh your jars here.")
+					SelectionContainer { Text(endpoint) }
+				}
+			}
+			if (minimumValue == null || jars.none { it.getLong("confirmed_sat") >= minimumValue }) {
+				Text("Add funds to a jar and wait for confirmation. One jar needs enough available coins for your minimum CoinJoin.")
+			}
 		}
 		if (needsRefresh) Text("Refresh maker status before another action.")
 		Button(enabled = !busy && !needsRefresh && (running || ready), onClick = { confirmMaker = true }) { Text(if (running) "Stop maker" else "Review maker setup") }

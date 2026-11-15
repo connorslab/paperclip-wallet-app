@@ -436,3 +436,15 @@ fn kilojoin_taproot_digest_matches_native_unified_engine() {
 	assert_eq!(bytes(&sig).unwrap().len(), 65);
 	p.verify(&seats[0].coin.name(), &sig).unwrap();
 }
+
+#[tokio::test]
+async fn retired_round_creation_does_not_open_or_change_wallet() {
+	let dir = std::env::temp_dir().join(format!("coinjoin-retired-{}", hex(&crypto::random(8))));
+	std::fs::create_dir(&dir).unwrap();
+	for op in ["coinjoin_create", "coinjoin_join"] {
+		let result = dispatch(&dir, [7; 64], Network::Bitcoin, None, None, &json!({"op": op})).await;
+		assert!(result.unwrap_err().to_string().contains("New CoinJoin rounds use JoinBlaket"));
+		assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 0);
+	}
+	std::fs::remove_dir(dir).unwrap();
+}

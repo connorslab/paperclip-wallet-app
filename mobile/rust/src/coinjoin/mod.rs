@@ -275,6 +275,10 @@ pub async fn dispatch(
 		"Kilojoin relay pools are enabled only for XBT mainnet"
 	);
 	let op = text(request, "op")?;
+	ensure!(
+		!matches!(op, "coinjoin_create" | "coinjoin_join"),
+		"New CoinJoin rounds use JoinBlaket. Previous Kilojoin funds and round recovery remain available."
+	);
 	if op == "coinjoin_pool" {
 		let e: Event = serde_json::from_value(request["event"].clone())?;
 		let t = Terms::event(&e)?;

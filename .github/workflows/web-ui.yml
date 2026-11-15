@@ -1,6 +1,9 @@
 name: Wallet browser regression checks
 on:
   workflow_dispatch:
+  push:
+    branches: ['codex/cross-platform-parity']
+    paths: ['web/**', 'scripts/test-*.mjs', 'scripts/test-*.cjs', '.github/workflows/web-ui.yml']
   pull_request:
     paths: ['web/**', 'scripts/test-*.mjs', 'scripts/test-*.cjs', 'bark-rest/src/api/v1/joinblaket.rs', '.github/workflows/web-ui.yml']
 permissions:

@@ -17,7 +17,7 @@ const fs=require('node:fs'),path=require('node:path'),assert=require('node:asser
      if(p==='wallet/balance') value={spendable_sat:0};
      if(p==='onchain/balance') value={confirmed_sat:0};
      if(p==='wallet/vtxos') value=[];
-     if(p==='joinblaket/connection') value={configured:true};
+     if(p==='joinblaket/connection') value={configured:true,ui_url:'https://jam.example.test/'};
      if(p==='joinblaket/request') {
       const body=route.request().postDataJSON(); actions.push(body.operation);
       assert.equal(route.request().method(),'POST');
@@ -41,6 +41,7 @@ const fs=require('node:fs'),path=require('node:path'),assert=require('node:asser
    await page.locator('.view-nav [data-view="settings"]').click();
    await page.locator('[data-view="coinjoin"]').click();
    await page.locator('#jam-find').click();
+   await page.waitForFunction(()=>document.querySelector('#jam-open').getAttribute('href')==='https://jam.example.test/');
    await page.locator('#jam-password').fill('fixture-password');
    await page.locator('#jam-unlock-fields summary').click();
    await page.locator('#jam-passphrase').fill('fixture-passphrase');
@@ -71,6 +72,8 @@ const fs=require('node:fs'),path=require('node:path'),assert=require('node:asser
    assert.equal(actions.filter(action=>action==='start_maker').length,1);
    assert(await page.locator('#jam-maker').isDisabled(),'Unknown maker outcome requires refresh');
    assert.match(await page.locator('#jam-maker-readiness').textContent(),/Refresh maker status/);
+   await page.locator('#lock').click();
+   await page.waitForFunction(()=>document.querySelector('#jam-open').getAttribute('href')===null);
    await page.close();
   }
   console.log('PASS Jar browser: phone/desktop, five jars, correct receive account, password clearing, maker eligibility, no automatic mutation, no overflow/errors');
