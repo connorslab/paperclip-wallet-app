@@ -1,6 +1,8 @@
 package xyz.paperclip.wallet
 
 import androidx.compose.foundation.layout.*
+import androidx.activity.compose.BackHandler
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
@@ -17,7 +19,7 @@ internal fun NodeLightning(model: LightningModel, initialPage: String = "balance
 	val unit = LocalBitcoinUnit.current
 	val s by model.state.collectAsStateWithLifecycle()
 	val torStatus by EmbeddedTor.status.collectAsStateWithLifecycle()
-	var page by remember { mutableStateOf(initialPage) }
+	var page by rememberSaveable { mutableStateOf(initialPage) }
 	var endpoint by remember(s.connection) { mutableStateOf(s.connection.endpoint) }
 	var credential by remember(s.connection) { mutableStateOf(s.connection.credential) }
 	var pin by remember(s.connection) { mutableStateOf(s.connection.pin) }
@@ -49,6 +51,7 @@ internal fun NodeLightning(model: LightningModel, initialPage: String = "balance
 		model.clearReview()
 		page = p
 	}
+	BackHandler(page != "balance") { if (!s.busy) navigate("balance") }
 	if (s.connection.endpoint.isNotBlank() || s.busy) {
 		HingeSafeContent {
 		Card(

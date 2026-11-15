@@ -37,7 +37,8 @@ internal fun WalletPicker(s: WalletState, model: WalletModel, initialMode: Strin
 				enabled = !s.busy && p.id != s.activeID,
 				modifier = Modifier.fillMaxWidth(),
 			) {
-				Text("${p.name} · ${p.kind}${if(p.id==s.activeID)" · selected" else ""}")
+				val kind = when (p.kind) { "hardware" -> "QR wallet · Keys offline"; "watch" -> "Watch-only wallet"; else -> "Mobile hot wallet" }
+				Text("${p.name} · $kind${if(p.id==s.activeID)" · selected" else ""}")
 			}
 			if (p.kind != "hot")
 				TextButton(onClick = { model.exportPublic(p.id) }, enabled = !s.busy) {

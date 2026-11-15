@@ -140,13 +140,13 @@ struct WalletNavigationRow: View {
             Image(systemName: icon).font(.title3).foregroundStyle(PaperclipTheme.orange)
                 .frame(width: 40, height: 40).background(PaperclipTheme.orange.opacity(0.09), in: RoundedRectangle(cornerRadius: 12)).accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 4) {
-                Text(title).fontWeight(.medium).foregroundStyle(.primary)
+                Text(title).fontWeight(.medium).foregroundStyle(.primary).fixedSize(horizontal: false, vertical: true)
                 Text(subtitle).font(.caption).foregroundStyle(PaperclipTheme.muted)
                     .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 4)
-            Image(systemName: "chevron.right").font(.caption.bold()).foregroundStyle(PaperclipTheme.muted)
-        }.padding(.vertical, 4).contentShape(Rectangle())
+            Image(systemName: "chevron.right").font(.caption.bold()).foregroundStyle(PaperclipTheme.muted).accessibilityHidden(true)
+        }.padding(.vertical, 4).frame(minHeight: 44).contentShape(Rectangle()).accessibilityElement(children: .combine)
     }
 }
 

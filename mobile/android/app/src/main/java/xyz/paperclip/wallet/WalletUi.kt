@@ -29,6 +29,8 @@ import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.listSaver
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
@@ -138,19 +140,42 @@ internal fun PaperclipApp(
 				}
 				return@MaterialTheme
 			}
-			var route by rememberSaveable { mutableStateOf("Wallet") }
-			var tab by rememberSaveable { mutableStateOf("Wallet") }
+			var navigation by rememberSaveable(stateSaver = listSaver(
+				save = { it.saved() }, restore = { WalletNavigation.restore(it) },
+			)) { mutableStateOf(WalletNavigation()) }
+			val route = navigation.route
+			val tab = navigation.tab
+			val screenStates = rememberSaveableStateHolder()
+			// Connection drafts can contain credentials: retain in memory, never in saved instance state.
+			val connectionDraft = remember(s.activeID, s.connection) { mutableStateOf(s.connection) }
+			var navigationDirection by remember { mutableIntStateOf(0) }
+			var navigationWalletID by rememberSaveable { mutableStateOf(s.activeID) }
+			LaunchedEffect(s.activeID, s.loaded, s.hasWallet) {
+				if (s.loaded && s.hasWallet && navigationWalletID != s.activeID) {
+					navigation = navigation.resetPaths()
+					navigationWalletID = s.activeID
+				}
+			}
 			var receiveMethod by rememberSaveable { mutableStateOf("On-chain") }
 			val focus = LocalFocusManager.current
-			val scroll = remember(route, s.hasWallet) { ScrollState(0) }
+			val scrollPositions = remember(s.activeID) { mutableMapOf<String, ScrollState>() }
+			val scroll = scrollPositions.getOrPut("$tab:$route") { ScrollState(0) }
 			fun navigate(next: String) {
+				navigationDirection = if (next in WalletNavigation.tabs) { if (next == tab && navigation.canGoBack) -1 else 0 } else 1
 				focus.clearFocus()
 				model.cancelReview()
 				model.clearReceive()
-				receiveMethod = if (next == "Receive Lightning") "Lightning" else "On-chain"
-				route = if (next == "Receive Lightning") "Receive" else next
+				if (next == "Receive" || next == "Receive Lightning") receiveMethod = if (next == "Receive Lightning") "Lightning" else "On-chain"
+				navigation = navigation.open(if (next == "Receive Lightning") "Receive" else next)
 			}
-			BackHandler(route != tab && !s.busy) { navigate(tab) }
+			fun goBack() {
+				navigationDirection = -1
+				focus.clearFocus()
+				model.cancelReview()
+				model.clearReceive()
+				navigation = navigation.back()
+			}
+			BackHandler(navigation.canGoBack) { if (!s.busy) goBack() }
 			FoldAwareFrame(allowColumns = !s.hasWallet || route in setOf("Wallet", "Settings", "Lightning")) {
 			Scaffold(
 				containerColor = colors.background,
@@ -170,10 +195,9 @@ internal fun PaperclipApp(
 										selected = tab == label,
 										enabled = !s.busy,
 										onClick = {
-											tab = label
 											navigate(label)
 										},
-										icon = { Icon(icon, label) },
+										icon = { Icon(icon, null) },
 										label = { Text(label) },
 									)
 								}
@@ -229,24 +253,18 @@ internal fun PaperclipApp(
 									}
 							} else
 								Row(verticalAlignment = Alignment.CenterVertically) {
-									IconButton(onClick = { navigate(tab) }, enabled = !s.busy) {
+									IconButton(onClick = { goBack() }, enabled = !s.busy) {
 										Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
 									}
-									Text(route, style = MaterialTheme.typography.headlineSmall)
+									Text(when (route) { "Coinjoin" -> "CoinJoin"; "Previous Coinjoin" -> "Previous CoinJoin"; else -> route }, style = MaterialTheme.typography.headlineSmall)
 								}
 							s.error?.let {
 								CardBlock("Needs attention") { Text(it, color = colors.error) }
 							}
 							AnimatedContent(
-								targetState = route,
+								targetState = tab to route,
 								transitionSpec = {
-									val tabs = setOf("Wallet", "Lightning", "Activity", "Settings")
-									val direction =
-										when {
-											targetState !in tabs -> 1
-											initialState !in tabs -> -1
-											else -> 0
-										}
+									val direction = navigationDirection
 									(fadeIn(tween(180)) +
 										slideInHorizontally(tween(220)) {
 											it / 12 * direction
@@ -257,7 +275,9 @@ internal fun PaperclipApp(
 											})
 								},
 								label = "navigation",
-							) { page ->
+							) { destination ->
+								val page = destination.second
+								screenStates.SaveableStateProvider("${s.activeID}:${destination.first}:$page") {
 								Column(verticalArrangement = Arrangement.spacedBy(20.dp)) {
 									when (page) {
 										"Wallet" -> Dashboard(s, model, ::navigate)
@@ -308,7 +328,7 @@ internal fun PaperclipApp(
 												}
 											if (walletKind == "hot")
 												NavCard(
-													"Coinjoin",
+													"CoinJoin",
 													"JoinBlaket jars & maker",
 													Icons.Default.Shuffle,
 												) {
@@ -467,10 +487,11 @@ internal fun PaperclipApp(
 										"Wallets" -> WalletPicker(s, model)
 										"Message signing" -> MessageSigning(s, model)
 										"On-chain tools" -> OnchainTools(s, model)
-										"Connections" -> Connections(s, model)
+										"Connections" -> Connections(s, model, connectionDraft)
 										"Backup" -> Backup(s, model)
 										"Emergency exit" -> EmergencyExit(s, model)
 									}
+								}
 								}
 							}
 						}
@@ -625,7 +646,18 @@ private fun Field(
 @Composable
 private fun Dashboard(s: WalletState, model: WalletModel, navigate: (String) -> Unit) {
 	var hidden by rememberSaveable { mutableStateOf(false) }
-	val kind = s.profiles.firstOrNull { it.id == s.activeID }?.kind ?: "hot"
+	val profile = s.profiles.firstOrNull { it.id == s.activeID }
+	val kind = profile?.kind ?: "hot"
+	profile?.let {
+		OutlinedButton(onClick = { navigate("Wallets") }, enabled = !s.busy, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("wallet-switcher")) {
+			Icon(Icons.Default.AccountBalanceWallet, null)
+			Column(Modifier.weight(1f).padding(horizontal = 12.dp), horizontalAlignment = Alignment.Start) {
+				Text(it.name, style = MaterialTheme.typography.titleMedium)
+				Text(when (kind) { "hardware" -> "QR wallet · Keys offline"; "watch" -> "Watch-only wallet"; else -> "Mobile hot wallet" }, style = MaterialTheme.typography.labelMedium)
+			}
+			Icon(Icons.Default.ExpandMore, "Switch wallet")
+		}
+	}
 	Row(verticalAlignment = Alignment.CenterVertically) {
 		Icon(
 			Icons.Default.Circle,
@@ -1325,8 +1357,8 @@ private fun Activity(s: WalletState, model: WalletModel) {
 }
 
 @Composable
-private fun Connections(s: WalletState, model: WalletModel) {
-	var c by remember(s.connection) { mutableStateOf(s.connection) }
+private fun Connections(s: WalletState, model: WalletModel, draft: MutableState<Connection>) {
+	var c by draft
 	CardBlock("Connection settings") {
 		Row(
 			verticalAlignment = Alignment.CenterVertically,

@@ -123,9 +123,14 @@ struct DashboardView: View {
                 if let profile = store.selectedProfile {
                     NavigationLink { WalletPickerView() } label: {
                         HStack {
-                            Label(profile.name, systemImage: "wallet.bifold").font(.headline)
-                            Image(systemName: "chevron.down").font(.caption.weight(.semibold))
-                        }.foregroundStyle(.primary)
+                            VStack(alignment: .leading, spacing: 4) {
+                                Label(profile.name, systemImage: profile.kind.icon).font(.headline)
+                                Text(profile.kind == .hardware ? "QR wallet · Keys offline" : profile.kind.title)
+                                    .font(.caption).foregroundStyle(PaperclipTheme.muted)
+                            }
+                            Spacer()
+                            Image(systemName: "chevron.down").font(.caption.weight(.semibold)).accessibilityHidden(true)
+                        }.frame(maxWidth: .infinity, minHeight: 44, alignment: .leading).contentShape(Rectangle()).foregroundStyle(.primary)
                     }.buttonStyle(.plain).accessibilityLabel("Active wallet: \(profile.name). Switch wallet")
                 }
                 HStack {
@@ -136,7 +141,7 @@ struct DashboardView: View {
                     }.font(.caption2).tracking(2)
                         .accessibilityLabel("\(store.network == "xbt-mainnet" ? "XBT mainnet" : "Regtest"). \(store.chainConnectionDescription)")
                     Spacer()
-                    Button { hideBalance.toggle() } label: { Image(systemName: hideBalance ? "eye.slash" : "eye") }.accessibilityLabel("Toggle balance visibility")
+                    Button { hideBalance.toggle() } label: { Image(systemName: hideBalance ? "eye.slash" : "eye").frame(width: 44, height: 44).contentShape(Rectangle()) }.accessibilityLabel("Toggle balance visibility").accessibilityValue(hideBalance ? "Hidden" : "Visible")
                 }.foregroundStyle(PaperclipTheme.muted)
                 WalletColumns {
                 WalletCard {

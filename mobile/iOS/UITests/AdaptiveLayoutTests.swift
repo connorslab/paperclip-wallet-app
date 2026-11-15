@@ -2,6 +2,35 @@ import XCTest
 
 /// Synthetic fixtures only: no wallet credentials, synchronization or payments.
 final class AdaptiveLayoutTests: XCTestCase {
+	func testTabSelectionAndNestedBackRemainStable() {
+		continueAfterFailure = false
+		XCUIDevice.shared.orientation = .portrait
+		defer { XCUIDevice.shared.orientation = .portrait }
+		let app = XCUIApplication()
+		app.launchArguments = ["-build61-preview", "-wallet-shell-preview", "-appearance", "dark"]
+		app.launch()
+		let settings = app.tabBars.buttons["Settings"]
+		XCTAssertTrue(settings.waitForExistence(timeout: 15))
+		settings.tap()
+		XCTAssertTrue(settings.isSelected)
+		let security = app.buttons["settings-security"]
+		for _ in 0..<6 { if security.isHittable { break }; app.swipeUp() }
+		XCTAssertTrue(security.isHittable)
+		security.tap()
+		XCTAssertTrue(app.navigationBars["Wallet security"].waitForExistence(timeout: 10))
+		app.tabBars.buttons["Wallet"].tap()
+		XCTAssertTrue(app.tabBars.buttons["Wallet"].isSelected)
+		XCTAssertTrue(app.staticTexts["Your Keys. Your Bitcoin."].waitForExistence(timeout: 10))
+		settings.tap()
+		XCTAssertTrue(app.navigationBars["Wallet security"].waitForExistence(timeout: 10))
+		XCUIDevice.shared.orientation = .landscapeLeft
+		XCTAssertTrue(settings.isSelected)
+		app.navigationBars["Wallet security"].buttons.firstMatch.tap()
+		XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 10))
+		XCTAssertTrue(settings.isSelected)
+		capture(app, "Settings navigation wide")
+	}
+
 	func testDashboardReflowsWithoutLosingBalanceVisibility() {
 		continueAfterFailure = false
 		XCUIDevice.shared.orientation = .portrait
