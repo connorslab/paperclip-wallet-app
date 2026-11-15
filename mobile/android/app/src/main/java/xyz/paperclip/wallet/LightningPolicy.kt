@@ -65,8 +65,12 @@ data class NodeConnection(
 		) {
 			"LND requires a hexadecimal macaroon"
 		}
-		require(pin.isEmpty() || pin.matches(Regex("[0-9a-fA-F]{64}"))) {
-			"Certificate SHA256 must contain 64 hexadecimal characters"
+		require(implementation != "cln" || credential.matches(Regex("[A-Za-z0-9_=-]+"))) {
+			"Paste only the base64url rune from Core Lightning, without a connection URL, quotes, or other characters"
+		}
+		val fingerprints = pin.split(',').map(String::trim)
+		require(pin.isEmpty() || (fingerprints.size in 1..4 && fingerprints.all { it.matches(Regex("[0-9a-fA-F]{64}")) })) {
+			"Enter up to four SHA256 fingerprints, each 64 hexadecimal characters, separated by commas"
 		}
 		if (proxy.isNotBlank() && proxy != "builtin") {
 			val p = URI(proxy)

@@ -6,6 +6,17 @@ import org.junit.Test
 
 class NodeNetworkTest {
 	@Test
+	fun malformedRunesFailBeforeNetworkAccess() {
+		val c = NodeConnection(implementation = "cln", endpoint = "https://node.invalid", credential = "test-rune_01==", proxy = "")
+		c.validate()
+		c.copy(pin = "a".repeat(64) + ", " + "B".repeat(64)).validate()
+		for (badPin in listOf(",", "a".repeat(64) + ",", List(5) { "a".repeat(64) }.joinToString(",")))
+			assertThrows(IllegalArgumentException::class.java) { c.copy(pin = badPin).validate() }
+		for (bad in listOf("rune%2Bescaped", "\"rune\"", "clnrest://node?rune=value", "rune.with.punctuation", "rune value"))
+			assertThrows(IllegalArgumentException::class.java) { c.copy(credential = bad).validate() }
+	}
+
+	@Test
 	fun networksMatchIosAndDoNotDefaultUnknownNodesToMainnet() {
 		assertEquals(
 			NodeNetwork.MAINNET,

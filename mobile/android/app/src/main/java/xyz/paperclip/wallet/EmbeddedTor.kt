@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
 import android.os.IBinder
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.TimeoutCancellationException
@@ -104,7 +105,10 @@ internal object EmbeddedTor {
 				bound = false
 				service = null
 			}
-			progress.value = "Tor failed while $stage. Retry to start a fresh connection."
+			progress.value =
+				if (failure is CancellationException && failure !is TimeoutCancellationException)
+					"Tor connection cancelled. Retry when ready."
+				else "Tor failed while $stage. Retry to start a fresh connection."
 			if (failure is TimeoutCancellationException)
 				throw IllegalStateException(
 					"Tor timed out while $stage. Check your connection and automatic date/time, then retry. No direct connection was attempted.",

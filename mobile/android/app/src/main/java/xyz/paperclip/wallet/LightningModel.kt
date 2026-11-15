@@ -103,6 +103,14 @@ class LightningModel(app: Application) : AndroidViewModel(app) {
 		connectStored(c, persist = true)
 	}
 
+	private fun connectionFailure(error: Exception, c: NodeConnection): String = when (error) {
+		is java.io.InterruptedIOException ->
+			if (c.proxy.isNotEmpty()) "The node did not respond through Tor. Check its REST address, port, and availability over Tor. Your saved settings have been kept."
+			else "The node did not respond. Check its REST address and port, and that this device can reach your node’s network. Your saved settings have been kept."
+		is java.net.UnknownHostException -> "The node address could not be resolved. Check the hostname and network; .onion addresses require Tor."
+		else -> error.message ?: "Node request failed"
+	}
+
 	private suspend fun connectStored(c: NodeConnection, persist: Boolean = false) {
 		change { it.copy(connecting = true) }
 		try {
@@ -114,7 +122,7 @@ class LightningModel(app: Application) : AndroidViewModel(app) {
 			change {
 				it.copy(connectionStatus = "Connection needs attention", balanceStale = it.balance != null)
 			}
-			throw e
+			throw IllegalStateException(connectionFailure(e, c), e)
 		} finally { change { it.copy(connecting = false) } }
 	}
 
@@ -173,8 +181,9 @@ class LightningModel(app: Application) : AndroidViewModel(app) {
 			}
 		} catch (e: CancellationException) { throw e }
 		catch (e: Exception) {
-			change { it.copy(balanceStale = it.balance != null, connectionStatus = "Connection needs attention") }
-			throw e
+			val message = connectionFailure(e, mutable.value.connection)
+			change { it.copy(balanceStale = it.balance != null, connectionStatus = "Connection needs attention", message = message) }
+			throw IllegalStateException(message, e)
 		}
 	}
 

@@ -85,6 +85,8 @@ internal fun NodeLightning(model: LightningModel) {
 						endpoint,
 						{ endpoint = it },
 						label = { Text("REST endpoint · HTTPS or Tor onion") },
+						placeholder = { Text(if (implementation == "cln") "https://your-node:3010" else "https://your-node:8180") },
+						supportingText = { Text("StartOS, RTL, and the node dashboard can have different addresses. Use the node’s REST endpoint.") },
 						modifier = Modifier.fillMaxWidth(),
 						enabled = editable,
 					)
@@ -92,6 +94,7 @@ internal fun NodeLightning(model: LightningModel) {
 						credential,
 						{ credential = it },
 						label = { Text(if (implementation == "lnd") "Macaroon (hex)" else "Rune") },
+						supportingText = { Text(if (implementation == "cln") "Paste the rune itself, without a connection URL or quotes." else "Read-only credentials can show balances. Sending and receiving require additional permissions.") },
 						visualTransformation = PasswordVisualTransformation(),
 						modifier = Modifier.fillMaxWidth(),
 						enabled = editable,
@@ -99,8 +102,8 @@ internal fun NodeLightning(model: LightningModel) {
 					OutlinedTextField(
 						pin,
 						{ pin = it },
-						label = { Text("Certificate SHA256 · optional") },
-						supportingText = { Text("Use the leaf certificate fingerprint from a trusted source. Otherwise HTTPS uses system trust.") },
+						label = { Text("Certificate fingerprints · optional") },
+						supportingText = { Text("Use leaf SHA256 fingerprints from a trusted source. StartOS may serve more than one certificate; separate verified fingerprints with commas. One must match exactly. Leave empty for system HTTPS trust.") },
 						modifier = Modifier.fillMaxWidth(),
 						enabled = editable,
 					)

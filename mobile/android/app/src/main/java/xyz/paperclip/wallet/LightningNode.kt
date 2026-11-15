@@ -78,11 +78,11 @@ internal constructor(val connection: NodeConnection, private val client: OkHttpC
 					},
 			)
 			if (c.pin.isNotBlank()) {
-				val pin = c.pin.lowercase()
+				val pins = c.pin.lowercase().split(',').map(String::trim).toSet()
 				fun matches(cert: X509Certificate) =
 					MessageDigest.getInstance("SHA-256").digest(cert.encoded).joinToString("") {
 						"%02x".format(it)
-					} == pin
+					} in pins
 				val trust =
 					object : X509TrustManager {
 						override fun getAcceptedIssuers(): Array<X509Certificate> = emptyArray()
@@ -100,7 +100,7 @@ internal constructor(val connection: NodeConnection, private val client: OkHttpC
 						) {
 							if (chain.isEmpty() || !matches(chain[0]))
 								throw CertificateException(
-									"The node TLS certificate does not match the saved SHA256 fingerprint",
+									"The node TLS certificate does not match any saved SHA256 fingerprint",
 								)
 						}
 					}
@@ -161,10 +161,16 @@ internal constructor(val connection: NodeConnection, private val client: OkHttpC
 
 	private fun parseResponse(response: Response, path: String, stream: Boolean): JSONObject {
 				require(response.code !in 300..399) { "Node redirects are refused" }
-				if (response.code == 401 || response.code == 403)
-					error("Node authorization failed. Check the imported credential's permissions.")
+				if (response.code == 401) {
+					val credential = if (lnd) "LND macaroon" else "Core Lightning rune"
+					error("The node rejected the $credential (HTTP 401). Copy a valid credential from this node’s settings and verify again.")
+				}
+				if (response.code == 403)
+					error("This credential does not permit the requested node operation (HTTP 403). Check its permissions in your node settings.")
 				if (path.startsWith("v2/offers") && response.code in listOf(404, 501))
 					error("This node does not expose XBT LND's BOLT12 offers API")
+				if (response.code == 404)
+					error("This REST method was not found (HTTP 404). Check the node software, REST address, and port; the dashboard address may be different.")
 				require(response.isSuccessful) {
 					"Node request failed (HTTP ${response.code}). Payment outcomes must be checked before retrying."
 				}

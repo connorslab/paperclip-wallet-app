@@ -189,3 +189,22 @@ tracking remains independent of whether the balance query has permission.
 request cancellation. `LightningTransportTest` checks a local HTTPS server with
 matching/mismatched certificate pins and no direct fallback for Tor. These are
 synthetic/local checks; they do not claim live CLN/LND validation on Android.
+
+## Optional live node verification
+
+`NodeLiveTest` uses the real Kotlin/OkHttp adapter for read-only LAN `getinfo`
+and channel reads, verifies the expected node identity, rejects an incorrect
+certificate pin, and checks recovery. It is skipped unless
+`PAPERCLIP_LIVE_CONFIG` names a protected local JSON input. Input format matches
+the iOS simulator probe: `cases` containing `label`, `expectedIdentity`, and
+`connection` (`implementation`, `endpoint`, `credential`, `certificateSHA256`,
+`useTor`, `torProxy`). It does not test Android embedded Tor or a handset.
+Never commit this input or print credentials; remove temporary copies afterward.
+
+Both adapters accept up to four explicitly trusted SHA256 leaf fingerprints,
+separated by commas. This accommodates servers such as StartOS that negotiate
+different certificate algorithms with different clients. Every supplied pin
+must come from a trusted source; a mismatch never adds a new pin automatically.
+Malformed CLN rune characters fail before a request. Authentication errors,
+permission errors, missing REST methods and connection timeouts have distinct
+user-facing guidance. Cancelling Android Tor startup is labelled as cancellation.
