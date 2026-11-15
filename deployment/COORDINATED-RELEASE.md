@@ -53,12 +53,12 @@ does not establish parity. Native UI and background scheduling can differ.
 | Ark payments and recovery | Shared engine, durable payment status, cost review | Shared engine, cost review, status UI | Deploy cookie-rotation fix, verify failed receive recovery and both-direction settlement |
 | Lightning through Ark | Shared BOLT11/BOLT12 engine and enforced reviewed debit | Same engine, fixed-amount review and debit capability | Verify live against corrected service; keep unknown outcomes from being resent |
 | Remote CLN and XBT LND | Both adapters, Tor, TLS, BOLT12, balances and status | Direct-node UI and credential storage still missing | Complete server adapter and UI; verify on each platform |
-| Multiple / hardware / watch-only wallets | Implemented in mobile candidate | Browser flows still missing | Equivalent public-only handling, signing review and full recovery |
+| Multiple / hardware / watch-only wallets | Implemented in mobile candidate, visible wallet switcher | Hot-wallet/QR-account switcher, public pairing, verified signing and durable broadcast journal | Physical Krux round trips, desktop multiple hot/watch-only profiles, QR-funded Ark boarding and full recovery |
 | Paperclip Bridge | Both mobile directions implemented | Browser flows still missing | Matching quote validation and durable reconciliation; live swap not verified |
 | JoinBlaket / Jam | Five jars, remote session, receive, reviewed maker controls | Same tasks through authenticated fixed-upstream proxy | Actual Kilombino XBT Jam endpoint, live validation, bond setup and taker flows |
 | Existing Kilojoin funds | Recovery UI retained; new rounds rejected before database access | No new Kilojoin entry point | Verify existing-round completion and withdrawal on upgraded wallets |
 | Backups / upgrades | Encrypted full backups and scoped mobile wallet state | Complete volume backups | Restore tests, update migrations and desktop backup UX |
-| UI and accessibility | Phone / Duo / foldable adaptive layout | Responsive browser candidate | Device layouts, large text, screen reader, reduced motion, first launch and lock/unlock without blank screens |
+| UI and accessibility | Phone / Duo / foldable adaptive layout, nested tab histories | Four primary menus, browser history/focus, responsive account switcher | Physical-device and screen-reader checks; see UI-UX-VALIDATION.md for local simulator/emulator/browser evidence |
 | Distribution | Apple build 70 remains existing release; Android development builds | Existing packages predate current fixes | Signed candidates, store eligibility, clean-install and update tests |
 
 ## Live verification and budget
