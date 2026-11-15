@@ -77,6 +77,10 @@ class WalletEngine private constructor(context: Context) {
 	private suspend fun <T> serial(work: () -> T): T =
 		withContext(Dispatchers.IO) { mutex.withLock { work() } }
 
+	internal suspend fun joinBlaketJars(response: JSONObject): JSONObject = serial {
+		invoke("joinblaket_jars", JSONObject().put("utxos", response.getJSONArray("utxos")), ByteArray(64))
+	}
+
 	private fun readJSON(name: String): JSONObject? =
 		vault.read(name)?.let { bytes ->
 			try {

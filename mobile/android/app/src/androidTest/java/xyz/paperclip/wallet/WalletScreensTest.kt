@@ -146,6 +146,8 @@ class WalletScreensTest {
 			waitFor("Your wallet")
 			capture("07-settings-dark")
 			click("Coinjoin")
+			waitFor("JoinBlaket")
+			click("Previous Kilojoin funds and round recovery")
 			waitFor("Experimental Coinjoin")
 			capture("11-coinjoin")
 			compose.onNodeWithContentDescription("Back").performClick()

@@ -446,6 +446,11 @@ actor NativeWallet: WalletEngine, WalletBackupEngine {
         guard let entries = result["addresses"] as? [[String: Any]] else { throw WalletFailure(message: "Invalid address list.") }
         return (entries, result["has_more"] as? Bool ?? false)
     }
+    func joinBlaketJars(_ response: Data) async throws -> [String: Any] {
+        guard let body = try JSONSerialization.jsonObject(with: response) as? [String: Any],
+              let coins = body["utxos"] as? [[String: Any]] else { throw JoinBlaketError.invalidResponse }
+        return try await call(["op": "joinblaket_jars", "utxos": coins], seed: Data(repeating: 0, count: 64))
+    }
     func coinjoin(_ op: String, walletID: String, fields: [String: Any] = [:]) async throws -> [String: Any] {
         try beginOperation(); defer { operations -= 1 }
         guard try loadedCatalog().selected?.id == walletID, try loadedCatalog().selected?.kind == .hot else {

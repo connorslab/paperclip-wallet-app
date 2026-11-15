@@ -11,7 +11,9 @@ struct Build61Preview: View {
                 WalletView()
             } else {
             NavigationStack {
-            if ProcessInfo.processInfo.arguments.contains("-node-connection-preview") {
+            if ProcessInfo.processInfo.arguments.contains("-joinblaket-preview") {
+                JoinBlaketView()
+            } else if ProcessInfo.processInfo.arguments.contains("-node-connection-preview") {
                 LightningView.connectionPreview()
             } else if ProcessInfo.processInfo.arguments.contains("-lightning-balance-preview") {
                 LightningView.balancePreview()

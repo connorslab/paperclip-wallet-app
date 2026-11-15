@@ -48,12 +48,13 @@
     }
   }
 
-  function clear() {
-    for (const {card, url} of cards.values()) {
+  function clear(outputId) {
+    for (const [id, {card, url}] of cards) {
+      if (outputId !== undefined && id !== outputId) continue;
       card.remove();
       if (url) URL.revokeObjectURL(url);
+      cards.delete(id);
     }
-    cards.clear();
   }
 
   function show(outputId, payload, label) {

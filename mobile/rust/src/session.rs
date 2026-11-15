@@ -376,6 +376,10 @@ fn text<'a>(v: &'a Value, key: &str) -> anyhow::Result<&'a str> {
 
 pub fn dispatch(state: &mut Option<Session>, request: Value, seed: [u8; 64]) -> anyhow::Result<Value> {
 	let op = text(&request, "op")?;
+	if op == "joinblaket_jars" {
+		let coins: Vec<bark::joinblaket::JarCoin> = serde_json::from_value(request["utxos"].clone())?;
+		return Ok(json!({"jars": bark::joinblaket::jar_balances(&coins)?}));
+	}
 	if op == "seed_generate" {
 		let phrase = bip39::Mnemonic::generate(24)?;
 		return Ok(json!({"phrase": phrase.to_string()}));

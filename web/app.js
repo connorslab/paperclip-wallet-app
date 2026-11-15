@@ -8,32 +8,11 @@ let setupDefaultsLoaded = false;
 const $ = id => document.getElementById(id);
 const status = text => { $('status').textContent = text; };
 async function api(path, body, method, signal) {
-  const controller = new AbortController();
-  const abort = () => controller.abort();
-  if (signal?.aborted) abort();
-  signal?.addEventListener('abort', abort, {once: true});
-  const timer = setTimeout(abort, body === undefined ? 10000 : 60000);
-  try {
-  const response = await fetch(path.startsWith('/') ? path : '/api/v1/' + path, {
-    signal: controller.signal, method: method || (body === undefined ? 'GET' : 'POST'), cache: 'no-store', redirect: 'error',
-    headers: {Authorization: 'Bearer ' + token, 'Content-Type': 'application/json'},
-    ...(body === undefined ? {} : {body: JSON.stringify(body)})
-  });
-  if (!response.ok) {
-    if (response.status === 401) throw new Error('Access denied. Check the login instructions and the credential provided by your wallet app.');
-    let message = '';
-    try { const detail = await response.json(); message = typeof detail.message === 'string' ? detail.message.slice(0, 900) : ''; } catch {}
-    if (message.includes('no pending lightning receive')) message = 'No received payment matches this invoice in this wallet. An invoice from another wallet belongs in Pay someone, not Received status.';
-    if (message.toLowerCase().includes('dust') || message.includes('funded-HTLC minimum') || message.includes('No constructible Lightning input')) message = path === 'fees/ark/send' ? 'Ark payment or change is too small after recovery reserves. Check your balance and amount, or refresh eligible inputs. No payment was sent.' : 'Available Ark inputs cannot cover this payment with valid recovery reserves and change. Refresh eligible inputs to consolidate funds, or add Ark funds. Check Sent status before retrying.';
-    throw new Error(message || 'Wallet request failed (' + response.status + '). Check wallet access and local services.');
-  }
-  return response.status === 204 ? null : await response.json();
-  } catch (error) {
-    if (controller.signal.aborted) throw new Error('The wallet request timed out. Check connections in Settings.');
+  try { return await PaperclipTransport.request(path, {body, method, token, signal}); }
+  catch (error) {
+    if (error.message.includes('no pending lightning receive')) error.message = 'No received payment matches this invoice in this wallet. An invoice from another wallet belongs in Pay someone, not Received status.';
+    if (error.message.toLowerCase().includes('dust') || error.message.includes('funded-HTLC minimum') || error.message.includes('No constructible Lightning input')) error.message = path === 'fees/ark/send' ? 'Ark payment or change is too small after recovery reserves. Check your balance and amount, or refresh eligible inputs. No payment was sent.' : 'Available Ark inputs cannot cover this payment with valid recovery reserves and change. Refresh eligible inputs to consolidate funds, or add Ark funds. Check Sent status before retrying.';
     throw error;
-  } finally {
-    clearTimeout(timer);
-    signal?.removeEventListener('abort', abort);
   }
 }
 let updateInFlight = null;
@@ -67,6 +46,7 @@ async function updateBalances(sessionToken) {
 }
 async function run(button, operation) {
   button.disabled = true;
+  status('');
   try { await operation(); } catch (error) { status(error.message); }
   finally { button.disabled = false; }
 }
@@ -392,14 +372,14 @@ function renderActivity(records) {
     const date = new Date(row.time?.created_at);
     detail.textContent = (row.status || 'Unknown') + ' \u00b7 ' + (Number.isFinite(date.getTime()) ? date.toLocaleString() : 'Time unavailable') + ' \u00b7 Fee: ' + (Number.isSafeInteger(row.offchain_fee_sat) ? row.offchain_fee_sat.toLocaleString() + ' sats' : 'unavailable');
     const badge = document.createElement('span'); badge.className = 'activity-state';
-    badge.textContent = ({successful: 'Completed', pending: 'Pending', failed: 'Failed'}[row.status] || row.status || 'Status unavailable');
+    badge.textContent = ({successful: 'Movement completed', pending: 'Pending', failed: 'Failed', canceled: 'Cancelled'}[row.status] || row.status || 'Status unavailable');
     const more = document.createElement('details');
     const summary = document.createElement('summary'); summary.textContent = 'Payment details';
     const explanation = document.createElement('p');
-    explanation.textContent = row.status === 'pending' ? 'Still in progress. Check the result before attempting another payment.' : row.status === 'failed' ? 'This operation failed. Check any related refund or recovery before retrying.' : 'Balance change includes the effect recorded by your wallet. Fee information is shown above.';
+    explanation.textContent = row.status === 'pending' ? 'Still in progress. Check the result before attempting another payment.' : row.status === 'failed' ? 'This operation failed. Check any related refund or recovery before retrying.' : 'This record confirms a wallet balance movement. For a multi-step payment, check its payment status and the recipient to confirm final settlement.';
     const record = document.createElement('pre'); record.textContent = JSON.stringify(row, null, 2);
     const resultButton = document.createElement('button'); resultButton.className = 'secondary'; resultButton.textContent = 'View result';
-    resultButton.onclick = () => transactionResult(row.status === 'successful' ? 'success' : row.status === 'failed' ? 'failed' : 'pending', row.status === 'successful' ? 'Transaction succeeded' : row.status === 'failed' ? 'Transaction failed' : 'Transaction pending', explanation.textContent);
+    resultButton.onclick = () => transactionResult(row.status === 'successful' ? 'success' : row.status === 'failed' ? 'failed' : 'pending', row.status === 'successful' ? 'Wallet movement completed' : row.status === 'failed' ? 'Transaction failed' : 'Transaction pending', explanation.textContent);
     more.append(summary, explanation, record); card.append(resultButton);
     card.append(heading, value, badge, detail, more); list.append(card);
   }

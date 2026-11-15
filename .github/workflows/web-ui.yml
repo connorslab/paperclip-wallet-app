@@ -1,0 +1,25 @@
+name: Wallet browser regression checks
+on:
+  workflow_dispatch:
+  pull_request:
+    paths: ['web/**', 'scripts/test-*.mjs', 'scripts/test-*.cjs', 'bark-rest/src/api/v1/joinblaket.rs', '.github/workflows/web-ui.yml']
+permissions:
+  contents: read
+jobs:
+  browser:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm install --no-save playwright@1.57.0
+      - run: npx playwright install --with-deps chromium
+      - name: Test transport and browser flows with synthetic fixtures
+        run: |
+          node scripts/test-web.mjs
+          node scripts/test-web-transport.mjs
+          node scripts/test-receive-qr.mjs
+          node scripts/test-setup-browser.cjs
+          node scripts/test-joinblaket-browser.cjs

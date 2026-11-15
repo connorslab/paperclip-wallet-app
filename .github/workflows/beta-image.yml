@@ -27,6 +27,7 @@ jobs:
           python3 -m unittest discover -s deployment -p test_pruned_rpc.py
           sha256sum -c SHARED-SOURCE.sha256
           node scripts/test-web.mjs
+          node scripts/test-web-transport.mjs
           node scripts/test-receive-qr.mjs
       - name: Reserve build disk space
         run: sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android

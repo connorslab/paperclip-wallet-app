@@ -36,3 +36,52 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible{ou
 [data-kind="failed"] .result-mark { background: #7a2833; }
 [data-kind="failed"] .result-mark::after { content: '×'; }
 [data-kind="unknown"] .result-mark::after { content: '?'; }
+
+/* The same navy cards, orange actions and roomy hierarchy as the mobile wallet. */
+:root{--surface:#1b2c42;--stroke:#ffffff16;--muted:#a8b8ce;color-scheme:dark}
+body{background:radial-gradient(ellipse at 12% 0,#252438 0,transparent 45%),#101b2b;min-height:100dvh}
+header,main,footer{max-width:1240px;margin-inline:auto}
+header{border-bottom:1px solid var(--stroke)}
+.brand{gap:12px}.brand img{object-fit:contain;border-radius:0}.brand small{letter-spacing:.22em}
+h1,h2,h3{letter-spacing:-.035em}.toolbar h2{font-size:clamp(26px,3vw,38px);margin:0;flex:1}
+.session-open .welcome{display:none}.session-open .notice{margin:0 0 24px;font-size:12px}
+.notice{border:1px solid var(--stroke);border-radius:16px;background:#ffffff03;color:var(--muted);padding:14px 18px}
+.notice summary{cursor:pointer;font-weight:600;min-height:24px}.notice p{margin-bottom:0;max-width:85ch;line-height:1.6}
+.login-card{max-width:560px;margin:32px auto}.login-card h2{font-size:28px}
+section,.overview-note{border-radius:26px;background:linear-gradient(140deg,#20334b,#19293e);border:1px solid var(--stroke);box-shadow:0 14px 44px #00000012;padding:28px}
+.metrics{gap:20px}.metrics section{position:relative;min-height:185px;display:flex;flex-direction:column;justify-content:center}
+.metrics h3{font-size:14px;font-weight:500;color:var(--muted);margin:0 0 16px}.metrics strong{font-variant-numeric:tabular-nums;font-size:clamp(30px,3.2vw,48px);line-height:1.1;letter-spacing:-.04em}.metrics small{color:var(--muted);margin-top:12px}
+.metrics section::before{content:'';position:absolute;left:0;top:32px;width:3px;height:24px;border-radius:3px;background:#ff783e}
+.overview-note{padding:32px;margin-top:20px}.overview-note h2{font-size:28px}.actions{display:flex;flex-wrap:wrap;gap:10px}
+input,select{background:#101d2f;border:1px solid #ffffff29;min-height:52px;border-radius:16px;padding:12px 15px;color:#f3f6fc}input:focus,select:focus{border-color:#ff783e}
+label{color:#c0cde0;font-size:13px;line-height:1.6}button{font-weight:600;min-height:46px;border-radius:999px;padding:12px 20px}button.secondary{background:#ffffff07;border:1px solid #ffffff20;color:#e1e9f5}button:disabled{opacity:.45}
+fieldset{border:0;padding:0;min-width:0}.grid>*{min-width:0}.grid{gap:28px}.step-label{color:#ff9a6b;font-size:11px;letter-spacing:.15em}.hint{color:var(--muted);line-height:1.55}
+.activity-row{border:1px solid var(--stroke);border-radius:20px;background:#1c2e45;padding:22px}.activity-row>strong{font-size:17px}.activity-row>.amount,.activity-row>.positive{font-variant-numeric:tabular-nums;font-size:22px}
+.connection-list{display:grid;grid-template-columns:minmax(140px,1fr) 2fr;gap:8px 20px;align-items:center}.connection-list h3,.connection-list p{margin:10px 0}.connection-list p{color:var(--muted)}
+#status:empty{display:none}#status:not(:empty){border:1px solid var(--stroke);border-radius:16px;padding:16px 20px;background:#1b2c42}
+@media(min-width:1000px){
+  #wallet{display:grid;grid-template-columns:190px minmax(0,1fr);column-gap:28px;align-items:start}
+  #wallet>.toolbar,#wallet>#wallet-readiness{grid-column:1/-1}.toolbar{padding-bottom:22px;display:flex;flex-wrap:wrap;align-items:center;gap:12px}.toolbar #refresh-state{flex-basis:100%;font-size:12px}
+  #wallet>.view-nav{grid-column:1;grid-row:2/span 20;display:flex;flex-direction:column;align-self:start;position:sticky;top:24px;padding:8px;background:#ffffff03;border-color:var(--stroke);border-radius:24px;box-shadow:none}
+  #wallet>.view-nav button{text-align:left;min-height:52px;padding:14px 16px;font-size:14px;display:flex;align-items:center;gap:10px;border:0;border-radius:16px}
+  .view-nav button span{font-size:21px;width:24px;text-align:center}.view-nav button[aria-pressed=true]{background:#ff783e20;color:#ffad83;box-shadow:none}
+  #wallet>[data-screen]{grid-column:2;min-width:0}
+}
+@media(max-width:640px){section,.overview-note{padding:22px}.metrics{grid-template-columns:1fr}.metrics section{min-height:150px}.connection-list{grid-template-columns:1fr;gap:0}.connection-list h3{margin-bottom:0}.toolbar h2{width:100%}.view-nav button{border-radius:14px;min-height:42px}.view-nav button span{display:none}.notice{font-size:12px}}
+
+/* Jam mixdepths retain their identity across all layouts. */
+.jam-heading {display:flex;justify-content:space-between;gap:20px;align-items:center;margin-bottom:24px}
+.jam-heading h2 {font-size:clamp(1.7rem,3vw,2.5rem);margin:8px 0}
+.eyebrow {font-size:.72rem;letter-spacing:.15em;color:var(--muted)}
+.jam-jars {display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:12px;margin:24px 0}
+.jam-jar {display:flex;flex-direction:column;align-items:flex-start;gap:12px;padding:22px 18px;border-radius:24px;color:#eef2f8;background:color-mix(in srgb,var(--jar-color) 7%,#162438);border:2px solid transparent;box-shadow:none;font-variant-numeric:tabular-nums}
+.jam-jar[aria-pressed=true] {border-color:var(--jar-color);background:color-mix(in srgb,var(--jar-color) 16%,#162438)}
+.jar-art {width:56px;height:62px;border:2px solid var(--jar-color);border-radius:14px;position:relative;display:block;align-self:center;margin:12px 0 8px}
+.jar-art::before {content:'';position:absolute;top:-7px;left:-2px;width:56px;height:7px;border-radius:6px;background:var(--jar-color)}
+.jar-art::after {content:'';position:absolute;bottom:4px;left:4px;right:4px;height:4px;border-radius:8px;background:var(--jar-color);opacity:.4;transition:height .25s ease}
+.jar-art.funded::after {height:30px}
+.jam-detail-grid {display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,290px),1fr));gap:18px}
+.jam-amounts {display:grid;grid-template-columns:1fr auto;gap:12px;font-variant-numeric:tabular-nums}
+.jam-amounts dd {margin:0;text-align:right}
+#jam-address {display:block;overflow-wrap:anywhere;margin-top:16px}
+@media(prefers-reduced-motion:reduce) {.jar-art::after {transition:none}}

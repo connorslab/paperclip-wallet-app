@@ -12,6 +12,9 @@ unit-wallet filter="":
 unit-mobile filter="":
 	cargo test --locked -p paperclip-mobile --lib {{filter}}
 
+unit-rest filter="":
+	cargo test --locked -p bark-rest --features web-ui --lib {{filter}}
+
 unit-electrum:
 	cargo test --locked -p electrum-client --lib xbt_header_tests
 

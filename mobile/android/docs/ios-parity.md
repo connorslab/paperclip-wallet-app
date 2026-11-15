@@ -1,9 +1,10 @@
 # Android parity with iOS build 70
 
-Android now implements the iOS feature set in the Android UI, Kotlin adapters,
-JNI boundary and shared Rust engine. The platform interfaces differ; the money,
-validation and recovery rules are shared. No production payment, channel opening,
-or service restart was used to validate this work.
+This document records the Android implementation of the iOS build 70 feature
+baseline. It is not a claim that desktop, Umbrel, StartOS and mobile have complete
+feature or live-test parity. The platform interfaces differ; money, validation
+and recovery rules use the shared Rust engine where applicable. The initial
+baseline used unfunded tests; the later live checks are recorded below.
 
 | iOS capability | Android implementation | Evidence |
 | --- | --- | --- |
@@ -11,7 +12,7 @@ or service restart was used to validate this work.
 | On-chain and Ark connections | Electrum, Esplora and RPC; certificate pin; independently routed Ark RPC; saved per-wallet settings | Connection round-trip tests; live unfunded Electrum/Ark synchronization over embedded Tor |
 | Embedded Tor | Shared bootstrap, independent waiter cancellation, control-reply deadlines, stage errors, retry, explicit SOCKS route, no direct fallback | Shared-startup unit tests; opt-in runtime lifecycle test; mainnet/dead-proxy test |
 | Remote CLN and LND | Encrypted credentials, HTTPS/pinned certificates, mainnet/regtest validation, channel balances, invoices, reviewed sends and persistent outgoing status | Authenticated local TLS fixture; pin/redirect rejection; status and balance regression tests |
-| XBT LND BOLT12 | Native offers API, offer fetch, exact invoice/amount/expiry/chain/fee validation and preimage checks | BOLT12 policy tests; no live payment |
+| XBT LND BOLT12 | Native offers API, offer fetch, exact invoice/amount/expiry/chain/fee validation and preimage checks | BOLT12 policy tests; later CLN-to-LND settlement verified on the Mac JVM |
 | Lightning balance display | Active channel funds headline; separate spendable funds, reserves and receive capacity | 230,000-sat balance/500,000-sat reserve regression |
 | Paperclip Bridge | Both directions, Ark or node funding, reviewed fees, persisted intent, read-only reconciliation and settlement proof | Invoice/quote binding tests; no live swap |
 | Multiple wallets | Generate/import/select/rename/remove, legacy migration, scoped connections and pending records, interrupted removal recovery | Emulator native removal/recovery test |
@@ -34,8 +35,9 @@ or service restart was used to validate this work.
 
 - Tests use an API 35 ARM64 emulator, local protocol fixtures, and temporary
   unfunded wallets. No physical Android phone was available.
-- No hardware signer was used to approve a new transaction, and no funded
-  Lightning payment, bridge swap, Coinjoin round, boarding or exit was executed.
+- No hardware signer was used to approve a new transaction. Apart from the live
+  Lightning checks below, no funded bridge swap, Coinjoin round, boarding or exit
+  was executed.
   Public signer fixture compatibility and shared native verification tests do
   not replace those live checks.
 - Camera/audio/motion capture requires real-device sensor and permission testing.
@@ -48,6 +50,34 @@ or service restart was used to validate this work.
   validation. Public RPC endpoints require TLS; LAN RPC remains configurable.
 - Android's background timing differs from iOS. Neither platform guarantees that
   background refresh or a reminder runs before an Ark expiry height.
+
+## November 15 integration candidate
+
+The `codex/cross-platform-parity` checkout imports the verified iOS build 70
+sources and carries the next changes for both mobile adapters and the shared
+server engine. It has not replaced build 70 on TestFlight or the App Store.
+
+- Authenticated CLN and LND identity and balance reads succeeded through the
+  Android Kotlin adapter on the native Mac JVM, with TLS validation and verified
+  certificate pins. Wrong-pin rejection and recovery also passed. These are not
+  physical Android or iPhone results.
+- A 100-sat CLN-to-LND BOLT12 payment settled on both sides; sender preimage and
+  receiver payment hash/amount were checked without logging credentials.
+- LND-to-CLN testing stopped before invoice creation because the LND node has no
+  spendable channel balance after reserves.
+- A 10,000-sat CLN-to-Ark test reached the ASP but did not settle. The sender later
+  reported failure. The wallet logged chain-related HTTP 401 errors after its
+  node restarted and rotated the mounted RPC cookie. A fresh-cookie read worked.
+  This supports stale cached credentials as the failure cause; the updated
+  binary has not yet been tested against that live receive.
+- The conservative live-test ledger retains 10,110 sats against the authorized
+  25,000-sat total, including the failed Ark attempt while its fee accounting is
+  unresolved. No replacement payment was sent.
+- JoinBlaket now has matching remote-server clients, five jars, integer balance
+  validation and reviewed maker controls on iOS, Android and the browser. Rust,
+  Swift, Kotlin, JNI and browser fixture tests cover these boundaries. Live Jam
+  connection, guided bond funding and taker/mixing remain unfinished. Previous
+  Kilojoin funds and recovery remain accessible.
 
 ## Reproducible checks
 

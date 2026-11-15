@@ -65,6 +65,42 @@ replacing the token. Do not downgrade a wallet with state newer binaries created
 
 ## Package development
 
+### JoinBlaket connection in the next candidate
+
+The new CoinJoin screen connects to a separate Kilombino JoinBlaket/Jam wallet.
+Its five jars are the server's mixdepths, with confirmed, pending, frozen and
+fidelity-bond funds shown separately. Paperclip does not import its seed into Jam
+or rename an existing Kilojoin account. Existing Kilojoin recovery stays available.
+
+Use the XBT service described in [Kilombino's guide](https://kilombino.com/joinblaket/),
+currently JoinBlaket `0.43.0-xbt7` with Jam `v2.0.0-beta.4-xbt7`. The directory on
+Tor matches makers with takers; it is not a wallet API or a place to send funds.
+The integration needs the URL of your actual Jam service. Its `getinfo` version
+alone does not prove that a deployment is the XBT fork; verify the package/image
+and its node preflight before funding it.
+
+For a custom deployment of this candidate, configure the wallet daemon with:
+
+- `BARKD_JOINBLAKET_URL`: the Jam HTTPS origin, optionally with a base path.
+- `BARKD_JOINBLAKET_CA_FILE`: optional PEM CA file mounted read-only for a private
+  HTTPS service. Certificate and hostname validation remain enabled.
+- `BARKD_JOINBLAKET_TOR_PROXY`: optional `socks5h://host:port`; required for onions.
+
+Do not put credentials in the URL. Paperclip's normal API authentication is
+required. The browser unlocks Jam with its separate password and optional BIP39
+passphrase; its bearer token stays in memory and clears on locking Paperclip.
+The bridge only contacts the administrator-configured upstream. Address
+generation and maker actions are never automatically replayed, including Jam's
+state-changing GET endpoints. After an uncertain maker action, refresh status
+before another action. The maker continues on the Jam server when Paperclip closes.
+
+This candidate has not been published in the platform stores. Platform-specific
+service selection, live Jam verification, guided bond funding and taker/mixing
+flows remain unfinished; the presence of the jars screen does not establish full
+CoinJoin parity. No production maker has been started for these UI tests.
+
+### Release validation
+
 Build images from the reviewed source using `deployment/Dockerfile`, test both
 architectures, then pin the multi-architecture digest. `deployment/package.py umbrel` generates Umbrel packaging. StartOS 0.4 packaging is maintained in
 [paperclip-wallet-startos](https://github.com/connorslab/paperclip-wallet-startos).

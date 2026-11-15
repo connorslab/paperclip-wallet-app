@@ -309,7 +309,7 @@ internal fun PaperclipApp(
 											if (walletKind == "hot")
 												NavCard(
 													"Coinjoin",
-													"Separate account and experimental collaborative transactions",
+													"JoinBlaket jars & maker",
 													Icons.Default.Shuffle,
 												) {
 													navigate("Coinjoin")
@@ -452,7 +452,8 @@ internal fun PaperclipApp(
 														.firstOrNull { it.id == s.activeID }
 														?.kind == "hot",
 												)
-										"Coinjoin" ->
+										"Coinjoin" -> JoinBlaketPage { navigate("Previous Coinjoin") }
+										"Previous Coinjoin" ->
 											if (coinjoin != null)
 												CoinjoinPage(
 													coinjoin,
