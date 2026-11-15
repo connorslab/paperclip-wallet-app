@@ -91,13 +91,8 @@ jobs:
           arch: x86_64
           profile: pixel_6
           disable-animations: true
-          script: |
-            adb shell cmd uimode night yes
-            cd mobile/android
-            for test in NativeBridgeTest WalletScreensTest; do
-              bash gradlew --no-daemon -Pabis=x86_64 "-Pandroid.testInstrumentationRunnerArguments.class=xyz.paperclip.wallet.$test" connectedDebugAndroidTest
-            done
-            adb pull /sdcard/Pictures/PaperclipPreview ./screenshots
+          # The runner invokes each script line separately; keep the shell loop in a file.
+          script: bash mobile/android/scripts/test-emulator.sh
       - uses: actions/upload-artifact@v4
         if: always()
         with:
