@@ -6,21 +6,22 @@ import android.content.Intent
 import android.content.ServiceConnection
 import android.os.IBinder
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import org.torproject.jni.TorService
 
 /** One bound Tor service per process. Failure never selects a direct route. */
 internal object EmbeddedTor {
-	private val mutex = Mutex()
+	private val startup = SharedStartup<String>(CoroutineScope(SupervisorJob() + Dispatchers.IO))
 	private val progress = MutableStateFlow("Tor not started")
 	val status = progress.asStateFlow()
 	@Volatile private var service: TorService? = null
@@ -36,11 +37,17 @@ internal object EmbeddedTor {
 			}
 		}
 
-	suspend fun proxy(context: Context): String = mutex.withLock {
+	suspend fun proxy(context: Context): String = startup.await { bootstrapAttempt(context.applicationContext) }
+
+
+	private suspend fun controlInfo(tor: TorService, key: String): String? =
+		withTimeout(45_000) { runInterruptible(Dispatchers.IO) { tor.getInfo(key) } }
+
+	private suspend fun bootstrapAttempt(context: Context): String {
 		var stage = "starting the Tor service"
 		progress.value = "Starting Tor…"
 		try {
-			withTimeout(180_000) {
+			return withTimeout(180_000) {
 				if (!bound)
 					withContext(Dispatchers.Main) {
 						val app = context.applicationContext
@@ -69,10 +76,7 @@ internal object EmbeddedTor {
 							stage = "waiting for the Tor service"
 						} else {
 							stage = "waiting for Tor control and bootstrap"
-							val phase = runCatching {
-								tor.getInfo("status/bootstrap-phase")
-							}
-								.getOrNull()
+							val phase = controlInfo(tor, "status/bootstrap-phase")
 							val percent = phase?.let {
 								Regex("PROGRESS=([0-9]{1,3})")
 									.find(it)
@@ -86,8 +90,7 @@ internal object EmbeddedTor {
 						}
 						if (
 							tor != null &&
-								runCatching { tor.getInfo("status/circuit-established") }
-									.getOrNull() == "1"
+								controlInfo(tor, "status/circuit-established") == "1"
 						) {
 							stage = "waiting for the Tor SOCKS listener"
 							val port = tor.socksPort
