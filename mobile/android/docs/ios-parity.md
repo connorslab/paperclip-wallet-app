@@ -77,7 +77,13 @@ server engine. It has not replaced build 70 on TestFlight or the App Store.
   validation and reviewed maker controls on iOS, Android and the browser. Rust,
   Swift, Kotlin, JNI and browser fixture tests cover these boundaries. Live Jam
   connection, guided bond funding and taker/mixing remain unfinished. Previous
-  Kilojoin funds and recovery remain accessible.
+  Kilojoin funds and recovery remain accessible; new Kilojoin pool creation and
+  joining are disabled before database access on both mobile platforms.
+
+- Reviewed Ark and Lightning totals now reach the shared engine as enforced
+  maximum debits. The Lightning cap includes service fees and recovery reserves.
+  Desktop fixed-amount invoices receive the same review; older servers without
+  the enforcement capability are rejected by the new browser send flow.
 
 ## Reproducible checks
 

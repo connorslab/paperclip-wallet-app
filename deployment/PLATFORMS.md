@@ -63,6 +63,12 @@ The wallet generates its own keys; the Umbrel seed is not used as a wallet seed.
 An authentication mismatch after restoration stops startup rather than silently
 replacing the token. Do not downgrade a wallet with state newer binaries created.
 
+## Coordinated release
+
+The next major release targets iOS, Android (Google Play and signed APK), Umbrel
+and StartOS together. See [the release acceptance matrix](COORDINATED-RELEASE.md)
+for the shared source freeze, remaining feature gaps and publication sequence.
+
 ## Package development
 
 ### JoinBlaket connection in the next candidate
