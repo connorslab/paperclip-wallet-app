@@ -44,7 +44,7 @@ internal fun HardwarePayment(s: WalletState, model: WalletModel, boarding: Boole
 		if (prepared == null) {
 			if (boarding) {
 				Text(
-					"Ark funds will use this mobile wallet’s keys and recovery backup after boarding. Keep a current encrypted backup and on-chain recovery funds.",
+					"Ark funds will use this mobile wallet’s keys and recovery backup after boarding. Keep a current encrypted backup and on-chain recovery funds. A deposit needs network confirmations and server registration before it is available. Check Activity if it stays pending; do not create another deposit to retry it.",
 				)
 				s.profiles
 					.filter { it.kind == "hardware" && it.network == s.network }

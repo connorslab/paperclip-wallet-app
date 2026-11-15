@@ -481,6 +481,7 @@ internal fun ArkMaintenance(s: WalletState, model: WalletModel) {
 	val result = s.toolsResult
 	Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
 		Text("Board funds into Ark", style = MaterialTheme.typography.titleLarge)
+		Text("A deposit needs network confirmations and registration with the Ark server before it is available. Check Activity if it stays pending; do not create another deposit to retry it.")
 		OutlinedTextField(
 			amount,
 			{
