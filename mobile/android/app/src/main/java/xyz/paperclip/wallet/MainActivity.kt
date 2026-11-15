@@ -51,6 +51,7 @@ class MainActivity : FragmentActivity() {
 		super.onCreate(savedInstanceState)
 		window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
 		setContent {
+			FoldInformation {
 			PaperclipApp(
 				model,
 				unlocked.value,
@@ -60,6 +61,7 @@ class MainActivity : FragmentActivity() {
 				bridge,
 				coinjoin,
 			)
+		}
 		}
 		if (screenshots)
 			lifecycleScope.launch {

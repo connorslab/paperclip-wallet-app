@@ -11,12 +11,12 @@ import androidx.compose.ui.unit.dp
 import org.json.JSONObject
 
 @Composable
-internal fun WalletPicker(s: WalletState, model: WalletModel) {
+internal fun WalletPicker(s: WalletState, model: WalletModel, initialMode: String = "hot") {
 	var name by remember { mutableStateOf("") }
 	var phrase by remember { mutableStateOf("") }
 	var key by remember { mutableStateOf("") }
 	var origin by remember { mutableStateOf("") }
-	var mode by remember { mutableStateOf("hot") }
+	var mode by remember { mutableStateOf(initialMode) }
 	var script by remember { mutableStateOf("segwit") }
 	var entropyOptions by remember { mutableStateOf(false) }
 	if (entropyOptions) SeedGenerationDialog(model) { entropyOptions = false }
@@ -76,14 +76,14 @@ internal fun WalletPicker(s: WalletState, model: WalletModel) {
 					Text("Share public export")
 				}
 			}
-		Text("Add or rename a wallet", style = MaterialTheme.typography.titleLarge)
+		Text(if (s.hasWallet) "Add or rename a wallet" else "Connect a public wallet", style = MaterialTheme.typography.titleLarge)
 		OutlinedTextField(
 			name,
 			{ name = it },
 			label = { Text("Wallet name") },
 			modifier = Modifier.fillMaxWidth(),
 		)
-		TextButton(
+		if (s.hasWallet) TextButton(
 			onClick = { model.renameWallet(s.activeID, name) },
 			enabled = name.isNotBlank() && !s.busy,
 		) {

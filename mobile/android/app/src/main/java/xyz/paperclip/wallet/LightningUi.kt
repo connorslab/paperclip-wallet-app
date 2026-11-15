@@ -1,6 +1,8 @@
 package xyz.paperclip.wallet
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -11,11 +13,11 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 
 @Composable
-internal fun NodeLightning(model: LightningModel) {
+internal fun NodeLightning(model: LightningModel, initialPage: String = "balance") {
 	val unit = LocalBitcoinUnit.current
 	val s by model.state.collectAsStateWithLifecycle()
 	val torStatus by EmbeddedTor.status.collectAsStateWithLifecycle()
-	var page by remember { mutableStateOf("balance") }
+	var page by remember { mutableStateOf(initialPage) }
 	var endpoint by remember(s.connection) { mutableStateOf(s.connection.endpoint) }
 	var credential by remember(s.connection) { mutableStateOf(s.connection.credential) }
 	var pin by remember(s.connection) { mutableStateOf(s.connection.pin) }
@@ -48,7 +50,13 @@ internal fun NodeLightning(model: LightningModel) {
 		page = p
 	}
 	if (s.connection.endpoint.isNotBlank() || s.busy) {
-		Card(Modifier.fillMaxWidth()) {
+		HingeSafeContent {
+		Card(
+			Modifier.fillMaxWidth(),
+			border = BorderStroke(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = .09f)),
+			shape = RoundedCornerShape(26.dp),
+			colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+		) {
 			Column(Modifier.padding(22.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
 				Text(s.connectionStatus, style = MaterialTheme.typography.titleMedium)
 				Text((if (s.connection.implementation == "cln") "Core Lightning" else "LND") +
@@ -61,16 +69,24 @@ internal fun NodeLightning(model: LightningModel) {
 			}
 		}
 	}
+	}
 	if (s.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
-	if (s.message.isNotEmpty()) Text(s.message, color = MaterialTheme.colorScheme.error)
-	Card(Modifier.fillMaxWidth()) {
+	if (s.message.isNotEmpty()) HingeSafeContent { Text(s.message, color = MaterialTheme.colorScheme.error) }
+	HingeSafeContent(enabled = page != "connection") {
+	Card(
+			Modifier.fillMaxWidth(),
+			border = BorderStroke(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = .09f)),
+			shape = RoundedCornerShape(26.dp),
+			colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+		) {
 		Column(Modifier.padding(22.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
 			when (page) {
 				"connection" -> {
 					val pending = s.pending?.optString("state")?.let { it !in listOf("succeeded", "failed") } ?: false
 					val editable = !s.busy && !pending
 					Text("Your Lightning node", style = MaterialTheme.typography.titleLarge)
-					Row {
+					WalletColumns(primary = {
+					Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
 						listOf("lnd", "cln").forEach { kind ->
 							FilterChip(
 								selected = implementation == kind,
@@ -86,6 +102,7 @@ internal fun NodeLightning(model: LightningModel) {
 						label = { Text("REST address") },
 						placeholder = { Text(if (implementation == "cln") "https://your-node:3010" else "https://your-node:8180") },
 						modifier = Modifier.fillMaxWidth(),
+						shape = RoundedCornerShape(16.dp),
 						enabled = editable,
 					)
 					OutlinedTextField(
@@ -94,14 +111,18 @@ internal fun NodeLightning(model: LightningModel) {
 						label = { Text(if (implementation == "lnd") "Macaroon (hex)" else "Rune") },
 						visualTransformation = PasswordVisualTransformation(),
 						modifier = Modifier.fillMaxWidth(),
+						shape = RoundedCornerShape(16.dp),
 						enabled = editable,
 					)
+					}, secondary = {
+					Text("Privacy & verification", style = MaterialTheme.typography.titleMedium)
 					OutlinedTextField(
 						pin,
 						{ pin = it },
 						label = { Text("Certificate fingerprints · optional") },
 						supportingText = { Text("Separate trusted SHA256 fingerprints with commas.") },
 						modifier = Modifier.fillMaxWidth(),
+						shape = RoundedCornerShape(16.dp),
 						enabled = editable,
 					)
 					Row {
@@ -120,9 +141,12 @@ internal fun NodeLightning(model: LightningModel) {
 								{ proxy = it },
 								label = { Text("SOCKS proxy · socks5h://host:port") },
 								modifier = Modifier.fillMaxWidth(),
+								shape = RoundedCornerShape(16.dp),
 						enabled = editable,
 							)
 					}
+					})
+					HingeSafeContent(limitWidth = false) {
 					Button(
 						onClick = {
 							model.connect(
@@ -140,6 +164,7 @@ internal fun NodeLightning(model: LightningModel) {
 						enabled = editable,
 					) {
 						Text("Verify and save connection")
+					}
 					}
 					if (pending) Text("Resolve the saved payment before changing nodes. Reconnect above to check its status.")
 					Text(
@@ -172,6 +197,7 @@ internal fun NodeLightning(model: LightningModel) {
 							)
 						},
 						modifier = Modifier.fillMaxWidth(),
+						shape = RoundedCornerShape(16.dp),
 					)
 					if (offer)
 						OutlinedTextField(
@@ -182,6 +208,7 @@ internal fun NodeLightning(model: LightningModel) {
 							},
 							label = { Text("Description") },
 							modifier = Modifier.fillMaxWidth(),
+							shape = RoundedCornerShape(16.dp),
 						)
 					Button(
 						onClick = { model.receive(unit.backendAmount(amount), offer, description) },
@@ -208,6 +235,7 @@ internal fun NodeLightning(model: LightningModel) {
 							},
 							label = { Text("BOLT11 invoice or BOLT12 offer/invoice") },
 							modifier = Modifier.fillMaxWidth(),
+							shape = RoundedCornerShape(16.dp),
 						)
 						TextButton(onClick = { scanning = true }, enabled = !s.busy) {
 							Text("Scan invoice or offer")
@@ -220,6 +248,7 @@ internal fun NodeLightning(model: LightningModel) {
 							},
 							label = { Text("Amount in ${unit.title} (amountless offer)") },
 							modifier = Modifier.fillMaxWidth(),
+							shape = RoundedCornerShape(16.dp),
 						)
 						OutlinedTextField(
 							fee,
@@ -229,6 +258,7 @@ internal fun NodeLightning(model: LightningModel) {
 							},
 							label = { Text("Maximum routing fee in ${unit.title}") },
 							modifier = Modifier.fillMaxWidth(),
+							shape = RoundedCornerShape(16.dp),
 						)
 						Button(
 							onClick = {
@@ -266,6 +296,7 @@ internal fun NodeLightning(model: LightningModel) {
 				}
 				"status" -> {
 					Text("Outgoing node payment", style = MaterialTheme.typography.titleLarge)
+					if (s.pending?.optString("state") == "succeeded") VerifiedPaymentCelebration()
 					val p = s.pending
 					if (p == null) Text("No recorded outgoing node payment.")
 					else {
@@ -343,6 +374,7 @@ internal fun NodeLightning(model: LightningModel) {
 					Text("Payment status")
 				}
 		}
+	}
 	}
 }
 

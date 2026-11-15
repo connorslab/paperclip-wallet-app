@@ -151,9 +151,11 @@ internal fun PaperclipApp(
 				route = if (next == "Receive Lightning") "Receive" else next
 			}
 			BackHandler(route != tab && !s.busy) { navigate(tab) }
+			FoldAwareFrame(allowColumns = !s.hasWallet || route in setOf("Wallet", "Settings", "Lightning")) {
 			Scaffold(
 				containerColor = colors.background,
 				bottomBar = {
+					HingeSafeContent(limitWidth = false) {
 					if (s.hasWallet)
 						NavigationBar(containerColor = colors.surface) {
 							listOf(
@@ -176,6 +178,7 @@ internal fun PaperclipApp(
 									)
 								}
 						}
+					}
 				},
 			) { inset ->
 				Column(
@@ -198,7 +201,8 @@ internal fun PaperclipApp(
 						return@Column
 					}
 					Column(
-						Modifier.fillMaxSize()
+						Modifier.widthIn(max = 1120.dp).fillMaxSize()
+							.align(Alignment.CenterHorizontally)
 							.verticalScroll(scroll)
 							.padding(horizontal = 22.dp, vertical = 22.dp),
 						verticalArrangement = Arrangement.spacedBy(20.dp),
@@ -216,7 +220,7 @@ internal fun PaperclipApp(
 										)
 										Text(
 											when (route) {
-												"Lightning" -> "Instant payments through Ark"
+												"Lightning" -> "Your node and Ark payments"
 												"Activity" -> "Your payments, at a glance"
 												else -> "Make your wallet yours"
 											},
@@ -269,6 +273,7 @@ internal fun PaperclipApp(
 										"Receive" -> Receive(s, model, receiveMethod)
 										"Lightning" -> {
 											if (lightning != null) NodeLightning(lightning)
+											HingeSafeContent {
 											NavCard(
 												"Paperclip Bridge",
 												"Pay or receive across XBT and BTC",
@@ -277,9 +282,10 @@ internal fun PaperclipApp(
 												navigate("Bridge")
 											}
 											if (walletKind == "hot") Lightning(::navigate)
+											}
 										}
 										"Activity" -> Activity(s, model)
-										"Settings" -> {
+										"Settings" -> WalletGrid {
 											CardBlock("Your wallet") {
 												Text(
 													if (s.network == "xbt-mainnet")
@@ -473,6 +479,7 @@ internal fun PaperclipApp(
 		}
 	}
 }
+}
 
 @Composable
 private fun Brand() {
@@ -638,6 +645,7 @@ private fun Dashboard(s: WalletState, model: WalletModel, navigate: (String) -> 
 			)
 		}
 	}
+	WalletColumns(primary = {
 	CardBlock("Your Keys. Your Bitcoin.") {
 		Text(
 			if (hidden) "••••••"
@@ -674,6 +682,7 @@ private fun Dashboard(s: WalletState, model: WalletModel, navigate: (String) -> 
 			}
 		}
 	}
+	}, secondary = {
 	CardBlock("Balances") {
 		BalanceRow("On-chain", if (hidden) "••••" else s.chain?.let { sats(it) } ?: "Not synced")
 		if (kind == "hot") {
@@ -720,6 +729,7 @@ private fun Dashboard(s: WalletState, model: WalletModel, navigate: (String) -> 
 				"Save your public descriptor export. Hardware private keys remain on your signing device.",
 		)
 	}
+	})
 }
 
 @Composable private fun sats(amount: Long) = LocalBitcoinUnit.current.display(amount)
@@ -738,6 +748,8 @@ private fun Setup(model: WalletModel, s: WalletState, scroll: ScrollState) {
 	val keyboard = LocalSoftwareKeyboardController.current
 	val focus = LocalFocusManager.current
 	var mode by remember { mutableStateOf("welcome") }
+	var name by remember { mutableStateOf("Everyday wallet") }
+	val validName = name.trim().length in 1..60
 	var entropyOptions by remember { mutableStateOf(false) }
 	if (entropyOptions) SeedGenerationDialog(model) { entropyOptions = false }
 	LaunchedEffect(mode, s.phrase) { scroll.scrollTo(0) }
@@ -747,10 +759,11 @@ private fun Setup(model: WalletModel, s: WalletState, scroll: ScrollState) {
 		mode = "welcome"
 		confirmation = ""
 	}
+	HingeSafeContent(enabled = mode != "welcome" || words.isNotEmpty()) {
 	Brand()
 	Text(
 		if (mode == "verify") "Verify your seed"
-		else if (words.isNotEmpty()) "Back up your wallet" else "Your XBT starts here",
+		else if (words.isNotEmpty()) "Back up your wallet" else "Your keys. Your bitcoin.",
 		style = MaterialTheme.typography.headlineLarge,
 		fontWeight = FontWeight.Bold,
 	)
@@ -775,10 +788,10 @@ private fun Setup(model: WalletModel, s: WalletState, scroll: ScrollState) {
 					onClick = {
 						focus.clearFocus()
 						keyboard?.hide()
-						model.create(s.phrase)
+						model.create(s.phrase, name)
 						confirmation = ""
 					},
-					enabled = matches && !s.busy,
+					enabled = matches && validName && !s.busy,
 					modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp),
 				) {
 					Text("Verify and create wallet")
@@ -809,6 +822,7 @@ private fun Setup(model: WalletModel, s: WalletState, scroll: ScrollState) {
 			}
 	} else if (mode == "import")
 		CardBlock("Import seed words") {
+			Field("Wallet name", name) { name = it }
 			var phrase by remember { mutableStateOf("") }
 			OutlinedTextField(
 				phrase,
@@ -824,8 +838,8 @@ private fun Setup(model: WalletModel, s: WalletState, scroll: ScrollState) {
 				style = MaterialTheme.typography.bodySmall,
 			)
 			Button(
-				onClick = { model.create(phrase) },
-				enabled = phrase.isNotBlank() && !s.busy,
+				onClick = { model.create(phrase, name) },
+				enabled = phrase.isNotBlank() && validName && !s.busy,
 				modifier = Modifier.fillMaxWidth(),
 			) {
 				Text("Import seed words")
@@ -837,20 +851,28 @@ private fun Setup(model: WalletModel, s: WalletState, scroll: ScrollState) {
 			RestoreBackup(s.busy)
 			TextButton(onClick = { mode = "welcome" }) { Text("Back") }
 		}
+	else if (mode == "public") {
+		WalletPicker(s, model, initialMode = "hardware")
+		TextButton(onClick = { mode = "welcome" }) { Text("Back") }
+	}
 	else {
-		CardBlock("Mobile wallet") {
+		WalletColumns(primary = {
+		CardBlock("Create a wallet") {
+			Field("Wallet name", name) { name = it }
+			if (!validName) Text("Use 1–60 characters.", color = MaterialTheme.colorScheme.error)
 			Text(
-				"Create a wallet with keys stored securely on this device. We’ll guide you through backing up and verifying your seed.",
+				"Create your wallet, then back up and verify your recovery words.",
 				style = MaterialTheme.typography.bodyMedium,
 			)
 			Button(
 				onClick = { entropyOptions = true },
-				enabled = !s.busy,
+				enabled = validName && !s.busy,
 				modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp),
 			) {
 				Text(if (s.network == "xbt-mainnet") "Create a wallet" else "Create a test wallet")
 			}
 		}
+		}, secondary = {
 		NavCard("Import seed words", "Restore a 12- or 24-word phrase", Icons.Default.Key) {
 			mode = "import"
 		}
@@ -861,6 +883,8 @@ private fun Setup(model: WalletModel, s: WalletState, scroll: ScrollState) {
 		) {
 			mode = "backup"
 		}
+		NavCard("Connect a hardware wallet", "Keep signing keys on your device", Icons.Default.QrCode) { mode = "public" }
+		})
 	}
 	Text(
 		if (s.network == "xbt-mainnet") "XBT mainnet · Your keys stay on this device."
@@ -869,6 +893,7 @@ private fun Setup(model: WalletModel, s: WalletState, scroll: ScrollState) {
 		color = MaterialTheme.colorScheme.onSurfaceVariant,
 	)
 	s.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+	}
 }
 
 @Composable
@@ -956,7 +981,8 @@ private fun Send(s: WalletState, model: WalletModel) {
 				horizontalAlignment = Alignment.CenterHorizontally,
 				verticalArrangement = Arrangement.spacedBy(18.dp),
 			) {
-				Icon(
+				if (status == PaymentStatus.COMPLETE) VerifiedPaymentCelebration()
+				else Icon(
 					if (status == PaymentStatus.COMPLETE) Icons.Default.CheckCircle
 					else if (status == PaymentStatus.NOT_SENT) Icons.Default.ErrorOutline
 					else Icons.Default.Schedule,

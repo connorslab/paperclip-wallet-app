@@ -151,9 +151,10 @@ class WalletModel(app: Application) : AndroidViewModel(app) {
 			}
 		}
 
-	fun create(phrase: String) = job {
+	fun create(phrase: String, name: String = "Everyday wallet") = job {
+		require(name.trim().length in 1..60) { "Use 1–60 characters for the wallet name." }
 		check(!testOnly || mutable.value.network == "xbt-regtest")
-		engine.create(phrase.trim(), mutable.value.network)
+		engine.create(phrase.trim(), mutable.value.network, name.trim())
 		val profiles = engine.profiles()
 		val id = engine.activeID() ?: ""
 		change {

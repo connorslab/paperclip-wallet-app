@@ -45,7 +45,7 @@ CMake 3.22.1, NDK 28.0.13004108, Rust 1.91.0 and protobuf's `protoc`.
 The existing Nix build shell supplies the host Rust build prerequisites.
 Install Android SDK components using Android Studio or `sdkmanager`.
 
-From the repository root, in a Linux/WSL shell:
+From the repository root with the native Android toolchain configured:
 
 ```sh
 export ANDROID_HOME=/path/to/Android/Sdk
@@ -104,7 +104,9 @@ Built-in Tor uses [Guardian Project TorService](https://github.com/guardianproje
 (`socks5h`). Both public chain and Ark connections use this route. Localhost
 services remain local. For a LAN node, explicitly select Direct. There is no
 automatic direct fallback when a proxy is unavailable. Bootstrap failure releases
-the service binding so a later connection attempt can start again.
+the service binding so a later connection attempt can start again. Concurrent
+callers share startup; cancelling one waiter does not cancel another consumer.
+Control replies have a deadline within the overall bootstrap timeout.
 
 The XBT Electrum transport explicitly negotiates protocol 1.8 and validates the
 network genesis and 164-byte BLAKE2b headers. A reachable socket alone does not
@@ -145,31 +147,32 @@ recovery key separately. Restore accepts an empty wallet only, validates the dat
 and seed ownership, and stages it in a new directory. Seed-only import is not an
 offline Ark recovery backup. Cross-platform funded recovery still requires testing.
 
-## Coverage and remaining iPhone parity
+## iOS build 70 parity
 
-| Area | Android status |
-| --- | --- |
-| Navigation, branding, light/dark appearance | Implemented |
-| Native wallet creation, seed confirmation, local on-chain receive, QR display | Validated in the API 35 emulator; physical-device validation remaining |
-| On-chain / Ark sends | Funded native send paths validated in the Android regtest emulator |
-| BOLT11 / BOLT12 sends | Shared native calls and review/result UI wired; funded Android end-to-end tests remaining |
-| Ark Lightning invoices | Shared native receive call wired; claim/status UX needs completion |
-| Electrum, Esplora, Knots RPC, certificate pinning | Mainnet Electrs/Tor and regtest RPC exercised; Esplora deployment testing remaining |
-| Complete encrypted backup/restore | Funded native database recovery passed on Android; iPhone-to-Android funded archive testing remaining |
-| Remote CLN/LND accounts | Not yet ported |
-| Built-in Tor | Embedded bootstrap and mainnet Electrs connection validated; dead proxy fails closed |
-| Hardware accounts, animated QR scanner/signing, multiple wallets | Not yet ported |
-| Unilateral exit | Start, progress and claim controls wired; encrypted database restored and funded exit confirmed with lab ASP offline |
-| Boarding, refresh and background maintenance | Native boarding available; manual refresh and expiry information in UI; background maintenance and boarding UI not yet ported |
-| Coinjoin, message signing, price display, advanced seed entropy | Not yet ported |
+The [parity matrix](docs/ios-parity.md) records the implemented features and their
+validation limits. Android includes CLN/LND nodes, XBT LND BOLT12, both Bridge
+directions, hardware/watch-only and multiple wallets, Coinjoin, message signing,
+price display, advanced seed generation, maintenance and expiry reminders.
+Payment uncertainty, fee review, certificate validation and recovery rules match
+the iOS backend; platform adapters remain native Kotlin/JNI.
 
-Do not treat a successful build or a mainnet connection as full iPhone parity.
-Before public distribution, finish physical-device lifecycle and backup-picker
-checks, accessibility checks, ARM64 device testing, and 16 KB page-size runtime
-loading. Keep a current full backup and open/sync regularly: Android does not yet
-refresh expiring Ark funds in the background. The emergency-exit screen supports
-starting, progressing and claiming exits without an online ASP; on-chain fees and
-the chain's waiting periods still apply.
+### Foldable and large-screen layouts
+
+Wallet setup, dashboard, settings and the node connection editor reflow into two
+columns when space permits. Cover screens and large accessibility text use a
+single column. Jetpack WindowManager supplies actual separating fold/hinge bounds:
+columns avoid the hinge, individual actions stay within one pane, and tabletop
+posture uses the larger unobstructed pane. Payment and recovery forms remain in
+one pane. Rotation and fold resizing preserve the live composition and drafts;
+secrets are not added to saved-instance state. Backgrounding still locks the app.
+Verified successful sends have a finite particle animation that respects disabled
+system animations. Pending or uncertain payments do not show a success effect.
+
+Before public distribution, complete physical-device lifecycle, sensor,
+backup-picker, accessibility and 16 KB page-size runtime validation. Emulator
+checks do not establish compatibility with every manufacturer's foldable.
+Background work is opt-in and best effort: keep a current full backup and open
+and synchronize the wallet regularly before Ark expiry.
 
 ### Lightning connection recovery (build 70 parity)
 

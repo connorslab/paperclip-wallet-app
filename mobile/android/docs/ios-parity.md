@@ -1,4 +1,4 @@
-# Android parity with iOS build 69
+# Android parity with iOS build 70
 
 Android now implements the iOS feature set in the Android UI, Kotlin adapters,
 JNI boundary and shared Rust engine. The platform interfaces differ; the money,
@@ -9,7 +9,7 @@ or service restart was used to validate this work.
 | --- | --- | --- |
 | Ark fees, Send Max and recovery suggestions | Shared fee/selection fixes, reviewed maximum, durable pending state, separate funding/settlement status | Rust mobile tests; Kotlin payment policy tests |
 | On-chain and Ark connections | Electrum, Esplora and RPC; certificate pin; independently routed Ark RPC; saved per-wallet settings | Connection round-trip tests; live unfunded Electrum/Ark synchronization over embedded Tor |
-| Embedded Tor | Bootstrap progress/stage errors, cancellation cleanup, explicit SOCKS route, no direct fallback | Live API 35 emulator test; dead proxy rejection |
+| Embedded Tor | Shared bootstrap, independent waiter cancellation, control-reply deadlines, stage errors, retry, explicit SOCKS route, no direct fallback | Shared-startup unit tests; opt-in runtime lifecycle test; mainnet/dead-proxy test |
 | Remote CLN and LND | Encrypted credentials, HTTPS/pinned certificates, mainnet/regtest validation, channel balances, invoices, reviewed sends and persistent outgoing status | Authenticated local TLS fixture; pin/redirect rejection; status and balance regression tests |
 | XBT LND BOLT12 | Native offers API, offer fetch, exact invoice/amount/expiry/chain/fee validation and preimage checks | BOLT12 policy tests; no live payment |
 | Lightning balance display | Active channel funds headline; separate spendable funds, reserves and receive capacity | 230,000-sat balance/500,000-sat reserve regression |
@@ -26,6 +26,8 @@ or service restart was used to validate this work.
 | Display and activity | Sats/XBT inputs and balances, exact conversion, USD estimate/cache, hidden wallet balances, appearance, activity details/receipts/share | Amount/price/activity tests; emulator screenshots and navigation |
 | Notifications | Opt-in private payment status alerts and baseline reset; selected-wallet maintenance | Baseline tests; notification delivery still depends on Android permissions/scheduling |
 | Connections and security UI | Built-in/external Tor, device authentication preference, protected local storage | Emulator build/navigation; default authentication remains enabled |
+| Foldable and wide layouts | Two-column setup/dashboard/settings/node editor, real hinge bounds, one-pane tasks/tabletop, large-text stacking, preserved resize drafts | Adaptive Compose geometry and draft tests; Pixel Fold emulator review |
+| Verified success feedback | Finite particle animation only for terminal success; system animation preference respected | Source review and emulator rendering |
 | Help and buy links | iOS support/privacy/recovery and external exchange links; bundled dependency notices | Source comparison and APK packaging |
 
 ## Validation limits
@@ -63,20 +65,12 @@ assuming a successful Gradle invocation executed every requested class:
 explicit `liveTor=true` and uses a newly created unfunded directory.
 Do not run funded recovery tests as part of this suite.
 
-Both ARM64 and x86-64 native release libraries build. Debug/release APK builds
-and Android lint pass (dependency/target SDK advisories remain). All 50 Kotlin
-unit tests pass. The live Tor check and six individual emulator tests pass.
-
-`just checks` passes. `just unit-mobile` passes 29 tests with one live-network
-case intentionally ignored. The macOS native check required isolated Boost 1.85
-headers for libbitcoinkernel-sys 0.2.0; the installed Boost 1.92 headers are
-incompatible. No crate or production source was patched for that workaround.
+The earlier feature-parity baseline built both ARM64 and x86-64 native release
+libraries, passed six emulator workflow tests and the live unfunded Tor check.
+The build 70 validation record is in [build70-validation.md](build70-validation.md).
 
 The shared backend port is commit `8524397` on `codex/android-backend-parity`,
 based on `feature/android-wallet` at `e17f2508fb2faf0448129e945ae82d41c5152b78`.
-The Android candidate is version `0.2.0-parity.1` (3). It is a test APK, not a Play
-Store release.
-
-Separately, iOS build 69 is in TestFlight and installed on the iPhone. The App
-Store replacement submission uses build 69 and was accepted into Waiting for
-Review on November 12, 2026.
+The Android candidate is version `0.2.0-parity.70` (4). It is a test APK, not a Play
+Store release. iOS build 70 is distributed separately through TestFlight and was
+submitted for App Store review.
