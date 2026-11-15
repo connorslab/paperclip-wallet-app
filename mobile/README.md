@@ -248,7 +248,14 @@ regularly. Expiry reminders never include balances, addresses, or VTXO IDs.
 - `just unit-electrum` tests XBT block-header decoding.
 - `just unit-rpc-transport` tests RPC proxy transport.
 - `just checks` checks workspace targets.
-- Generate the app with `cd mobile/iOS && xcodegen generate`.
+- Generate the app with `cd mobile/iOS && xcodegen generate`. This verifies the pinned
+  Tor archive checksum and prepares flat iOS framework bundles before Xcode resolves
+  packages. For standalone TorRuntime package tests, run
+  `bash mobile/iOS/Scripts/prepare-tor-framework.sh` from the repository root first.
+  Do not modify an embedded framework during Xcode build or signing tasks.
+- After a native build, run `bash mobile/iOS/Scripts/verify-ios-bundle.sh APP_PATH`.
+  Use `--unsigned` only for an intentionally unsigned build. This checks framework
+  structure and platform metadata, plus signatures for signed builds.
 - Build the native library for `aarch64-apple-ios-sim` before the simulator app.
 - The `iOS proof of concept` GitHub workflow builds device and simulator libraries,
   runs tests, builds the app, and captures a simulator screenshot.

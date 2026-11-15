@@ -1,5 +1,6 @@
 name: Paperclip
 options:
+  preGenCommand: bash Scripts/prepare-tor-framework.sh
   deploymentTarget:
     iOS: '17.0'
 packages:
@@ -12,12 +13,6 @@ targets:
     type: application
     platform: iOS
     sources: [Sources]
-    postBuildScripts:
-      - name: Prepare Tor framework for iOS
-        path: Scripts/flatten-tor-framework.sh
-        inputFiles:
-          - "$(TARGET_BUILD_DIR)/$(FRAMEWORKS_FOLDER_PATH)/tor.framework/Versions/A"
-        basedOnDependencyAnalysis: false
     dependencies:
       - package: PaperclipMobile
       - package: TorRuntime
