@@ -70,7 +70,6 @@ internal fun NodeLightning(model: LightningModel) {
 					val pending = s.pending?.optString("state")?.let { it !in listOf("succeeded", "failed") } ?: false
 					val editable = !s.busy && !pending
 					Text("Your Lightning node", style = MaterialTheme.typography.titleLarge)
-					Text("Connect to your REST API. Your bitcoin and channels stay on your node.", style = MaterialTheme.typography.bodyMedium)
 					Row {
 						listOf("lnd", "cln").forEach { kind ->
 							FilterChip(
@@ -84,9 +83,8 @@ internal fun NodeLightning(model: LightningModel) {
 					OutlinedTextField(
 						endpoint,
 						{ endpoint = it },
-						label = { Text("REST endpoint · HTTPS or Tor onion") },
+						label = { Text("REST address") },
 						placeholder = { Text(if (implementation == "cln") "https://your-node:3010" else "https://your-node:8180") },
-						supportingText = { Text("StartOS, RTL, and the node dashboard can have different addresses. Use the node’s REST endpoint.") },
 						modifier = Modifier.fillMaxWidth(),
 						enabled = editable,
 					)
@@ -94,7 +92,6 @@ internal fun NodeLightning(model: LightningModel) {
 						credential,
 						{ credential = it },
 						label = { Text(if (implementation == "lnd") "Macaroon (hex)" else "Rune") },
-						supportingText = { Text(if (implementation == "cln") "Paste the rune itself, without a connection URL or quotes." else "Read-only credentials can show balances. Sending and receiving require additional permissions.") },
 						visualTransformation = PasswordVisualTransformation(),
 						modifier = Modifier.fillMaxWidth(),
 						enabled = editable,
@@ -103,7 +100,7 @@ internal fun NodeLightning(model: LightningModel) {
 						pin,
 						{ pin = it },
 						label = { Text("Certificate fingerprints · optional") },
-						supportingText = { Text("Use leaf SHA256 fingerprints from a trusted source. StartOS may serve more than one certificate; separate verified fingerprints with commas. One must match exactly. Leave empty for system HTTPS trust.") },
+						supportingText = { Text("Separate trusted SHA256 fingerprints with commas.") },
 						modifier = Modifier.fillMaxWidth(),
 						enabled = editable,
 					)
@@ -146,7 +143,7 @@ internal fun NodeLightning(model: LightningModel) {
 					}
 					if (pending) Text("Resolve the saved payment before changing nodes. Reconnect above to check its status.")
 					Text(
-						"Credentials stay in encrypted device storage. A failed request never falls back to a direct connection.",
+						"Credentials stay on this device.",
 						style = MaterialTheme.typography.bodySmall,
 					)
 				}
