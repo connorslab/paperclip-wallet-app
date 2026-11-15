@@ -8,17 +8,28 @@ let setupPending = false;
 let setupDefaultsLoaded = false;
 const $ = id => document.getElementById(id);
 const status = text => { $('status').textContent = text; };
+let walletMutations = 0;
 async function api(path, body, method, signal) {
-  try { return await PaperclipTransport.request(path, {body, method, token, signal}); }
+  const account = globalThis.PaperclipAccounts?.selectedId || '', generation = globalThis.PaperclipAccounts?.generation ?? 0;
+  if (account && !path.startsWith('hardware/')) throw new Error('This action belongs to the hot wallet. Switch wallets first.');
+  const mutation = (body !== undefined || (method && method !== 'GET')) && !(path === 'hardware/request' && body?.operation === 'refresh');
+  if (mutation) { walletMutations++; globalThis.PaperclipAccounts?.busyChanged(); }
+  try {
+    const result = await PaperclipTransport.request(path, {body, method, token, signal, ...(path === 'hardware/request' ? {timeoutMs:150000} : {})});
+    if (generation !== (globalThis.PaperclipAccounts?.generation ?? 0)) throw new Error('Wallet changed. Refresh the selected wallet.');
+    return result;
+  }
   catch (error) {
     if (error.message.includes('no pending lightning receive')) error.message = 'No received payment matches this invoice in this wallet. An invoice from another wallet belongs in Pay someone, not Received status.';
     if (error.message.toLowerCase().includes('dust') || error.message.includes('funded-HTLC minimum') || error.message.includes('No constructible Lightning input')) error.message = path === 'fees/ark/send' ? 'Ark payment or change is too small after recovery reserves. Check your balance and amount, or refresh eligible inputs. No payment was sent.' : 'Available Ark inputs cannot cover this payment with valid recovery reserves and change. Refresh eligible inputs to consolidate funds, or add Ark funds. Check Sent status before retrying.';
     throw error;
   }
+  finally { if (mutation) { walletMutations--; globalThis.PaperclipAccounts?.busyChanged(); } }
 }
 let updateInFlight = null;
 let nextAutomaticUpdate = 0;
 async function update() {
+  if (globalThis.PaperclipAccounts?.selectedId) return globalThis.PaperclipAccounts.refresh();
   if (updateInFlight?.session === token) return updateInFlight.promise;
   const sessionToken = token;
   const promise = updateBalances(sessionToken);
@@ -27,8 +38,9 @@ async function update() {
   finally { if (updateInFlight?.promise === promise) updateInFlight = null; }
 }
 async function updateBalances(sessionToken) {
+  const accountGeneration = globalThis.PaperclipAccounts?.generation ?? 0;
   const results = await Promise.allSettled(['wallet/balance', 'onchain/balance', 'wallet/vtxos', 'exits/status/all', 'bitcoin/tip'].map(path => api(path)));
-  if (!token || token !== sessionToken) return;
+  if (!token || token !== sessionToken || accountGeneration !== (globalThis.PaperclipAccounts?.generation ?? 0)) return;
   const [balance, chain, vtxos, exits, tip] = results.map(result => result.status === 'fulfilled' ? result.value : null);
   $('exits').textContent = JSON.stringify(exits, null, 2);
   $('ark-balance').textContent = Number.isSafeInteger(balance?.spendable_sat) ? balance.spendable_sat.toLocaleString() : 'Unavailable';
@@ -295,6 +307,7 @@ $('ln-check').onsubmit = event => { event.preventDefault(); run(event.submitter,
   status('Payment status updated.');
 }); };
 $('history-load').onclick = event => run(event.target, async () => {
+  if (globalThis.PaperclipAccounts?.selectedId) return globalThis.PaperclipAccounts.refresh();
   const session = token;
   const results = await Promise.allSettled([
     api('history'), api('onchain/transactions'), api('lightning/receives')
@@ -304,7 +317,7 @@ $('history-load').onclick = event => run(event.target, async () => {
   $('history').textContent = JSON.stringify({ark, onchain, lightning_receives: receives}, null, 2);
   if (ark) renderActivity(ark);
   else { $('activity-list').replaceChildren(); $('activity-summary').textContent = 'Activity is unavailable. Check connections and try again.'; }
-  status(results.some(result => result.status === 'rejected') ? 'Some activity is unavailable. This does not mean a payment failed.' : 'Activity updated.');
+  if (document.querySelector?.('[data-screen="activity"]')?.hidden !== true) status(results.some(result => result.status === 'rejected') ? 'Some activity is unavailable. This does not mean a payment failed.' : 'Activity updated.');
 });
 const lockSession = $('lock').onclick;
 $('lock').onclick = () => {

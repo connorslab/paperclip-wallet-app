@@ -1,0 +1,18 @@
+{
+  "name": "paperclip-qr-vendor",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "build": "esbuild entry.js --bundle --minify --platform=browser --format=iife --global-name=PaperclipQRVendor --inject:buffer.js --outfile=../../web/vendor/signing-qr.js"
+  },
+  "dependencies": {
+    "@ngraveio/bc-ur": "1.1.13",
+    "buffer": "6.0.3",
+    "cbor-sync": "1.0.4",
+    "jsqr": "1.4.0",
+    "process": "0.11.10"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2"
+  }
+}

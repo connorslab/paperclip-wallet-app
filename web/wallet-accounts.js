@@ -1,0 +1,164 @@
+'use strict';
+(() => {
+  let accounts=[], selected=null, generation=0, busy=false, pending=null, signed=null, history=[], lastRelay=null, paired=null;
+  let collector=new PaperclipSigningQR.Collector(), qrFrames=[], frame=0, paused=false, stream=null, scanning=false, scanPublic=false;
+  const dialog=$('qr-scanner'), video=$('scanner-video'), canvas=document.createElement('canvas'), context=canvas.getContext('2d',{willReadFrequently:true});
+  const sats=value=>Number.isSafeInteger(value)?value.toLocaleString()+' sats':'Unavailable';
+  function controls() {
+    $('wallet-select').disabled=busy||walletMutations>0;
+    document.querySelectorAll('#paired-wallets button, [data-hot-wallet]').forEach(button=>button.disabled=busy||walletMutations>0);
+    for(const id of ['pair-form','cold-send']) $(id).querySelectorAll('button,input,textarea,select').forEach(control=>control.disabled=busy);
+    $('signed-broadcast').disabled=busy||!signed;
+    $('cold-send').hidden=!!pending;
+    $('signing-request').hidden=!pending;
+  }
+  async function call(operation, fields={}) {return api('hardware/request',{operation,account:selected?.id||'',...fields});}
+  async function work(output, action) {
+    if(busy)return;busy=true;controls();$(output).textContent='Working…';const ticket=generation,session=token;
+    try {await action();if(ticket===generation&&token===session&&$(output).textContent==='Working…')$(output).textContent='';}
+    catch(error){if(ticket===generation&&token===session)$(output).textContent=error.message;}
+    finally{busy=false;controls();}
+  }
+  function stopCamera() {scanning=false;if(stream)stream.getTracks().forEach(track=>track.stop());stream=null;video.srcObject=null;if(dialog.open)dialog.close();}
+  function clearSigning() {
+    pending=null;signed=null;qrFrames=[];frame=0;collector=new PaperclipSigningQR.Collector();
+    $('signing-qr').replaceChildren();$('signed-text').value='';$('signing-review').textContent='';$('signing-status').textContent='';$('signing-progress').textContent='';
+    $('cold-send').reset();stopCamera();controls();
+  }
+  function cancelRequest() {
+    const old=selected?.id;
+    if(old&&pending&&token)void api('hardware/request',{operation:'cancel',account:old}).catch(()=>{});
+    clearSigning();
+  }
+  function clearWalletView() {
+    PaperclipReview.cancel();PaperclipReceive.clear();$('transaction-result').close();
+    for(const id of ['cold-address','cold-relay','cold-history','activity-list','history','ln-result','ln-invoice','ln-offer-output','address','deposit-address']) $(id)?.replaceChildren();
+    for(const id of ['destination','amount','ln-destination','ln-amount','chain-destination','chain-amount','ln-identifier']) if($(id))$(id).value='';
+    $('cold-balance').textContent='Loading…';$('cold-pending').textContent='Loading…';history=[];lastRelay=null;
+  }
+  async function choose(id) {
+    if(busy||walletMutations>0)return;
+    const next=accounts.find(account=>account.id===id)||null;if(id&&!next)throw new Error('Select a saved wallet.');
+    cancelRequest();generation++;selected=next;clearWalletView();
+    $('wallet-select').value=selected?.id||'';$('wallet-kind').textContent=selected?'QR WALLET · KEYS OFFLINE':'HOT WALLET';
+    $('cold-name').textContent=selected?.label||'QR wallet';$('signing-name').textContent=selected?'Send from '+selected.label:'Send from QR wallet';
+    document.body.classList.toggle('qr-account-active',!!selected);
+    $('wallet-readiness').hidden=true;status('');PaperclipNavigation.show('overview');renderAccounts();
+    if(selected){const ticket=generation;void refresh().catch(error=>{if(ticket===generation)$('cold-relay').textContent=error.message;});}else void update();
+  }
+  function renderAccounts() {
+    const select=$('wallet-select');select.replaceChildren(new Option('Hot wallet · Ark & on-chain',''));
+    for(const account of accounts)select.add(new Option(account.label+' · QR wallet',account.id));select.value=selected?.id||'';
+    const rows=$('paired-wallets');rows.replaceChildren();
+    for(const account of [{id:'',label:'Hot wallet',kind:'hot'},...accounts]) {
+      const button=document.createElement('button');button.className='menu-row secondary';button.type='button';
+      const title=document.createElement('strong'),detail=document.createElement('small'),copy=document.createElement('span');title.textContent=account.label;
+      detail.textContent=account.kind==='hot'?'Ark, Lightning & on-chain':'Krux / QR signer · Public account only';copy.append(title,detail);button.append(copy);
+      button.setAttribute('aria-pressed',String((selected?.id||'')===account.id));button.onclick=()=>void choose(account.id);rows.append(button);
+    }
+    controls();
+  }
+  async function load() {
+    const ticket=generation,session=token;const result=await api('hardware/accounts');if(ticket!==generation||session!==token)return;
+    if(!Array.isArray(result.accounts)||result.accounts.some(a=>!/^[0-9a-f]{64}$/.test(a.id)||typeof a.label!=='string'||a.kind!=='hardware'))throw new Error('Could not load paired wallets.');
+    accounts=result.accounts;renderAccounts();
+  }
+  async function refresh() {
+    if(!selected)return false;const ticket=generation;
+    const result=await call('refresh');if(ticket!==generation||!selected)return false;
+    for(const key of ['confirmed_sat','pending_sat'])if(!Number.isSafeInteger(result[key])||result[key]<0)throw new Error('The QR wallet returned an invalid balance.');
+    $('cold-balance').textContent=result.confirmed_sat.toLocaleString();$('cold-pending').textContent=result.pending_sat.toLocaleString();
+    lastRelay=result.last_broadcast;history=Array.isArray(result.transactions)?result.transactions:[];
+    $('cold-relay').textContent=lastRelay?.state==='pending_broadcast'?'Broadcast outcome is uncertain. Check transaction '+lastRelay.txid+' before another payment.':lastRelay?.state==='submitted'?'Transaction submitted. Waiting for confirmation.':'';
+    const list=$('cold-history');list.replaceChildren();
+    if(!history.length)list.textContent='No transactions found in this account.';
+    for(const transaction of history){const card=document.createElement('article');card.className='activity-card';const heading=document.createElement('h3'),detail=document.createElement('p'),reference=document.createElement('code');heading.textContent=sats(transaction.amount_sat);detail.textContent=transaction.confirmed?'Confirmed':'Unconfirmed';reference.textContent=transaction.txid;card.append(heading,detail,reference);list.append(card);}
+    nextAutomaticUpdate=Date.now()+30000;return true;
+  }
+  function showFrame() {
+    if(!qrFrames.length)return;const qr=qrcode(0,'M');qr.addData(qrFrames[frame],'Alphanumeric');qr.make();
+    // QR renderer emits coordinates only; no user strings are inserted as markup.
+    $('signing-qr').innerHTML=qr.createSvgTag({scalable:true,cellSize:2,margin:8});
+    $('signing-frame').textContent='Frame '+(frame+1)+' of '+qrFrames.length;
+  }
+  setInterval(()=>{if(pending&&!paused&&!document.hidden&&!document.querySelector('[data-screen="signing"]').hidden){frame=(frame+1)%qrFrames.length;showFrame();}},350);
+  $('signing-pause').onclick=()=>{paused=!paused;$('signing-pause').textContent=paused?'Play QR':'Pause QR';};
+  $('signing-next').onclick=()=>{if(qrFrames.length){paused=true;$('signing-pause').textContent='Play QR';frame=(frame+1)%qrFrames.length;showFrame();}};
+  $('wallet-select').onchange=event=>void choose(event.target.value);
+  document.querySelectorAll('[data-hot-wallet]').forEach(button=>button.onclick=()=>void choose(''));
+  $('pair-form').onsubmit=event=>{event.preventDefault();void work('wallet-account-status',async()=>{
+    const publicKey=await new PaperclipSigningQR.Collector().accept($('pair-key').value,true);
+    if(!publicKey)throw new Error('Finish scanning the public account first.');
+    const result=await call('pair',{label:$('pair-name').value,public_key:publicKey,script:$('pair-script').value,origin:$('pair-origin').value.trim()});
+    paired=result.id;await load();$('pair-address').textContent=result.first_address;$('pair-confirmation').hidden=false;$('pair-wallet').open=false;$('pair-form').reset();
+  });};
+  $('pair-use').onclick=()=>{if(paired){$('pair-confirmation').hidden=true;void choose(paired);}};
+  $('cold-receive').onclick=()=>void work('cold-relay',async()=>{const result=await call('address');$('cold-address').textContent=result.address;PaperclipReceive.show('cold-address',result.address,'Receive to '+selected.label);});
+  $('cold-send').onsubmit=event=>{event.preventDefault();void work('signing-status',async()=>{
+    if(!selected)throw new Error('Select a QR wallet first.');
+    const amount=$('cold-amount').value;if(!/^[1-9][0-9]*$/.test(amount)||!Number.isSafeInteger(Number(amount)))throw new Error('Enter a whole number of sats.');
+    const result=await call('prepare',{destination:$('cold-destination').value.trim(),amount_sat:Number(amount)});
+    if(result.account!==selected.id||![result.amount_sat,result.fee_sat,result.total_sat].every(Number.isSafeInteger)||result.total_sat!==result.amount_sat+result.fee_sat)throw new Error('Invalid signing review. Refresh and try again.');
+    const summary=selected.label+'\n\nRecipient: '+result.destination+'\nAmount: '+sats(result.amount_sat)+'\nNetwork fee: '+sats(result.fee_sat)+'\nTotal debit: '+sats(result.total_sat);
+    if(!await PaperclipReview.ask(summary+'\n\nCreate the QR request for your signer?')){await call('cancel');return;}
+    pending=result;signed=null;collector=new PaperclipSigningQR.Collector();qrFrames=PaperclipSigningQR.frames(PaperclipSigningQR.binary(result.psbt));frame=0;
+    paused=matchMedia('(prefers-reduced-motion: reduce)').matches;$('signing-pause').textContent=paused?'Play QR':'Pause QR';$('signing-review').textContent=summary;showFrame();
+  });};
+  async function acceptFrame(text,isPublic) {
+    const ticket=generation, result=await collector.accept(text,isPublic);if(ticket!==generation)return;
+    const progress=collector.total?'Read '+collector.received+' of '+collector.total+' fragments':'Reading QR…';$('scanner-progress').textContent=progress;$('signing-progress').textContent=progress;
+    if(result===null)return;
+    stopCamera();
+    if(isPublic){$('pair-key').value=result;$('pair-wallet').open=true;return;}
+    if(!pending||!selected)throw new Error('Review a transaction in this wallet first.');
+    let response;
+    try {response=await call('verify',{request_id:pending.request_id,signed:PaperclipSigningQR.toBase64(result)});}
+    catch(error){collector=new PaperclipSigningQR.Collector();throw error;}
+    if(response.verified!==true||response.fee_sat!==pending.fee_sat)throw new Error('Signature verification did not match this review.');
+    signed=response;$('signing-progress').textContent='Signature verified. Review once more before broadcast.';controls();
+  }
+  async function scan(isPublic) {
+    if(busy)return;if(!isPublic&&!pending)return;collector=new PaperclipSigningQR.Collector();scanPublic=isPublic;
+    $('scanner-title').textContent=isPublic?'Scan public account':'Scan signed response';$('scanner-progress').textContent='Point the camera at the QR code.';dialog.showModal();
+    const ticket=generation;
+    try{
+      if(!navigator.mediaDevices?.getUserMedia)throw new Error('Camera access needs HTTPS or a trusted local origin. Use a QR image or PSBT file instead.');
+      const acquired=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment',width:{ideal:1280}},audio:false});
+      if(ticket!==generation||!dialog.open){acquired.getTracks().forEach(track=>track.stop());return;}stream=acquired;video.srcObject=stream;await video.play();scanning=true;
+      while(scanning&&ticket===generation){
+        if(video.readyState>=2){canvas.width=Math.min(video.videoWidth,1280);canvas.height=Math.round(video.videoHeight*canvas.width/video.videoWidth);context.drawImage(video,0,0,canvas.width,canvas.height);const pixels=context.getImageData(0,0,canvas.width,canvas.height);const qr=PaperclipQRVendor.jsQR(pixels.data,pixels.width,pixels.height);if(qr)await acceptFrame(qr.data,isPublic);}
+        await new Promise(resolve=>setTimeout(resolve,125));
+      }
+    }catch(error){if(dialog.open)$('scanner-progress').textContent=error.message;else $(isPublic?'wallet-account-status':'signing-status').textContent=error.message;scanning=false;if(stream)stream.getTracks().forEach(track=>track.stop());stream=null;}
+  }
+  async function readFile(file,isPublic) {
+    if(!file)return;if(file.size>10*1024*1024)throw new Error('File is too large.');
+    if(file.type.startsWith('image/')){const image=await createImageBitmap(file);try{if(image.width*image.height>16000000)throw new Error('QR image is too large.');canvas.width=image.width;canvas.height=image.height;context.drawImage(image,0,0);const pixels=context.getImageData(0,0,canvas.width,canvas.height);const qr=PaperclipQRVendor.jsQR(pixels.data,pixels.width,pixels.height);if(!qr)throw new Error('No QR code found in this image.');await acceptFrame(qr.data,isPublic);}finally{image.close();}return;}
+    if(file.size>PaperclipSigningQR.MAX*2)throw new Error('Response is too large.');
+    const bytes=new Uint8Array(await file.arrayBuffer());if(!isPublic&&bytes.slice(0,5).every((v,i)=>v===[112,115,98,116,255][i]))await acceptFrame(PaperclipSigningQR.toBase64(bytes),false);else await acceptFrame(new TextDecoder('utf-8',{fatal:true}).decode(bytes),isPublic);
+  }
+  for(const [id,isPublic] of [['pair-file',true],['signed-file',false]])$(id).onchange=event=>{const file=event.target.files[0];event.target.value='';void work(isPublic?'wallet-account-status':'signing-status',()=>readFile(file,isPublic));};
+  $('pair-scan').onclick=()=>void scan(true);$('signed-scan').onclick=()=>void scan(false);
+  $('signed-paste').onclick=()=>void work('signing-status',()=>acceptFrame($('signed-text').value,false));
+  $('scanner-reset').onclick=()=>{collector=new PaperclipSigningQR.Collector();$('scanner-progress').textContent='Scan one complete response.';if(!scanning){stopCamera();void scan(scanPublic);}};
+  $('scanner-close').onclick=stopCamera;dialog.addEventListener('cancel',stopCamera);dialog.addEventListener('close',stopCamera);
+  $('signing-cancel').onclick=cancelRequest;
+  $('signing-download').onclick=()=>{if(!pending)return;const url=URL.createObjectURL(new Blob([PaperclipSigningQR.binary(pending.psbt)],{type:'application/octet-stream'}));const a=document.createElement('a');a.href=url;a.download='paperclip-unsigned.psbt';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);};
+  $('signed-broadcast').onclick=()=>void work('signing-status',async()=>{
+    if(!pending||!signed)throw new Error('Scan and verify the signature first.');
+    if(!await PaperclipReview.ask('Broadcast from '+selected.label+'?\n\n'+$('signing-review').textContent+'\n\nTransaction: '+signed.txid))return;
+    // Disable a second submission even if the reply is lost. The server journals before relay.
+    const txid=signed.txid,request_id=pending.request_id;signed=null;controls();
+    let result;
+    try{result=await call('broadcast',{request_id,txid});}
+    catch(error){clearSigning();PaperclipNavigation.show('overview');$('cold-relay').textContent='Broadcast result is uncertain. Refresh and check transaction '+txid+' before another payment.';throw error;}
+    clearSigning();PaperclipNavigation.show('overview');$('cold-relay').textContent=result.state==='submitted'?'Transaction submitted. Waiting for confirmation.':'Broadcast result is uncertain. Check transaction '+txid+' before another payment.';
+  });
+  window.addEventListener('paperclip:view',event=>{stopCamera();if(event.detail==='wallets'&&token)void work('wallet-account-status',load);});
+  document.addEventListener('visibilitychange',()=>{if(document.hidden)stopCamera();});
+  new MutationObserver(()=>{
+    if($('wallet').hidden){generation++;selected=null;accounts=[];cancelRequest();clearWalletView();$('pair-form').reset();$('pair-confirmation').hidden=true;$('wallet-account-status').textContent='';document.body.classList.remove('qr-account-active');renderAccounts();}
+    else void load().catch(()=>{$('wallet-account-status').textContent='Could not load QR wallets. Open Manage wallets to retry.';});
+  }).observe($('wallet'),{attributes:true,attributeFilter:['hidden']});
+  window.PaperclipAccounts={get selectedId(){return selected?.id||'';},get generation(){return generation;},refresh,busyChanged:controls};
+})();
