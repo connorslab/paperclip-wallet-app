@@ -82,6 +82,8 @@ async function connectWallet() {
     $('ln-controls').disabled = !lightningEnabled;
     $('ln-capability').textContent = lightningEnabled ? 'Experimental XBT Lightning enabled. Channel and Ark pool liquidity are required. Recovery reserves are included in your payment cost.' : 'This ASP has not enabled funded Lightning. Payment controls are unavailable.';
     $('network').textContent = network === 'bitcoin' ? 'XBT MAINNET \u00b7 EXPERIMENTAL' : 'XBT REGTEST';
+    await globalThis.PaperclipAccounts?.restore();
+    if (!session || token !== session) return;
     $('setup').hidden = true; $('login').hidden = true; $('wallet').hidden = false;
     $('ark-balance').textContent = 'Loading\u2026'; $('chain-balance').textContent = 'Loading\u2026';
     $('submission-warning').hidden = !uncertainMutation;
@@ -425,13 +427,13 @@ setInterval(async () => {
   catch { $('refresh-state').textContent = 'Update unavailable \u00b7 retry with Update'; }
   finally { refreshing = false; }
 }, 30000);
-(async () => {
+window.addEventListener('DOMContentLoaded', async () => {
   const saved = sessionRead('paperclip.session'); if (!saved) return;
   token = saved; $('remember-session').checked = true;
   status('Restoring this tab\u2019s wallet session\u2026');
   try { await connectWallet(); }
   catch { token = ''; network = null; sessionWrite('paperclip.session', null); status('Unlock again to reconnect. Your wallet data is unchanged.'); }
-})();
+}, {once:true});
 
 let vtxoSnapshot = {balance: {}, rows: [], tip: null};
 let vtxoRenderKey = '';

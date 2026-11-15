@@ -110,7 +110,7 @@ html {scroll-padding-block:24px 140px}
 @media(max-width:900px) {.settings-grid {grid-template-columns:1fr}}
 /* The wallet identity remains visible through every payment and navigation flow. */
 .wallet-switch{display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:18px 0;border-bottom:1px solid var(--stroke);margin-bottom:12px}
-.wallet-switch label{flex:1;min-width:200px;max-width:520px;margin:0}
+.wallet-switch label{flex:1;min-width:min(200px,100%);max-width:520px;margin:0}
 .wallet-switch select{width:100%;min-height:48px}
 .paired-wallets{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(280px,100%),1fr));gap:12px;margin:20px 0}
 .paired-wallets button[aria-pressed="true"]{border-color:var(--orange);box-shadow:inset 3px 0 var(--orange)}
@@ -122,8 +122,8 @@ html {scroll-padding-block:24px 140px}
 .signing-qr svg{display:block;width:100%;height:auto}
 .file-button{display:inline-flex;align-items:center;min-height:48px;padding:10px 14px;border:1px solid var(--stroke);border-radius:14px;gap:12px;flex-wrap:wrap;max-width:100%}
 .file-button input{max-width:100%;width:220px;font-size:.85rem}
-#qr-scanner{width:min(92vw,600px);max-height:90vh;overflow:auto;padding:24px;border:1px solid var(--stroke);border-radius:24px;background:var(--surface);color:#eef2f8}
-#qr-scanner::backdrop{background:#07101acc;backdrop-filter:blur(8px)}
+#qr-scanner,#wallet-rename{width:min(92vw,600px);max-height:90vh;overflow:auto;padding:24px;border:1px solid var(--stroke);border-radius:24px;background:var(--surface);color:#eef2f8}
+#qr-scanner::backdrop,#wallet-rename::backdrop{background:#07101acc;backdrop-filter:blur(8px)}
 #scanner-video{display:block;width:100%;max-height:50vh;border-radius:16px;background:#05080e}
 #pair-wallet{margin:24px 0}
 #pair-confirmation output{overflow-wrap:anywhere}
@@ -135,3 +135,9 @@ textarea:focus-visible{outline:2px solid var(--focus);outline-offset:4px}
 
 .cold-wallet-tool{display:none}.qr-account-active .cold-wallet-tool{display:block}.qr-account-active .hot-wallet-tool{display:none}
 .settings-grid .menu-row + .menu-row{margin-top:12px}
+
+.wallet-choice{display:flex;flex-direction:column;gap:8px;min-width:0}.wallet-choice>.menu-row{flex:1;width:100%}.wallet-choice>.secondary:last-child:not(.menu-row){align-self:flex-start}
+
+.wallet-choice .menu-row>span{min-width:0;overflow-wrap:anywhere}
+
+#cold-name,#signing-name{overflow-wrap:anywhere}

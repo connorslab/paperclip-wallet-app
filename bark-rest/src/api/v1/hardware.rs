@@ -35,13 +35,24 @@ struct Request {
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "snake_case")]
-enum Operation { Pair, Address, Refresh, Prepare, Verify, Broadcast, Cancel }
+enum Operation { Pair, Rename, Address, Refresh, Prepare, Verify, Broadcast, Cancel }
 
 pub fn router() -> Router<Arc<ServerState>> {
 	Router::new().route("/accounts", get(accounts)).route("/request", post(request))
 		.layer(DefaultBodyLimit::max(qr::MAX_TRANSFER * 2 + 8192))
 }
 
+fn wallet_label(label: &str) -> anyhow::Result<String> {
+	let label = label.trim();
+	ensure!(!label.is_empty() && label.chars().count() <= 64 && !label.chars().any(char::is_control), "Use a wallet name of 1 to 64 characters");
+	Ok(label.to_owned())
+}
+fn rename(root: &Path, id: &str, network: Network, label: &str) -> anyhow::Result<Account> {
+	let mut account = read_account(root, id, network)?;
+	account.label = wallet_label(label)?;
+	save(&account_dir(root, id)?.join("account.json"), &account)?;
+	Ok(account)
+}
 fn account_id(receive: &str, network: Network) -> String {
 	sha256::Hash::hash(format!("{network}:{receive}").as_bytes()).to_string()
 }
@@ -130,19 +141,24 @@ async fn request(State(state): State<Arc<ServerState>>, Json(request): Json<Requ
 		// Cross-process lock prevents a second wallet server from editing these accounts.
 		let _lock = bark::lock_manager::platform_default(Some(&root), None)?;
 		if matches!(request.operation, Operation::Pair) {
-			ensure!(!request.label.trim().is_empty() && request.label.len() <= 64 && !request.label.chars().any(char::is_control), "Use a wallet name of 1 to 64 characters");
+			let label = wallet_label(&request.label)?;
 			let (receive, change) = qr::descriptors(&request.public_key, &request.script, &request.origin, network, true)?;
 			let id = account_id(&receive, network);
 			let directory = account_dir(&root, &id)?;
 			ensure!(directory.exists() || std::fs::read_dir(&root)?.count() < 32, "This server supports up to 32 QR wallets");
 			private_dir(&directory)?;
-			let account = Account { id, label: request.label.trim().into(), receive, change, network };
+			let account = Account { id, label, receive, change, network };
 			let mut wallet = open(&root, &account).await?;
 			// Pairing does not create a new receive address each time the same account is scanned.
 			let first = wallet.address_page(0, false)?.0[0].1.clone();
 			save(&directory.join("account.json"), &account)?;
 			wallet.persist().await?;
 			return Ok(json!({"id": account.id, "label": account.label, "receive": account.receive, "first_address": first}));
+		}
+		if matches!(request.operation, Operation::Rename) {
+			let account = rename(&root, &request.account, network, &request.label)?;
+			accounts.pending.remove(&account_dir(&root, &account.id)?);
+			return Ok(json!({"id": account.id, "label": account.label}));
 		}
 		let account = read_account(&root, &request.account, network)?;
 		let directory = account_dir(&root, &account.id)?;
@@ -157,7 +173,7 @@ async fn request(State(state): State<Arc<ServerState>>, Json(request): Json<Requ
 			}
 		}
 		match request.operation {
-			Operation::Pair => unreachable!(),
+			Operation::Pair | Operation::Rename => unreachable!(),
 			Operation::Cancel => { accounts.pending.remove(&directory); Ok(json!({})) },
 			Operation::Address => Ok(json!({"address": wallet.address().await?.to_string()})),
 			Operation::Refresh => {
@@ -247,6 +263,14 @@ mod tests {
 			assert_eq!(first, fixture["receive_address"]);
 			assert!(wallet.balance().total() == Amount::ZERO);
 			drop(wallet);
+			let renamed = rename(&root, &account.id, Network::Bitcoin, "  Savings signer  ").unwrap();
+			assert_eq!(renamed.label, "Savings signer");
+			assert_eq!(renamed.receive, account.receive);
+			assert_eq!(renamed.change, account.change);
+			assert_eq!(read_account(&root, &account.id, Network::Bitcoin).unwrap().label, "Savings signer");
+			assert!(rename(&root, &account.id, Network::Bitcoin, "   ").is_err());
+			assert!(rename(&root, &account.id, Network::Bitcoin, "name\nchanged").is_err());
+			assert!(rename(&root, &account.id, Network::Bitcoin, &"x".repeat(65)).is_err());
 			let mut reopened = open(&root, &account).await.unwrap();
 			assert_ne!(reopened.address().await.unwrap().to_string(), first, "receive index must survive reopen");
 			assert!(read_account(&root, &account.id, Network::Regtest).is_err());

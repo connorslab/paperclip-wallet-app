@@ -23,6 +23,7 @@ const urFixtures=JSON.parse(fs.readFileSync(path.join(__dirname,'../mobile/Tests
       if(body.operation==='prepare')value={account:body.account,request_id:'c'.repeat(64),destination:body.destination,amount_sat:70000,fee_sat:1000,total_sat:71000,psbt:fixtures[0].original};
       if(body.operation==='verify')value={verified:true,fee_sat:1000,txid:'d'.repeat(64)};
       if(body.operation==='broadcast'){value={state:'pending_broadcast',txid:body.txid};receipts[body.account]=value;}
+      if(body.operation==='rename'){const account=accounts.find(item=>item.id===body.account);account.label=body.label;value={id:account.id,label:account.label};}
       if(body.operation==='pair'){const account={id:'e'.repeat(64),label:body.label,kind:'hardware'};accounts.push(account);value={...account,first_address:fixtures[2].receive_address};}
      }
      return route.fulfill({json:value});
@@ -71,6 +72,42 @@ const urFixtures=JSON.parse(fs.readFileSync(path.join(__dirname,'../mobile/Tests
    if(process.env.SCREENSHOT_DIR){fs.mkdirSync(process.env.SCREENSHOT_DIR,{recursive:true});await page.evaluate(()=>{const note=document.createElement('p');note.textContent='Synthetic UI test · no live funds';note.id='test-watermark';document.body.prepend(note);});assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));await page.screenshot({path:path.join(process.env.SCREENSHOT_DIR,`krux-wallet-${width}.png`),fullPage:true});}
    await page.getByRole('button',{name:'Manage wallets',exact:true}).click();await page.locator('#pair-wallet > summary').click();await page.locator('#pair-name').fill('Home Krux');await page.locator('#pair-key').fill(fixtures[2].public_key);await page.getByRole('button',{name:'Pair public account',exact:true}).click();await page.locator('#pair-confirmation').waitFor({state:'visible'});
    await page.locator('#pair-use').click();await page.waitForFunction(()=>document.querySelector('#cold-name').textContent==='Home Krux');
+   await page.getByRole('button',{name:'Manage wallets',exact:true}).click();
+   await page.getByRole('button',{name:'Rename Home Krux',exact:true}).click();
+   await page.locator('#wallet-rename-name').fill('Cancelled name');
+   await page.keyboard.press('Escape');
+   assert.equal(calls.filter(call=>call.body?.operation==='rename').length,0);
+   await page.getByRole('button',{name:'Rename Home Krux',exact:true}).click();
+   const renamedLabel='Savings '+'wallet'.repeat(9);
+   await page.locator('#wallet-rename-name').fill(renamedLabel);
+   if(process.env.SCREENSHOT_DIR)await page.screenshot({path:path.join(process.env.SCREENSHOT_DIR,`wallet-rename-${width}.png`),fullPage:true});
+   await page.getByRole('button',{name:'Save name',exact:true}).click();
+   await page.locator('#wallet-rename').waitFor({state:'hidden'});
+   assert.equal(await page.locator('#wallet-select').inputValue(),'e'.repeat(64));
+   assert((await page.locator('#wallet-select option:checked').textContent()).startsWith(renamedLabel));
+   assert(await page.getByRole('button',{name:'Rename '+renamedLabel,exact:true}).evaluate(element=>element===document.activeElement),'Rename returns keyboard focus to that wallet');
+   assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'Long wallet names must wrap');
+   if(process.env.SCREENSHOT_DIR)await page.screenshot({path:path.join(process.env.SCREENSHOT_DIR,`wallet-picker-${width}.png`),fullPage:true});
+   // Account choice survives a page reload and lock without exposing hot actions.
+   await page.reload();
+   await page.waitForFunction(label=>document.querySelector('#cold-name').textContent===label&&!document.querySelector('#wallet').hidden,renamedLabel);
+   assert.equal(await page.locator('#ark-balance').isVisible(),false);
+   assert.equal(await page.locator('#wallet-select').inputValue(),'e'.repeat(64));
+   await page.locator('.view-nav [data-view="overview"]').click();
+   assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'Long active wallet names must wrap');
+   await page.locator('#lock').click();
+   await page.locator('#token').fill('synthetic-token');await page.getByRole('button',{name:'Unlock wallet',exact:true}).click();
+   await page.locator('#wallet').waitFor({state:'visible'});
+   assert.equal(await page.locator('#wallet-select').inputValue(),'e'.repeat(64));
+   assert.equal(await page.locator('#signed-broadcast').isEnabled(),false);
+   // If that public account disappears, require an explicit hot-wallet choice.
+   await page.locator('#lock').click();accounts.pop();
+   await page.locator('#token').fill('synthetic-token');await page.getByRole('button',{name:'Unlock wallet',exact:true}).click();
+   await page.locator('#forget-selected-wallet').waitFor({state:'visible'});
+   assert.equal(await page.locator('#wallet').isVisible(),false);
+   await page.locator('#forget-selected-wallet').click();
+   await page.locator('#token').fill('synthetic-token');await page.getByRole('button',{name:'Unlock wallet',exact:true}).click();
+   await page.locator('#wallet').waitFor({state:'visible'});
    await page.locator('#wallet-select').selectOption('');await page.locator('#ark-balance').waitFor({state:'visible'});assert.equal(await page.locator('#cold-balance').isVisible(),false);
    await page.locator('#lock').click();await page.goBack();assert.equal(await page.locator('#wallet').isVisible(),false);assert.equal(await page.locator('#pair-key').inputValue(),'');assert.deepEqual(errors,[]);
    assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));await page.close();

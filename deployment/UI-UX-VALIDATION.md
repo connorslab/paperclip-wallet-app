@@ -29,6 +29,18 @@ public QR accounts alongside its existing hot wallet. Each QR account has a
 separate database, receive/change address state, history and signing request.
 The browser switcher stays visible while the wallet is unlocked.
 
+The browser remembers the selected public account in the current tab. It checks
+that account against the authenticated server before it shows wallet controls.
+If the account is unavailable, it stays locked and offers an explicit hot-wallet
+choice. It does not silently select the hot wallet. Closing the tab clears this
+selection. Renaming a QR account keeps its descriptors, addresses and history;
+it cancels an unfinished signing request for that account.
+
+Android presents each wallet as a card with its type, network and selected state.
+Rename belongs to that card, separate from the add-wallet form. Wallet-type and
+address-type choices wrap on small displays. The iOS picker exposes its selected
+state to VoiceOver and gives rename/remove actions at least 44-point targets.
+
 For the browser, select **Manage wallets → Pair a Krux or QR wallet**. Scan or
 import the public account, choose its address type, and compare the first receive
 address with the signer before funding it. Select that wallet to receive or send.
@@ -72,6 +84,16 @@ iPhone simulator. Browser navigation ran at 390, 800 and 1280 pixels; the QR
 flow ran at 390 and 1280 pixels, including decoding the rendered signing QR.
 Existing browser, transport, receive QR, JoinBlaket and setup checks passed.
 `just checks` and the shared-source checksum check also passed.
+
+Follow-up checks covered Android's open fold display and narrow cover display
+with 1.3x text. The JNI test switches between a generated disposable hot wallet
+and all four public signer script types, for both QR and watch-only profiles.
+It checks independent networks and receive-address sequences. The CI UI test
+waits for Back to become enabled after recreation; restored content can appear
+before wallet loading finishes. Each instrumentation class now retains its report
+even if a later class fails. Browser tests cover rename/cancel, keyboard focus,
+long names, reload/lock restoration, and a missing saved account. The iOS native
+persistence test also checks the selected-wallet accessibility value.
 
 Physical Krux optical scans, physical iPhone/Android round trips, signed production
 archives, deployed Umbrel/StartOS upgrades and live hardware-wallet broadcasts
