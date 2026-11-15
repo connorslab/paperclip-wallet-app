@@ -196,6 +196,7 @@ async fn execute_pay_command(
 	match pay_command {
 		PayCommand::Invoice { invoice, amount, comment, wait, retry_for_secs } => {
 			let req = models::LightningPayRequest {
+				max_total_sat: None,
 				destination: invoice,
 				amount_sat: amount.map(|a| a.to_sat()),
 				comment,

@@ -35,6 +35,7 @@ use crate::actions::{
 	RetryUnlessRejected, WalletAction, WalletActionCheckpoint, WalletActionId,
 };
 use crate::arkoor::{resolve_change_pieces, split_change_amount};
+use crate::lightning::check_lightning_debit;
 use crate::movement::update::MovementUpdate;
 use crate::movement::{MovementDestination, MovementId, MovementStatus, PaymentMethod};
 use crate::persist::models::PaidInvoice;
@@ -433,6 +434,7 @@ pub(crate) async fn start_lightning_send(
 	user_amount: Option<Amount>,
 	original_payment_method: PaymentMethod,
 	retry_for: Option<Duration>,
+	max_total: Option<Amount>,
 ) -> anyhow::Result<LightningSend> {
 	let (_, ark_info) = wallet.require_server().await?;
 	ensure!(ark_info.funded_lightning, "server has not enabled funded Lightning");
@@ -462,6 +464,7 @@ pub(crate) async fn start_lightning_send(
 		VtxoPolicy::new_server_htlc_send(preview_key.public_key(), invoice.payment_hash(), htlc_expiry),
 		preview_key.public_key(),
 	).await?;
+	check_lightning_debit(payment_amount, fee, recovery_reserve, max_total)?;
 	let (change_keypair, _) = wallet.derive_store_next_keypair().await?;
 	let (revocation_keypair, _) = wallet.derive_store_next_keypair().await?;
 

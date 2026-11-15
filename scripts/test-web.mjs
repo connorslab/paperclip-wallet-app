@@ -19,9 +19,9 @@ function fixture(network, lightningEnabled = true, empty = false) {
       calls.push({path, options});
       if (failPath && path.endsWith(failPath)) throw Error('Transport interrupted');
       const result = path.endsWith('/wallet') ? {fingerprint: empty ? null : 'test-fingerprint'}
-        : path.endsWith('/wallet/identity') ? {network, exit_profile: 2, lightning_enabled: lightningEnabled}
+        : path.endsWith('/wallet/identity') ? {network, exit_profile: 2, lightning_enabled: lightningEnabled, lightning_debit_limit: true}
         : path.endsWith('/fees/ark/send') ? {recipient_amount_sat: JSON.parse(options.body).amount_sat, recovery_reserve_sat: 6000, service_fee_sat: 0, total_debit_sat: JSON.parse(options.body).amount_sat + 6000, remaining_spendable_sat: 92000, input_count: 1, vtxos_spent: ['test-vtxo']}
-        : path.includes('/fees/lightning/pay?') ? {net_amount_sat: Number(path.split('=')[1]), fee_sat: 6000, gross_amount_sat: Number(path.split('=')[1]) + 6000, vtxos_spent: ['test-vtxo']}
+        : path.endsWith('/fees/lightning/review') ? {net_amount_sat: JSON.parse(options.body).amount_sat ?? 2000, fee_sat: 6000, gross_amount_sat: (JSON.parse(options.body).amount_sat ?? 2000) + 6000, vtxos_spent: ['test-vtxo']}
         : path.endsWith('/wallet/balance') ? {spendable_sat: 100000}
         : path.endsWith('/onchain/balance') ? {confirmed_sat: 50000}
         : path.endsWith('/addresses/next') ? {address: 'bc1-test-address'}
@@ -65,7 +65,7 @@ for (const network of ['bitcoin', 'regtest']) {
   f.element('ln-destination').value = 'lno-test-offer';
   f.element('ln-amount').value = '2000';
   await f.trigger('ln-pay', 'onsubmit');
-  assert.deepEqual(JSON.parse(f.calls.find(c => c.path.endsWith('/lightning/pay')).options.body), {destination: 'lno-test-offer', amount_sat: 2000, comment: null});
+  assert.deepEqual(JSON.parse(f.calls.find(c => c.path.endsWith('/lightning/pay')).options.body), {destination: 'lno-test-offer', amount_sat: 2000, max_total_sat: 8000, comment: null});
   assert.equal(f.element('ln-identifier').value, 'test-hash');
   await f.trigger('ln-check', 'onsubmit');
   assert(f.calls.some(c => c.path.endsWith('/lightning/sends/test-hash')));
@@ -284,7 +284,7 @@ for (const mode of ['approve', 'cancel', 'error', 'malformed', 'lock', 'edit']) 
   f.context.PaperclipReview.ask = async text => { review = text; return mode !== 'cancel'; };
   const fetch = f.context.fetch;
   f.context.fetch = async (path, options) => {
-    if (path.includes('/fees/lightning/pay?')) {
+    if (path.endsWith('/fees/lightning/review')) {
       if (mode === 'error') throw Error('No constructible Lightning inputs');
       if (mode === 'malformed') return {ok: true, status: 200, json: async () => ({})};
       if (mode === 'lock') await f.trigger('lock');
@@ -294,7 +294,7 @@ for (const mode of ['approve', 'cancel', 'error', 'malformed', 'lock', 'edit']) 
   };
   await f.trigger('ln-pay', 'onsubmit');
   assert.equal(f.calls.filter(c => c.path.endsWith('/lightning/pay')).length, mode === 'approve' ? 1 : 0);
-  if (mode === 'approve' || mode === 'cancel') assert.match(review, /Estimated total: 56,000 sats/);
+  if (mode === 'approve' || mode === 'cancel') assert.match(review, /Maximum total: 56,000 sats/);
 }
 console.log('PASS: Lightning cost review, cancellation, failed/malformed quotes, edit and lock safety');
 
@@ -367,3 +367,27 @@ for (const platform of ['startos','umbrel','standalone']) {
   if (platform === 'umbrel') { assert.match(copy,/app password/); assert(!copy.includes('StartOS')); assert.equal(f.element('token-label').textContent,'App password'); }
 }
 console.log('PASS: platform-specific login help without cross-platform wording');
+
+// Fixed-amount invoices receive the same review and enforced cap as user-entered amounts.
+for (const mode of ['fixed', 'old-server', 'changed-during-review']) {
+  const f = fixture('bitcoin');
+  const fetch = f.context.fetch;
+  if (mode === 'old-server') f.context.fetch = async (path, options) => path.endsWith('/wallet/identity')
+    ? {ok: true, status: 200, json: async () => ({network: 'bitcoin', exit_profile: 2, lightning_enabled: true})}
+    : fetch(path, options);
+  f.element('token').value = 'test-token'; await f.trigger('unlock', 'submit');
+  f.element('ln-destination').value = 'ln-fixed-test-invoice';
+  f.context.PaperclipReview.ask = async text => {
+    assert.match(text, /Maximum total: 8,000 sats/);
+    assert.match(text, /Pay 2,000 sats/);
+    if (mode === 'changed-during-review') f.element('ln-destination').value = 'another-invoice';
+    return true;
+  };
+  await f.trigger('ln-pay', 'onsubmit');
+  const sends = f.calls.filter(c => c.path.endsWith('/lightning/pay'));
+  assert.equal(sends.length, mode === 'fixed' ? 1 : 0);
+  if (sends.length) assert.deepEqual(JSON.parse(sends[0].options.body), {
+    destination: 'ln-fixed-test-invoice', amount_sat: 2000, max_total_sat: 8000, comment: null
+  });
+}
+console.log('PASS: fixed invoice debit cap, older-server refusal, and edits during confirmation');

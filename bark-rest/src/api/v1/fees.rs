@@ -21,12 +21,14 @@ use crate::error::{self, HandlerResult, ContextExt, badarg};
 		offboard_all_fee,
 		offboard_fee,
 		lightning_send_fee,
+		lightning_review,
 		lightning_receive_fee,
 	),
 	components(schemas(
 		bark_json::web::ArkSendEstimateRequest,
 		bark_json::web::ArkSendEstimateResponse,
 		bark_json::web::FeeEstimateQuery,
+		bark_json::web::LightningReviewRequest,
 		bark_json::web::SendOnchainFeeEstimateQuery,
 		bark_json::web::OffboardAllFeeEstimateQuery,
 		bark_json::web::OffboardFeeEstimateRequest,
@@ -46,6 +48,7 @@ pub fn router() -> Router<Arc<ServerState>> {
 		.route("/offboard-all", get(offboard_all_fee))
 		.route("/offboard", post(offboard_fee))
 		.route("/lightning/pay", get(lightning_send_fee))
+		.route("/lightning/review", post(lightning_review))
 		.route("/lightning/receive", get(lightning_receive_fee))
 }
 
@@ -330,4 +333,37 @@ pub async fn ark_send_fee(
 		input_count: estimate.vtxos_spent.len(),
 		vtxos_spent: estimate.vtxos_spent.iter().map(ToString::to_string).collect(),
 	}))
+}
+
+#[utoipa::path(
+	post,
+	path = "/lightning/review",
+	summary = "Review the full cost of a Lightning request without sending",
+	request_body = bark_json::web::LightningReviewRequest,
+	responses(
+		(status = 200, description = "Cost including recovery reserves", body = bark_json::web::FeeEstimateResponse),
+		(status = 400, description = "Invalid payment request", body = error::BadRequestError),
+		(status = 500, description = "Estimate unavailable", body = error::InternalServerError)
+	),
+	description = "Send gross_amount_sat as max_total_sat when paying. Estimates do not reserve funds.",
+	tag = "fees"
+)]
+#[debug_handler]
+pub async fn lightning_review(
+	State(state): State<Arc<ServerState>>,
+	Json(body): Json<bark_json::web::LightningReviewRequest>,
+) -> HandlerResult<Json<bark_json::web::FeeEstimateResponse>> {
+	let wallet = state.require_wallet()?;
+	let request = wallet.parse_payment_request(&body.destination).await
+		.badarg("invalid Lightning request")?;
+	let option = request.default_option().badarg("no usable payment method")?;
+	if !option.method.is_lightning() { badarg!("a Lightning request is required"); }
+	let amount = body.amount_sat.map(Amount::from_sat).or(request.amount)
+		.badarg("enter the amount to pay")?;
+	if let bark::movement::PaymentMethod::Invoice(invoice) = &option.method {
+		invoice.get_payment_amount(Some(amount)).badarg("invoice amount mismatch")?;
+	}
+	let estimate = wallet.estimate_payment_fee(option, amount).await
+		.context("Failed to review Lightning cost")?;
+	Ok(Json(estimate.into()))
 }

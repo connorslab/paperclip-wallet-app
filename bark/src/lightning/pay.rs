@@ -33,9 +33,17 @@ pub struct LightningSendOptions {
 	/// How long the server keeps trying to pay, capped to the server's
 	/// maximum. `None` leaves it to the server.
 	pub retry_for: Option<Duration>,
+	/// Maximum wallet debit, including service fees and recovery reserves.
+	/// Checked before a new send is persisted or any funds are committed.
+	pub max_total: Option<Amount>,
 }
 
 impl LightningSendOptions {
+	pub fn max_total(mut self, max_total: Option<Amount>) -> Self {
+		self.max_total = max_total;
+		self
+	}
+
 	pub fn wait(mut self, wait: bool) -> Self {
 		self.wait = wait;
 		self
@@ -45,6 +53,18 @@ impl LightningSendOptions {
 		self.retry_for = retry_for;
 		self
 	}
+}
+
+pub(crate) fn check_lightning_debit(
+	amount: Amount, fee: Amount, recovery_reserve: Amount, max_total: Option<Amount>,
+) -> anyhow::Result<()> {
+	let total = amount.checked_add(fee).and_then(|sum| sum.checked_add(recovery_reserve))
+		.context("Lightning payment cost overflow")?;
+	ensure!(total <= Amount::MAX_MONEY, "Lightning payment cost exceeds the money supply");
+	if let Some(limit) = max_total {
+		ensure!(total <= limit, "Lightning payment cost exceeds the approved total; review a new quote");
+	}
+	Ok(())
 }
 
 impl Wallet {
@@ -380,9 +400,13 @@ impl Wallet {
 		// send keeps the retry time it was started with.
 		if checkpoint.get().is_none() {
 			let start = start_lightning_send(
-				self, invoice.clone(), user_amount, original_payment_method, opts.retry_for,
+				self, invoice.clone(), user_amount, original_payment_method, opts.retry_for, opts.max_total,
 			).await?;
 			checkpoint.create(self, start).await?;
+		} else if let Some(send) = checkpoint.get() {
+			// A lower limit does not cancel an already initiated payment. Leave
+			// its checkpoint intact for status checks and background recovery.
+			check_lightning_debit(send.payment_amount, send.fee, send.recovery_reserve, opts.max_total)?;
 		}
 
 		self.drive_checkpoint(checkpoint, mode).await
@@ -506,6 +530,42 @@ mod test {
 	async fn finish(wallet: &Wallet, send: &PendingSend) {
 		let checkpoint = wallet.try_lock_action::<LightningSend>(&send.send.id()).await.unwrap().unwrap();
 		checkpoint.finish(wallet).await.unwrap();
+	}
+
+	#[test]
+	fn lightning_debit_limit_includes_fees_and_recovery() {
+		let amount = Amount::from_sat(10_000);
+		let fee = Amount::from_sat(120);
+		let reserve = Amount::from_sat(6_000);
+		assert!(check_lightning_debit(amount, fee, reserve, Some(Amount::from_sat(16_120))).is_ok());
+		assert!(check_lightning_debit(amount, fee, reserve, Some(Amount::from_sat(16_119))).is_err());
+		assert!(check_lightning_debit(amount, fee, reserve, Some(amount + fee)).is_err());
+		assert!(check_lightning_debit(amount, fee, reserve, None).is_ok());
+		assert!(check_lightning_debit(Amount::MAX_MONEY, Amount::ONE_SAT, Amount::ZERO, None).is_err());
+		assert!(check_lightning_debit(Amount::from_sat(u64::MAX), Amount::ONE_SAT, reserve, None).is_err());
+	}
+
+	#[tokio::test]
+	async fn lightning_debit_limit_preserves_existing_payment_for_recovery() {
+		let (wallet, _conn) = Wallet::offline_for_test().await;
+		let mut pending = pending_send(&wallet).await;
+		pending.send.fee = Amount::from_sat(120);
+		pending.send.recovery_reserve = Amount::from_sat(6_000);
+		wallet.inner.db.upsert_wallet_action_checkpoint(
+			&pending.send.id(), &pending.send.clone().into(),
+		).await.unwrap();
+		let before = checkpoint(&wallet, &pending).await;
+		let locked = vtxo_state(&wallet, pending.htlcs.vtxo_ids[0]).await;
+		let result = wallet.make_lightning_payment_with(
+			&pending.send.invoice, pending.send.original_payment_method.clone(), None,
+			LightningSendOptions::default().max_total(Some(Amount::from_sat(1_120))),
+		).await;
+		assert!(result.unwrap_err().to_string().contains("exceeds the approved total"));
+		assert_eq!(checkpoint(&wallet, &pending).await, before);
+		assert_eq!(vtxo_state(&wallet, pending.htlcs.vtxo_ids[0]).await, locked);
+		// The guard released its lock and normal status/recovery remains possible.
+		finish(&wallet, &pending).await;
+		assert!(checkpoint(&wallet, &pending).await.is_none());
 	}
 
 	/// The sync loop reads every pending send before it takes the lock of

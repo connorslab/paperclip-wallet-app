@@ -310,7 +310,8 @@ pub async fn pay(
 
 	let amount = body.amount_sat.map(|a| Amount::from_sat(a));
 	let opts = LightningSendOptions::default()
-		.retry_for(body.retry_for_secs.map(Duration::from_secs));
+		.retry_for(body.retry_for_secs.map(Duration::from_secs))
+		.max_total(body.max_total_sat.map(Amount::from_sat));
 
 	let invoice = if let Ok(invoice) = Invoice::from_str(&body.destination) {
 		if body.comment.is_some() {

@@ -773,8 +773,8 @@ impl Wallet {
 	}
 
 	/// Same as [`Self::send_payment`], with [`LightningSendOptions`] for
-	/// lightning methods. A warning is logged if `retry_for` is supplied for
-	/// others.
+	/// lightning methods. The maximum debit also applies to Ark sends; onchain
+	/// sends reject it. A warning is logged if `retry_for` is supplied for others.
 	pub async fn send_payment_with(
 		&self,
 		payment_method: &PaymentMethod,
@@ -793,6 +793,7 @@ impl Wallet {
 
 		let output = match payment_method {
 			PaymentMethod::Bitcoin(address) => {
+				ensure!(opts.max_total.is_none(), "maximum debit is not supported for onchain sends");
 				let address = address.clone().require_network(network)?;
 				let amount = input_amount.context("amount is required for bitcoin address")?;
 				let txid = self.send_onchain(address, amount).await?.txid;
@@ -813,7 +814,7 @@ impl Wallet {
 			},
 			PaymentMethod::Ark(address) => {
 				let amount = input_amount.context("amount is required for arkoor payment")?;
-				let movement_id = self.send_arkoor_payment(&address, amount).await?;
+				let movement_id = self.send_arkoor_payment_with_max_cost(&address, amount, opts.max_total).await?;
 				PaymentInitOutput::Ark(movement_id)
 			},
 			PaymentMethod::Lnurl(lnurl) => {

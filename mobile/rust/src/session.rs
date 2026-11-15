@@ -8,7 +8,7 @@ use bitcoin::{Amount, Network};
 use serde_json::{json, Value};
 use rusqlite::OptionalExtension;
 
-use bark::{Config, OpenWalletArgs, Wallet, WalletSeed};
+use bark::{Config, LightningSendOptions, OpenWalletArgs, Wallet, WalletSeed};
 use bark::lock_manager::{LockManager, memory::MemoryLockManager};
 use bark::onchain::{OnchainWallet, OnchainWalletTrait};
 use bark::payment_request::PaymentInitOutput;
@@ -1000,7 +1000,12 @@ pub fn dispatch(state: &mut Option<Session>, request: Value, seed: [u8; 64]) -> 
 				let result = if let Some(ids) = offboard_inputs {
 					let bark::movement::PaymentMethod::Bitcoin(address) = method else { bail!("invalid withdrawal quote"); };
 					PaymentInitOutput::Onchain(w.offboard_vtxos(ids, address.assume_checked()).await?.txid)
-				} else { w.send_payment(&method, Some(Amount::from_sat(amount)), None::<&str>, false).await? };
+				} else {
+					let opts = LightningSendOptions::default().max_total(
+						(!method.is_bitcoin()).then(|| Amount::from_sat(total)),
+					);
+					w.send_payment_with(&method, Some(Amount::from_sat(amount)), None::<&str>, opts).await?
+				};
 				Ok(match result {
 					PaymentInitOutput::Ark(movement_id) => json!({"state": "completed", "movement_id": movement_id}),
 					PaymentInitOutput::Lightning(invoice) => json!({"state": "pending", "invoice": invoice.to_string(), "payment_hash": invoice.payment_hash().to_string()}),

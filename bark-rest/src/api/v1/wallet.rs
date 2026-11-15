@@ -348,6 +348,7 @@ pub async fn identity(
 	Ok(Json(serde_json::json!({
 		"network": wallet.network().await?,
 		"exit_profile": ark::exit_policy::PAPERCLIP_EXIT_PROFILE,
+		"lightning_debit_limit": true,
 		"lightning_enabled": wallet.ark_info().await.ok().flatten().is_some_and(|info| info.funded_lightning),
 	})))
 }
@@ -802,7 +803,8 @@ pub async fn send(
 	}
 
 	let opts = LightningSendOptions::default()
-		.retry_for(body.retry_for_secs.map(Duration::from_secs));
+		.retry_for(body.retry_for_secs.map(Duration::from_secs))
+		.max_total(body.max_total_sat.map(Amount::from_sat));
 	let output = match method {
 		bark::movement::PaymentMethod::Ark(address) => {
 			let amount = amount.badarg("amount is required for Ark payments")?;
@@ -811,8 +813,8 @@ pub async fn send(
 			).await?)
 		},
 		_ => {
-			if body.max_total_sat.is_some() {
-				badarg!("max_total_sat is supported for Ark sends only");
+			if body.max_total_sat.is_some() && !method.is_lightning() {
+				badarg!("max_total_sat is supported for Ark and Lightning sends only");
 			}
 			wallet.send_payment_with(method, amount, body.comment, opts).await?
 		},

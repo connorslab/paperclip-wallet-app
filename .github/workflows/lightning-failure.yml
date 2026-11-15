@@ -2,7 +2,8 @@ name: Lightning failure regression checks
 on:
   workflow_dispatch:
   push:
-    branches: ['fix/lightning-failed-payment-costs']
+    branches: ['fix/lightning-failed-payment-costs', 'codex/cross-platform-parity']
+    paths: ['bark/**', 'bark-json/**', 'bark-rest/**', 'mobile/rust/**', 'Cargo.lock', '.github/workflows/lightning-failure.yml']
 permissions:
   contents: read
 jobs:

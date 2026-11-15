@@ -74,6 +74,15 @@ pub struct FeeEstimateQuery {
 	pub amount_sat: u64,
 }
 
+/// Read-only Lightning cost review; no invoice is paid or funds reserved.
+#[derive(Serialize, Deserialize)]
+#[cfg_attr(feature = "utoipa", derive(ToSchema))]
+pub struct LightningReviewRequest {
+	pub destination: String,
+	/// Omit when the invoice or offer carries an amount.
+	pub amount_sat: Option<u64>,
+}
+
 /// Query parameters for send-onchain fee estimates.
 #[derive(Serialize, Deserialize)]
 #[cfg_attr(feature = "utoipa", derive(ToSchema))]
@@ -501,7 +510,7 @@ pub struct BoardRequest {
 #[derive(Serialize, Deserialize)]
 #[cfg_attr(feature = "utoipa", derive(ToSchema))]
 pub struct SendRequest {
-	/// Optional maximum debit, including recovery reserves. Supported for Ark addresses only.
+	/// Optional maximum debit, including recovery reserves. Supported for Ark and Lightning payments.
 	/// The send recomputes its cost and rejects an increase above this limit before signing.
 	#[serde(default)]
 	pub max_total_sat: Option<u64>,
@@ -696,6 +705,9 @@ pub struct LightningInvoiceForAddressRequest {
 #[derive(Serialize, Deserialize)]
 #[cfg_attr(feature = "utoipa", derive(ToSchema))]
 pub struct LightningPayRequest {
+	/// Maximum wallet debit including service fees and funded recovery reserves.
+	#[serde(default)]
+	pub max_total_sat: Option<u64>,
 	/// The invoice, offer, or lightning address to pay
 	pub destination: String,
 	/// The amount to send (in satoshis). Optional for bolt11 invoices with amount. This must be
