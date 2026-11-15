@@ -72,6 +72,7 @@ import PaperclipMobile
                         }
                         return
                     }
+                    self.refreshPools()
                     if !self.busy {
                         self.snapshot = try await self.call("coinjoin_tick")
                         await self.flush(); try await self.subscribe()
@@ -101,6 +102,29 @@ import PaperclipMobile
         subscribed = key; replaying = true; replay = []; replayBytes = 0
         try await relay?.send(["REQ", "round", ["kinds": [2023], "#p": keys]])
     }
+    private func refreshPools() {
+        let now = Date().timeIntervalSince1970
+        pools = announcements.values
+            .filter { now - Double($0.0) <= 35 * 60 }
+            .map { $0.2 }
+            .filter {
+                guard let terms = $0["terms"] as? [String: Any],
+                      let amount = terms["denomination"] as? NSNumber else { return false }
+                let outputs = terms["outputs"] as? Int ?? 1
+                guard (1...5).contains(outputs) else { return false }
+                let (total, overflow) = amount.uint64Value.multipliedReportingOverflow(by: UInt64(outputs))
+                guard !overflow, total >= 10_000 else { return false }
+                return (terms["v"] as? Int ?? 1) >= 3
+                    && terms["script"] as? String == "p2wpkh"
+                    && terms["state"] as? String == "open"
+                    && ((terms["timeout"] as? NSNumber)?.doubleValue ?? 0) > now
+                    && (terms["peers"] as? Int ?? 0) < (terms["max_peers"] as? Int ?? 0)
+            }
+            .sorted {
+                (($0["terms"] as? [String: Any])?["timeout"] as? Int ?? 0)
+                    < (($1["terms"] as? [String: Any])?["timeout"] as? Int ?? 0)
+            }
+    }
     private func receive(_ value: [Any]) async {
         guard let type = value.first as? String else { return }
         do {
@@ -113,10 +137,7 @@ import PaperclipMobile
                     if let old = announcements[key], old.0 > stamp.uint64Value || (old.0 == stamp.uint64Value && old.1 <= eventID) { return }
                     guard announcements.count < 1000 || announcements[key] != nil else { return }
                     announcements[key] = (stamp.uint64Value, eventID, ["terms": terms, "event": event])
-                    pools = announcements.values.map { $0.2 }.filter {
-                        guard let t = $0["terms"] as? [String: Any] else { return false }
-                        return t["state"] as? String == "open" && (t["timeout"] as? NSNumber)?.doubleValue ?? 0 > Date().timeIntervalSince1970 && ((t["peers"] as? Int ?? 0) < (t["max_peers"] as? Int ?? 0))
-                    }.sorted { (($0["terms"] as? [String: Any])?["timeout"] as? Int ?? 0) < (($1["terms"] as? [String: Any])?["timeout"] as? Int ?? 0) }
+                    refreshPools()
                 } else if sub == "round" {
                     if replaying {
                         replayBytes += (try? JSONSerialization.data(withJSONObject: event).count) ?? 0

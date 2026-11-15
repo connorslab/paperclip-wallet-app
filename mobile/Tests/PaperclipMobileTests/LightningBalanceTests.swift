@@ -24,6 +24,13 @@ final class LightningBalanceTests: XCTestCase {
         XCTAssertEqual(result.receivableMsat, 0)
         XCTAssertEqual(result.activeChannels, 1)
     }
+    func testReceivedFundsBelowReserveAreVisibleButNotSpendable() throws {
+        let data = Data(#"{"channels":[{"active":true,"local_balance":"230000","remote_balance":"49767930","local_constraints":{"chan_reserve_sat":"500000"},"remote_constraints":{"chan_reserve_sat":"500000"}}]}"#.utf8)
+        let balance = try LightningBalance.decode(data, implementation: .lnd)
+        XCTAssertEqual(balance.activeChannelLocalMsat, 230_000_000)
+        XCTAssertEqual(balance.activeChannelReserveMsat, 500_000_000)
+        XCTAssertEqual(balance.sendableMsat, 0)
+    }
     func testMissingMalformedAndOverflowAmountsAreNotZeroBalances() throws {
         for amount in ["null", "true", "-1", "1.5", "\"invalid\""] {
             let data = Data("{\"channels\":[{\"state\":\"CHANNELD_NORMAL\",\"peer_connected\":true,\"spendable_msat\":\(amount),\"receivable_msat\":1}]}".utf8)

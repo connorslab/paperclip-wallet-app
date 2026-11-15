@@ -14,6 +14,7 @@ struct HardwareBoardView: View {
     @State private var verifiedID = ""
     @State private var confirming = false
     @State private var submitted = false
+    @State private var receipt: PaymentReceipt?
     @State private var status = ""
     private var sources: [WalletProfile] { store.profiles.filter {
         $0.kind == .hardware && $0.network == store.network &&
@@ -90,7 +91,10 @@ struct HardwareBoardView: View {
             if !status.isEmpty { WalletSection { Text(status) } }
             Text(store.message).font(.caption).foregroundStyle(PaperclipTheme.muted)
         }.walletPageContent().textFieldStyle(WalletInputStyle()) }.walletPageBackground()
-            .navigationTitle("Board from QR wallet").navigationBarTitleDisplayMode(.inline)
+            .navigationTitle("Board to Ark · Beta").navigationBarTitleDisplayMode(.inline)
+            .sheet(item: $receipt) { receipt in
+                NavigationStack { PaymentReceiptView(receipt: receipt, amount: sats("net_sat"), mainnet: store.network == "xbt-mainnet") { self.receipt = nil } }
+            }
             .sheet(isPresented: $showingQR) { NavigationStack { SigningQRDisplay(frames: frames) } }
             .fullScreenCover(isPresented: $scanning) {
                 QRScannerView(title: "Scan signed boarding", instruction: "Keep the signed QR visible until all frames are collected. Nothing is broadcast yet.") { frame in
@@ -110,7 +114,8 @@ struct HardwareBoardView: View {
                     submitted = true
                     do {
                         let result = try await store.engine.operation("ark_hardware_commit", fields: ["txid": verifiedID])
-                        status = "Boarding submitted. \(unit.display((result["amount_sat"] as? NSNumber)?.uint64Value)) will become available after confirmation. Check Ark activity and save an updated encrypted backup."
+                        receipt = PaymentReceipt(state: result["state"] as? String ?? "pending", transactionID: result["txid"] as? String ?? verifiedID, boarding: true)
+                        status = "Ark deposit started. \(unit.display((result["amount_sat"] as? NSNumber)?.uint64Value)) will become available after confirmation. Check Ark activity and save an updated encrypted backup."
                         try? await store.synchronize()
                     } catch {
                         status = "Boarding was not confirmed: \(error.localizedDescription). Check Ark activity and your hardware wallet before making another attempt."

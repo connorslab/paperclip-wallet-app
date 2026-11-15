@@ -18,6 +18,7 @@ struct HardwareSendView: View {
     @State private var verifiedID = ""
     @State private var confirming = false
     @State private var submitted = false
+    @State private var receipt: PaymentReceipt?
     @State private var status = ""
     var body: some View {
         ScrollView { VStack(spacing: 20) {
@@ -108,12 +109,17 @@ struct HardwareSendView: View {
                     } catch { return (false, error.localizedDescription) }
                 }
             }
-            .confirmationDialog("Broadcast this signed payment?", isPresented: $confirming) {
+            .sheet(item: $receipt) { receipt in
+                NavigationStack { PaymentReceiptView(receipt: receipt, amount: (prepared?["amount_sat"] as? NSNumber)?.uint64Value, mainnet: store.network == "xbt-mainnet") { self.receipt = nil } }
+            }
+            .alert("Broadcast this signed payment?", isPresented: $confirming) {
+                Button("Cancel", role: .cancel) {}
                 Button("Broadcast payment") {
                     store.run {
                         submitted = true
                         do {
                             let result = try await store.engine.operation("hardware_broadcast", fields: ["txid": verifiedID])
+                            receipt = PaymentReceipt(state: result["state"] as? String ?? "pending_broadcast", transactionID: result["txid"] as? String ?? verifiedID)
                             status = result["state"] as? String == "submitted" ? "Transaction submitted. Check Activity for confirmations." : "Transaction saved; broadcast is not confirmed. Synchronize and check Activity before making another payment."
                             try? await store.synchronize()
                         } catch { status = "Broadcast was not confirmed: \(error.localizedDescription). Check Activity before starting another payment." }
@@ -129,7 +135,8 @@ struct SigningQRDisplay: View {
     @Environment(\.dismiss) private var dismiss
     @State private var index = 0
     @State private var paused = false
-    private let timer = Timer.publish(every: 0.5, on: .main, in: .common).autoconnect()
+    // Give hardware-wallet cameras more time to focus and decode each frame.
+    private let timer = Timer.publish(every: 0.75, on: .main, in: .common).autoconnect()
     var body: some View {
         ScrollView { VStack(spacing: 22) {
             WalletBrand()

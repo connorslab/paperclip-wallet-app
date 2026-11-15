@@ -62,6 +62,11 @@ actor UnconnectedEngine: WalletEngine {
             defer { Task { await NativeWallet.shared.releaseMaintenanceWallet() } }
             guard let fresh = try await coordinator.run(automatic: automatic) else { return false }
             snapshot = fresh; snapshotWallet = profile
+            if UserDefaults.standard.bool(forKey: "paymentNotifications"),
+               let activity = try? await NativeWallet.shared.activity(),
+               let overview = try? await NativeWallet.shared.onchainOverview() {
+                await PaymentNotifications.shared.observeWallet(WalletStore.activityItems(activity), walletID: profile.id, account: overview["account"] as? String ?? "taproot")
+            }
             try await replaceReminders(fresh, profile: profile)
             message = "Checked at block \(fresh.tip). Expiry is block-based; reminders use estimated times."
             return true
@@ -75,6 +80,7 @@ actor UnconnectedEngine: WalletEngine {
         }
     }
     func forgetWallet(_ id: String) async {
+        await PaymentNotifications.shared.forgetWallet(id)
         let prefix = "paperclip.expiry." + id + "."
         let pending = await center.pendingNotificationRequests().map(\.identifier).filter { $0.hasPrefix(prefix) }
         center.removePendingNotificationRequests(withIdentifiers: pending)

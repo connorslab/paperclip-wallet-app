@@ -456,13 +456,26 @@ actor NativeWallet: WalletEngine, WalletBackupEngine {
         var input = fields; input["op"] = op
         return try await call(input)
     }
+    private var syncID: UInt64 = 0
     func operation(_ op: String, fields: [String: Any] = [:]) async throws -> [String: Any] {
         try beginOperation(); defer { operations -= 1 }
         if ["hardware_import", "hardware_cancel", "ark_hardware_import", "ark_hardware_cancel"].contains(op) { _ = try await open() }
         else { try await ensureConnected() }
+        try Task.checkCancellation()
         var input = fields; input["op"] = op
+        if op == "sync_onchain" {
+            syncID += 1
+            let id = syncID
+            input["sync_id"] = id
+            return try await withTaskCancellationHandler {
+                let result = try await call(input)
+                try Task.checkCancellation()
+                return result
+            } onCancel: { paperclip_mobile_cancel_sync(id) }
+        }
         return try await call(input)
     }
+
     func balances() async throws -> [String: Any] {
         try beginOperation(); defer { operations -= 1 }
         try await ensureConnected()
@@ -470,7 +483,9 @@ actor NativeWallet: WalletEngine, WalletBackupEngine {
     }
     func synchronize() async throws -> WalletSnapshot {
         try beginOperation(); defer { operations -= 1 }
-        let result = try await operation("sync")
+        // Ark maintenance needs VTXO state and the chain tip, not a scan of
+        // every derived on-chain address. Interactive refresh owns that scan.
+        let result = try await operation("sync_ark")
         guard let tip = result["tip"] as? Int, let vtxos = result["vtxos"] as? [[String: Any]] else {
             throw WalletFailure(message: "Incomplete wallet sync.")
         }

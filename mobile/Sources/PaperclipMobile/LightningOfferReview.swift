@@ -20,9 +20,10 @@ public struct LightningOfferReview: Equatable, Sendable {
         }
         return amountMsat
     }
-    public static func decode(_ data: Data, now: Date = Date()) throws -> Self {
-        guard let value = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-              value["type"] as? String == "bolt12 offer", value["valid"] as? Bool == true else { throw ConnectionError.response }
+    public static func decode(_ data: Data, implementation: LightningImplementation = .cln, now: Date = Date()) throws -> Self {
+        guard let value = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { throw ConnectionError.response }
+        if implementation == .lnd { return try LNDBolt12.offerReview(value, now: now) }
+        guard value["type"] as? String == "bolt12 offer", value["valid"] as? Bool == true else { throw ConnectionError.response }
         guard value["offer_currency"] == nil, value["offer_quantity_max"] == nil, value["offer_recurrence"] == nil else {
             throw LightningNodeError(message: "Currency-priced, quantity, and recurring offers are not supported yet. Request a single-payment XBT offer or invoice.")
         }

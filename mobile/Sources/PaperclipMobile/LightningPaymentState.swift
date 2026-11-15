@@ -6,8 +6,11 @@ public struct LightningPaymentReview: Equatable, Sendable {
     public let millisatoshis: UInt64
     public let expiresAt: UInt64
     public static func decode(_ data: Data, implementation: LightningImplementation, now: Date = Date()) throws -> Self {
-        guard let decoded = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-              decoded["valid"] as? Bool != false else { throw ConnectionError.response }
+        guard let decoded = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { throw ConnectionError.response }
+        if implementation == .lnd, decoded["type"] as? String == "invoice" {
+            return try LNDBolt12.invoiceReview(decoded, now: now)
+        }
+        guard decoded["valid"] as? Bool != false else { throw ConnectionError.response }
         if implementation == .cln {
             guard decoded["valid"] as? Bool == true,
                   ["bolt11 invoice", "bolt12 invoice"].contains(decoded["type"] as? String ?? "") else { throw ConnectionError.response }

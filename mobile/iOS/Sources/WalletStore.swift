@@ -12,9 +12,31 @@ import LocalAuthentication
     @Published var loaded = false
     @Published var hasWallet = false
     @Published var busy = false
+    @Published private(set) var syncing = false
+    private var actionTask: Task<Void, Never>?
+    private var lastSuccessfulRefresh: (wallet: String, account: String, date: Date)?
+    func refreshOnAppearance() {
+        if let last = lastSuccessfulRefresh, last.wallet == walletID, last.account == onchainAccount,
+           Date().timeIntervalSince(last.date) < 60 { return }
+        runSync { try await self.synchronize() }
+    }
+    func pauseSync() async {
+        guard syncing, let task = actionTask else { return }
+        task.cancel()
+        await task.value
+    }
     @Published var message = ""
     @Published var onchainAccount = "taproot"
     @Published var onchain: UInt64?
+    @Published var onchainConfirmed: UInt64?
+    @Published var onchainPending: UInt64?
+    @Published var onchainImmature: UInt64?
+    func applyOnchainOverview(_ overview: [String: Any]) {
+        onchain = (overview["total_sat"] as? NSNumber)?.uint64Value
+        onchainConfirmed = (overview["confirmed_sat"] as? NSNumber)?.uint64Value
+        onchainPending = (overview["unconfirmed_sat"] as? NSNumber)?.uint64Value
+        onchainImmature = (overview["immature_sat"] as? NSNumber)?.uint64Value
+    }
     @Published var ark: UInt64?
     @Published var pending: UInt64?
     @Published var network = "xbt-mainnet"
@@ -47,7 +69,7 @@ import LocalAuthentication
         do {
             let profile = try await engine.selectedProfile()
             if selectedProfile?.id != profile?.id {
-                onchain = nil; ark = nil; pending = nil; activity = []; observed = nil
+                onchain = nil; onchainConfirmed = nil; onchainPending = nil; onchainImmature = nil; ark = nil; pending = nil; activity = []; observed = nil
                 chainChecked = nil; chainReachable = false; lastChainAttempt = nil; message = ""
             }
             profiles = try await engine.profiles(); selectedProfile = profile
@@ -57,7 +79,7 @@ import LocalAuthentication
                 _ = try await engine.open()
                 let overview = try await engine.onchainOverview()
                 onchainAccount = overview["account"] as? String ?? "taproot"
-                onchain = (overview["total_sat"] as? NSNumber)?.uint64Value
+                applyOnchainOverview(overview)
             }
         } catch { message = error.localizedDescription }
         loaded = true
@@ -69,21 +91,35 @@ import LocalAuthentication
     }
     func run(_ action: @escaping @MainActor () async throws -> Void) {
         guard !busy else { return }
+        // A user operation may change funds; do not debounce the next refresh.
+        lastSuccessfulRefresh = nil
         busy = true
-        Task { defer { busy = false }; do { try await action() } catch { message = error.localizedDescription } }
+        actionTask = Task { defer { busy = false }; do { try await action() } catch is CancellationError { message = "Refresh paused. You can resume it from the wallet." } catch { message = error.localizedDescription } }
+    }
+    func runSync(_ action: @escaping @MainActor () async throws -> Void) {
+        run {
+            self.syncing = true; defer { self.syncing = false }
+            try await action()
+        }
     }
     func synchronize() async throws {
+        syncing = true; defer { syncing = false }
+        message = "Refreshing balances… Cached amounts remain visible."
         // Refresh each balance independently; retain cached values on failure.
         var chainWarning: String?
         do {
             let chain = try await engine.operation("sync_onchain")
             onchain = (chain["onchain_sat"] as? NSNumber)?.uint64Value
+            applyOnchainOverview(try await engine.onchainOverview())
             chainReachable = true; chainChecked = Date(); lastChainAttempt = Date()
         } catch { chainReachable = false; chainChecked = nil; chainWarning = "On-chain refresh: " + error.localizedDescription }
+        try Task.checkCancellation()
         if !supportsArk {
             ark = nil; pending = nil; observed = Date()
             message = chainWarning ?? "On-chain wallet synchronized."
-            try await refreshActivity(); return
+            try await refreshActivity()
+            if chainWarning == nil { lastSuccessfulRefresh = (walletID, onchainAccount, Date()) }
+            return
         }
         do {
             let result = try await engine.balances()
@@ -98,7 +134,9 @@ import LocalAuthentication
             }
         } catch { message = "Ark refresh: \(error.localizedDescription)" }
         if let chainWarning { message += "\n" + chainWarning }
+        try Task.checkCancellation()
         try await refreshActivity()
+        if chainWarning == nil { lastSuccessfulRefresh = (walletID, onchainAccount, Date()) }
     }
     func refreshCachedArkBalance() async {
         guard !busy else { return }
@@ -111,9 +149,15 @@ import LocalAuthentication
         pending = (result["pending_sat"] as? NSNumber)?.uint64Value
     }
     func refreshActivity() async throws {
+        let identity = walletID, account = onchainAccount
         let result = try await engine.activity()
+        guard identity == walletID, account == onchainAccount else { return }
+        activity = Self.activityItems(result)
+        await PaymentNotifications.shared.observeWallet(activity, walletID: identity, account: account)
+    }
+    static func activityItems(_ result: [String: Any]) -> [ActivityItem] {
         let movements = result["movements"] as? [[String: Any]] ?? []
-        activity = movements.reversed().enumerated().map { index, item in
+        var activity = movements.reversed().enumerated().map { index, item in
             let subsystem = item["subsystem"] as? [String: Any] ?? [:]
             let kind = (subsystem["kind"] as? String ?? "Ark payment").replacingOccurrences(of: "_", with: " ").capitalized
             let time = item["time"] as? [String: Any] ?? [:]
@@ -125,7 +169,7 @@ import LocalAuthentication
                 status: item["confirmed"] as? Bool == true ? "Confirmed" : "Pending",
                 amountSat: (item["change_sat"] as? NSNumber)?.int64Value ?? 0, detail: "\(item["txid"] ?? "")", date: ActivityItem.unixDate((item["timestamp"] as? NSNumber)?.doubleValue))
         }
-        activity = ActivityItem.newestFirst(activity)
+        return ActivityItem.newestFirst(activity)
     }
 }
 

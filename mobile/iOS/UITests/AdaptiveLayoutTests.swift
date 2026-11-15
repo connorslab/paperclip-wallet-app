@@ -1,0 +1,184 @@
+import XCTest
+
+/// Synthetic fixtures only: no wallet credentials, synchronization or payments.
+final class AdaptiveLayoutTests: XCTestCase {
+	func testDashboardReflowsWithoutLosingBalanceVisibility() {
+		continueAfterFailure = false
+		XCUIDevice.shared.orientation = .portrait
+		defer { XCUIDevice.shared.orientation = .portrait }
+		let app = XCUIApplication()
+		app.launchArguments = ["-build61-preview", "-dashboard-preview", "-appearance", "dark"]
+		app.launch()
+		let hero = app.staticTexts["Your Keys. Your Bitcoin."]
+		let account = app.staticTexts["On-chain"]
+		XCTAssertTrue(hero.waitForExistence(timeout: 15))
+		XCTAssertGreaterThan(account.frame.minY, hero.frame.maxY)
+		app.buttons["Toggle balance visibility"].tap()
+		XCUIDevice.shared.orientation = .landscapeLeft
+		let sideBySide = NSPredicate { _, _ in account.frame.minX > hero.frame.maxX }
+		expectation(for: sideBySide, evaluatedWith: app)
+		waitForExpectations(timeout: 10)
+		XCTAssertTrue(app.staticTexts.matching(identifier: "Balance hidden").firstMatch.exists)
+		capture(app, "Wallet wide")
+		XCUIDevice.shared.orientation = .portrait
+		let stacked = NSPredicate { _, _ in account.frame.minY > hero.frame.maxY }
+		expectation(for: stacked, evaluatedWith: app)
+		waitForExpectations(timeout: 10)
+		XCTAssertTrue(app.staticTexts.matching(identifier: "Balance hidden").firstMatch.exists)
+		capture(app, "Wallet compact")
+	}
+
+	func testWelcomeHasOneClearCreationPathAndKeepsTheName() {
+		continueAfterFailure = false
+		XCUIDevice.shared.orientation = .portrait
+		defer { XCUIDevice.shared.orientation = .portrait }
+		let app = XCUIApplication()
+		app.launchArguments = ["-appearance", "dark"]
+		app.launch()
+		let create = app.buttons["create-wallet"]
+		XCTAssertTrue(create.waitForExistence(timeout: 15))
+		XCTAssertFalse(app.staticTexts["Mobile wallet"].exists)
+		XCTAssertTrue(app.staticTexts["Your keys. Your bitcoin."].exists)
+		XCTAssertEqual(app.buttons.matching(identifier: "create-wallet").count, 1)
+		let name = app.textFields["Wallet name"]
+		name.tap(); name.typeText(" 2")
+		let editedName = name.value as? String
+		XCTAssertTrue(editedName?.contains("2") == true)
+		app.buttons["wallet-name-done"].tap()
+		XCUIDevice.shared.orientation = .landscapeLeft
+		XCTAssertEqual(name.value as? String, editedName)
+		capture(app, "Welcome wide")
+		XCUIDevice.shared.orientation = .portrait
+		XCTAssertEqual(name.value as? String, editedName)
+		capture(app, "Welcome compact")
+		// Enter only the preparation sheet; never generate or display recovery words.
+		create.tap()
+		XCTAssertTrue(app.buttons["Generate 24 words"].waitForExistence(timeout: 10))
+	}
+
+	func testWelcomeRecoveryRemainsReachableWithLargeText() {
+		continueAfterFailure = false
+		XCUIDevice.shared.orientation = .portrait
+		let app = XCUIApplication()
+		app.launchArguments = ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"]
+		app.launch()
+		let create = app.buttons["create-wallet"]
+		XCTAssertTrue(create.waitForExistence(timeout: 15))
+		for _ in 0..<10 { if create.isHittable { break }; app.swipeUp() }
+		XCTAssertTrue(create.isHittable)
+		let restore = app.buttons["import-seed-words"]
+		for _ in 0..<10 { if restore.isHittable { break }; app.swipeUp() }
+		XCTAssertTrue(restore.isHittable)
+		restore.tap()
+		XCTAssertTrue(app.staticTexts["Import your seed"].waitForExistence(timeout: 10))
+		app.buttons["import-back"].tap()
+		XCTAssertFalse(app.staticTexts["Mobile wallet"].exists)
+		let backup = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Restore a backup")).firstMatch
+		for _ in 0..<10 { if backup.isHittable { break }; app.swipeUp() }
+		XCTAssertTrue(backup.isHittable)
+		backup.tap()
+		let bar = app.navigationBars["Restore backup"]
+		XCTAssertTrue(bar.waitForExistence(timeout: 10))
+		XCTAssertTrue(bar.buttons.firstMatch.isHittable)
+		bar.buttons.firstMatch.tap()
+	}
+
+	func testNodeConnectionLabelsAndDraftSurviveRotation() {
+		continueAfterFailure = false
+		XCUIDevice.shared.orientation = .portrait
+		defer { XCUIDevice.shared.orientation = .portrait }
+		let app = XCUIApplication()
+		app.launchArguments = ["-build61-preview", "-node-connection-preview", "-appearance", "dark"]
+		app.launch()
+		let address = app.textFields["node-rest-address"]
+		XCTAssertTrue(address.waitForExistence(timeout: 15))
+		address.tap()
+		address.typeText("https://node.example.invalid")
+		XCUIDevice.shared.orientation = .landscapeLeft
+		XCTAssertEqual(address.value as? String, "https://node.example.invalid")
+		XCTAssertTrue(app.staticTexts["REST address"].exists)
+		XCTAssertTrue(app.staticTexts["Privacy & verification"].exists)
+		capture(app, "Node connection wide")
+		XCUIDevice.shared.orientation = .portrait
+		XCTAssertEqual(address.value as? String, "https://node.example.invalid")
+		capture(app, "Node connection compact")
+	}
+
+	func testLightningReflows() {
+		continueAfterFailure = false
+		XCUIDevice.shared.orientation = .portrait
+		defer { XCUIDevice.shared.orientation = .portrait }
+		let app = XCUIApplication()
+		app.launchArguments = ["-build61-preview", "-lightning-balance-preview", "-appearance", "dark"]
+		app.launch()
+		let balance = app.staticTexts["Funds in active channels"]
+		let bridge = app.staticTexts["Paperclip Bridge"]
+		XCTAssertTrue(balance.waitForExistence(timeout: 15))
+		XCTAssertGreaterThan(bridge.frame.minY, balance.frame.maxY)
+		XCUIDevice.shared.orientation = .landscapeLeft
+		expectation(for: NSPredicate { _, _ in bridge.frame.minX > balance.frame.maxX }, evaluatedWith: app)
+		waitForExpectations(timeout: 10)
+		capture(app, "Lightning wide")
+	}
+
+	func testAccessibilityTextStacksWideLayout() {
+		continueAfterFailure = false
+		XCUIDevice.shared.orientation = .landscapeLeft
+		defer { XCUIDevice.shared.orientation = .portrait }
+		let app = XCUIApplication()
+		app.launchArguments = ["-build61-preview", "-lightning-balance-preview", "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"]
+		app.launch()
+		let balance = app.staticTexts["Funds in active channels"]
+		let bridge = app.staticTexts["Paperclip Bridge"]
+		XCTAssertTrue(balance.waitForExistence(timeout: 15))
+		XCTAssertGreaterThan(bridge.frame.minY, balance.frame.maxY)
+		capture(app, "Lightning accessibility")
+	}
+
+	func testPendingReceiptDoesNotCelebrateCompletion() {
+		let app = XCUIApplication()
+		app.launchArguments = ["-build61-preview", "-receipt-preview"]
+		app.launch()
+		XCTAssertTrue(app.staticTexts["Ark deposit started"].waitForExistence(timeout: 15))
+		XCTAssertFalse(app.staticTexts["Payment completed"].exists)
+		XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'registration with the Ark server'")).firstMatch.exists)
+		capture(app, "Deposit pending, not completed")
+	}
+
+	func testCompletedReceiptHasClearSuccessState() {
+		let app = XCUIApplication()
+		app.launchArguments = ["-build61-preview", "-receipt-preview", "-completed-receipt-preview"]
+		app.launch()
+		XCTAssertTrue(app.staticTexts["Payment completed"].waitForExistence(timeout: 15))
+		XCTAssertFalse(app.staticTexts["Payment pending"].exists)
+		XCTAssertTrue(app.buttons["Done"].isHittable)
+		capture(app, "Verified payment complete")
+	}
+
+	func testLiveStartOSLANConnections() throws {
+		try XCTSkipIf(ProcessInfo.processInfo.environment["PAPERCLIP_LIVE_NODE_TESTS"] != "1", "Requires private simulator input and explicit live-test opt-in")
+		continueAfterFailure = false
+		for fixture in ["cln-lan", "lnd-lan"] {
+			let app = XCUIApplication()
+			app.launchArguments = ["-build61-preview", "-node-connection-preview", "-live-node-case", fixture]
+			app.launch()
+			let verify = app.buttons["Verify and save connection"]
+			XCTAssertTrue(verify.waitForExistence(timeout: 15))
+			for _ in 0..<8 { if verify.isHittable { break }; app.swipeUp() }
+			XCTAssertTrue(verify.isHittable)
+			verify.tap()
+			XCTAssertTrue(app.staticTexts["Node connected"].waitForExistence(timeout: 90))
+			XCTAssertTrue(app.buttons["Refresh Lightning balance"].exists)
+			app.buttons["Refresh Lightning balance"].tap()
+			XCTAssertTrue(app.staticTexts["Node connected"].exists)
+			app.terminate()
+		}
+	}
+
+	private func capture(_ app: XCUIApplication, _ name: String) {
+		let attachment = XCTAttachment(screenshot: app.screenshot())
+		attachment.name = name
+		attachment.lifetime = .keepAlways
+		add(attachment)
+	}
+}

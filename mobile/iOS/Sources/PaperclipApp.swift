@@ -7,16 +7,25 @@ import PaperclipMobile
     @StateObject private var store = WalletStore()
     @StateObject private var lock = WalletLock()
     @StateObject private var nodePayments = LightningPaymentMonitor.shared
+    @StateObject private var bridgePayments = LightningBridgeModel.shared
     @AppStorage("appearance") private var appearance = "system"
     @AppStorage("walletLock") private var lockEnabled = true
     init() {
         UserDefaults.standard.register(defaults: ["automaticRefresh": true, "walletLock": true])
         Maintenance.shared.register()
+        _ = PaymentNotifications.shared
     }
     var body: some Scene {
         WindowGroup {
             ZStack {
+                #if DEBUG && targetEnvironment(simulator)
+                if ProcessInfo.processInfo.arguments.contains("-build61-preview") { Build61Preview() }
+                else if ProcessInfo.processInfo.arguments.contains("-coinjoin-layout-test") {
+                    CoinjoinLayoutTestView()
+                } else { WalletView().environmentObject(store).environmentObject(maintenance) }
+                #else
                 WalletView().environmentObject(store).environmentObject(maintenance)
+                #endif
                 if store.hasWallet && lockEnabled && !lock.unlocked {
                     VStack(spacing: 24) {
                         Image(systemName: "lock.shield").font(.system(size: 56)).foregroundStyle(PaperclipTheme.orange)
@@ -37,8 +46,16 @@ import PaperclipMobile
                     return
                 }
                 #endif
+                #if DEBUG && targetEnvironment(simulator)
+                if ProcessInfo.processInfo.arguments.contains("-node-read-probe") {
+                    await NodeReadProbe.run()
+                    return
+                }
+                if ProcessInfo.processInfo.arguments.contains("-coinjoin-layout-test") || ProcessInfo.processInfo.arguments.contains("-build61-preview") { return }
+                #endif
                 await store.load()
                 nodePayments.setForeground(true)
+                bridgePayments.setForeground(true)
                 if store.hasWallet && lockEnabled { await lock.unlock() }
                 if store.hasWallet {
                     await store.engine.setForeground(true)
@@ -51,12 +68,13 @@ import PaperclipMobile
             .onChange(of: scene) { _, phase in
                 if phase == .active {
                     nodePayments.setForeground(true)
+                    bridgePayments.setForeground(true)
                     Task {
                         await store.engine.setForeground(true)
                         if store.hasWallet && lockEnabled && !lock.unlocked { await lock.unlock() }
                         if store.hasWallet { await maintenance.update(automatic: UserDefaults.standard.bool(forKey: "automaticRefresh")) }
                     }
-                } else if phase == .background { nodePayments.setForeground(false); lock.unlocked = false; maintenance.schedule(); Task { await store.engine.setForeground(false) } }
+                } else if phase == .background { nodePayments.setForeground(false); bridgePayments.setForeground(false); lock.unlocked = false; maintenance.schedule(); Task { await store.engine.setForeground(false) } }
             }
         }
     }
@@ -102,6 +120,14 @@ struct DashboardView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
                 WalletBrand()
+                if let profile = store.selectedProfile {
+                    NavigationLink { WalletPickerView() } label: {
+                        HStack {
+                            Label(profile.name, systemImage: "wallet.bifold").font(.headline)
+                            Image(systemName: "chevron.down").font(.caption.weight(.semibold))
+                        }.foregroundStyle(.primary)
+                    }.buttonStyle(.plain).accessibilityLabel("Active wallet: \(profile.name). Switch wallet")
+                }
                 HStack {
                     Label {
                         Text(store.network == "xbt-mainnet" ? "XBT MAINNET" : "REGTEST")
@@ -112,6 +138,7 @@ struct DashboardView: View {
                     Spacer()
                     Button { hideBalance.toggle() } label: { Image(systemName: hideBalance ? "eye.slash" : "eye") }.accessibilityLabel("Toggle balance visibility")
                 }.foregroundStyle(PaperclipTheme.muted)
+                WalletColumns {
                 WalletCard {
                     HStack {
                         Text("Your Keys. Your Bitcoin.").font(.title3.bold())
@@ -124,16 +151,26 @@ struct DashboardView: View {
                         }
                         USDValue(sats: store.onchain.flatMap { chain in store.supportsArk ? store.ark.map { chain + $0 } : chain }, hidden: hideBalance, mainnet: store.network == "xbt-mainnet")
                     }.padding(.vertical, 4)
-                    Text(store.supportsArk ? "Selected on-chain account + Ark" : "On-chain balance").font(.caption).foregroundStyle(PaperclipTheme.muted)
+                    Text(store.supportsArk ? "Total · on-chain + available Ark" : "Total on-chain balance").font(.caption).foregroundStyle(PaperclipTheme.muted)
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Confirmed on-chain: " + (hideBalance ? "••••" : unit.display(store.onchainConfirmed)))
+                        if let pending = store.onchainPending, pending > 0 {
+                            Label(hideBalance ? "Pending on-chain: ••••" : "Pending on-chain: " + unit.display(pending), systemImage: "clock")
+                            Text("Pending includes incoming payments and change awaiting confirmation.")
+                        }
+                        if let immature = store.onchainImmature, immature > 0 {
+                            Text(hideBalance ? "Immature rewards: ••••" : "Immature rewards: " + unit.display(immature))
+                        }
+                    }.font(.caption).foregroundStyle(PaperclipTheme.muted).privacySensitive()
                     HStack(spacing: 12) {
                         if !store.isWatchOnly {
-                            Button { sending = true } label: {
+                            Button { Task { await store.pauseSync(); sending = true } } label: {
                                 Label("Send", systemImage: "arrow.up.right").frame(maxWidth: .infinity).padding(14)
                                     .foregroundStyle(.white).background(PaperclipTheme.orange.gradient, in: Capsule())
                                     .shadow(color: PaperclipTheme.orange.opacity(0.18), radius: 12, y: 5)
                             }.buttonStyle(.plain)
                         }
-                        Button { receiving = true } label: { Label("Receive", systemImage: "arrow.down.left").frame(maxWidth: .infinity) }.modifier(GlassAction())
+                        Button { Task { await store.pauseSync(); receiving = true } } label: { Label("Receive", systemImage: "arrow.down.left").frame(maxWidth: .infinity) }.modifier(GlassAction())
                     }.font(.headline)
                 }
                 .background(alignment: .topTrailing) {
@@ -145,14 +182,38 @@ struct DashboardView: View {
                         LinearGradient(colors: [PaperclipTheme.orange.opacity(0.40), .white.opacity(0.06), .clear], startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 1)
                         .allowsHitTesting(false)
                 }
-                let cardsLayout = balanceTextSize.isAccessibilitySize ? AnyLayout(VStackLayout(spacing: 14)) : AnyLayout(HStackLayout(alignment: .top, spacing: 14))
-                cardsLayout {
+                } secondary: {
+                WalletSection("Accounts") {
                     NavigationLink { OnchainOverviewView() } label: {
-                        balanceCard("On-chain", subtitle: store.supportsArk ? (store.onchainAccount == "segwit" ? "SegWit" : "Taproot") : "Account balance", icon: "link", amount: store.onchain)
-                    }.buttonStyle(.plain).accessibilityHint("View on-chain balances and transactions")
-                    if store.supportsArk { NavigationLink { ArkOverviewView() } label: {
-                        balanceCard("Ark", subtitle: "Available", icon: "square.stack.3d.up", amount: store.ark)
-                    }.buttonStyle(.plain).accessibilityHint("View Ark balances, payments, and activity") }
+                        accountRow("On-chain", subtitle: store.supportsArk ? (store.onchainAccount == "segwit" ? "SegWit" : "Taproot") : "Account balance", icon: "link", amount: store.onchain)
+                    }.buttonStyle(.plain)
+                    if store.supportsArk {
+                        Divider()
+                        NavigationLink { ArkOverviewView() } label: {
+                            accountRow("Ark", subtitle: "Beta · Available", icon: "square.stack.3d.up", amount: store.ark)
+                        }.buttonStyle(.plain)
+                    }
+                }
+                WalletSection("Recent activity") {
+                    if store.activity.isEmpty {
+                        Label("No activity loaded", systemImage: "clock.arrow.circlepath").font(.headline)
+                        Text("Your recent transactions will appear after synchronization.").font(.subheadline).foregroundStyle(PaperclipTheme.muted)
+                    }
+                    ForEach(Array(ActivityItem.newestFirst(store.activity).prefix(3))) { item in
+                        VStack(alignment: .leading, spacing: 6) {
+                            HStack(alignment: .firstTextBaseline) {
+                                Text(item.title).font(.subheadline.weight(.medium))
+                                Spacer(minLength: 12)
+                                Text(hideBalance ? "••••" : unit.signed(item.amountSat)).font(.subheadline).monospacedDigit()
+                            }
+                            Text(item.status).font(.caption).foregroundStyle(PaperclipTheme.muted)
+                        }.privacySensitive()
+                        Divider()
+                    }
+                    NavigationLink { ActivityView() } label: {
+                        Label("View all activity", systemImage: "arrow.right").font(.subheadline.weight(.semibold))
+                    }
+                }
                 }
                 NavigationLink { BuyXBTView() } label: {
                     WalletCard { WalletNavigationRow("Buy XBT", subtitle: "Explore exchanges", icon: "plus.circle") }
@@ -163,9 +224,14 @@ struct DashboardView: View {
                 }
                 VStack(alignment: .leading, spacing: 6) {
                     HStack { if store.busy { ProgressView() }; Text(store.message).font(.caption).foregroundStyle(PaperclipTheme.muted) }
+                    if store.syncing {
+                        Button("Pause refresh") { Task { await store.pauseSync() } }
+                            .font(.caption.weight(.semibold))
+                            .accessibilityHint("Keep cached balances and use the wallet. Payment review checks funds again.")
+                    }
                     if store.supportsArk, let date = store.observed { Text("Ark last checked \(date.formatted(date: .omitted, time: .shortened))").font(.caption2).foregroundStyle(.secondary) }
                 }
-            }.walletPageContent()
+            }.walletPageContent(maxWidth: 1120)
         }.frame(maxWidth: .infinity, maxHeight: .infinity).background {
             ZStack {
                 PaperclipTheme.navy
@@ -173,12 +239,15 @@ struct DashboardView: View {
             }.ignoresSafeArea()
         }.navigationBarTitleDisplayMode(.inline)
             .task {
+                #if DEBUG && targetEnvironment(simulator)
+                if ProcessInfo.processInfo.arguments.contains("-build61-preview") { return }
+                #endif
                 // A switch/add finishes its UI action after the new dashboard appears.
                 while store.busy && !Task.isCancelled {
                     do { try await Task.sleep(for: .milliseconds(100)) } catch { return }
                 }
                 guard !Task.isCancelled else { return }
-                store.run { try await store.synchronize() }
+                store.refreshOnAppearance()
                 while !Task.isCancelled {
                     await store.refreshCachedArkBalance()
                     do { try await Task.sleep(for: .seconds(5)) } catch { return }
@@ -196,21 +265,26 @@ struct DashboardView: View {
         guard let ark = store.ark else { return nil }
         return chain + ark
     }
-    private func balanceCard(_ title: String, subtitle: String, icon: String, amount: UInt64?) -> some View {
-        WalletCard {
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 8) {
-                    Image(systemName: icon).foregroundStyle(PaperclipTheme.orange)
-                    Text(title).foregroundStyle(.primary)
-                }.font(.subheadline.weight(.medium)).lineLimit(1)
-                Text(subtitle).font(.caption).foregroundStyle(PaperclipTheme.muted).lineLimit(1)
+    private func accountRow(_ title: String, subtitle: String, icon: String, amount: UInt64?) -> some View {
+        let layout = balanceTextSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 12)) : AnyLayout(HStackLayout(spacing: 12))
+        return layout {
+            HStack(spacing: 12) {
+                Image(systemName: icon).font(.title3).foregroundStyle(PaperclipTheme.orange)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(title).font(.headline)
+                    Text(subtitle).font(.caption).foregroundStyle(PaperclipTheme.muted)
+                }
+                Spacer(minLength: 0)
             }
-            VStack(alignment: .leading, spacing: 5) {
-                WalletBalanceNumber(sats: amount, unit: unit, hidden: hideBalance).font(.title2.bold()).lineLimit(1).minimumScaleFactor(0.6).privacySensitive()
-                Text(unit.title).font(.caption).foregroundStyle(.secondary)
-                USDValue(sats: amount, hidden: hideBalance, mainnet: store.network == "xbt-mainnet").lineLimit(1).minimumScaleFactor(0.8)
+            VStack(alignment: .trailing, spacing: 4) {
+                WalletBalanceNumber(sats: amount, unit: unit, hidden: hideBalance)
+                    .font(.title3.weight(.semibold)).lineLimit(1).minimumScaleFactor(0.6).privacySensitive()
+                Text(unit.title).font(.caption).foregroundStyle(PaperclipTheme.muted)
+                USDValue(sats: amount, hidden: hideBalance, mainnet: store.network == "xbt-mainnet")
+                    .font(.caption2).lineLimit(1).minimumScaleFactor(0.8)
             }
-        }
+            Image(systemName: "chevron.right").font(.caption).foregroundStyle(PaperclipTheme.muted)
+        }.padding(.vertical, 6).contentShape(Rectangle())
     }
 
 }
@@ -228,18 +302,29 @@ struct ActivityView: View {
             Picker("Activity wallet", selection: $filter) {
                 Text("All").tag("All"); Text("On-chain").tag("On-chain"); Text("Ark").tag("Ark")
             }.pickerStyle(.segmented)
-            if items.isEmpty { ContentUnavailableView("No activity loaded", systemImage: "clock", description: Text("Synchronize your wallet to load transactions.")) }
+            if items.isEmpty {
+                ContentUnavailableView(store.activity.isEmpty ? "No activity loaded" : "No " + filter.lowercased() + " transactions", systemImage: "clock", description: Text(store.activity.isEmpty ? "Refresh to load your wallet's transaction history." : "Choose All to see transactions from your other accounts."))
+            }
             ForEach(items) { item in
                 if !item.id.hasPrefix("ark-") {
                     NavigationLink { OnchainTransactionView(transaction: item) } label: {
                         WalletCard { OnchainTransactionRow(item: item) }
                     }.buttonStyle(.plain)
                 } else {
+                    NavigationLink { ArkActivityDetailView(item: item) } label: {
                     WalletCard {
                         HStack { Text(item.title).font(.headline); Spacer(); Text(unit.signed(item.amountSat)).monospacedDigit() }
                         Text(item.status).foregroundStyle(PaperclipTheme.orange)
-                        Text(item.detail).font(.caption2.monospaced()).textSelection(.enabled)
+                        if let date = item.date {
+                            Text(date.formatted(date: .abbreviated, time: .shortened)).font(.caption).foregroundStyle(PaperclipTheme.muted)
+                        }
+                        HStack {
+                            Text("View details").font(.caption)
+                            Spacer()
+                            Image(systemName: "chevron.right").font(.caption)
+                        }.foregroundStyle(PaperclipTheme.muted)
                     }
+                    }.buttonStyle(.plain)
                 }
             }
             Text(store.message).font(.caption)
@@ -324,7 +409,7 @@ struct OnchainOverviewView: View {
             confirmed = (result["confirmed_sat"] as? NSNumber)?.uint64Value
             unconfirmed = (result["unconfirmed_sat"] as? NSNumber)?.uint64Value
             immature = (result["immature_sat"] as? NSNumber)?.uint64Value
-            store.onchain = (result["total_sat"] as? NSNumber)?.uint64Value
+            store.applyOnchainOverview(result)
             transactions = (result["transactions"] as? [[String: Any]] ?? []).compactMap { row in
                 guard let txid = row["txid"] as? String, let amount = row["change_sat"] as? NSNumber else { return nil }
                 return ActivityItem(id: txid, title: "On-chain", status: row["confirmed"] as? Bool == true ? "Confirmed" : "Unconfirmed",
@@ -335,13 +420,18 @@ struct OnchainOverviewView: View {
     }
     private func refresh() async {
         guard !loading, !store.busy else { return }
-        loading = true; store.busy = true
-        defer { loading = false; store.busy = false }
-        do {
-            _ = try await store.engine.operation("sync_onchain")
-            status = "Updated \(Date().formatted(date: .omitted, time: .shortened))"
-        } catch { status = "Showing saved state. \(error.localizedDescription)" }
-        await load()
+        loading = true
+        store.runSync {
+            defer { loading = false }
+            do {
+                _ = try await store.engine.operation("sync_onchain")
+                status = "Updated \(Date().formatted(date: .omitted, time: .shortened))"
+            } catch {
+                status = "Showing saved state. \(error.localizedDescription)"
+                try Task.checkCancellation()
+            }
+            await load()
+        }
     }
 }
 
@@ -354,7 +444,7 @@ struct ArkOverviewView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 20) {
-                WalletSection("Ark balance") {
+                WalletSection("Ark balance · Beta") {
                     Text(unit.display(store.ark)).font(.largeTitle.bold()).privacySensitive().contentTransition(.numericText())
                     USDValue(sats: store.ark, mainnet: store.network == "xbt-mainnet")
                     Text("Available to spend").font(.subheadline).foregroundStyle(PaperclipTheme.muted)
@@ -364,6 +454,11 @@ struct ArkOverviewView: View {
                         Button { receiving = true } label: { Label("Receive", systemImage: "arrow.down.left").frame(maxWidth: .infinity) }.modifier(GlassAction())
                     }
                     Text("Pending funds are not yet available. Keep the app open to finish incoming Lightning payments.").font(.caption).foregroundStyle(PaperclipTheme.muted)
+                }
+                WalletSection {
+                    NavigationLink { LightningBridgeView(source: .ark) } label: {
+                        WalletNavigationRow("Pay Spamcoin (BTC)", subtitle: "Use Ark through Paperclip Bridge", icon: "arrow.left.arrow.right")
+                    }.buttonStyle(.plain)
                 }
                 WalletSection("Manage Ark") {
                     NavigationLink { ArkToolsView(page: .boarding) } label: { WalletNavigationRow("Add to Ark", subtitle: "Board funds from your on-chain wallet", icon: "arrow.down.to.line") }
@@ -384,7 +479,7 @@ struct ArkOverviewView: View {
                 }
                 if !store.message.isEmpty { Text(store.message).font(.caption).foregroundStyle(PaperclipTheme.muted) }
             }.walletPageContent()
-        }.walletPageBackground().navigationTitle("Ark")
+        }.walletPageBackground().navigationTitle("Ark · Beta")
             .toolbar { Button { refresh() } label: { Image(systemName: "arrow.clockwise") }.disabled(store.busy).accessibilityLabel("Refresh Ark") }
             .task { refresh() }
             .refreshable { refresh() }

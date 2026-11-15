@@ -33,11 +33,11 @@ struct WalletPrimaryButtonStyle: ButtonStyle {
         configuration.label.font(.headline).multilineTextAlignment(.center)
             .frame(maxWidth: .infinity).padding(.horizontal, 18).padding(.vertical, 14)
             .foregroundStyle(.white)
-            .background(PaperclipTheme.orange.gradient, in: Capsule())
-            .opacity(enabled ? (configuration.isPressed ? 0.82 : 1) : 0.4)
+            .background((enabled ? PaperclipTheme.orange : Color.gray).gradient, in: Capsule())
+            .opacity(configuration.isPressed ? 0.82 : 1)
             .shadow(color: PaperclipTheme.orange.opacity(enabled ? 0.15 : 0), radius: 10, y: 4)
-            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.98 : 1)
-            .animation(reduceMotion ? nil : .easeOut(duration: 0.15), value: configuration.isPressed)
+            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.96 : 1)
+            .animation(reduceMotion ? nil : .spring(duration: 0.25, bounce: 0.25), value: configuration.isPressed)
     }
 }
 
@@ -56,10 +56,11 @@ struct WalletCard<Content: View>: View {
             }
             .shadow(color: .black.opacity(0.04), radius: 12, y: 5)
             .opacity(appeared || reduceMotion ? 1 : 0)
-            .offset(y: appeared || reduceMotion ? 0 : 6)
+            .offset(y: appeared || reduceMotion ? 0 : 10)
+            .scaleEffect(appeared || reduceMotion ? 1 : 0.985)
             .onAppear {
                 guard !appeared else { return }
-                withAnimation(reduceMotion ? nil : .easeOut(duration: 0.22)) { appeared = true }
+                withAnimation(reduceMotion ? nil : .spring(duration: 0.4, bounce: 0.12)) { appeared = true }
             }
     }
 }
@@ -141,6 +142,7 @@ struct WalletNavigationRow: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(title).fontWeight(.medium).foregroundStyle(.primary)
                 Text(subtitle).font(.caption).foregroundStyle(PaperclipTheme.muted)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 4)
             Image(systemName: "chevron.right").font(.caption.bold()).foregroundStyle(PaperclipTheme.muted)
@@ -150,9 +152,9 @@ struct WalletNavigationRow: View {
 
 struct WalletInputStyle: TextFieldStyle {
     func _body(configuration: TextField<Self._Label>) -> some View {
-        configuration.padding(.horizontal, 14).padding(.vertical, 13)
-            .background(.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 12))
-            .overlay(RoundedRectangle(cornerRadius: 12).stroke(.primary.opacity(0.10)))
+        configuration.textFieldStyle(.plain).padding(.horizontal, 14).padding(.vertical, 13)
+            .background(PaperclipTheme.navy.opacity(0.7), in: RoundedRectangle(cornerRadius: 12))
+            .overlay(RoundedRectangle(cornerRadius: 12).stroke(PaperclipTheme.muted.opacity(0.22)))
     }
 }
 
@@ -199,11 +201,81 @@ struct WalletBalanceNumber: View {
 
 // Limit the whole content column, never individual cards inside a row.
 extension View {
-    func walletPageContent() -> some View {
-        self.frame(maxWidth: 760).padding(22).frame(maxWidth: .infinity)
+    func walletPageContent(maxWidth: CGFloat = 760) -> some View {
+        self.frame(maxWidth: maxWidth).padding(22).frame(maxWidth: .infinity)
     }
     func walletPageBackground() -> some View {
         self.frame(maxWidth: .infinity, maxHeight: .infinity)
             .background { WalletBackdrop().ignoresSafeArea() }
     }
+}
+
+/// Reflows the same view identities when a window resizes, preserving form and
+/// navigation state. The breakpoint is based on usable content width, not device type.
+struct WalletColumns<Primary: View, Secondary: View>: View {
+	@Environment(\.dynamicTypeSize) private var textSize
+	let primary: Primary
+	let secondary: Secondary
+
+	init(@ViewBuilder primary: () -> Primary, @ViewBuilder secondary: () -> Secondary) {
+		self.primary = primary()
+		self.secondary = secondary()
+	}
+
+	var body: some View {
+		WalletColumnLayout(stack: textSize.isAccessibilitySize) {
+			VStack(alignment: .leading, spacing: 22) { primary }.frame(maxWidth: .infinity)
+			VStack(alignment: .leading, spacing: 22) { secondary }.frame(maxWidth: .infinity)
+		}
+	}
+}
+
+private struct WalletColumnLayout: Layout {
+	let stack: Bool
+	private let spacing: CGFloat = 22
+
+	private func columns(_ width: CGFloat) -> Bool { !stack && width >= 700 }
+
+	func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+		let width = proposal.width ?? 700
+		let wide = columns(width)
+		let itemWidth = wide ? (width - spacing) / 2 : width
+		let heights = subviews.map { $0.sizeThatFits(.init(width: itemWidth, height: nil)).height }
+		return CGSize(width: width, height: wide ? (heights.max() ?? 0) : heights.reduce(0, +) + spacing * CGFloat(max(0, heights.count - 1)))
+	}
+
+	func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+		let wide = columns(bounds.width)
+		let width = wide ? (bounds.width - spacing) / 2 : bounds.width
+		var origin = bounds.origin
+		for view in subviews {
+			let size = view.sizeThatFits(.init(width: width, height: nil))
+			view.place(at: origin, anchor: .topLeading, proposal: .init(width: width, height: size.height))
+			if wide { origin.x += width + spacing } else { origin.y += size.height + spacing }
+		}
+	}
+}
+
+/// Orientation-independent progress for reviewable flows; not a payment outcome.
+struct WalletFlowProgress: View {
+	let steps: [String]
+	let current: Int
+	@Environment(\.dynamicTypeSize) private var textSize
+	@Environment(\.accessibilityReduceMotion) private var reduceMotion
+	var body: some View {
+		let layout = textSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 12)) : AnyLayout(HStackLayout(spacing: 12))
+		layout {
+			ForEach(steps.indices, id: \.self) { index in
+				HStack(spacing: 7) {
+					Text(String(index + 1)).font(.caption.bold())
+						.frame(width: 24, height: 24)
+						.background(index == current ? PaperclipTheme.orange.opacity(0.18) : PaperclipTheme.muted.opacity(0.08), in: Circle())
+					Text(steps[index]).font(.caption.weight(index == current ? .bold : .regular))
+				}.foregroundStyle(index == current ? PaperclipTheme.orange : PaperclipTheme.muted)
+					.frame(maxWidth: .infinity, alignment: .leading)
+			}
+		}.accessibilityElement(children: .ignore)
+			.accessibilityLabel("Step \(current + 1) of \(steps.count): \(steps.indices.contains(current) ? steps[current] : "")")
+			.animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: current)
+	}
 }

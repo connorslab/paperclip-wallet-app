@@ -2,6 +2,19 @@ import XCTest
 @testable import PaperclipMobile
 
 @MainActor final class XBTPriceTests: XCTestCase {
+    func testUSDDisplayUsesNumericSatoshiConversionAsAmountChanges() throws {
+        let amounts: [UInt64] = [1, 1000, 1_000_000, 100_000_000]
+        let expected: [Double] = [0.0000065, 0.0065, 6.5, 650]
+        for (sats, dollars) in zip(amounts, expected) {
+            XCTAssertEqual(try XCTUnwrap(XBTPrice.estimateUSD(sats: sats, price: 650)), dollars, accuracy: 0.00000001)
+        }
+        XCTAssertEqual(XBTPrice.estimateUSD(sats: 0, price: 650), 0)
+        XCTAssertEqual(XBTPrice.estimateUSD(sats: nil, equivalentSats: 100_000_000, price: 650), 650)
+        XCTAssertNil(XBTPrice.estimateUSD(sats: nil, price: 650))
+        XCTAssertNil(XBTPrice.estimateUSD(sats: 100, price: .nan))
+        XCTAssertNil(XBTPrice.estimateUSD(sats: nil, equivalentSats: -1, price: 650))
+    }
+
     func testFailureRetriesAndSuccessfulQuoteSurvivesRelaunch() async {
         let suite = "price-tests-\(UUID())"
         let defaults = UserDefaults(suiteName: suite)!

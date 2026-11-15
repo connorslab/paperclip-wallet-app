@@ -5,11 +5,14 @@ public struct LightningBalance: Equatable, Sendable {
     public let sendableMsat: UInt64
     public let receivableMsat: UInt64
     public let activeChannels: Int
+    public let activeChannelLocalMsat: UInt64?
+    public let activeChannelReserveMsat: UInt64?
 
     public static func decode(_ data: Data, implementation: LightningImplementation) throws -> Self {
         guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
               let channels = object["channels"] as? [[String: Any]] else { throw ConnectionError.response }
         var send: UInt64 = 0, receive: UInt64 = 0, active = 0
+        var localFunds: UInt64 = 0, reserves: UInt64 = 0
         for channel in channels {
             let outgoing: UInt64, incoming: UInt64
             if implementation == .cln {
@@ -24,6 +27,10 @@ public struct LightningBalance: Equatable, Sendable {
                 let remoteConstraints = channel["remote_constraints"] as? [String: Any]
                 let localReserve = try amount(localConstraints?["chan_reserve_sat"] ?? channel["local_chan_reserve_sat"])
                 let remoteReserve = try amount(remoteConstraints?["chan_reserve_sat"] ?? channel["remote_chan_reserve_sat"])
+                let (nextLocal, localOverflow) = localFunds.addingReportingOverflow(try msats(local))
+                let (nextReserve, reserveOverflow) = reserves.addingReportingOverflow(try msats(localReserve))
+                guard !localOverflow, !reserveOverflow else { throw ConnectionError.response }
+                localFunds = nextLocal; reserves = nextReserve
                 outgoing = try msats(local > localReserve ? local - localReserve : 0)
                 incoming = try msats(remote > remoteReserve ? remote - remoteReserve : 0)
             }
@@ -32,7 +39,9 @@ public struct LightningBalance: Equatable, Sendable {
             guard !sendOverflow, !receiveOverflow else { throw ConnectionError.response }
             send = nextSend; receive = nextReceive; active += 1
         }
-        return Self(sendableMsat: send, receivableMsat: receive, activeChannels: active)
+        return Self(sendableMsat: send, receivableMsat: receive, activeChannels: active,
+            activeChannelLocalMsat: implementation == .lnd ? localFunds : nil,
+            activeChannelReserveMsat: implementation == .lnd ? reserves : nil)
     }
     private static func amount(_ value: Any?) throws -> UInt64 {
         var text: String

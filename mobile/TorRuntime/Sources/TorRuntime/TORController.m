@@ -8,6 +8,7 @@
 #import "TORController.h"
 
 #import <sys/socket.h>
+#import <stdatomic.h>
 #import <sys/un.h>
 #import <netinet/in.h>
 #import <arpa/inet.h>
@@ -35,6 +36,7 @@ static NSString * const TORControllerEndReplyLineSeparator = @" ";
     dispatch_io_t _channel;
     NSMutableArray<TORObserverBlock> *_blocks;
     int sock;
+    atomic_bool _connected;
 }
 
 + (dispatch_queue_t)controlQueue {
@@ -110,7 +112,7 @@ static NSString * const TORControllerEndReplyLineSeparator = @" ";
 #pragma mark - Connecting
 
 - (BOOL)isConnected {
-    return (_channel != nil);
+    return atomic_load(&_connected);
 }
 
 - (BOOL)connect:(out NSError **)error {
@@ -139,6 +141,7 @@ static NSString * const TORControllerEndReplyLineSeparator = @" ";
                 *error = [NSError errorWithDomain:NSPOSIXErrorDomain code:errno userInfo:nil];
             }
 
+            close(self->sock); self->sock = -1;
             return NO;
         }
     }
@@ -170,6 +173,7 @@ static NSString * const TORControllerEndReplyLineSeparator = @" ";
                 *error = [NSError errorWithDomain:NSPOSIXErrorDomain code:errno userInfo:nil];
             }
 
+            close(self->sock); self->sock = -1;
             return NO;
         }
     }
@@ -179,14 +183,9 @@ static NSString * const TORControllerEndReplyLineSeparator = @" ";
 
     __weak TORController *weakSelf = self;
 
-    _channel = dispatch_io_create(DISPATCH_IO_STREAM, self->sock, [self.class controlQueue], ^(int __unused error) {
-        close(self->sock);
-
-        TORController *strongSelf = weakSelf;
-        if (strongSelf)
-        {
-            strongSelf->_channel = nil;
-        }
+    const int descriptor = self->sock;
+    _channel = dispatch_io_create(DISPATCH_IO_STREAM, descriptor, [self.class controlQueue], ^(int __unused error) {
+        close(descriptor);
     });
 
     if (!_channel)
@@ -194,6 +193,7 @@ static NSString * const TORControllerEndReplyLineSeparator = @" ";
         return NO;
     }
 
+    atomic_store(&_connected, true);
     NSData *separator = [NSData dataWithBytes:"\x0d\x0a" length:2]; // also known as CR-LF or "\r\n"
     NSData *period = [NSData dataWithBytes:"." length:1];
 
@@ -207,8 +207,8 @@ static NSString * const TORControllerEndReplyLineSeparator = @" ";
     __block BOOL dataBlock = NO;
 
     dispatch_io_set_low_water(_channel, 1);
-    dispatch_io_read(_channel, 0, SIZE_MAX, [self.class controlQueue], ^(bool __unused done, dispatch_data_t data, int __unused error) {
-        [buffer appendData:(NSData *)data];
+    dispatch_io_read(_channel, 0, SIZE_MAX, [self.class controlQueue], ^(bool done, dispatch_data_t data, int error) {
+        if (data) [buffer appendData:(NSData *)data];
 
         NSRange separatorRange;
         NSRange remainingRange = NSMakeRange(0, buffer.length);
@@ -314,15 +314,33 @@ static NSString * const TORControllerEndReplyLineSeparator = @" ";
                 }
             }
         }
+        if (done || error) {
+            TORController *strongSelf = weakSelf;
+            if (strongSelf) {
+                atomic_store(&strongSelf->_connected, false);
+                if (strongSelf->_channel) dispatch_io_close(strongSelf->_channel, DISPATCH_IO_STOP);
+                strongSelf->_channel = nil;
+                [strongSelf->_blocks removeAllObjects];
+            }
+        }
     });
 
     return YES;
 }
 
+// Close only the control connection. Retry must not shut down the Tor runtime.
+- (void)close {
+    atomic_store(&_connected, false);
+    dispatch_async([self.class controlQueue], ^{
+        if (self->_channel) dispatch_io_close(self->_channel, DISPATCH_IO_STOP);
+        self->_channel = nil;
+        [self->_blocks removeAllObjects];
+    });
+}
+
 - (void)disconnect {
     [self sendCommand:TORCommandSignalShutdown arguments:nil data:nil observer:^BOOL(NSArray<NSNumber *> * __unused codes, NSArray<NSData *> * __unused lines, BOOL * __unused stop) {
-        shutdown(self->sock, SHUT_RDWR);
-        self->_channel = nil;
+        [self close];
 
         return YES;
      }];
@@ -531,6 +549,7 @@ static NSString * const TORControllerEndReplyLineSeparator = @" ";
     NSData *ok = [NSData dataWithBytes:"OK" length:2];
 
     [self sendCommand:TORCommandGetInfo arguments:keys data:nil observer:^BOOL(NSArray<NSNumber *> *codes, NSArray<NSData *> *lines, BOOL *stop) {
+        if (codes.firstObject.integerValue >= 600) return NO;
         *stop = YES;
 
         if (lines.count - 1 != keys.count || codes.count != lines.count)
@@ -540,7 +559,7 @@ static NSString * const TORControllerEndReplyLineSeparator = @" ";
                 completion(@[]);
             }
 
-            return NO;
+            return YES;
         }
 
         if (codes.lastObject.integerValue != TORControlReplyCodeOK || ![lines.lastObject isEqual:ok])
@@ -550,7 +569,7 @@ static NSString * const TORControllerEndReplyLineSeparator = @" ";
                 completion(@[]);
             }
 
-            return NO;
+            return YES;
         }
 
         NSMutableDictionary<NSString *, NSString *> *info = [NSMutableDictionary new];
@@ -565,7 +584,7 @@ static NSString * const TORControllerEndReplyLineSeparator = @" ";
                 {
                     completion(@[]);
 
-                    return NO;
+                    return YES;
                 }
 
                 NSRange pos = [string rangeOfString:@"="];
@@ -585,7 +604,7 @@ static NSString * const TORControllerEndReplyLineSeparator = @" ";
                         {
                             completion(@[]);
 
-                            return NO;
+                            return YES;
                         }
                     }
                 }
@@ -596,7 +615,8 @@ static NSString * const TORControllerEndReplyLineSeparator = @" ";
 
         for (NSString *key in keys)
         {
-            [values addObject:(info[key] ?: [NSNull null])];
+            if (!info[key]) { completion(@[]); return YES; }
+            [values addObject:info[key]];
         }
 
         if (completion)
@@ -680,10 +700,13 @@ static NSString * const TORControllerEndReplyLineSeparator = @" ";
                                                         [self.class controlQueue],
                                                         DISPATCH_DATA_DESTRUCTOR_DEFAULT);
 
-    dispatch_io_write(_channel, 0, dispatchData, [self.class controlQueue], ^(bool done, dispatch_data_t __unused data, int error) {
-        if (done && !error && observer) {
-            [self->_blocks insertObject:observer atIndex:0];
-        }
+    dispatch_async([self.class controlQueue], ^{
+        if (!self->_channel) return;
+        // Replies are ordered. Register before writing so an immediate reply cannot be lost.
+        if (observer) [self->_blocks addObject:observer];
+        dispatch_io_write(self->_channel, 0, dispatchData, [self.class controlQueue], ^(bool __unused done, dispatch_data_t __unused data, int error) {
+            if (error) [self close];
+        });
     });
 }
 

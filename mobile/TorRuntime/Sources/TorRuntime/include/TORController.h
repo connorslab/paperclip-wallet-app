@@ -37,6 +37,8 @@ NS_SWIFT_NAME(TorController)
 
 - (BOOL)connect:(out NSError **)error;
 - (void)disconnect;
+/// Close the control socket without stopping Tor.
+- (void)close;
 
 // Commands
 - (void)authenticateWithData:(NSData *)data completion:(void (^__nullable)(BOOL success, NSError * __nullable error))completion;

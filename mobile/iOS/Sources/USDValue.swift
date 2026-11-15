@@ -3,6 +3,8 @@ import PaperclipMobile
 
 struct USDValue: View {
     let sats: UInt64?
+    // For cross-network estimates expressed in fractional XBT satoshis.
+    var equivalentSats: Double? = nil
     var hidden = false
     var mainnet = true
     @ObservedObject private var price = XBTPrice.shared
@@ -12,11 +14,12 @@ struct USDValue: View {
         Group {
             if mainnet {
                 if hidden { Text("•••• USD") }
-                else if let sats, let usd = price.usd, let updated = price.updated, now.timeIntervalSince(updated) < 86400 {
+                else if let usd = price.usd, let updated = price.updated, now.timeIntervalSince(updated) < 86400,
+                        let value = XBTPrice.estimateUSD(sats: sats, equivalentSats: equivalentSats, price: usd) {
                     let stale = now.timeIntervalSince(updated) > 900
-                    Text("≈ " + (Double(sats) / 100_000_000 * usd).formatted(.currency(code: "USD")) + " USD" + (stale ? " · stale rate" : ""))
-                        .accessibilityLabel("Approximate US dollar value " + (Double(sats) / 100_000_000 * usd).formatted(.currency(code: "USD")) + (stale ? ", stale exchange rate" : ""))
-                } else if sats == nil {
+                    Text("≈ " + value.formatted(.currency(code: "USD")) + " USD" + (stale ? " · stale rate" : ""))
+                        .accessibilityLabel("Approximate US dollar value " + value.formatted(.currency(code: "USD")) + (stale ? ", stale exchange rate" : ""))
+                } else if sats == nil && equivalentSats == nil {
                     Text("USD estimate pending balance")
                 } else {
                     Button {

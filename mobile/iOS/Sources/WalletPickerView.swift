@@ -12,10 +12,11 @@ struct WalletPickerView: View {
             VStack(spacing: 20) {
                 WalletBrand()
                 Text("Your wallets, together.").font(.title2.bold()).frame(maxWidth: .infinity, alignment: .leading)
+                if store.syncing { Label("Pausing on-chain refresh…", systemImage: "pause.circle").font(.caption).foregroundStyle(PaperclipTheme.muted) }
                 ForEach(store.profiles) { profile in
                     WalletCard {
                         Button {
-                            store.run { try await store.selectWallet(profile); dismiss() }
+                            Task { await store.pauseSync(); store.run { try await store.selectWallet(profile); dismiss() } }
                         } label: {
                             HStack(spacing: 14) {
                                 Image(systemName: profile.kind.icon).font(.title2).foregroundStyle(PaperclipTheme.orange)
@@ -44,7 +45,8 @@ struct WalletPickerView: View {
                 if !store.message.isEmpty { Text(store.message).font(.caption).foregroundStyle(PaperclipTheme.muted) }
             }.walletPageContent()
         }.walletPageBackground().navigationTitle("Wallets").navigationBarTitleDisplayMode(.inline)
-            .disabled(store.busy)
+            .disabled(store.busy && !store.syncing)
+            .task(id: store.syncing) { await store.pauseSync() }
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done", systemImage: "checkmark") { dismiss() } } }
             .sheet(item: $removing) { profile in
                 NavigationStack { RemoveWalletView(profile: profile) }
@@ -85,6 +87,7 @@ struct AddWalletView: View {
             }
             Text("Hardware and watch-only wallets are on-chain wallets. Their private keys are never imported into Paperclip.").font(.caption).foregroundStyle(PaperclipTheme.muted)
         }.walletPageContent() }.walletPageBackground().navigationTitle("Add wallet").navigationBarTitleDisplayMode(.inline)
+            .task { await store.pauseSync() }
     }
 }
 

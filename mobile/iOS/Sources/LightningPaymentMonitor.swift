@@ -14,6 +14,7 @@ struct PendingNodePayment: Codable {
     @Published private(set) var checking = false
     @Published private(set) var lastChecked: Date?
     @Published private(set) var completedHash = ""
+    @Published private(set) var missingOnNode = false
     private var storageLoaded = false
     private var submitting = false
     private var task: Task<Void, Never>?
@@ -35,7 +36,35 @@ struct PendingNodePayment: Codable {
         guard storageLoaded, pending == nil else { throw WalletFailure(message: "A saved payment must be checked before sending.") }
         try WalletKeychain.save(JSONEncoder().encode(attempt), account: pendingAccount)
         submitting = true
+        missingOnNode = false
         pending = attempt; status = "Payment in progress. Checking automatically…"; lastChecked = nil
+    }
+    func submissionResult(_ data: Data, hash: String, implementation: LightningImplementation) throws {
+        guard pending?.hash == hash else { return }
+        if implementation == .lnd, let terminal = try LNDStreamResponse.terminalState(data, hash: hash) {
+            try finish(hash: hash, terminal: terminal)
+        }
+    }
+    func submissionRejected(_ error: Error, hash: String) throws -> Bool {
+        guard let rejection = error as? LNDStreamError, rejection.definitelyRejected else { return false }
+        try finish(hash: hash, terminal: "failed")
+        status = "Not sent. " + rejection.localizedDescription
+        return true
+    }
+    private func finish(hash: String, terminal: String) throws {
+        guard pending?.hash == hash else { return }
+        try WalletKeychain.save(Data(), account: pendingAccount)
+        pending = nil; missingOnNode = false; completedHash = hash
+        status = terminal == "succeeded" ? "Payment successful." : "Payment failed. Your node confirmed it did not complete."
+    }
+    func clearMissingAttempt(hash: String) throws {
+        guard !submitting, !checking, missingOnNode, pending?.hash == hash else {
+            throw WalletFailure(message: "Check the payment on your node again before clearing this saved attempt.")
+        }
+        // Only an explicit user confirmation after an exact-hash NOT_FOUND lookup.
+        // A timeout or empty history page never unlocks a payment automatically.
+        try finish(hash: hash, terminal: "failed")
+        status = "Saved attempt cleared after your confirmation. Review a new payment to continue."
     }
     func submissionFinished() { submitting = false }
     func setForeground(_ active: Bool) {
@@ -64,21 +93,28 @@ struct PendingNodePayment: Codable {
             guard let node else { return }
             guard let data = try WalletKeychain.read("lightning-connection-v1") else { return }
             let implementation = try JSONDecoder().decode(LightningConnection.self, from: data).implementation
-            let response = try await node.payments(hash: attempt.hash)
+            let terminal: String?
+            if implementation == .lnd {
+                let response = try await node.trackPayment(hash: attempt.hash)
+                terminal = try LNDStreamResponse.terminalState(response, hash: attempt.hash)
+            } else {
+                let response = try await node.payments(hash: attempt.hash)
+                terminal = try LightningPaymentState.terminalState(in: response, hash: attempt.hash, implementation: implementation)
+            }
             try Task.checkCancellation()
             guard pending?.hash == attempt.hash else { return }
-            lastChecked = Date()
-            if let terminal = try LightningPaymentState.terminalState(in: response, hash: attempt.hash, implementation: implementation) {
-                // Clear durable state first; storage errors must preserve the attempt.
-                try WalletKeychain.save(Data(), account: pendingAccount)
-                pending = nil; completedHash = attempt.hash
-                status = terminal == "succeeded" ? "Payment successful." : "Payment failed. Your node confirmed it did not complete."
-            } else {
-                status = "Waiting for your node to confirm the outcome. Checking automatically; no payment will be resent."
-            }
+            missingOnNode = false; lastChecked = Date()
+            if let terminal { try finish(hash: attempt.hash, terminal: terminal) }
+            else { status = "Payment is still in progress on your node. You can leave this page; Paperclip will check without resending." }
+        } catch let error as LNDStreamError where error.code == 5 {
+            guard pending?.hash == attempt.hash else { return }
+            missingOnNode = true; lastChecked = Date()
+            status = "Your node has no payment recorded for this exact hash. This can happen when an older app used an unsupported send method. Check your node before clearing the saved attempt."
+
         } catch is CancellationError {
             // Resume checking when the app becomes active again.
         } catch {
+            missingOnNode = false
             node = nil
             status = "Unable to confirm yet. Paperclip will check again while open. \(error.localizedDescription)"
         }

@@ -42,6 +42,14 @@ import Combine
         return true
     }
 
+    public static func estimateUSD(sats: UInt64?, equivalentSats: Double? = nil, price: Double) -> Double? {
+        // Do not use map(Double.init): Swift can select init(bitPattern:) for UInt64.
+        guard let amount = equivalentSats ?? sats.map({ Double($0) }),
+              amount.isFinite, amount >= 0, price.isFinite, price > 0 else { return nil }
+        let value = amount / 100_000_000 * price
+        return value.isFinite ? value : nil
+    }
+
     public func refresh(force: Bool = false) async {
         if let requestTask { await requestTask.value; return }
         guard force || clock() >= nextAttempt else { return }

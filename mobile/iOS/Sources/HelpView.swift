@@ -16,7 +16,21 @@ struct WalletSupportView: View {
                 WalletSection {
                     WalletBrand()
                     Text("We’re here to help.").font(.title2.bold())
-                    Text("Questions about your wallet? Contact Paperclip Holdings LLC. Support does not require a donation.").foregroundStyle(PaperclipTheme.muted)
+                    Text("Questions about your wallet? Contact Paperclip Holdings LLC.").foregroundStyle(PaperclipTheme.muted)
+                }
+                WalletSection("Quick answers") {
+                    DisclosureGroup("A payment is pending or timed out") {
+                        Text("A timeout does not tell you whether a payment succeeded. Refresh Activity and check the payment status before trying again. For a Lightning node payment, open Lightning → Payments.")
+                    }
+                    DisclosureGroup("I have funds, but cannot send them") {
+                        Text("On-chain payments may need confirmations. Ark funds can be pending or reserved for recovery. Lightning channels keep reserves and may not have enough outbound capacity. Open the account's balance details to see what is available.")
+                    }
+                    DisclosureGroup("My Ark deposit is confirmed but still pending") {
+                        Text("An Ark deposit needs both on-chain confirmations and registration with the Ark server. A confirmed funding transaction does not prove the funds are ready in Ark. Check Activity, save an encrypted backup, and contact support if registration remains blocked. Do not create a second deposit to repair the first.")
+                    }
+                    DisclosureGroup("Tor or certificate verification failed") {
+                        Text("Keep Paperclip open while Tor connects. Check your endpoint and connection settings. For a certificate mismatch, verify the current fingerprint directly with your server before updating it. Never disable TLS verification to get past the error.")
+                    }
                 }
                 WalletSection("Contact support") {
                     Link(destination: WalletHelp.emailURL) {

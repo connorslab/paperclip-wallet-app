@@ -145,13 +145,23 @@ final class ConnectionTests: XCTestCase {
         config.endpoint = "https://node.example"
         config.credential = "rune\nInjected: header"
         XCTAssertThrowsError(try config.validate())
+        for malformed in ["rune%2Bescaped", "\"rune\"", "clnrest://node?rune=value", "rune.with.punctuation", "rune value"] {
+            config.credential = malformed
+            XCTAssertThrowsError(try config.validate())
+        }
+        config.credential = "test-rune_01=="
+        XCTAssertNoThrow(try config.validate())
         config.implementation = .lnd
         config.credential = "not-hex"
         XCTAssertThrowsError(try config.validate())
         config.credential = "abcd0123"
         config.certificateSHA256 = String(repeating: "a", count: 64)
         XCTAssertNoThrow(try config.validate())
-        config.certificateSHA256 = "invalid"
-        XCTAssertThrowsError(try config.validate())
+        config.certificateSHA256 = String(repeating: "a", count: 64) + ", " + String(repeating: "B", count: 64)
+        XCTAssertNoThrow(try config.validate())
+        for invalid in ["invalid", ",", String(repeating: "a", count: 64) + ",", Array(repeating: String(repeating: "a", count: 64), count: 5).joined(separator: ",")] {
+            config.certificateSHA256 = invalid
+            XCTAssertThrowsError(try config.validate())
+        }
     }
 }

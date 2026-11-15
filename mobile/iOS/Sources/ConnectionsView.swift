@@ -20,7 +20,7 @@ struct ConnectionsView: View {
                     } label: { WalletNavigationRow("On-chain", subtitle: settings.backend.title + (settings.useTor ? " · Tor" : " · Direct"), icon: "link") }
                     if store.supportsArk && !onchainOnly { NavigationLink {
                         connectionPage("Ark connection") { arkCard }
-                    } label: { WalletNavigationRow("Ark", subtitle: separateRPC ? "Separate RPC connection" : "Shares on-chain backend", icon: "square.stack.3d.up") }
+                    } label: { WalletNavigationRow("Ark · Beta", subtitle: separateRPC ? "Separate RPC connection" : "Shares on-chain backend", icon: "square.stack.3d.up") }
                     Text("Lightning node settings are shared across mobile wallets, on the Lightning tab.").font(.caption).foregroundStyle(PaperclipTheme.muted) }
                 }
                 saveCard
@@ -68,7 +68,7 @@ struct ConnectionsView: View {
                 }
                 Text("Use an XBT backend with BLAKE2b headers. Paperclip validates network and activation before use.").font(.caption)
             } }
-    private var arkCard: some View { WalletSection("Ark") {
+    private var arkCard: some View { WalletSection("Ark · Beta") {
                 Toggle("Separate Ark RPC connection", isOn: $separateRPC).accessibilityIdentifier("separate-ark-rpc")
                 if separateRPC {
                     Toggle("Use Tor for Ark", isOn: $arkRPC.useTor).accessibilityIdentifier("ark-tor")
@@ -116,12 +116,14 @@ struct SettingsView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 20) {
-                WalletSection { WalletBrand() }
+                WalletColumns {
                 WalletSection { NavigationLink { WalletPickerView() } label: { WalletNavigationRow("Your wallets", subtitle: "Switch, add, or rename a wallet", icon: "wallet.pass") } }
                 WalletSection("Preferences") {
+                    NavigationLink { PaymentNotificationSettingsView() } label: { WalletNavigationRow("Notifications", subtitle: "Payment alerts and refresh timing", icon: "bell") }
                     NavigationLink { DisplaySettingsView() } label: { WalletNavigationRow("Appearance & units", subtitle: "Light, dark, sats, or XBT", icon: "circle.lefthalf.filled") }
                     NavigationLink { ConnectionsView() } label: { WalletNavigationRow("Connections", subtitle: "On-chain and Ark servers · Tor", icon: "network") }
                 }
+                } secondary: {
                 WalletSection("Security & recovery") {
                     NavigationLink { SecuritySettingsView() } label: { WalletNavigationRow("Wallet security", subtitle: "Device authentication and protected storage", icon: "lock.shield") }.accessibilityIdentifier("settings-security")
                     if store.supportsArk { NavigationLink { BackupView(engine: store.engine) } label: { WalletNavigationRow("Encrypted backup", subtitle: "Save your wallet and Ark recovery data", icon: "icloud.and.arrow.up") }
@@ -149,12 +151,8 @@ struct SettingsView: View {
                         WalletNavigationRow("Privacy policy", subtitle: "Your data, connections, and choices", icon: "hand.raised")
                     }
                 }
-                WalletSection {
-                    NavigationLink { DonationView() } label: {
-                        WalletNavigationRow("Support Paperclip", subtitle: "Donate XBT to support development", icon: "heart")
-                    }.accessibilityIdentifier("settings-donate")
                 }
-            }.walletPageContent()
+            }.walletPageContent(maxWidth: 1120)
         }.navigationTitle("Settings").walletPageBackground()
     }
 }
@@ -211,31 +209,5 @@ struct ArkMaintenanceView: View {
                 Text(maintenance.notificationStatus).font(.caption)
             }
         }.walletPageContent() }.navigationTitle("Ark maintenance").walletPageBackground()
-    }
-}
-
-struct DonationView: View {
-    private let address = "bc1qhzkspmsamfxa0ex0rg3faq2l9a3envunftn3aa"
-
-    var body: some View {
-        ScrollView {
-            VStack(spacing: 20) {
-                WalletSection {
-                    WalletBrand()
-                    Text("Help build Paperclip.").font(.title2.bold())
-                    Text("Your donation supports continued development of Paperclip. Thank you for helping us build a better XBT wallet.")
-                        .foregroundStyle(PaperclipTheme.muted)
-                }
-                WalletSection("Donate XBT") {
-                    Label("XBT mainnet · On-chain", systemImage: "link").font(.subheadline)
-                    ReceiveCode(value: address, imageAsset: "DonationQR")
-                    Text("Send any amount to this address using the XBT network. Donations are optional.")
-                        .font(.caption).foregroundStyle(PaperclipTheme.muted)
-                }
-            }.walletPageContent()
-        }
-        .navigationTitle("Support Paperclip")
-        .navigationBarTitleDisplayMode(.inline)
-        .walletPageBackground()
     }
 }
