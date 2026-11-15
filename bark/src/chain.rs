@@ -1327,3 +1327,73 @@ pub fn parse_electrum_package_result(response: &serde_json::Value, order: &[Txid
 	}).collect();
 	Err(classify_submit_package_errors("Electrum package rejected", results?.into_iter(), order))
 }
+
+#[cfg(all(test, feature = "bitcoind-rpc"))]
+mod rpc_cookie_rotation {
+	use std::time::{Duration, SystemTime, UNIX_EPOCH};
+	use bitcoind_async_client::{Auth, Client, error::ClientError};
+	use serde_json::{Value, json};
+	use tokio::{io::{AsyncReadExt, AsyncWriteExt}, net::{TcpListener, TcpStream}, time::timeout};
+
+	async fn check_rotation(proxy_transport: bool) {
+		let cookie = std::env::temp_dir().join(format!("paperclip-async-cookie-{}-{}", std::process::id(), SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()));
+		std::fs::write(&cookie, "user:one").unwrap();
+		let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+		let address = listener.local_addr().unwrap();
+		let server = tokio::spawn(async move {
+			for (index, auth) in ["dXNlcjpvbmU=", "dXNlcjp0d28=", "dXNlcjp3cm9uZw=="].into_iter().enumerate() {
+				let (mut stream, _) = timeout(Duration::from_secs(5), listener.accept()).await.unwrap().unwrap();
+				if proxy_transport {
+					let mut greeting = [0; 2]; stream.read_exact(&mut greeting).await.unwrap();
+					assert_eq!(greeting[0], 5);
+					let mut methods = vec![0; greeting[1] as usize]; stream.read_exact(&mut methods).await.unwrap();
+					assert!(methods.contains(&0)); stream.write_all(&[5, 0]).await.unwrap();
+					let mut connect = [0; 4]; stream.read_exact(&mut connect).await.unwrap();
+					assert_eq!(connect, [5, 1, 0, 3]); // Remote DNS must stay on the proxy.
+					let length = stream.read_u8().await.unwrap();
+					let mut host = vec![0; length as usize]; stream.read_exact(&mut host).await.unwrap();
+					assert_eq!(host, b"rpc.example.invalid");
+					assert_eq!(stream.read_u16().await.unwrap(), 8332);
+					stream.write_all(&[5, 0, 0, 1, 127, 0, 0, 1, 0, 0]).await.unwrap();
+				}
+				let (headers, body) = timeout(Duration::from_secs(5), request(&mut stream)).await.unwrap();
+				assert!(headers.lines().any(|line| line.split_once(':').is_some_and(|(key, value)| key.eq_ignore_ascii_case("authorization") && value.trim() == format!("Basic {auth}"))));
+				let result = json!({"result": index + 1, "error": null, "id": body["id"]}).to_string();
+				let status = if index == 2 { "401 Unauthorized" } else { "200 OK" };
+				let response = format!("HTTP/1.1 {status}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{result}", result.len());
+				stream.write_all(response.as_bytes()).await.unwrap();
+			}
+		});
+		let url = if proxy_transport { "http://rpc.example.invalid:8332".into() } else { format!("http://{address}") };
+		let client = Client::new(url, Auth::CookieFile(cookie.clone()), Some(1), Some(1), Some(5)).unwrap();
+		#[cfg(feature = "socks5-proxy")]
+		let client = if proxy_transport { client.with_socks5_proxy(&format!("socks5h://{address}")).unwrap() } else { client };
+		let cloned = client.clone();
+		assert_eq!(client.call_raw::<u64>("getblockcount", &[]).await.unwrap(), 1);
+		let replacement = cookie.with_extension("new");
+		std::fs::write(&replacement, "user:two").unwrap(); std::fs::rename(replacement, &cookie).unwrap();
+		assert_eq!(cloned.call_raw::<u64>("getblockcount", &[]).await.unwrap(), 2);
+		std::fs::write(&cookie, "user:wrong").unwrap();
+		assert!(matches!(client.call_raw::<u64>("getblockcount", &[]).await, Err(ClientError::Status(401, _))));
+		server.await.unwrap();
+		std::fs::remove_file(cookie).unwrap();
+		assert!(client.call_raw::<u64>("getblockcount", &[]).await.is_err());
+		assert!(!format!("{client:?}").contains("wrong"));
+	}
+
+	async fn request(stream: &mut TcpStream) -> (String, Value) {
+		let mut bytes = Vec::new();
+		while !bytes.ends_with(b"\r\n\r\n") { bytes.push(stream.read_u8().await.unwrap()); }
+		let headers = String::from_utf8(bytes).unwrap();
+		let length: usize = headers.lines().find_map(|line| line.to_lowercase().strip_prefix("content-length:").map(|v| v.trim().parse().unwrap())).unwrap();
+		let mut body = vec![0; length]; stream.read_exact(&mut body).await.unwrap();
+		(headers, serde_json::from_slice(&body).unwrap())
+	}
+
+	#[tokio::test]
+	async fn direct_client_uses_rotated_cookie_without_replaying_request() { check_rotation(false).await; }
+
+	#[cfg(feature = "socks5-proxy")]
+	#[tokio::test]
+	async fn proxy_client_uses_rotated_cookie_without_replaying_request() { check_rotation(true).await; }
+}

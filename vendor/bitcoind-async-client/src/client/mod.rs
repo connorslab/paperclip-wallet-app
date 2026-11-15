@@ -90,6 +90,10 @@ pub struct Client {
     /// The authorization header value for Basic auth.
     authorization: String,
 
+    // Node restarts rotate this file. Resolve it before each request, not only
+    // when the long-lived wallet client is constructed.
+    cookie_file: Option<PathBuf>,
+
     /// The timeout for requests in seconds.
     timeout: u64,
 
@@ -143,6 +147,7 @@ impl Client {
         retry_interval: Option<u64>,
         timeout: Option<u64>,
     ) -> ClientResult<Self> {
+        let cookie_file = match &auth { Auth::CookieFile(path) => Some(path.clone()), _ => None };
         let (username_opt, password_opt) = auth.get_user_pass()?;
         let (Some(username), Some(password)) = (
             username_opt.filter(|u| !u.is_empty()),
@@ -167,6 +172,7 @@ impl Client {
         Ok(Self {
             url,
             authorization,
+            cookie_file,
             timeout,
             id,
             max_retries,
@@ -175,6 +181,17 @@ impl Client {
             #[cfg(feature = "socks5-proxy")]
             socks_agent: None,
         })
+    }
+
+    async fn current_authorization(&self) -> ClientResult<String> {
+        let Some(path) = self.cookie_file.clone() else { return Ok(self.authorization.clone()); };
+        tokio::task::spawn_blocking(move || {
+            let (user, password) = Auth::CookieFile(path).get_user_pass()?;
+            let (Some(user), Some(password)) = (user.filter(|s| !s.is_empty()), password.filter(|s| !s.is_empty())) else {
+                return Err(ClientError::MissingUserPassword);
+            };
+            Ok(format!("Basic {}", general_purpose::STANDARD.encode(format!("{user}:{password}"))))
+        }).await.map_err(|_| ClientError::Other("Could not read node RPC cookie".into()))?
     }
 
     /// Route every request through this SOCKS5 proxy, including remote DNS.
@@ -202,7 +219,7 @@ impl Client {
             "jsonrpc": "1.0", "id": id, "method": method, "params": params,
         })).map_err(|e| ClientError::Param(e.to_string()))?;
         let url = self.url.clone();
-        let authorization = self.authorization.clone();
+        let authorization = self.current_authorization().await?;
         // Never retry an uncertain write or fall back to the direct client.
         let (status, raw) = tokio::task::spawn_blocking(move || {
             let response = agent.post(&url)
@@ -260,8 +277,9 @@ impl Client {
             }))
             .map_err(|e| ClientError::Param(format!("Error serializing request: {e}")))?;
 
+            let authorization = self.current_authorization().await?;
             let request = post(&self.url)
-                .with_header("Authorization", &self.authorization)
+                .with_header("Authorization", &authorization)
                 .with_header("Content-Type", "application/json")
                 .with_body(body)
                 .with_timeout(self.timeout)

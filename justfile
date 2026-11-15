@@ -18,6 +18,11 @@ unit-electrum:
 unit-unified:
 	cargo test --locked -p bark-bitcoin-ext --lib unified_
 
+unit-rpc-cookie:
+	cargo test --locked -p bark-bitcoin-ext --lib cookie_tests
+	cargo test --locked -p bark-bitcoin-ext --features rpc-socks5-proxy --lib cookie_tests
+	cargo test --locked -p bark-wallet --features socks5-proxy --lib rpc_cookie_rotation
+
 unit-rpc-transport:
 	cargo test --locked -p bark-bitcoin-ext --features rpc-socks5-proxy --lib rpc::socks5_transport::tests
 

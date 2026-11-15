@@ -32,37 +32,78 @@ pub const RPC_VERIFY_ALREADY_IN_UTXO_SET: i32 = -27;
 /// Error code for RPC_INVALID_ADDRESS_OR_KEY, used when a tx is not found.
 pub const RPC_INVALID_ADDRESS_OR_KEY: i32 = -5;
 
-/// Clonable bitcoind rpc client.
-///
-/// Clones share the underlying [Client] and its single TCP connection.
-/// The client can safely be used from multiple threads, but only one
-/// request is in flight at a time: concurrent callers take turns on the
-/// connection. Create separate clients if requests must run in parallel.
-/// The connection is re-established transparently when it drops.
-#[derive(Debug, Clone)]
+/// Clonable RPC client. Clones share the connection pool and cookie state.
+/// Cookie changes are applied before the next request; an in-flight request is
+/// never replayed merely because authentication failed.
+#[derive(Clone)]
 pub struct BitcoinRpcClient {
+	state: std::sync::Arc<std::sync::Mutex<RpcClientState>>,
+	cookie: Option<std::sync::Arc<RpcCookie>>,
+}
+
+struct RpcClientState {
 	client: std::sync::Arc<Client>,
+	credentials: (Option<String>, Option<String>),
+}
+
+struct RpcCookie {
+	path: std::path::PathBuf,
+	url: String,
+	proxy: Option<String>,
+}
+
+impl std::fmt::Debug for BitcoinRpcClient {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		f.debug_struct("BitcoinRpcClient").field("cookie_auth", &self.cookie.is_some()).finish_non_exhaustive()
+	}
 }
 
 impl BitcoinRpcClient {
 	pub fn new(url: &str, auth: Auth) -> Result<Self, Error> {
-		#[cfg(feature = "rpc-socks5-proxy")]
-		return Self::new_with_proxy(url, auth, None);
-
-		#[cfg(not(feature = "rpc-socks5-proxy"))]
-		Ok(BitcoinRpcClient {
-			client: std::sync::Arc::new(Client::new(url, auth)?),
-		})
+		Self::create(url, auth, None)
 	}
 
 	#[cfg(feature = "rpc-socks5-proxy")]
 	pub fn new_with_proxy(url: &str, auth: Auth, proxy: Option<&str>) -> Result<Self, Error> {
-		let (user, pass) = auth.get_user_pass()?;
-		let transport = socks5_transport::Socks5Transport::new(url, proxy, user.map(|u| (u, pass)))
-			.map_err(|e| Error::JsonRpc(jsonrpc::Error::Transport(Box::new(e))))?;
-		Ok(BitcoinRpcClient { client: std::sync::Arc::new(Client::from_jsonrpc(
-			jsonrpc::Client::with_transport(transport),
-		)) })
+		Self::create(url, auth, proxy)
+	}
+
+	fn create(url: &str, auth: Auth, proxy: Option<&str>) -> Result<Self, Error> {
+		let credentials = auth.clone().get_user_pass()?;
+		if matches!(&auth, Auth::CookieFile(_)) && !Self::valid_cookie(&credentials) { return Err(Error::InvalidCookieFile); }
+		let client = Self::transport(url, &credentials, proxy)?;
+		let cookie = match auth {
+			Auth::CookieFile(path) => Some(std::sync::Arc::new(RpcCookie {
+				path, url: url.into(), proxy: proxy.map(str::to_owned),
+			})),
+			_ => None,
+		};
+		Ok(Self { state: std::sync::Arc::new(std::sync::Mutex::new(RpcClientState {
+			client: std::sync::Arc::new(client), credentials,
+		})), cookie })
+	}
+
+	fn valid_cookie(credentials: &(Option<String>, Option<String>)) -> bool {
+		credentials.0.as_ref().is_some_and(|s| !s.is_empty()) && credentials.1.as_ref().is_some_and(|s| !s.is_empty())
+	}
+
+	fn transport(url: &str, credentials: &(Option<String>, Option<String>), proxy: Option<&str>) -> Result<Client, Error> {
+		#[cfg(feature = "rpc-socks5-proxy")]
+		{
+			let (user, pass) = credentials.clone();
+			let transport = socks5_transport::Socks5Transport::new(url, proxy, user.map(|u| (u, pass)))
+				.map_err(|e| Error::JsonRpc(jsonrpc::Error::Transport(Box::new(e))))?;
+			Ok(Client::from_jsonrpc(jsonrpc::Client::with_transport(transport)))
+		}
+		#[cfg(not(feature = "rpc-socks5-proxy"))]
+		{
+			let _ = proxy;
+			let auth = match credentials {
+				(Some(user), password) => Auth::UserPass(user.clone(), password.clone().unwrap_or_default()),
+				_ => Auth::None,
+			};
+			Client::new(url, auth)
+		}
 	}
 }
 
@@ -70,7 +111,67 @@ impl RpcApi for BitcoinRpcClient {
 	fn call<T: for<'a> serde::de::Deserialize<'a>>(
 		&self, cmd: &str, args: &[serde_json::Value],
 	) -> Result<T, Error> {
-		self.client.call(cmd, args)
+		let client = {
+			let mut state = self.state.lock().map_err(|_| Error::JsonRpc(jsonrpc::Error::Transport(
+				Box::new(std::io::Error::other("Node RPC client state unavailable")),
+			)))?;
+			if let Some(cookie) = &self.cookie {
+				// Read the current file even when its path/mtime is unchanged (a
+				// container mount can replace it). Never fall back to a stale secret.
+				let credentials = Auth::CookieFile(cookie.path.clone()).get_user_pass()?;
+				if !Self::valid_cookie(&credentials) { return Err(Error::InvalidCookieFile); }
+				if credentials != state.credentials {
+					state.client = std::sync::Arc::new(Self::transport(&cookie.url, &credentials, cookie.proxy.as_deref())?);
+					state.credentials = credentials;
+				}
+			}
+			state.client.clone()
+		};
+		client.call(cmd, args)
+	}
+}
+
+#[cfg(test)]
+mod cookie_tests {
+	use super::*;
+	use std::io::{Read, Write};
+	use std::net::TcpListener;
+	use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+	#[test]
+	fn cookie_rotation_updates_existing_clients_without_replaying_requests() {
+		let cookie = std::env::temp_dir().join(format!("paperclip-rpc-cookie-{}-{}", std::process::id(), SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()));
+		std::fs::write(&cookie, "user:one").unwrap();
+		let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+		let url = format!("http://{}", listener.local_addr().unwrap());
+		let server = std::thread::spawn(move || {
+			for (index, auth) in ["dXNlcjpvbmU=", "dXNlcjp0d28=", "dXNlcjp3cm9uZw=="].into_iter().enumerate() {
+				let (mut socket, _) = listener.accept().unwrap();
+				socket.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+				let mut bytes = Vec::new();
+				while !bytes.ends_with(b"\r\n\r\n") { let mut b = [0]; socket.read_exact(&mut b).unwrap(); bytes.push(b[0]); }
+				let headers = String::from_utf8(bytes).unwrap();
+				assert!(headers.lines().any(|line| line.split_once(':').is_some_and(|(key, value)| key.eq_ignore_ascii_case("authorization") && value.trim() == format!("Basic {auth}"))));
+				let length: usize = headers.lines().find_map(|line| line.to_lowercase().strip_prefix("content-length:").map(|v| v.trim().parse().unwrap())).unwrap();
+				let mut body = vec![0; length]; socket.read_exact(&mut body).unwrap();
+				let request: serde_json::Value = serde_json::from_slice(&body).unwrap();
+				let result = serde_json::json!({"result": index + 1, "error": null, "id": request["id"]}).to_string();
+				let status = if index == 2 { "401 Unauthorized" } else { "200 OK" };
+				write!(socket, "HTTP/1.1 {status}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{result}", result.len()).unwrap();
+			}
+		});
+		let client = BitcoinRpcClient::new(&url, Auth::CookieFile(cookie.clone())).unwrap();
+		let cloned = client.clone();
+		assert_eq!(client.call::<u64>("getblockcount", &[]).unwrap(), 1);
+		let replacement = cookie.with_extension("new");
+		std::fs::write(&replacement, "user:two").unwrap(); std::fs::rename(replacement, &cookie).unwrap();
+		assert_eq!(cloned.call::<u64>("getblockcount", &[]).unwrap(), 2);
+		std::fs::write(&cookie, "user:wrong").unwrap();
+		assert!(client.call::<u64>("getblockcount", &[]).is_err());
+		server.join().unwrap();
+		std::fs::remove_file(cookie).unwrap();
+		assert!(client.call::<u64>("getblockcount", &[]).is_err());
+		assert!(!format!("{client:?}").contains("wrong"));
 	}
 }
 
