@@ -112,7 +112,7 @@ class LightningModel(app: Application) : AndroidViewModel(app) {
 	}
 
 	private suspend fun connectStored(c: NodeConnection, persist: Boolean = false) {
-		change { it.copy(connecting = true) }
+		change { it.copy(connecting = true, message = "") }
 		try {
 			verifyConnection(c, persist)
 		} catch (e: CancellationException) {
