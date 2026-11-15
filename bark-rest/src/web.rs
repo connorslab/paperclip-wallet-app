@@ -188,6 +188,18 @@ async fn spa_fallback(uri: Uri) -> Response {
 }
 
 fn serve_asset(path: &str) -> Response {
+	let mut response = asset_content(path);
+	// Framing restrictions must be HTTP headers: a CSP meta tag cannot set
+	// frame-ancestors. Retain same-origin platform shells, but prevent an
+	// unrelated site from overlaying the wallet's payment confirmations.
+	let headers = response.headers_mut();
+	headers.insert(header::CONTENT_SECURITY_POLICY, "frame-ancestors 'self'".parse().unwrap());
+	headers.insert(header::X_FRAME_OPTIONS, "SAMEORIGIN".parse().unwrap());
+	headers.insert(header::X_CONTENT_TYPE_OPTIONS, "nosniff".parse().unwrap());
+	response
+}
+
+fn asset_content(path: &str) -> Response {
 	let path = if path.is_empty() { "index.html" } else { path };
 
 	let (path, file) = match WebAssets::get(path) {
@@ -219,4 +231,21 @@ fn serve_asset(path: &str) -> Response {
 		file.data.into_owned(),
 	)
 		.into_response()
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn wallet_pages_reject_cross_origin_framing() {
+		// Entry point, SPA fallback and missing assets all receive the policy.
+		// It also applies in builds that do not embed a distribution.
+		for path in ["index.html", "wallet-settings", "assets/missing.js"] {
+			let response = serve_asset(path);
+			assert_eq!(response.headers().get(header::CONTENT_SECURITY_POLICY).unwrap(), "frame-ancestors 'self'");
+			assert_eq!(response.headers().get(header::X_FRAME_OPTIONS).unwrap(), "SAMEORIGIN");
+			assert_eq!(response.headers().get(header::X_CONTENT_TYPE_OPTIONS).unwrap(), "nosniff");
+		}
+	}
 }

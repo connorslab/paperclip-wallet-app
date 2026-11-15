@@ -1,7 +1,7 @@
 'use strict';
 (() => {
   let accounts=[], selected=null, generation=0, busy=false, pending=null, signed=null, history=[], lastRelay=null, paired=null, renaming=null;
-  let collector=new PaperclipSigningQR.Collector(), qrFrames=[], frame=0, paused=false, stream=null, scanning=false, scanPublic=false;
+  let collector=new PaperclipSigningQR.Collector(), qrFrames=[], frame=0, paused=false, stream=null, scanning=false, scanPublic=false, cameraGeneration=0;
   const dialog=$('qr-scanner'), video=$('scanner-video'), canvas=document.createElement('canvas'), context=canvas.getContext('2d',{willReadFrequently:true});
   const sats=value=>Number.isSafeInteger(value)?value.toLocaleString()+' sats':'Unavailable';
   function controls() {
@@ -19,7 +19,7 @@
     catch(error){if(ticket===generation&&token===session)$(output).textContent=error.message;}
     finally{busy=false;controls();}
   }
-  function stopCamera() {scanning=false;if(stream)stream.getTracks().forEach(track=>track.stop());stream=null;video.srcObject=null;if(dialog.open)dialog.close();}
+  function stopCamera() {cameraGeneration++;scanning=false;if(stream)stream.getTracks().forEach(track=>track.stop());stream=null;video.srcObject=null;if(dialog.open)dialog.close();}
   function clearSigning() {
     pending=null;signed=null;qrFrames=[];frame=0;collector=new PaperclipSigningQR.Collector();
     $('signing-qr').replaceChildren();$('signed-text').value='';$('signing-review').textContent='';$('signing-status').textContent='';$('signing-progress').textContent='';
@@ -31,13 +31,16 @@
     clearSigning();
   }
   function clearWalletView() {
-    PaperclipReview.cancel();PaperclipReceive.clear();$('transaction-result').close();$('wallet-rename').close();renaming=null;$('wallet-rename-form').reset();
+    resetWalletControls();PaperclipReview.cancel();PaperclipReceive.clear();$('transaction-result').close();$('wallet-rename').close();renaming=null;$('wallet-rename-form').reset();
     for(const id of ['cold-address','cold-relay','cold-history','activity-list','history','ln-result','ln-invoice','ln-offer-output','address','deposit-address']) $(id)?.replaceChildren();
     for(const id of ['destination','amount','ln-destination','ln-amount','chain-destination','chain-amount','ln-identifier']) if($(id))$(id).value='';
     $('cold-balance').textContent='Loading…';$('cold-pending').textContent='Loading…';history=[];lastRelay=null;
   }
   async function choose(id) {
     if(busy||walletMutations>0)return;
+    await selectAccount(id);
+  }
+  async function selectAccount(id) {
     const next=accounts.find(account=>account.id===id)||null;if(id&&!next)throw new Error('Select a saved wallet.');
     cancelRequest();generation++;selected=next;clearWalletView();
     sessionWrite('paperclip.selected-qr', selected?.id || null);
@@ -85,7 +88,9 @@
       await load();
       if(token!==session||!token)throw new Error('Session changed. Unlock again.');
       if(!accounts.some(account=>account.id===id))throw new Error('The previously selected QR wallet is unavailable.');
-      await choose(id);
+      // Restore identity even while an earlier session has an operation in flight.
+      // Ordinary user switching remains disabled until that operation finishes.
+      await selectAccount(id);
     } catch(error) {
       $('forget-selected-wallet').hidden=false;
       throw new Error('Could not restore your selected QR wallet. Retry, or choose the hot wallet explicitly.');
@@ -146,38 +151,74 @@
     pending=result;signed=null;collector=new PaperclipSigningQR.Collector();qrFrames=PaperclipSigningQR.frames(PaperclipSigningQR.binary(result.psbt));frame=0;
     paused=matchMedia('(prefers-reduced-motion: reduce)').matches;$('signing-pause').textContent=paused?'Play QR':'Pause QR';$('signing-review').textContent=summary;showFrame();
   });};
-  async function acceptFrame(text,isPublic) {
-    const ticket=generation, result=await collector.accept(text,isPublic);if(ticket!==generation)return;
+  function signingContext() {return {wallet:walletContext(),collector,pending};}
+  function currentSigning(input) {return currentWallet(input.wallet)&&collector===input.collector&&pending===input.pending;}
+  async function acceptFrame(text,isPublic,input=signingContext()) {
+    if(!currentSigning(input))return;
+    let result;
+    try {result=await input.collector.accept(text,isPublic);}
+    catch(error){if(currentSigning(input))throw error;return;}
+    if(!currentSigning(input))return;
     const progress=collector.total?'Read '+collector.received+' of '+collector.total+' fragments':'Reading QR…';$('scanner-progress').textContent=progress;$('signing-progress').textContent=progress;
     if(result===null)return;
     stopCamera();
     if(isPublic){$('pair-key').value=result;$('pair-wallet').open=true;return;}
     if(!pending||!selected)throw new Error('Review a transaction in this wallet first.');
     let response;
-    try {response=await call('verify',{request_id:pending.request_id,signed:PaperclipSigningQR.toBase64(result)});}
-    catch(error){collector=new PaperclipSigningQR.Collector();throw error;}
-    if(response.verified!==true||response.fee_sat!==pending.fee_sat)throw new Error('Signature verification did not match this review.');
+    try {response=await call('verify',{request_id:input.pending.request_id,signed:PaperclipSigningQR.toBase64(result)});}
+    catch(error){if(!currentSigning(input))return;collector=new PaperclipSigningQR.Collector();throw error;}
+    if(!currentSigning(input))return;
+    if(response.verified!==true||response.fee_sat!==input.pending.fee_sat)throw new Error('Signature verification did not match this review.');
     signed=response;$('signing-progress').textContent='Signature verified. Review once more before broadcast.';controls();
   }
   async function scan(isPublic) {
     if(busy)return;if(!isPublic&&!pending)return;collector=new PaperclipSigningQR.Collector();scanPublic=isPublic;
     $('scanner-title').textContent=isPublic?'Scan public account':'Scan signed response';$('scanner-progress').textContent='Point the camera at the QR code.';dialog.showModal();
-    const ticket=generation;
+    const ticket=generation,camera=++cameraGeneration;
+    const active=()=>ticket===generation&&camera===cameraGeneration&&dialog.open;
     try{
       if(!navigator.mediaDevices?.getUserMedia)throw new Error('Camera access needs HTTPS or a trusted local origin. Use a QR image or PSBT file instead.');
       const acquired=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment',width:{ideal:1280}},audio:false});
-      if(ticket!==generation||!dialog.open){acquired.getTracks().forEach(track=>track.stop());return;}stream=acquired;video.srcObject=stream;await video.play();scanning=true;
-      while(scanning&&ticket===generation){
-        if(video.readyState>=2){canvas.width=Math.min(video.videoWidth,1280);canvas.height=Math.round(video.videoHeight*canvas.width/video.videoWidth);context.drawImage(video,0,0,canvas.width,canvas.height);const pixels=context.getImageData(0,0,canvas.width,canvas.height);const qr=PaperclipQRVendor.jsQR(pixels.data,pixels.width,pixels.height);if(qr)await acceptFrame(qr.data,isPublic);}
+      if(!active()){acquired.getTracks().forEach(track=>track.stop());return;}stream=acquired;video.srcObject=stream;await video.play();
+      if(!active()){acquired.getTracks().forEach(track=>track.stop());return;}scanning=true;
+      while(scanning&&active()){
+        if(video.readyState>=2){
+          canvas.width=Math.min(video.videoWidth,1280);canvas.height=Math.round(video.videoHeight*canvas.width/video.videoWidth);context.drawImage(video,0,0,canvas.width,canvas.height);
+          const pixels=context.getImageData(0,0,canvas.width,canvas.height),qr=PaperclipQRVendor.jsQR(pixels.data,pixels.width,pixels.height);
+          if(qr)try{await acceptFrame(qr.data,isPublic);}catch(error){
+            if(active())throw error;
+            // A complete QR closes the camera before server verification.
+            // Keep a current verification failure visible on the signing form.
+            if(ticket===generation)$(isPublic?'wallet-account-status':'signing-status').textContent=error.message;
+          }
+        }
         await new Promise(resolve=>setTimeout(resolve,125));
       }
-    }catch(error){if(dialog.open)$('scanner-progress').textContent=error.message;else $(isPublic?'wallet-account-status':'signing-status').textContent=error.message;scanning=false;if(stream)stream.getTracks().forEach(track=>track.stop());stream=null;}
+    }catch(error){if(!active())return;$('scanner-progress').textContent=error.message;scanning=false;if(stream)stream.getTracks().forEach(track=>track.stop());stream=null;video.srcObject=null;}
   }
   async function readFile(file,isPublic) {
     if(!file)return;if(file.size>10*1024*1024)throw new Error('File is too large.');
-    if(file.type.startsWith('image/')){const image=await createImageBitmap(file);try{if(image.width*image.height>16000000)throw new Error('QR image is too large.');canvas.width=image.width;canvas.height=image.height;context.drawImage(image,0,0);const pixels=context.getImageData(0,0,canvas.width,canvas.height);const qr=PaperclipQRVendor.jsQR(pixels.data,pixels.width,pixels.height);if(!qr)throw new Error('No QR code found in this image.');await acceptFrame(qr.data,isPublic);}finally{image.close();}return;}
-    if(file.size>PaperclipSigningQR.MAX*2)throw new Error('Response is too large.');
-    const bytes=new Uint8Array(await file.arrayBuffer());if(!isPublic&&bytes.slice(0,5).every((v,i)=>v===[112,115,98,116,255][i]))await acceptFrame(PaperclipSigningQR.toBase64(bytes),false);else await acceptFrame(new TextDecoder('utf-8',{fatal:true}).decode(bytes),isPublic);
+    const input=signingContext();
+    let text;
+    try {
+      if(file.type.startsWith('image/')) {
+        const image=await createImageBitmap(file);
+        try {
+          if(!currentSigning(input))return;
+          if(image.width*image.height>16000000)throw new Error('QR image is too large.');
+          canvas.width=image.width;canvas.height=image.height;context.drawImage(image,0,0);
+          const pixels=context.getImageData(0,0,canvas.width,canvas.height),qr=PaperclipQRVendor.jsQR(pixels.data,pixels.width,pixels.height);
+          if(!qr)throw new Error('No QR code found in this image.');
+          text=qr.data;
+        } finally {image.close();}
+      } else {
+        if(file.size>PaperclipSigningQR.MAX*2)throw new Error('Response is too large.');
+        const bytes=new Uint8Array(await file.arrayBuffer());
+        if(!currentSigning(input))return;
+        text=!isPublic&&bytes.slice(0,5).every((v,i)=>v===[112,115,98,116,255][i])?PaperclipSigningQR.toBase64(bytes):new TextDecoder('utf-8',{fatal:true}).decode(bytes);
+      }
+    } catch(error) {if(currentSigning(input))throw error;return;}
+    await acceptFrame(text,isPublic,input);
   }
   for(const [id,isPublic] of [['pair-file',true],['signed-file',false]])$(id).onchange=event=>{const file=event.target.files[0];event.target.value='';void work(isPublic?'wallet-account-status':'signing-status',()=>readFile(file,isPublic));};
   $('pair-scan').onclick=()=>void scan(true);$('signed-scan').onclick=()=>void scan(false);
@@ -190,10 +231,10 @@
     if(!pending||!signed)throw new Error('Scan and verify the signature first.');
     if(!await PaperclipReview.ask('Broadcast from '+selected.label+'?\n\n'+$('signing-review').textContent+'\n\nTransaction: '+signed.txid))return;
     // Disable a second submission even if the reply is lost. The server journals before relay.
-    const txid=signed.txid,request_id=pending.request_id;signed=null;controls();
+    const ticket=generation,txid=signed.txid,request_id=pending.request_id;signed=null;controls();
     let result;
     try{result=await call('broadcast',{request_id,txid});}
-    catch(error){clearSigning();PaperclipNavigation.show('overview');$('cold-relay').textContent='Broadcast result is uncertain. Refresh and check transaction '+txid+' before another payment.';throw error;}
+    catch(error){if(ticket!==generation)throw error;clearSigning();PaperclipNavigation.show('overview');$('cold-relay').textContent='Broadcast result is uncertain. Refresh and check transaction '+txid+' before another payment.';throw error;}
     clearSigning();PaperclipNavigation.show('overview');$('cold-relay').textContent=result.state==='submitted'?'Transaction submitted. Waiting for confirmation.':'Broadcast result is uncertain. Check transaction '+txid+' before another payment.';
   });
   window.addEventListener('paperclip:view',event=>{stopCamera();if(event.detail==='wallets'&&token)void work('wallet-account-status',load);});

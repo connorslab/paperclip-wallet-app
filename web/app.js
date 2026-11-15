@@ -9,6 +9,13 @@ let setupDefaultsLoaded = false;
 const $ = id => document.getElementById(id);
 const status = text => { $('status').textContent = text; };
 let walletMutations = 0;
+function walletContext() { return {token, generation:globalThis.PaperclipAccounts?.generation ?? 0}; }
+function currentWallet(context) { return token===context.token && (globalThis.PaperclipAccounts?.generation ?? 0)===context.generation; }
+const runningControls = new Map();
+function resetWalletControls() {
+  for (const button of runningControls.keys()) button.disabled=false;
+  runningControls.clear();
+}
 async function api(path, body, method, signal) {
   const account = globalThis.PaperclipAccounts?.selectedId || '', generation = globalThis.PaperclipAccounts?.generation ?? 0;
   if (account && !path.startsWith('hardware/')) throw new Error('This action belongs to the hot wallet. Switch wallets first.');
@@ -30,10 +37,10 @@ let updateInFlight = null;
 let nextAutomaticUpdate = 0;
 async function update() {
   if (globalThis.PaperclipAccounts?.selectedId) return globalThis.PaperclipAccounts.refresh();
-  if (updateInFlight?.session === token) return updateInFlight.promise;
+  if (updateInFlight && currentWallet(updateInFlight.context)) return updateInFlight.promise;
   const sessionToken = token;
   const promise = updateBalances(sessionToken);
-  updateInFlight = {session: sessionToken, promise};
+  updateInFlight = {context:walletContext(), promise};
   try { return await promise; }
   finally { if (updateInFlight?.promise === promise) updateInFlight = null; }
 }
@@ -58,10 +65,11 @@ async function updateBalances(sessionToken) {
   return !incomplete;
 }
 async function run(button, operation) {
-  button.disabled = true;
+  const context=token?walletContext():null, ticket=Symbol();
+  runningControls.set(button,ticket);button.disabled = true;
   status('');
-  try { await operation(); } catch (error) { status(error.message); }
-  finally { button.disabled = false; }
+  try { await operation(); } catch (error) { if(!context||currentWallet(context))status(error.message); }
+  finally { if(runningControls.get(button)===ticket){runningControls.delete(button);button.disabled=false;} }
 }
 function accessToken(value) {
   // Umbrel supplies a random 32-byte app password, never a wallet seed.
@@ -212,14 +220,14 @@ async function mutate(path, body) {
   if (uncertainMutation) throw new Error('A prior submission needs checking. Review Activity and payment status, then acknowledge the result before retrying.');
   uncertainMutation = true; sessionWrite('paperclip.uncertain', '1');
   $('submission-warning').hidden = false;
-  const session = token;
+  const context = walletContext();
   let result;
   try { result = await api(path, body); }
   catch (error) {
-    if (token === session && token) transactionResult('unknown', 'Result not confirmed', 'The wallet could not confirm the result. Check Activity and payment status before trying again.');
+    if (currentWallet(context) && token) transactionResult('unknown', 'Result not confirmed', 'The wallet could not confirm the result. Check Activity and payment status before trying again.');
     throw error;
   }
-  if (token !== session || !token) throw new Error('Wallet locked while submitting. Check Activity after signing in again.');
+  if (!currentWallet(context) || !token) throw new Error('Wallet changed while submitting. Check Activity after signing in again.');
   uncertainMutation = false; sessionWrite('paperclip.uncertain', null);
   $('submission-warning').hidden = true;
   return result;
@@ -310,11 +318,11 @@ $('ln-check').onsubmit = event => { event.preventDefault(); run(event.submitter,
 }); };
 $('history-load').onclick = event => run(event.target, async () => {
   if (globalThis.PaperclipAccounts?.selectedId) return globalThis.PaperclipAccounts.refresh();
-  const session = token;
+  const context = walletContext();
   const results = await Promise.allSettled([
     api('history'), api('onchain/transactions'), api('lightning/receives')
   ]);
-  if (!token || token !== session || $('wallet').hidden) return;
+  if (!token || !currentWallet(context) || $('wallet').hidden) return;
   const [ark, onchain, receives] = results.map(result => result.status === 'fulfilled' ? result.value : null);
   $('history').textContent = JSON.stringify({ark, onchain, lightning_receives: receives}, null, 2);
   if (ark) renderActivity(ark);

@@ -118,3 +118,51 @@ unchanged. Xcode then copies, signs and validates a normal shallow bundle.
 Run `mobile/iOS/Scripts/verify-ios-bundle.sh` on every candidate. Signed simulator
 and clean unsigned simulator builds are checked locally. CI also checks unsigned device
 packaging. Production archive/export verification remains required.
+
+## Delayed-response and security pass — 2026-11-15
+
+The browser pass reproduced and fixed these failures with controlled response
+delays and synthetic public signer fixtures:
+
+- Unlock during an old QR receive request could silently select the hot wallet.
+  Account restoration now validates and restores the saved identity even while
+  the earlier operation finishes. Ordinary wallet switching remains disabled.
+- An old send or QR broadcast response could reopen a receipt or change the
+  current screen after lock and unlock. Responses now belong to a wallet session.
+- An old Activity load could block the next load or replace its records. Controls
+  and results now belong to the specific operation and wallet generation.
+- Cancelled signature verification and delayed file imports could update the
+  cleared form. They now check the original signing request and input collector.
+- An old camera permission response could replace a newly opened scanner. Each
+  scanner session now owns its stream; discarded streams stop their tracks.
+
+The regression suite also checks that a rejected signature stays visible, a new
+file import can succeed, and camera verification errors remain visible after the
+scanner closes. Camera streams and QR frames in these tests are synthetic. This
+does not replace physical optical testing.
+
+The manual security review covered REST authentication and notification tickets,
+browser DOM insertion and framing, QR account paths and reviewed signatures,
+JoinBlaket upstream restrictions, mobile node TLS/redirect/retry policy, and
+device credential storage. It did not use Daybreak or a hosted scanner.
+
+One concrete browser protection was missing: wallet responses did not restrict
+framing. An unrelated site could embed the reachable wallet and mislead a user
+who unlocks or interacts with that frame. The server now sends
+`Content-Security-Policy: frame-ancestors 'self'`, `X-Frame-Options: SAMEORIGIN`
+and `X-Content-Type-Options: nosniff`. The existing HTML content policy remains in
+place. Same-origin shells remain permitted; cross-origin embedded shells must
+open the wallet as a top-level page. Packaged shell compatibility still requires
+the release tests. The regression checks the entry point, SPA fallback and
+missing-asset response headers. No live clickjacking attempt was made.
+
+No clear authentication or TLS bypass was found in the reviewed paths. This is
+a scoped manual review, not an exhaustive audit or a dependency vulnerability
+scan. Exact hot-wallet debit review and durable uncertain-operation recovery
+remain open in `COORDINATED-RELEASE.md`; these fixes do not close those gaps.
+
+Local validation passed all eight browser scripts, including nine delayed-response
+and retry scenarios, 14 REST tests, five shared QR verifier tests, 14 Swift
+connection/transport tests, and 16 Android connection/payment-policy tests.
+`just checks` and the shared-source checksums passed. No live payments,
+production restarts, device installs or release publication occurred in this pass.
