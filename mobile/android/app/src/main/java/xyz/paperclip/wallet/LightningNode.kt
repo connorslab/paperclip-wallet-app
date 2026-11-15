@@ -1,7 +1,9 @@
 package xyz.paperclip.wallet
 
 import android.content.Context
+import java.io.IOException
 import java.net.InetSocketAddress
+import java.net.ProtocolException
 import java.net.Proxy
 import java.net.URI
 import java.security.MessageDigest
@@ -10,15 +12,35 @@ import java.security.cert.X509Certificate
 import java.util.Base64
 import java.util.concurrent.TimeUnit
 import javax.net.ssl.SSLContext
+import javax.net.ssl.SSLException
 import javax.net.ssl.X509TrustManager
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import okhttp3.Call
+import okhttp3.Callback
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.Response
 import org.json.JSONObject
+
+internal object NodeRequestPolicy {
+	fun isReadOnly(path: String): Boolean =
+		path.substringBefore('?') in setOf("v1/getinfo", "v1/channels", "v1/listpeerchannels",
+			"v1/listpays", "v1/payments", "v1/listinvoices", "v1/decode", "v2/offers/decode") ||
+			listOf("v1/invoice/", "v1/payreq/", "v2/router/track/").any(path::startsWith)
+
+	fun canRetry(error: Exception, path: String): Boolean =
+		isReadOnly(path) && error is IOException && error !is SSLException && error !is ProtocolException
+}
 
 /** Explicit SOCKS route, remote DNS, no redirects, no automatic payment replay. */
 internal class LightningNode
@@ -102,6 +124,19 @@ internal constructor(val connection: NodeConnection, private val client: OkHttpC
 		stream: Boolean = false,
 	): JSONObject =
 		withContext(Dispatchers.IO) {
+			for (attempt in 0..1) {
+				currentCoroutineContext().ensureActive()
+				try { return@withContext requestOnce(path, body, stream) }
+				catch (e: Exception) {
+					currentCoroutineContext().ensureActive()
+					if (attempt != 0 || !NodeRequestPolicy.canRetry(e, path)) throw e
+					delay(500)
+				}
+			}
+			error("Node request failed")
+		}
+
+	private suspend fun requestOnce(path: String, body: JSONObject?, stream: Boolean): JSONObject {
 			require(!path.startsWith('/') && !path.contains(".."))
 			val url = (connection.endpoint.trimEnd('/') + "/" + path).toHttpUrl()
 			val r =
@@ -111,7 +146,20 @@ internal constructor(val connection: NodeConnection, private val client: OkHttpC
 					.header("Accept", "application/json")
 			if (body != null)
 				r.post(body.toString().toRequestBody("application/json".toMediaType()))
-			client.newCall(r.build()).execute().use { response ->
+			val call = client.newCall(r.build())
+			return suspendCancellableCoroutine { continuation ->
+				continuation.invokeOnCancellation { call.cancel() }
+				call.enqueue(object : Callback {
+					override fun onFailure(call: Call, e: IOException) { continuation.resumeWithException(e) }
+					override fun onResponse(call: Call, response: Response) {
+						try { continuation.resume(response.use { parseResponse(it, path, stream) }) }
+						catch (e: Exception) { continuation.resumeWithException(e) }
+					}
+				})
+			}
+	}
+
+	private fun parseResponse(response: Response, path: String, stream: Boolean): JSONObject {
 				require(response.code !in 300..399) { "Node redirects are refused" }
 				if (response.code == 401 || response.code == 403)
 					error("Node authorization failed. Check the imported credential's permissions.")
@@ -132,9 +180,8 @@ internal constructor(val connection: NodeConnection, private val client: OkHttpC
 				require(!value.has("error")) {
 					"Node RPC failed. Check status before retrying a payment."
 				}
-				if (stream) value.getJSONObject("result") else value
-			}
-		}
+				return if (stream) value.getJSONObject("result") else value
+	}
 
 	suspend fun info() =
 		request(if (lnd) "v1/getinfo" else "v1/getinfo", if (lnd) null else JSONObject())

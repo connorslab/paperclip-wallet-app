@@ -170,3 +170,22 @@ loading. Keep a current full backup and open/sync regularly: Android does not ye
 refresh expiring Ark funds in the background. The emergency-exit screen supports
 starting, progressing and claiming exits without an online ASP; on-chain fees and
 the chain's waiting periods still apply.
+
+### Lightning connection recovery (build 70 parity)
+
+CLN read RPCs and LND read endpoints retry once after a transient transport
+failure. The allowlist is explicit because CLN uses POST for observations too.
+Payments, invoice/offer creation, authorization failures, and TLS failures are
+never automatically retried. Cancelling a coroutine closes its OkHttp request.
+Tor routing, redirect refusal, and exact certificate pin checks are unchanged.
+
+Replacement settings are saved only after authenticated node identity/network
+verification. The connection card shows progress, cancellation, reconnect, and
+last-verification time. Failed balance refreshes retain a labelled last-known
+balance. A foreground-only refresh checks balances every minute. Pending payment
+tracking remains independent of whether the balance query has permission.
+
+`NodeRetryTest` covers bounded reads, mutation/auth/TLS exclusion, and active
+request cancellation. `LightningTransportTest` checks a local HTTPS server with
+matching/mismatched certificate pins and no direct fallback for Tor. These are
+synthetic/local checks; they do not claim live CLN/LND validation on Android.

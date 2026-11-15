@@ -47,17 +47,35 @@ internal fun NodeLightning(model: LightningModel) {
 		model.clearReview()
 		page = p
 	}
+	if (s.connection.endpoint.isNotBlank() || s.busy) {
+		Card(Modifier.fillMaxWidth()) {
+			Column(Modifier.padding(22.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+				Text(s.connectionStatus, style = MaterialTheme.typography.titleMedium)
+				Text((if (s.connection.implementation == "cln") "Core Lightning" else "LND") +
+					if (s.connection.proxy.isEmpty()) " · Direct HTTPS" else " · Through Tor",
+					style = MaterialTheme.typography.bodySmall)
+				s.checkedAt?.let { Text("Last verified " + java.text.DateFormat.getTimeInstance(java.text.DateFormat.SHORT).format(java.util.Date(it)), style = MaterialTheme.typography.bodySmall) }
+				if (s.connecting) TextButton(onClick = model::cancelConnection) { Text("Cancel connection") }
+				if (s.balanceStale) Text("Last known balance · refresh to check your node", style = MaterialTheme.typography.bodySmall)
+				TextButton(onClick = model::refresh, enabled = !s.busy && s.connection.endpoint.isNotBlank()) { Text("Reconnect saved node") }
+			}
+		}
+	}
 	if (s.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
 	if (s.message.isNotEmpty()) Text(s.message, color = MaterialTheme.colorScheme.error)
 	Card(Modifier.fillMaxWidth()) {
 		Column(Modifier.padding(22.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
 			when (page) {
 				"connection" -> {
-					Text("Node connection", style = MaterialTheme.typography.titleLarge)
+					val pending = s.pending?.optString("state")?.let { it !in listOf("succeeded", "failed") } ?: false
+					val editable = !s.busy && !pending
+					Text("Your Lightning node", style = MaterialTheme.typography.titleLarge)
+					Text("Connect to your REST API. Your bitcoin and channels stay on your node.", style = MaterialTheme.typography.bodyMedium)
 					Row {
 						listOf("lnd", "cln").forEach { kind ->
 							FilterChip(
 								selected = implementation == kind,
+								enabled = editable,
 								onClick = { implementation = kind },
 								label = { Text(kind.uppercase()) },
 							)
@@ -68,6 +86,7 @@ internal fun NodeLightning(model: LightningModel) {
 						{ endpoint = it },
 						label = { Text("REST endpoint · HTTPS or Tor onion") },
 						modifier = Modifier.fillMaxWidth(),
+						enabled = editable,
 					)
 					OutlinedTextField(
 						credential,
@@ -75,21 +94,24 @@ internal fun NodeLightning(model: LightningModel) {
 						label = { Text(if (implementation == "lnd") "Macaroon (hex)" else "Rune") },
 						visualTransformation = PasswordVisualTransformation(),
 						modifier = Modifier.fillMaxWidth(),
+						enabled = editable,
 					)
 					OutlinedTextField(
 						pin,
 						{ pin = it },
-						label = { Text("TLS certificate SHA256") },
+						label = { Text("Certificate SHA256 · optional") },
+						supportingText = { Text("Use the leaf certificate fingerprint from a trusted source. Otherwise HTTPS uses system trust.") },
 						modifier = Modifier.fillMaxWidth(),
+						enabled = editable,
 					)
 					Row {
 						Text("Use Tor", Modifier.weight(1f))
-						Switch(tor, { tor = it })
+						Switch(tor, { tor = it }, enabled = editable)
 					}
 					if (tor) {
 						Row {
 							Text("Built-in Tor", Modifier.weight(1f))
-							Switch(builtin, { builtin = it })
+							Switch(builtin, { builtin = it }, enabled = editable)
 						}
 						if (builtin) Text(torStatus, style = MaterialTheme.typography.bodySmall)
 						else
@@ -98,6 +120,7 @@ internal fun NodeLightning(model: LightningModel) {
 								{ proxy = it },
 								label = { Text("SOCKS proxy · socks5h://host:port") },
 								modifier = Modifier.fillMaxWidth(),
+						enabled = editable,
 							)
 					}
 					Button(
@@ -114,10 +137,11 @@ internal fun NodeLightning(model: LightningModel) {
 								),
 							)
 						},
-						enabled = !s.busy,
+						enabled = editable,
 					) {
-						Text("Save and connect")
+						Text("Verify and save connection")
 					}
+					if (pending) Text("Resolve the saved payment before changing nodes. Reconnect above to check its status.")
 					Text(
 						"Credentials stay in encrypted device storage. A failed request never falls back to a direct connection.",
 						style = MaterialTheme.typography.bodySmall,

@@ -18,7 +18,11 @@ data class LightningState(
 	val connected: Boolean = false,
 	val mainnet: Boolean = false,
 	val busy: Boolean = false,
+	val connecting: Boolean = false,
 	val message: String = "",
+	val connectionStatus: String = "Not connected",
+	val checkedAt: Long? = null,
+	val balanceStale: Boolean = false,
 	val balance: NodeBalance? = null,
 	val review: NodeInvoiceReview? = null,
 	val invoice: String = "",
@@ -31,6 +35,8 @@ class LightningModel(app: Application) : AndroidViewModel(app) {
 	private val mutable = MutableStateFlow(LightningState())
 	val state = mutable.asStateFlow()
 	private var poll: Job? = null
+	private var workJob: Job? = null
+	private var balancePoll: Job? = null
 	private var foreground = false
 
 	private fun change(f: (LightningState) -> LightningState) {
@@ -43,7 +49,7 @@ class LightningModel(app: Application) : AndroidViewModel(app) {
 		if (mutable.value.busy) return
 		change { it.copy(busy = true, message = "") }
 		val ticket = generation
-		viewModelScope.launch {
+		workJob = viewModelScope.launch {
 			try {
 				PaymentGate.run {
 					if (generation != ticket) throw kotlinx.coroutines.CancellationException()
@@ -52,9 +58,9 @@ class LightningModel(app: Application) : AndroidViewModel(app) {
 			} catch (e: CancellationException) {
 				throw e
 			} catch (e: Exception) {
-				change { it.copy(message = e.message ?: "Node request failed") }
+				if (generation == ticket) change { it.copy(message = e.message ?: "Node request failed") }
 			} finally {
-				change { it.copy(busy = false) }
+				if (generation == ticket) change { it.copy(busy = false) }
 			}
 		}
 	}
@@ -93,35 +99,90 @@ class LightningModel(app: Application) : AndroidViewModel(app) {
 		change { it.copy(pending = stored) }
 		check(!unresolved()) { "Resolve the pending payment before changing nodes" }
 		c.validate()
-		save("lightning-connection", c.json())
-		change { it.copy(connection = c, connected = false, review = null, balance = null) }
-		node = null
-		connectStored(c)
+		// Keep the saved node until the replacement passes TLS, authentication and network checks.
+		connectStored(c, persist = true)
 	}
 
-	private suspend fun connectStored(c: NodeConnection) {
+	private suspend fun connectStored(c: NodeConnection, persist: Boolean = false) {
+		change { it.copy(connecting = true) }
+		try {
+			verifyConnection(c, persist)
+		} catch (e: CancellationException) {
+			change { it.copy(connectionStatus = "Connection check cancelled") }
+			throw e
+		} catch (e: Exception) {
+			change {
+				it.copy(connectionStatus = "Connection needs attention", balanceStale = it.balance != null)
+			}
+			throw e
+		} finally { change { it.copy(connecting = false) } }
+	}
+
+	fun cancelConnection() {
+		if (mutable.value.connecting) workJob?.cancel()
+	}
+
+	private suspend fun verifyConnection(c: NodeConnection, persist: Boolean) {
+		change { it.copy(connectionStatus = if (c.proxy.isEmpty()) "Contacting node…" else "Connecting through Tor…") }
 		val client = LightningNode.open(getApplication(), c)
+		change { it.copy(connectionStatus = "Verifying node access…") }
 		val info = client.info()
 		require(
 			info
 				.optString(if (c.implementation == "lnd") "identity_pubkey" else "id")
-				.matches(Regex("[0-9a-fA-F]{66}")),
+				.matches(Regex("0[23][0-9a-fA-F]{64}")),
 		) {
 			"Invalid node identity"
 		}
 		val network = NodeNetwork.decode(info, c.implementation == "lnd")
+		if (persist) save("lightning-connection", c.json())
 		node = client
-		change { it.copy(connected = true, mainnet = network == NodeNetwork.MAINNET) }
-		refreshBalance()
+		change {
+			it.copy(
+				connection = c, connected = true, mainnet = network == NodeNetwork.MAINNET,
+				connectionStatus = "Node connected", checkedAt = System.currentTimeMillis(),
+				review = null, balance = if (it.connection == c) it.balance else null,
+			)
+		}
 		startPolling()
+		startBalancePolling()
+		refreshBalance()
+	}
+
+	private fun startBalancePolling() {
+		balancePoll?.cancel()
+		if (!foreground) return
+		balancePoll = viewModelScope.launch {
+			while (foreground) {
+				delay(60000)
+				if (!mutable.value.busy) {
+					try { PaymentGate.run { refreshBalance() } }
+					catch (e: CancellationException) { throw e }
+					catch (_: Exception) { /* Last known balance remains labelled stale. */ }
+				}
+			}
+		}
 	}
 
 	private suspend fun refreshBalance() {
-		val balance = checkNotNull(node).balance()
-		change { it.copy(balance = balance) }
+		try {
+			val balance = checkNotNull(node).balance()
+			change {
+				it.copy(balance = balance, balanceStale = false, connectionStatus = "Node connected",
+					checkedAt = System.currentTimeMillis())
+			}
+		} catch (e: CancellationException) { throw e }
+		catch (e: Exception) {
+			change { it.copy(balanceStale = it.balance != null, connectionStatus = "Connection needs attention") }
+			throw e
+		}
 	}
 
-	fun refresh() = work { refreshBalance() }
+	fun refresh() = work {
+		val c = mutable.value.connection
+		check(c.endpoint.isNotBlank()) { "Connect your node first" }
+		connectStored(c)
+	}
 
 	fun receive(amount: String, offer: Boolean, description: String) = work {
 		val c = checkNotNull(node) { "Connect your node first" }
@@ -233,6 +294,8 @@ class LightningModel(app: Application) : AndroidViewModel(app) {
 		generation++
 		foreground = false
 		poll?.cancel()
-		change { it.copy(review = null, invoice = "") }
+		balancePoll?.cancel()
+		workJob?.cancel()
+		change { it.copy(review = null, invoice = "", busy = false) }
 	}
 }
