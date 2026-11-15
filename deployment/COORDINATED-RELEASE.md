@@ -61,6 +61,100 @@ does not establish parity. Native UI and background scheduling can differ.
 | UI and accessibility | Phone / Duo / foldable adaptive layout, nested tab histories | Four primary menus, browser history/focus, responsive account switcher | Physical-device and screen-reader checks; see UI-UX-VALIDATION.md for local simulator/emulator/browser evidence |
 | Distribution | Apple build 70 remains existing release; Android development builds | Existing packages predate current fixes | Signed candidates, store eligibility, clean-install and update tests |
 
+## Feature audit: 2026-11-15
+
+This audit inspected candidate `8d2fdfc2648ee407c750d3a11689e4436206f810`.
+Implementation, local tests and published delivery are separate states. Neither
+matching menus nor a passing build establishes live feature parity.
+
+### Source and package alignment
+
+| Surface | Inspected revision | Result |
+| --- | --- | --- |
+| Shared candidate and Android branch | `8d2fdfc` on both branches | Aligned candidate source |
+| Default `main` branch | `69eb582` | 107 commits behind the inspected candidate; no mobile tree |
+| Remote iOS release branch | `2dea92b` | 31 commits behind the candidate; local build 70 changes were imported separately into the candidate |
+| StartOS 0.4 wrapper | `a396d8cf9dd3150cd42f02d56d0f3737628769cf` | Pins the November 11 image below |
+| Umbrel wrapper | `80a91ad5acd3abc764f82d92758b6b7d40e1cd65` | Pins the same image |
+
+Both wrapper manifests pin
+`beta-42930294633@sha256:94df29f5c78a4e9319c0d2695831ce35ac0cb9e528092a898a1fc46028d2613b`.
+They do not yet deliver the current candidate. This is a manifest inspection,
+not a fresh inspection of the running services or App Store/TestFlight state.
+The original iOS worktree and its uncommitted changes remain untouched.
+
+### Task-level comparison
+
+“Implemented” below describes the candidate source, not production acceptance.
+Standalone desktop, Umbrel and StartOS use the shared browser/server implementation;
+the wrappers still require platform-specific configuration and upgrade tests.
+
+| User task | iOS candidate | Android candidate | Shared browser/server candidate |
+| --- | --- | --- | --- |
+| Send/receive Ark, BOLT11 and BOLT12 through Ark | Implemented | Implemented | Implemented; live receive/recovery still needs verification |
+| Review Ark/Lightning total debit | Enforced shared-engine cap | Enforced shared-engine cap | Enforced cap for these two paths |
+| Review a hot-wallet on-chain send | Exact PSBT, fee/total, expiry and input checks | Same shared transaction review | Amount-only confirmation; miner fee is additional, without matching reviewed-total enforcement |
+| Review boarding cost | Prepared transaction and reviewed breakdown | Same shared review | Generic amount confirmation; detailed fee/recovery review is missing |
+| Recover an uncertain send after closing the client | Durable mobile intent/status | Durable mobile intent/status | Hot-wallet warning is tab-scoped; QR broadcast journal is durable |
+| Use Send Max | Implemented for supported Ark/on-chain routes | Implemented | REST has drain operations, but the browser has no equivalent reviewed Send Max flow |
+| Connect directly to CLN/XBT LND, including BOLT12 | Implemented | Implemented | Direct-node adapters, credential storage and UI missing; existing Lightning UI uses Ark |
+| Use Paperclip Bridge in both directions | Implemented | Implemented | Missing browser/server flows |
+| Switch multiple hot wallets | Implemented | Implemented | One hot wallet per server |
+| Pair/switch/sign with multiple Krux wallets | Implemented | Implemented | Public QR accounts and shared verifier implemented; physical signer round trip pending everywhere |
+| Import a watch-only wallet | Implemented | Implemented | Separate watch-only account kind missing |
+| Rename/remove/export a public wallet | Implemented | Implemented | Rename implemented; remove/public-export management missing |
+| Fund Ark from a QR signer | Implemented | Implemented | Missing browser flow |
+| Use five JoinBlaket jars and maker controls | Implemented adapter/UI | Implemented adapter/UI | Implemented adapter/UI; actual service connection unverified |
+| Set up fidelity bonds, taker mixing and full Jam jar management | Incomplete | Incomplete | Incomplete |
+| Recover previous Kilojoin funds | Recovery paths retained | Recovery paths retained | No equivalent browser recovery workflow; never enable new Kilojoin rounds |
+| Create/import and back up wallets | Seed creation/import and encrypted complete backup/restore | Same major tasks | Creation and platform volume backups; matching encrypted import/export/restore UI missing |
+| View normal on-chain transaction history | Implemented | Implemented | Hot-wallet records are fetched into technical details, while the normal Activity list renders Ark movements only; QR accounts have their own history |
+| Select XBT/sats, hide balances, see cached fiat estimates | Implemented | Implemented | Browser uses sats and lacks matching privacy/display controls |
+| Sign/verify address ownership messages | Implemented | Implemented | Implemented for the hot wallet |
+| Maintain Ark funds and progress emergency exits | Implemented, subject to mobile scheduling | Implemented, subject to mobile scheduling | Service-side maintenance and exit actions implemented; funded upgrade/recovery acceptance pending |
+| Navigate on phone, wide and foldable screens | Simulator-tested adaptive layouts | Open/cover emulator tests, including larger text | Browser tests at phone/tablet/desktop widths; physical accessibility checks pending |
+
+### Newly confirmed release gaps
+
+1. **Exact debit review:** `web/app.js` sends hot on-chain payments directly to
+   `onchain/send`. `bark-rest/src/api/v1/onchain.rs` selects a fee rate at execution.
+   In contrast, `mobile/rust/src/session.rs` retains the reviewed PSBT and checks
+   its amount, total, expiry and inputs before signing. Boarding has a similar
+   browser/mobile review gap. Extend the server contracts before adding a visual
+   fee estimate; a display-only estimate does not establish parity.
+2. **Durable uncertain outcomes:** browser `mutate()` stores its warning in
+   `sessionStorage`. A new tab does not inherit that warning. Core payment records
+   may survive, but the browser does not reconstruct the same wallet-scoped intent
+   and reconciliation gate as mobile. The newer QR broadcast journal does not
+   close this gap for hot-wallet operations.
+3. **Activity completeness:** the browser fetches on-chain history but normal
+   Activity cards call `renderActivity(ark)` only. Normal deposits and hot-wallet
+   on-chain sends need readable entries, filters and confirmation state.
+4. **Packaged JoinBlaket configuration:** the server proxy requires
+   `BARKD_JOINBLAKET_URL` and optional Tor/CA settings. Neither inspected wrapper
+   supplies those settings. A working jar screen in local fixtures does not mean
+   users of either package can connect Kilombino's service through platform setup.
+5. **Default-server documentation:** `deployment/PLATFORMS.md` and the legacy
+   package generator name `ark.paperclip-xbt.xyz`; the active wrappers inject
+   `ark.paperclippool.xyz`. Confirm the intended service and align release docs
+   and packaging without overwriting saved connections.
+
+The audit also found and fixed a browser receipt navigation regression:
+**View activity** referenced the removed `showView()` function. It now uses
+`PaperclipNavigation.show()`. The browser regression verifies the receipt closes,
+Activity opens, and the selected menu updates at 390, 800 and 1280 pixels, without
+submitting a wallet action.
+
+### Implementation order
+
+First close exact-review, durable-status and Activity gaps. Then complete direct
+CLN/LND and Bridge on the shared server/browser, followed by multi-wallet,
+watch-only, backup and QR boarding workflows. Complete Jam service configuration
+and remaining maker/taker tasks before treating that feature as finished. Finally
+validate one frozen revision in signed mobile candidates and both platform
+packages, including upgrade/restore tests. Do not merge or deploy merely to make
+branch names match while these acceptance gaps remain.
+
 ## Live verification and budget
 
 Use the existing authenticated LND and CLN on StartOS. Preserve TLS verification

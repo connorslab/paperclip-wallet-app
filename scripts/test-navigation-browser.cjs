@@ -56,6 +56,11 @@ const fs = require('node:fs'), path = require('node:path'), assert = require('no
    await page.evaluate(()=>{ window.reviewResult=null; window.PaperclipReview.ask('Synthetic review; no payment').then(result=>window.reviewResult=result); });
    await page.keyboard.press('Escape');
    assert.equal(await page.evaluate(()=>window.reviewResult),false);
+   await page.evaluate(()=>transactionResult('pending','Transaction submitted','Synthetic receipt; no payment'));
+   await page.locator('#transaction-result-activity').click();
+   await page.waitForFunction(()=>document.querySelector('[data-screen="activity"]').hidden===false);
+   assert.equal(await page.locator('.view-nav [data-view="activity"]').getAttribute('aria-current'),'page');
+   assert.equal(await page.locator('#transaction-result').isVisible(),false);
    await page.locator('#lock').click();
    await page.locator('#login').waitFor({state:'visible'});
    await page.goBack();

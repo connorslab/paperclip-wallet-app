@@ -17,7 +17,7 @@ baseline used unfunded tests; the later live checks are recorded below.
 | Paperclip Bridge | Both directions, Ark or node funding, reviewed fees, persisted intent, read-only reconciliation and settlement proof | Invoice/quote binding tests; no live swap |
 | Multiple wallets | Generate/import/select/rename/remove, legacy migration, scoped connections and pending records, interrupted removal recovery | Emulator native removal/recovery test |
 | Hardware and watch-only wallets | Four script types, public QR/descriptor review, receive/change derivation, public export, QR signing and hardware-funded boarding | iOS public signer fixtures pass on Android native engine; animated QR unit tests |
-| Coinjoin | Separate account, v4 backend, pools, multi-output review, signing, transfer, migration and recovery; isolated Tor output connections | Native account persistence/isolation; fee review, TLS hostname, SOCKS isolation and relay resource-limit tests |
+| CoinJoin | JoinBlaket server connection, five jars, receive and reviewed maker controls; previous Kilojoin funds retain recovery only | Shared jar normalization and adapter/UI fixtures; bond/taker flows and live Jam verification remain incomplete |
 | Ark receives and offers | Invoice/offer creation and status, receive claim recovery, foreground listener | Shared backend tests and adapter review; no funded receive |
 | Ark maintenance and exits | Boarding review, refresh, seed recovery, emergency exit progression and claims; optional foreground/background maintenance | Native build and emulator navigation; no exit broadcast |
 | Expiry reminders | Block-based windows, estimated timing, offline recheck, wallet-scoped cancellation | Policy tests matching iOS windows |
@@ -30,6 +30,10 @@ baseline used unfunded tests; the later live checks are recorded below.
 | Foldable and wide layouts | Two-column setup/dashboard/settings/node editor, real hinge bounds, one-pane tasks/tabletop, large-text stacking, preserved resize drafts | Adaptive Compose geometry and draft tests; Pixel Fold emulator review |
 | Verified success feedback | Finite particle animation only for terminal success; system animation preference respected | Source review and emulator rendering |
 | Help and buy links | iOS support/privacy/recovery and external exchange links; bundled dependency notices | Source comparison and APK packaging |
+
+For the current all-platform audit and remaining server/browser gaps, see
+[Coordinated release](../../../deployment/COORDINATED-RELEASE.md#feature-audit-2026-11-15).
+The table above is an implementation inventory, not a completed release checklist.
 
 ## Validation limits
 

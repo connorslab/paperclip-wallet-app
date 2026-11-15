@@ -237,7 +237,7 @@ function transactionResult(kind, title, detail, reference = '') {
 }
 $('transaction-result-done').onclick = () => $('transaction-result').close();
 $('transaction-result-activity').onclick = () => {
-  $('transaction-result').close(); showView('activity'); $('history-load').click();
+  $('transaction-result').close(); PaperclipNavigation.show('activity'); $('history-load').click();
 };
 
 function sats(id, optional = false) {
