@@ -29,6 +29,8 @@ jobs:
       - run: sha256sum -c SHARED-SOURCE.sha256
       - run: nix develop .#build --command cargo check --locked -p bark-wallet -p bark-json -p bark-rest --tests --features onchain-bdk
       - run: nix develop .#build --command just unit-wallet lightning
+      - run: nix develop .#build --command just unit-wallet onchain::qr
+      - run: nix develop .#build --command just unit-rest hardware
       - run: nix develop .#build --command just unit funded_lightning
       - run: nix develop .#build --command just unit lightning_send_lifetime
       - name: Generate API documentation

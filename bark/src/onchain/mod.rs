@@ -23,6 +23,9 @@ mod bdk;
 pub mod message;
 
 #[cfg(feature = "onchain-bdk")]
+pub mod qr;
+
+#[cfg(feature = "onchain-bdk")]
 pub use bdk_wallet;
 
 pub use bitcoin_ext::cpfp::{CpfpError, MakeCpfpFees};

@@ -181,6 +181,8 @@ impl std::ops::Deref for ServerWallet {
 /// The handlers share the state as an [Arc], so the fields themselves don't
 /// need to be individually shareable.
 pub struct ServerState {
+	#[cfg(feature = "web-ui")]
+	pub(crate) hardware: tokio::sync::Mutex<api::v1::hardware::Accounts>,
 	wallet: parking_lot::RwLock<Option<ServerWallet>>,
 	shutdown: CancellationToken,
 	auth_token: Option<AuthToken>,
@@ -282,6 +284,8 @@ impl ServerStateBuilder {
 			None => None,
 		};
 		ServerState {
+			#[cfg(feature = "web-ui")]
+			hardware: tokio::sync::Mutex::new(Default::default()),
 			wallet: parking_lot::RwLock::new(wallet_opt),
 			shutdown: shutdown,
 			auth_token: self.auth_token,
