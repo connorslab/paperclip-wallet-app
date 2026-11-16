@@ -3,6 +3,9 @@ package xyz.paperclip.wallet
 import android.content.Context
 import java.io.IOException
 import java.net.URI
+import java.time.Instant
+import java.time.YearMonth
+import java.time.ZoneOffset
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -15,6 +18,16 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import org.json.JSONObject
+
+internal object JoinBlaketBond {
+	fun validate(month: String, now: Instant = Instant.now()) {
+		require(month.matches(Regex("[0-9]{4}-[0-9]{2}"))) { "Choose an unlock month in YYYY-MM format" }
+		val date = runCatching { YearMonth.parse(month) }.getOrNull()
+		require(date != null && date.year in 2020..2099 && date.atDay(1).atStartOfDay().toInstant(ZoneOffset.UTC) > now) {
+			"Choose a future month before 2100. Bonds unlock on its first day at 00:00 UTC."
+		}
+	}
+}
 
 internal data class JoinBlaketConnection(
 	val endpoint: String,
@@ -123,6 +136,16 @@ internal class JoinBlaketClient internal constructor(
 	suspend fun receiveAddress(jar: Int, authorization: JoinBlaketAuthorization): String {
 		require(jar in 0..4) { "Unknown JoinBlaket jar" }
 		return request(listOf("wallet", authorization.wallet, "address", "new", jar.toString()), authorization).getString("address")
+	}
+	/** Registers an address only; never funds it or starts a maker. */
+	suspend fun bondAddress(month: String, authorization: JoinBlaketAuthorization): String {
+		JoinBlaketBond.validate(month)
+		val current = status(authorization)
+		require(!current.getBoolean("coinjoin_in_process") && !current.getBoolean("rescanning")) { "Wait for Jam to finish its current operation" }
+		JoinBlaketBond.validate(month)
+		val address = request(listOf("wallet", authorization.wallet, "address", "timelock", "new", month), authorization).getString("address")
+		require(address.isNotEmpty() && address.length <= 128 && address.none(Char::isWhitespace)) { "Jam returned an invalid bond address" }
+		return address
 	}
 	suspend fun startMaker(minimumSat: Long, feeSat: Long, authorization: JoinBlaketAuthorization) {
 		require(minimumSat in 27_300..2_100_000_000_000_000L && feeSat in 0 until minimumSat) { "Review the maker amount and fee" }

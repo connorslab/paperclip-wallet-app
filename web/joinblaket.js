@@ -11,6 +11,12 @@
     return result;
   }
   function clearAddress() { window.PaperclipReceive?.clear('jam-address'); $('jam-address').textContent = ''; }
+  function clearBond() { window.PaperclipReceive?.clear('jam-bond-address'); $('jam-bond-address').textContent = ''; $('jam-bond-detail').textContent = ''; }
+  function validateBondMonth(month) {
+    const year = Number(month.slice(0,4)), number = Number(month.slice(5));
+    if (!/^[0-9]{4}-[0-9]{2}$/.test(month) || year < 2020 || year > 2099 || number < 1 || number > 12 || Date.UTC(year,number-1,1) <= Date.now())
+      throw new Error('Choose a future month before 2100. Bonds unlock on its first day at 00:00 UTC.');
+  }
   function terms() {
     const rawMinimum = $('jam-minimum').value, rawFee = $('jam-fee').value;
     if (!/^\d+$/.test(rawMinimum) || !/^\d+$/.test(rawFee)) return null;
@@ -49,7 +55,7 @@
     for(const [key,complete,needed] of [
       ['terms','Amount and fee valid','Review the minimum amount and fee'],
       ['funds','One jar covers the minimum','Fund one jar and wait for confirmation'],
-      ['bond','Bond funds detected','Set up a JoinBlaket fidelity bond in Jam'],
+      ['bond','Bond funds detected','Set up and fund a fidelity bond'],
       ['server','Jam is idle','Wait for Jam to finish syncing or its current operation'],
       ['fresh','Status refreshed','Refresh wallet status before continuing']
     ]) {
@@ -104,6 +110,20 @@
     authorization = {wallet, token: result.token}; await refresh();
   });
   $('jam-refresh').onclick = () => work(refresh);
+  $('jam-bond-month').oninput = clearBond;
+  $('jam-bond-review').onclick = () => work(async () => {
+    const month = $('jam-bond-month').value, wallet = authorization?.wallet;
+    validateBondMonth(month);
+    if (!wallet) throw new Error('Unlock your Jars wallet first.');
+    if (!await window.PaperclipReview.ask('Create a bond address for ' + wallet + '?\n\nCoins sent here will be locked until ' + month + '-01 at 00:00 UTC. Creating the address sends no funds. Review the amount and mining fee separately when funding. Earnings are not guaranteed.')) return;
+    validateBondMonth(month); clearBond();
+    const result = await call('bond_address', {lock_month:month});
+    if (result.wallet !== wallet || result.lock_month !== month || typeof result.address !== 'string' || !result.address || result.address.length > 128 || /\s/.test(result.address))
+      throw new Error('Jam returned an invalid bond address. No funding was requested.');
+    $('jam-bond-detail').textContent = 'Wallet: ' + wallet + ' · Unlocks ' + month + '-01 at 00:00 UTC. Address ready; no funds sent. Back up your Jam wallet before funding.';
+    $('jam-bond-address').textContent = result.address;
+    window.PaperclipReceive.show('jam-bond-address', result.address, 'Bond · unlocks ' + month + '-01 UTC');
+  });
   $('jam-receive').onclick = () => work(async () => {
     const result = await call('address', {jar: selected});
     if (typeof result.address !== 'string' || !result.address) throw new Error('Jam returned an invalid receive address.');
@@ -126,6 +146,6 @@
     generation++; authorization = null; jars = []; session = null; selected = 0;
     $('jam-open').hidden = true; $('jam-open').removeAttribute('href');
     $('jam-password').value = ''; $('jam-passphrase').value = ''; needsRefresh = false; $('jam-wallet').replaceChildren(); $('jam-unlock-fields').hidden = true;
-    clearAddress(); render();
+    clearAddress(); clearBond(); $('jam-bond-month').value = ''; render();
   }).observe($('wallet'), {attributes:true, attributeFilter:['hidden']});
 })();

@@ -10,6 +10,8 @@ import PaperclipMobile
     @Published var busy = false
     @Published var message: String?
     @Published var address: String?
+    @Published var bondAddress: String?
+    @Published var bondMonth = ""
     @Published var previewOnly = false
     @Published var needsRefresh = false
     private var client: JoinBlaketClient?
@@ -19,7 +21,7 @@ import PaperclipMobile
         Task { defer { busy = false }; do { try await action() } catch { message = error.localizedDescription } }
     }
     func connect() async throws {
-        session = nil; authorization = nil; jars = []; address = nil; wallets = []
+        session = nil; authorization = nil; jars = []; address = nil; wallets = []; bondAddress = nil; bondMonth = ""
         var resolved = connection
         if resolved.useTor { resolved.torProxy = try await EmbeddedTor.shared.proxy(for: resolved.torProxy) }
         let candidate = try JoinBlaketClient(connection: resolved)
@@ -45,6 +47,12 @@ import PaperclipMobile
     func receive(_ jar: JoinBlaketJar) async throws {
         guard let client, let authorization else { return }
         address = try await client.receiveAddress(jar: jar.id, authorization: authorization)
+    }
+    func prepareBond(month: String) async throws {
+        guard let client, let authorization else { throw JoinBlaketError.sessionExpired }
+        bondAddress = nil; bondMonth = ""
+        let address = try await client.bondAddress(month: month, authorization: authorization)
+        bondMonth = month; bondAddress = address
     }
     func maker(start: Bool, minimum: UInt64, fee: UInt64) async throws {
         guard let client, let authorization else { return }
@@ -77,6 +85,11 @@ struct JoinBlaketView: View {
     @State private var minimum = "100000"
     @State private var makerFee = "100"
     @State private var confirmMaker = false
+    @State private var bondMonth = ""
+    @State private var bondYear = Calendar(identifier: .gregorian).component(.year, from: Date())
+    @State private var bondNumber = 0
+    @State private var reviewedBondMonth = ""
+    @State private var confirmBond = false
     @AppStorage("displayUnit") private var unit: BitcoinUnit = .sats
     private let colors: [Color] = [.orange, .blue, .red, .brown, .purple]
     var body: some View {
@@ -139,16 +152,20 @@ struct JoinBlaketView: View {
                             Label(model.session?.maker_running == true ? "Running on your server" : "Not running", systemImage: model.session?.maker_running == true ? "checkmark.circle.fill" : "pause.circle")
                             Text("Your server can keep making while Paperclip is closed.").font(.subheadline).foregroundStyle(PaperclipTheme.muted)
                             if model.session?.maker_running != true {
-                                TextField("Minimum CoinJoin (sats)", text: $minimum).keyboardType(.numberPad)
-                                TextField("Your fee per CoinJoin (sats)", text: $makerFee).keyboardType(.numberPad)
+                                LabeledContent("Minimum CoinJoin (sats)") {
+                                    TextField("Minimum CoinJoin (sats)", text: $minimum).keyboardType(.numberPad).multilineTextAlignment(.trailing)
+                                }
+                                LabeledContent("Your fee per CoinJoin (sats)") {
+                                    TextField("Your fee per CoinJoin (sats)", text: $makerFee).keyboardType(.numberPad).multilineTextAlignment(.trailing)
+                                }
                                 Text("Mining fee contribution: 0 sats. Earnings depend on being selected.").font(.caption).foregroundStyle(PaperclipTheme.muted)
                                 makerChecklist
                                 if !makerReadiness.bond {
                                     Text("Bond coins stay locked until the date you choose and remain separate from your maker offer.").font(.caption).foregroundStyle(PaperclipTheme.muted)
-                                    jamHandoff
                                 }
                                 Text("Your server checks final eligibility; earnings are not guaranteed.").font(.caption).foregroundStyle(PaperclipTheme.muted)
                             }
+                            bondSetup
                             if model.needsRefresh { Text("Refresh maker status before another action.").font(.subheadline) }
                             Button(model.session?.maker_running == true ? "Stop maker" : "Review maker setup") { confirmMaker = true }
                             .disabled(model.previewOnly || model.needsRefresh || (model.session?.maker_running != true && !makerReadiness.canStart))
@@ -174,6 +191,15 @@ struct JoinBlaketView: View {
             } message: {
                 Text(model.session?.maker_running == true ? "Existing CoinJoins may need to finish before the maker stops." : "Minimum CoinJoin: \(minimum) sats. Your fee: \(makerFee) sats per CoinJoin. Mining fee contribution: 0 sats. The maker uses eligible Jam jars and keeps running when Paperclip closes.")
             }
+            .alert("Create bond address?", isPresented: $confirmBond) {
+                Button("Create address") {
+                    let month = reviewedBondMonth
+                    model.perform { try await model.prepareBond(month: month) }
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Wallet: \(model.selectedWallet). Coins sent here will be locked until \(reviewedBondMonth)-01 at 00:00 UTC. Creating the address sends no funds. Review the amount and mining fee separately when funding. Earnings are not guaranteed.")
+            }
     }
     private var makerReadiness: JoinBlaketMakerReadiness {
         JoinBlaketMakerReadiness(minimum: minimum, fee: makerFee, jars: model.jars, session: model.session, needsRefresh: model.needsRefresh)
@@ -183,7 +209,7 @@ struct JoinBlaketView: View {
         return VStack(alignment: .leading, spacing: 12) {
             makerStep(ready.terms, "Amount and fee valid", "Review the minimum amount and fee")
             makerStep(ready.funds, "One jar covers the minimum", "Fund one jar and wait for confirmation")
-            makerStep(ready.bond, "Bond funds detected", "Set up a JoinBlaket fidelity bond in Jam")
+            makerStep(ready.bond, "Bond funds detected", "Set up and fund a fidelity bond")
             makerStep(ready.server, "Jam is idle", "Wait for Jam to finish syncing or its current operation")
             makerStep(ready.fresh, "Status refreshed", "Refresh wallet status before continuing")
         }.padding(.vertical, 8).accessibilityElement(children: .contain).accessibilityLabel("Maker setup")
@@ -213,13 +239,39 @@ struct JoinBlaketView: View {
             }
         }
     }
-    @ViewBuilder private var jamHandoff: some View {
-        if let url = URL(string: model.connection.endpoint), url.scheme == "https", url.host?.hasSuffix(".onion") == false {
-            Link("Open Jam to set up your bond", destination: url)
-        } else if !model.connection.endpoint.isEmpty {
-            Text("Open your Jam address in a Tor browser, then refresh your jars here.").font(.caption).foregroundStyle(PaperclipTheme.muted)
-            ShareLink(item: model.connection.endpoint) { Label("Jam server address", systemImage: "square.and.arrow.up") }
+    private var bondSetup: some View {
+        DisclosureGroup("Set up a fidelity bond") {
+            Text("A bond locks coins until your chosen month. It may help your maker get selected; earnings are not guaranteed.").font(.subheadline)
+            LabeledContent("Unlock month") {
+                Picker("Unlock month", selection: $bondNumber) {
+                    Text("Choose month").tag(0)
+                    ForEach(1...12, id: \.self) { month in Text(Calendar.current.monthSymbols[month - 1]).tag(month) }
+                }.labelsHidden()
+            }
+            LabeledContent("Unlock year") {
+                Picker("Unlock year", selection: $bondYear) {
+                    ForEach(min(2099, Calendar(identifier: .gregorian).component(.year, from: Date()))...2099, id: \.self) { year in Text(String(year)).tag(year) }
+                }.labelsHidden()
+            }
+            .onChange(of: bondYear) { _, _ in updateBondMonth() }
+            .onChange(of: bondNumber) { _, _ in updateBondMonth() }
+            Text("Unlocks on the first day at 00:00 UTC. Creating the address sends no funds.").font(.caption).foregroundStyle(PaperclipTheme.muted)
+            Button("Review bond address") {
+                do { try JoinBlaketBond.validate(month: bondMonth); reviewedBondMonth = bondMonth; confirmBond = true }
+                catch { model.message = error.localizedDescription }
+            }.disabled(model.previewOnly)
+            if let address = model.bondAddress {
+                Text("Wallet: \(model.selectedWallet) · Unlocks \(model.bondMonth)-01 at 00:00 UTC.").font(.subheadline)
+                Text("Address ready; no funds sent. Back up your Jam wallet, then review the amount and mining fee in the wallet you fund it from.").font(.caption)
+                ReceiveCode(value: address).frame(maxWidth: .infinity)
+                Text(address).font(.footnote.monospaced()).textSelection(.enabled)
+                ShareLink(item: address) { Label("Share bond address", systemImage: "square.and.arrow.up") }
+            }
         }
+    }
+    private func updateBondMonth() {
+        bondMonth = String(format: "%04d-%02d", bondYear, bondNumber)
+        model.bondAddress = nil; model.bondMonth = ""
     }
 }
 

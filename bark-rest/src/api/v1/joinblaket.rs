@@ -26,11 +26,23 @@ pub struct Request {
 	jar: Option<u8>,
 	minimum_sat: Option<u64>,
 	fee_sat: Option<u64>,
+	lock_month: Option<String>,
 }
 
 #[derive(Deserialize)]
 #[serde(rename_all = "snake_case")]
-enum Operation { Wallets, Unlock, Status, Coins, Address, StartMaker, StopMaker }
+enum Operation { Wallets, Unlock, Status, Coins, Address, BondAddress, StartMaker, StopMaker }
+
+fn bond_month(value: &str, now: chrono::DateTime<chrono::Utc>) -> anyhow::Result<()> {
+	ensure!(value.len() == 7 && value.as_bytes()[4] == b'-'
+		&& value.bytes().enumerate().all(|(i, b)| i == 4 || b.is_ascii_digit()), "Choose an unlock month in YYYY-MM format");
+	let year: i32 = value[..4].parse()?;
+	let month: u32 = value[5..].parse()?;
+	ensure!((2020..=2099).contains(&year), "Choose an unlock year before 2100");
+	let date = chrono::NaiveDate::from_ymd_opt(year, month, 1).context("Choose a valid unlock month")?;
+	ensure!(date.and_hms_opt(0, 0, 0).unwrap().and_utc() > now, "Choose a future unlock month; bonds unlock on its first day at 00:00 UTC");
+	Ok(())
+}
 
 async fn connection(State(state): State<Arc<ServerState>>) -> (StatusCode, Json<Value>) {
 	if state.auth_token().is_none() { return (StatusCode::FORBIDDEN, Json(json!({"message": "Configure wallet authentication first"}))); }
@@ -115,6 +127,16 @@ async fn execute(input: Request) -> anyhow::Result<Value> {
 			bark::joinblaket::JarId::try_from(jar)?;
 			upstream(&client, &base, &["wallet", &input.wallet, "address", "new", &jar.to_string()], &input.token, None).await
 		},
+		Operation::BondAddress => {
+			let month = input.lock_month.context("Choose an unlock month")?;
+			bond_month(&month, chrono::Utc::now())?;
+			ensure!(session["coinjoin_in_process"] == false && session["rescanning"] == false, "Wait for the current Jam operation to finish");
+			let result = upstream(&client, &base, &["wallet", &input.wallet, "address", "timelock", "new", &month], &input.token, None).await?;
+			let address = result["address"].as_str().context("Jam returned no bond address")?;
+			ensure!(!address.is_empty() && address.len() <= 128 && !address.chars().any(char::is_whitespace), "Jam returned an invalid bond address");
+			// Address registration only. Funding/broadcast is deliberately not exposed.
+			Ok(json!({"address": address, "wallet": input.wallet, "lock_month": month}))
+		},
 		Operation::StartMaker => {
 			let minimum = input.minimum_sat.context("Enter a minimum CoinJoin amount")?;
 			let fee = input.fee_sat.context("Enter your maker fee")?;
@@ -153,5 +175,13 @@ mod tests {
 	fn jam_wallet_cannot_escape_path() {
 		for wallet in ["", "..", ".", "../other", "a/b", "a\\b"] { assert!(wallet_path(wallet).is_err()); }
 		assert!(wallet_path("wallet.jmdat").is_ok());
+	}
+	#[test]
+	fn bond_month_uses_future_utc_month_and_supported_derivation_range() {
+		let now = chrono::DateTime::parse_from_rfc3339("2030-05-01T00:00:00Z").unwrap().to_utc();
+		for invalid in ["2030-05", "2030-04", "2030-00", "2030-13", "2030-6", "2100-01", "2019-12", "2031-01/other", "２０３１-01"] {
+			assert!(bond_month(invalid, now).is_err(), "{invalid}");
+		}
+		for valid in ["2030-06", "2032-02", "2099-12"] { assert!(bond_month(valid, now).is_ok()); }
 	}
 }

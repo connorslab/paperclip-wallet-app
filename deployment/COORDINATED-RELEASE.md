@@ -54,6 +54,28 @@ fixtures verify receiving into every jar for all three account types, maker
 eligibility and uncertain-action handling. These checks do not establish live
 Jam connectivity, bond funding or bundled-service acceptance.
 
+The next Jars increment implements reviewed bond-address registration on iOS,
+Android and the shared desktop UI. Users select an unlock month, review the Jam
+wallet and first-of-month UTC lock date, then generate/share the address. The
+operation registers an address only; it cannot fund a bond, start a maker or
+broadcast a payment. All adapters reject past/unsupported months, check the
+active Jam wallet and avoid automatic replay. Editing the date clears the old
+address. Amount/fee review and funding remain in the sending wallet; guided
+in-app funding, confirmed bond eligibility and live maker acceptance remain open.
+
+Validation: eight Swift adapter tests, eight Kotlin adapter tests, the Rust UTC
+month-boundary test, browser review/cancel/timeout checks at phone and desktop
+widths, native iOS portrait/landscape UI tests and Android APK/test-APK compilation
+passed. The new Android bond layout test is included in the emulator suite but
+has not yet passed on a running emulator. No live bond was registered or funded.
+
+The Kilombino runtime index was independently fetched from GHCR on 2026-11-16:
+`ghcr.io/kilombino/jam-xbt:0.43.0-xbt7@sha256:f6f4a194a6f20ac56949b02f2a92032bad29dc5e466a4938838951a2960a217d`.
+Its content hash matches and it contains linux/amd64 and linux/arm64 manifests.
+This closes image identification only. The host package still needs separate
+Jam data/backups, a restricted RPC filter, verified internal TLS trust, runtime
+health, mobile pairing, licensing/source distribution and installation tests.
+
 - Freeze one source commit in `connorslab/paperclip-wallet-app`. Record the commit,
   dependency lockfiles, native toolchain versions and CI runs for every artifact.
 - Build the Apple archive with the native Apple toolchain and existing signing

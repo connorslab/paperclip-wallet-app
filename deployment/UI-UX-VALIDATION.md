@@ -1,5 +1,18 @@
 # Cross-platform navigation and QR wallet review
 
+## Bond-address setup: 2026-11-16
+
+Jars now includes an expandable bond setup flow on mobile and desktop. Native
+month/year selectors avoid typing a date format. The review identifies the Jam
+wallet and exact UTC unlock boundary and distinguishes address creation from
+funding. iOS maker amount/fee labels stay visible after entry. Browser fixtures
+verify review cancellation, date editing, one request on timeout and no maker or
+funding action. The iOS fixture passed in portrait and landscape and its screenshots
+were inspected. Swift/Kotlin adapter tests passed, including wallet changes and
+invalid dates; Android layout instrumentation compiled but runtime is pending.
+No physical-device install or live bond creation/funding is represented by these
+checks. Full funding and maker acceptance remain release gates.
+
 ## Independent desktop Jars: 2026-11-16
 
 The shared desktop/StartOS/Umbrel UI shows Jars for hot, QR and watch-only account

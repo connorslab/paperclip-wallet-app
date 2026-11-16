@@ -10,6 +10,36 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class JoinBlaketTest {
+	@Test fun bondMonthHasStrictUtcFutureBoundary() {
+		val now = java.time.Instant.parse("2030-05-01T00:00:00Z")
+		for (month in listOf("2030-05", "2030-04", "2030-00", "2030-13", "2030-6", "2100-01", "2019-12", "2031-01/other", "２０３１-01")) {
+			assertThrows(month, IllegalArgumentException::class.java) { JoinBlaketBond.validate(month, now) }
+		}
+		for (month in listOf("2030-06", "2032-02", "2099-12")) JoinBlaketBond.validate(month, now)
+	}
+	@Test fun bondRegistersOnlyReviewedMonthAndDoesNotReplay() = runBlocking {
+		val paths = mutableListOf<String>(); var failAddress = false
+		val http = OkHttpClient.Builder().retryOnConnectionFailure(false).addInterceptor {
+			val path = it.request().url.encodedPath; paths.add(path)
+			assertEquals("GET", it.request().method); assertNull(it.request().url.query)
+			val state = path == "/api/v1/session"
+			if (!state && failAddress) throw SocketTimeoutException("synthetic address timeout")
+			Response.Builder().request(it.request()).protocol(Protocol.HTTP_1_1).code(200).message("OK")
+				.body((if (state) """{"session":true,"wallet_name":"wallet.jmdat","coinjoin_in_process":false,"rescanning":false}""" else """{"address":"bc1qsyntheticbond"}""").toResponseBody()).build()
+		}.build()
+		val client = JoinBlaketClient(JoinBlaketConnection("https://jam.example.invalid"), http)
+		val auth = JoinBlaketAuthorization("wallet.jmdat", "synthetic-token")
+		assertEquals("bc1qsyntheticbond", client.bondAddress("2099-12", auth))
+		assertEquals(listOf("/api/v1/session", "/api/v1/wallet/wallet.jmdat/address/timelock/new/2099-12"), paths)
+		paths.clear(); failAddress = true
+		try { client.bondAddress("2099-12", auth); fail() } catch (_: SocketTimeoutException) {}
+		assertEquals(2, paths.size)
+		paths.clear()
+		try { client.bondAddress("2020-01", auth); fail() } catch (_: IllegalArgumentException) {}
+		assertTrue(paths.isEmpty())
+		try { client.bondAddress("2099-12", JoinBlaketAuthorization("other.jmdat", "synthetic-token")); fail() } catch (_: IllegalArgumentException) {}
+		assertEquals(listOf("/api/v1/session"), paths)
+	}
 	@Test fun makerReadinessMatchesSharedCases() {
 		val text = checkNotNull(javaClass.getResourceAsStream("/maker-readiness.json")).bufferedReader().use { it.readText() }
 		val cases = org.json.JSONArray(text)

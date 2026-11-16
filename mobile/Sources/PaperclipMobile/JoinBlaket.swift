@@ -23,14 +23,27 @@ public struct JoinBlaketConnection: Codable, Equatable, Sendable {
 }
 
 public enum JoinBlaketError: LocalizedError {
-    case sessionExpired, invalidResponse, wrongWallet, requestFailed(Int)
+    case sessionExpired, invalidResponse, wrongWallet, invalidBondMonth, requestFailed(Int)
     public var errorDescription: String? {
         switch self {
         case .sessionExpired: return "Unlock your JoinBlaket wallet again to continue."
         case .invalidResponse: return "JoinBlaket returned an unreadable response. Refresh before continuing."
         case .wrongWallet: return "The active JoinBlaket wallet changed. Reconnect before continuing."
+        case .invalidBondMonth: return "Choose a future month in YYYY-MM format, before 2100. Bonds unlock on its first day at 00:00 UTC."
         case .requestFailed(let code): return "JoinBlaket request failed (HTTP \(code)). Check its current status before retrying an action."
         }
+    }
+}
+
+public enum JoinBlaketBond {
+    public static func validate(month: String, now: Date = Date()) throws {
+        let bytes = Array(month.utf8)
+        guard bytes.count == 7, bytes[4] == 45,
+              bytes.enumerated().allSatisfy({ $0.offset == 4 || (48...57).contains($0.element) }),
+              let year = Int(month.prefix(4)), (2020...2099).contains(year),
+              let number = Int(month.suffix(2)), (1...12).contains(number) else { throw JoinBlaketError.invalidBondMonth }
+        var calendar = Calendar(identifier: .gregorian); calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        guard let date = calendar.date(from: DateComponents(year: year, month: number, day: 1)), date > now else { throw JoinBlaketError.invalidBondMonth }
     }
 }
 
@@ -179,6 +192,17 @@ public actor JoinBlaketClient {
         guard jar < 5 else { throw JoinBlaketError.invalidResponse }
         struct Response: Decodable { let address: String }
         return try JSONDecoder().decode(Response.self, from: await request(["wallet", authorization.wallet, "address", "new", String(jar)], authorization: authorization)).address
+    }
+    /// Registers a deterministic bond address. Never funds it or starts a maker.
+    public func bondAddress(month: String, authorization: JoinBlaketAuthorization) async throws -> String {
+        try JoinBlaketBond.validate(month: month)
+        let current = try await status(authorization)
+        guard !current.coinjoin_in_process, !current.rescanning else { throw JoinBlaketError.invalidResponse }
+        try JoinBlaketBond.validate(month: month)
+        struct Response: Decodable { let address: String }
+        let address = try JSONDecoder().decode(Response.self, from: await request(["wallet", authorization.wallet, "address", "timelock", "new", month], authorization: authorization)).address
+        guard !address.isEmpty, address.utf8.count <= 128, !address.contains(where: { $0.isWhitespace }) else { throw JoinBlaketError.invalidResponse }
+        return address
     }
     /// Starts a remote service only after the user reviews its explicit terms.
     /// A timeout means reconcile status; it never causes a second start request.

@@ -7,6 +7,7 @@ private final class JamStub: URLProtocol {
     static var failure: URLError.Code?
     static var requests: [URLRequest] = []
     static var bodies: [Data] = []
+    static var route: ((URLRequest) -> (Int, String))?
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
@@ -25,8 +26,9 @@ private final class JamStub: URLProtocol {
         if let failure = Self.failure {
             client?.urlProtocol(self, didFailWithError: URLError(failure)); return
         }
-        client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: Self.status, httpVersion: nil, headerFields: nil)!, cacheStoragePolicy: .notAllowed)
-        client?.urlProtocol(self, didLoad: Data(Self.reply.utf8))
+        let reply = Self.route?(request) ?? (Self.status, Self.reply)
+        client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: reply.0, httpVersion: nil, headerFields: nil)!, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: Data(reply.1.utf8))
         client?.urlProtocolDidFinishLoading(self)
     }
     override func stopLoading() {}
@@ -47,7 +49,35 @@ final class JoinBlaketTests: XCTestCase {
             XCTAssertEqual(["terms": value.terms, "funds": value.funds, "bond": value.bond, "server": value.server, "fresh": value.fresh, "canStart": value.canStart], item.expected, item.name)
         }
     }
-    override func setUp() { JamStub.reply = "{}"; JamStub.status = 200; JamStub.failure = nil; JamStub.requests = []; JamStub.bodies = [] }
+    override func setUp() { JamStub.reply = "{}"; JamStub.status = 200; JamStub.failure = nil; JamStub.requests = []; JamStub.bodies = []; JamStub.route = nil }
+    func testBondMonthHasStrictUtcFutureBoundary() throws {
+        let now = ISO8601DateFormatter().date(from: "2030-05-01T00:00:00Z")!
+        for month in ["2030-05", "2030-04", "2030-00", "2030-13", "2030-6", "2100-01", "2019-12", "2031-01/other", "２０３１-01"] {
+            XCTAssertThrowsError(try JoinBlaketBond.validate(month: month, now: now), month)
+        }
+        for month in ["2030-06", "2032-02", "2099-12"] { try JoinBlaketBond.validate(month: month, now: now) }
+    }
+    func testBondRegistersOnlyReviewedMonthAndDoesNotReplay() async throws {
+        let auth = try JoinBlaketAuthorization(wallet: "wallet.jmdat", token: "synthetic-token")
+        let state = "{\"session\":true,\"maker_running\":false,\"coinjoin_in_process\":false,\"wallet_name\":\"wallet.jmdat\",\"rescanning\":false}"
+        var failAddress = false
+        JamStub.route = { request in
+            if request.url?.path == "/api/v1/session" { return (200, state) }
+            return (failAddress ? 504 : 200, "{\"address\":\"bc1qsyntheticbond\"}")
+        }
+        let address = try await client().bondAddress(month: "2099-12", authorization: auth)
+        XCTAssertEqual(address, "bc1qsyntheticbond")
+        XCTAssertEqual(JamStub.requests.map { $0.url!.path }, ["/api/v1/session", "/api/v1/wallet/wallet.jmdat/address/timelock/new/2099-12"])
+        XCTAssertTrue(JamStub.requests.allSatisfy { $0.httpMethod == "GET" && $0.url?.query == nil })
+        JamStub.requests = []; failAddress = true
+        do { _ = try await client().bondAddress(month: "2099-12", authorization: auth); XCTFail("Must surface uncertain response") } catch {}
+        XCTAssertEqual(JamStub.requests.count, 2, "One status check and one address request; no replay")
+        JamStub.requests = []
+        do { _ = try await client().bondAddress(month: "2020-01", authorization: auth); XCTFail("Must reject past date") } catch {}
+        XCTAssertTrue(JamStub.requests.isEmpty)
+        do { _ = try await client().bondAddress(month: "2099-12", authorization: JoinBlaketAuthorization(wallet: "other.jmdat", token: "synthetic-token")); XCTFail("Must reject other wallet") } catch {}
+        XCTAssertEqual(JamStub.requests.count, 1)
+    }
     private func client() throws -> JoinBlaketClient {
         var connection = JoinBlaketConnection(); connection.endpoint = "https://jam.example.invalid"
         let configuration = URLSessionConfiguration.ephemeral; configuration.protocolClasses = [JamStub.self]

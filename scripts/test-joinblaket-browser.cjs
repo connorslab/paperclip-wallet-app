@@ -15,7 +15,7 @@ for (const item of cases) {
    const page=await browser.newPage({viewport:{width,height:1000}}),errors=[],actions=[];
    page.setDefaultTimeout(15000);
    page.on('pageerror',error=>errors.push(error.message));
-   let failStatus=false;
+   let failStatus=false, failBond=false;
    const accounts=[{id:'a'.repeat(64),label:'Krux savings',kind:'hardware'},{id:'b'.repeat(64),label:'Watch savings',kind:'watch'}];
    const received=[];
    const jars=['Apricot','Blueberry','Cherry','Date','Elderberry'].map((name,id)=>({id,name,total_sat:id===0?200000:0,confirmed_sat:id===0?200000:0,pending_sat:0,frozen_sat:0,bond_sat:0}));
@@ -48,6 +48,11 @@ for (const item of cases) {
       else if(body.operation==='status') value={session:true,wallet_name:'fixture.jmdat',maker_running:false,coinjoin_in_process:false,rescanning:false};
       else if(body.operation==='coins') value={jars};
       else if(body.operation==='address') { assert(Number.isInteger(body.jar)&&body.jar>=0&&body.jar<5);received.push(body.jar);value={address:'bc1qsyntheticdisplayonly'+body.jar}; }
+      else if(body.operation==='bond_address') {
+       assert.equal(body.lock_month,'2099-12');
+       if(failBond)return route.fulfill({status:504,json:{message:'Synthetic bond timeout; check Jam before retrying'}});
+       value={address:'bc1qsyntheticbond',wallet:body.wallet,lock_month:body.lock_month};
+      }
       else throw new Error('Unexpected mutation '+body.operation);
      }
      return route.fulfill({json:value});
@@ -95,10 +100,33 @@ for (const item of cases) {
    await page.waitForFunction(()=>document.querySelector('#jam-address').textContent.includes('bc1qsynthetic'));
    assert(await page.locator('#jam-maker').isDisabled(),'No bond must not be presented as maker ready');
    assert.equal(await page.locator('#jam-maker-checklist li').count(),5);
-   assert.match(await page.locator('#jam-maker-checklist').textContent(),/Needed: Set up a JoinBlaket fidelity bond/);
+   assert.match(await page.locator('#jam-maker-checklist').textContent(),/Needed: Set up and fund a fidelity bond/);
    assert(!actions.includes('start_maker'),'Opening jars must not start a maker');
    assert(!(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth)),'No horizontal overflow');
    assert.deepEqual(errors,[]);
+   await page.locator('#jam-bond-setup summary').click();
+   await page.locator('#jam-bond-month').fill('2020-01');
+   await page.locator('#jam-bond-review').click();
+   await page.locator('#jam-status').filter({hasText:'future month'}).waitFor();
+   assert.equal(actions.filter(action=>action==='bond_address').length,0);
+   await page.locator('#jam-bond-month').fill('2099-12');
+   await page.locator('#jam-bond-review').click();
+   await page.getByRole('button',{name:'Go back',exact:true}).click();
+   assert.equal(actions.filter(action=>action==='bond_address').length,0,'Cancel must not register an address');
+   await page.locator('#jam-bond-review').click();
+   assert.match(await page.locator('.review-sheet').textContent(),/fixture.jmdat[\s\S]*2099-12-01[\s\S]*no funds/);
+   await page.getByRole('button',{name:'Confirm',exact:true}).click();
+   await page.locator('#jam-bond-detail').filter({hasText:'Address ready; no funds sent'}).waitFor();
+   assert.equal(actions.filter(action=>action==='bond_address').length,1);
+   if(process.env.SCREENSHOT_DIR)await page.screenshot({path:path.join(process.env.SCREENSHOT_DIR,`joinblaket-bond-${width}.png`),fullPage:true,animations:'disabled'});
+   assert.equal(actions.filter(action=>/maker|send|fund/.test(action)).length,0);
+   await page.locator('#jam-bond-month').fill('2098-12');
+   assert.equal(await page.locator('#jam-bond-address').textContent(),'','Editing must clear the old bond address');
+   await page.locator('#jam-bond-month').fill('2099-12');failBond=true;
+   await page.locator('#jam-bond-review').click();await page.getByRole('button',{name:'Confirm',exact:true}).click();
+   await page.locator('#jam-status').filter({hasText:'Synthetic bond timeout'}).waitFor();
+   assert.equal(actions.filter(action=>action==='bond_address').length,2,'Timed-out registration must not be replayed');
+   assert.equal(await page.locator('#jam-bond-address').textContent(),'');
    if(process.env.SCREENSHOT_DIR) {
     await page.locator('#network').evaluate(el=>el.textContent='UI TEST FIXTURE · NOT LIVE FUNDS');
     await page.screenshot({path:path.join(process.env.SCREENSHOT_DIR,`joinblaket-${width}.png`),fullPage:true,animations:'disabled'});

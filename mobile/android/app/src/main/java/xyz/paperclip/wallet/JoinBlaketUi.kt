@@ -35,6 +35,8 @@ internal class JoinBlaketUiState {
 	val address = mutableStateOf<String?>(null)
 	val minimum = mutableStateOf("100000")
 	val makerFee = mutableStateOf("100")
+	val bondMonth = mutableStateOf("")
+	val bondAddress = mutableStateOf<String?>(null)
 }
 
 /** The Jam daemon owns these accounts; no local seed or Kilojoin namespace is migrated. */
@@ -65,6 +67,10 @@ internal fun JoinBlaketPage(state: JoinBlaketUiState) {
 	var minimum by state.minimum
 	var makerFee by state.makerFee
 	var confirmMaker by remember { mutableStateOf(false) }
+	var bondMonth by state.bondMonth
+	var bondAddress by state.bondAddress
+	var showBond by remember { mutableStateOf(false) }
+	var reviewedBondMonth by remember { mutableStateOf<String?>(null) }
 	DisposableEffect(state) {
 		onDispose { if (state.authorization.value != null) state.needsRefresh.value = true }
 	}
@@ -94,7 +100,7 @@ internal fun JoinBlaketPage(state: JoinBlaketUiState) {
 		OutlinedTextField(pin, { pin = it }, label = { Text("Certificate SHA256 (optional)") }, enabled = !busy, modifier = Modifier.fillMaxWidth())
 		Row { Text("Use Tor", Modifier.weight(1f)); Switch(tor, { tor = it }, enabled = !busy) }
 		Button(enabled = !busy, onClick = { run {
-			authorization = null; jars = emptyList(); address = null; wallets = emptyList()
+			authorization = null; jars = emptyList(); address = null; wallets = emptyList(); bondAddress = null; bondMonth = ""
 			val c = JoinBlaketClient.open(context, JoinBlaketConnection(endpoint.trim(), pin.trim(), if (tor) "builtin" else ""))
 			wallets = c.wallets(); wallet = wallets.firstOrNull().orEmpty(); client = c
 			if (wallets.isEmpty()) message = "Create a separate wallet in Jam, then refresh this connection."
@@ -160,20 +166,10 @@ internal fun JoinBlaketPage(state: JoinBlaketUiState) {
 			OutlinedTextField(minimum, { minimum = it }, label = { Text("Minimum CoinJoin (sats)") }, enabled = !busy, modifier = Modifier.fillMaxWidth())
 			OutlinedTextField(makerFee, { makerFee = it }, label = { Text("Your fee per CoinJoin (sats)") }, enabled = !busy, modifier = Modifier.fillMaxWidth())
 			Text("Mining fee contribution: 0 sats. Earnings depend on being selected.")
-			if (!readiness.bond) {
-				Text("Set up a fidelity bond in Jam. Bond funds stay locked until the date you choose; they are separate from the coins your maker offers.")
-				val server = runCatching { java.net.URI(endpoint.trim()) }.getOrNull()
-				if (server?.scheme == "https" && server.host?.endsWith(".onion") == false) {
-					TextButton(onClick = { uriHandler.openUri(server.toString()) }) { Text("Open Jam to set up your bond") }
-				} else {
-					Text("Open your Jam address in a Tor browser, then refresh your jars here.")
-					SelectionContainer { Text(endpoint) }
-				}
-			}
 			for ((complete, ready, needed) in listOf(
 				Triple(readiness.terms, "Amount and fee valid", "Review the minimum amount and fee"),
 				Triple(readiness.funds, "One jar covers the minimum", "Fund one jar and wait for confirmation"),
-				Triple(readiness.bond, "Bond funds detected", "Set up a JoinBlaket fidelity bond in Jam"),
+				Triple(readiness.bond, "Bond funds detected", "Set up and fund a fidelity bond"),
 				Triple(readiness.server, "Jam is idle", "Wait for Jam to finish syncing or its current operation"),
 				Triple(readiness.fresh, "Status refreshed", "Refresh wallet status before continuing"),
 			)) {
@@ -181,6 +177,34 @@ internal fun JoinBlaketPage(state: JoinBlaketUiState) {
 					color = if (complete) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.primary)
 			}
 			Text("Your server checks final eligibility; earnings are not guaranteed.", style = MaterialTheme.typography.bodySmall)
+		}
+		TextButton(enabled = !busy, onClick = { showBond = !showBond }) { Text("Set up a fidelity bond") }
+		if (showBond) {
+			Text("A bond locks coins until your chosen month. It may help your maker get selected; earnings are not guaranteed.")
+			BondMonthPicker(bondMonth, enabled = !busy) { bondMonth = it; bondAddress = null }
+			Text("Unlocks on the first day at 00:00 UTC. Creating the address sends no funds.", style = MaterialTheme.typography.bodySmall)
+			Button(enabled = !busy, onClick = {
+				try { JoinBlaketBond.validate(bondMonth); reviewedBondMonth = bondMonth }
+				catch (e: Exception) { message = e.message }
+			}) { Text("Review bond address") }
+			bondAddress?.let {
+				Text("Wallet: $wallet · Unlocks $bondMonth-01 at 00:00 UTC.")
+				Text("Address ready; no funds sent. Back up your Jam wallet, then review the amount and mining fee in the wallet you fund it from.", style = MaterialTheme.typography.bodySmall)
+				NodeReceiveCode(it); SelectionContainer { Text(it) }
+			}
+		}
+		reviewedBondMonth?.let { reviewed ->
+			AlertDialog(onDismissRequest = { reviewedBondMonth = null }, title = { Text("Create bond address?") },
+				text = { Text("Wallet: $wallet. Coins sent here will be locked until $reviewed-01 at 00:00 UTC. Creating the address sends no funds. Review the amount and mining fee separately when funding. Earnings are not guaranteed.") },
+				confirmButton = { TextButton(onClick = {
+					reviewedBondMonth = null
+					run {
+						bondAddress = null
+						val result = checkNotNull(client).bondAddress(reviewed, checkNotNull(authorization))
+						bondMonth = reviewed; bondAddress = result
+					}
+				}) { Text("Create address") } },
+				dismissButton = { TextButton(onClick = { reviewedBondMonth = null }) { Text("Cancel") } })
 		}
 		if (needsRefresh) Text("Refresh maker status before another action.")
 		Button(enabled = !busy && !needsRefresh && (running || readiness.canStart), onClick = { confirmMaker = true }) { Text(if (running) "Stop maker" else "Review maker setup") }
@@ -201,6 +225,33 @@ internal fun JoinBlaketPage(state: JoinBlaketUiState) {
 	}
 	if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
 	message?.let { Text(it) }
+}
+
+@Composable private fun BondMonthPicker(value: String, enabled: Boolean, onChange: (String) -> Unit) {
+	val currentYear = java.time.YearMonth.now(java.time.ZoneOffset.UTC).year.coerceAtMost(2099)
+	val year = value.take(4).toIntOrNull() ?: currentYear
+	val month = value.takeLast(2).toIntOrNull() ?: 0
+	var monthMenu by remember { mutableStateOf(false) }
+	var yearMenu by remember { mutableStateOf(false) }
+	val months = java.text.DateFormatSymbols.getInstance().months.take(12)
+	Column {
+		Box {
+			TextButton(enabled = enabled, onClick = { monthMenu = true }) { Text("Unlock month: " + (months.getOrNull(month - 1) ?: "Choose month")) }
+			DropdownMenu(expanded = monthMenu, onDismissRequest = { monthMenu = false }) {
+				months.forEachIndexed { index, label -> DropdownMenuItem(text = { Text(label) }, onClick = {
+					monthMenu = false; onChange("%04d-%02d".format(java.util.Locale.ROOT, year, index + 1))
+				}) }
+			}
+		}
+		Box {
+			TextButton(enabled = enabled, onClick = { yearMenu = true }) { Text("Unlock year: $year") }
+			DropdownMenu(expanded = yearMenu, onDismissRequest = { yearMenu = false }, modifier = Modifier.heightIn(max = 320.dp)) {
+				for (option in currentYear..2099) DropdownMenuItem(text = { Text(option.toString()) }, onClick = {
+					yearMenu = false; onChange("%04d-%02d".format(java.util.Locale.ROOT, option, month))
+				})
+			}
+		}
+	}
 }
 
 @Composable private fun JamJarArt(color: Color, funded: Boolean) {

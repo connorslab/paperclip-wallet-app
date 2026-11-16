@@ -2,6 +2,30 @@ import XCTest
 
 /// Synthetic fixtures only: no wallet credentials, synchronization or payments.
 final class AdaptiveLayoutTests: XCTestCase {
+	func testBondSetupKeepsLockDateAndNoFundingExplanationVisible() {
+		continueAfterFailure = false
+		defer { XCUIDevice.shared.orientation = .portrait }
+		let app = XCUIApplication()
+		app.launchArguments = ["-build61-preview", "-joinblaket-preview", "-appearance", "dark"]
+		app.launch()
+		XCTAssertTrue(app.navigationBars["Jars"].waitForExistence(timeout: 15))
+		let setup = app.buttons["Set up a fidelity bond"].firstMatch
+		for _ in 0..<10 { if setup.isHittable { break }; app.scrollViews.firstMatch.swipeUp() }
+		XCTAssertTrue(setup.isHittable); setup.tap()
+		let review = app.buttons["Review bond address"].firstMatch
+		for _ in 0..<8 { if review.isHittable { break }; app.scrollViews.firstMatch.swipeUp() }
+		XCTAssertTrue(review.exists)
+		XCTAssertTrue(app.staticTexts["Unlocks on the first day at 00:00 UTC. Creating the address sends no funds."].exists)
+		XCTAssertFalse(review.isEnabled, "The fixture must not contact a live Jam service")
+		capture(app, "Bond setup compact")
+		XCUIDevice.shared.orientation = .landscapeLeft
+		let landscape = NSPredicate { _, _ in app.frame.width > app.frame.height }
+		XCTAssertTrue(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: landscape, object: app)], timeout: 10) == .completed)
+		for _ in 0..<8 { if review.isHittable { break }; app.scrollViews.firstMatch.swipeUp() }
+		XCTAssertTrue(review.exists)
+		capture(app, "Bond setup wide")
+	}
+
 	func testAssistanceHealthAndBackupStayReadableInCompactAndWideLayouts() {
 		continueAfterFailure = false
 		defer { XCUIDevice.shared.orientation = .portrait }
