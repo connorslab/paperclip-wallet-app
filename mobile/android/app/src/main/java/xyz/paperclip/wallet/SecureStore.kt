@@ -6,6 +6,7 @@ import android.security.keystore.KeyProperties
 import android.util.AtomicFile
 import java.io.File
 import java.io.FileNotFoundException
+import java.io.IOException
 import java.security.KeyStore
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
@@ -14,6 +15,12 @@ import javax.crypto.spec.GCMParameterSpec
 
 /** Device-bound encryption; no keys or wallet databases enter Android cloud backups. */
 class SecureStore(context: Context) {
+	companion object {
+		// AtomicFile has no locking. Models use separate SecureStore instances,
+		// so protect key creation and each complete file operation process-wide.
+		private val storageLock = Any()
+	}
+
 	private val directory = File(context.noBackupFilesDir, "vault").apply { mkdirs() }
 	private val alias = "paperclip.android.v1"
 
@@ -46,22 +53,22 @@ class SecureStore(context: Context) {
 		return AtomicFile(File(directory, name))
 	}
 
-	fun read(name: String): ByteArray? {
+	fun read(name: String): ByteArray? = synchronized(storageLock) {
 		val file = file(name)
 		// AtomicFile must recover a committed legacy backup before deciding
 		// the record is absent. A base-file check skips that recovery.
 		val bytes = try { file.readFully() } catch (failure: FileNotFoundException) {
 			if (file.baseFile.exists() || File(file.baseFile.path + ".bak").exists()) throw failure
-			return null
+			return@synchronized null
 		}
 		require(bytes.size >= 28) { "Damaged secure storage" }
 		val cipher = Cipher.getInstance("AES/GCM/NoPadding")
 		cipher.init(Cipher.DECRYPT_MODE, key(), GCMParameterSpec(128, bytes.copyOfRange(0, 12)))
 		cipher.updateAAD(name.toByteArray())
-		return cipher.doFinal(bytes, 12, bytes.size - 12)
+		cipher.doFinal(bytes, 12, bytes.size - 12)
 	}
 
-	fun write(name: String, bytes: ByteArray) {
+	fun write(name: String, bytes: ByteArray) = synchronized(storageLock) {
 		val cipher = Cipher.getInstance("AES/GCM/NoPadding")
 		cipher.init(Cipher.ENCRYPT_MODE, key())
 		cipher.updateAAD(name.toByteArray())
@@ -70,14 +77,22 @@ class SecureStore(context: Context) {
 		val stream = file.startWrite()
 		try {
 			stream.write(encrypted)
+			// AtomicFile logs sync/rename errors without throwing. Propagate a
+			// failed sync before commit, then verify the committed ciphertext.
+			stream.fd.sync()
 			file.finishWrite(stream)
 		} catch (e: Exception) {
 			file.failWrite(stream)
 			throw e
 		}
+		// Do not call failWrite after finishWrite: older Android versions can
+		// delete the committed base file. Readback is not a power-loss guarantee.
+		if (!file.readFully().contentEquals(encrypted)) {
+			throw IOException("Could not confirm saved wallet data. Check storage and try again.")
+		}
 	}
 
-	fun delete(name: String) {
+	fun delete(name: String) = synchronized(storageLock) {
 		file(name).delete()
 	}
 }

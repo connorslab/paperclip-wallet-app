@@ -44,16 +44,17 @@ Play-signed download option in its
 
 ## Latest verification: 2026-11-16
 
-- Android CI [43860298279](https://github.com/connorslab/paperclip-wallet-app/actions/runs/43860298279)
-  at `4882d13` passed both native architectures and API 35/36 emulator jobs. The
-  preceding `768a98e` run also passed. The earlier intermittent system ANR did not
+- Android CI [43864731284](https://github.com/connorslab/paperclip-wallet-app/actions/runs/43864731284)
+  at `76abe02` passed both native architectures and API 35/36 emulator jobs,
+  including the selection-metadata and profile-removal regressions. The preceding
+  `4882d13` and `768a98e` runs also passed. The earlier intermittent system ANR did not
   recur; its cause remains unconfirmed.
 - iOS CI [43858316127](https://github.com/connorslab/paperclip-wallet-app/actions/runs/43858316127)
   at `768a98e` passed Swift/native tests, device and simulator builds, bundle checks
   and UI tests. This verifies the older-runtime Back selector and native test-host
   setup. The later wallet-switch adapter change at `2c75741` has local native test
   evidence; its separate CI run is still in progress.
-- The Android selection-metadata follow-up below has local native/model/UI test
+- The Android storage-commit follow-up below has local native/model/UI test
   evidence. It is newer than those completed runs and needs its own CI result.
   These passes do not close the live, physical-device or packaging gates below.
 
@@ -892,3 +893,33 @@ iOS publishes the selected profile before loading its balance and does not use
 this Android journal. No shared Rust, JNI, REST or encrypted-record format changed.
 The fix is mirrored to both development branches. Portable payment/Bridge recovery
 archives and process-death/uncertain-commit acceptance remain separate open gates.
+
+
+## Android failed storage commits: 2026-11-16
+
+SecureStore now explicitly syncs staged data and verifies the committed ciphertext
+before reporting a successful write. AtomicFile can log sync or replacement errors
+without throwing. A nonempty fixture directory at the destination reproduced a
+false success in the previous implementation. The updated code reports the failed
+replacement, preserves the directory's unrelated contents, and permits a successful
+retry after the test removes its blocker. Normal replacement also passes.
+
+The process-wide storage lock covers reads, writes, deletes and key creation across
+separate model instances. AtomicFile provides no locking itself; concurrent reads
+can otherwise remove a staged write. Three concurrent test callers complete 36
+replacements and reads without observing incomplete or unauthenticated records.
+This serializes individual storage calls, not multi-call application transactions.
+It does not provide cross-process locking; the app currently has one process.
+
+All 13 storage, assistance, public-wallet, profile-removal, selection and backup
+lifecycle cases pass on the isolated ARM64 API 36/16 KB emulator. Both Settings UI
+cases pass. Unit tests pass (81 passed, three opt-in skipped), debug/test APK builds
+and `just checks` pass. Before/after fault evidence is in
+`/tmp/secure-commit-before-runtime.log` and `/tmp/secure-commit-after-runtime.log`.
+
+This does not prove crash or power-loss durability. A failed confirmation can still
+have an uncertain outcome; callers must preserve data and reconcile it. No automatic
+payment retry was added. iOS already checks Keychain return codes and does not use
+AtomicFile. The Android fix is mirrored to both development branches; encryption,
+key policy, native engine and backup formats are unchanged. Actual Android 9,
+process-death, storage exhaustion and funded-upgrade acceptance remain open.
