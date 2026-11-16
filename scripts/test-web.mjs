@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import vm from 'node:vm';
 
-const source = readFileSync(new URL('../web/transport.js', import.meta.url), 'utf8') + '\n' + readFileSync(new URL('../web/app.js', import.meta.url), 'utf8');
+const source = readFileSync(new URL('../web/activity.js', import.meta.url), 'utf8') + '\n' + readFileSync(new URL('../web/transport.js', import.meta.url), 'utf8') + '\n' + readFileSync(new URL('../web/app.js', import.meta.url), 'utf8');
 const html = readFileSync(new URL('../web/index.html', import.meta.url), 'utf8');
 const ids = new Set([...html.matchAll(/\bid="([^"]+)"/g)].map(match => match[1]));
 function fixture(network, lightningEnabled = true, empty = false) {
@@ -158,7 +158,7 @@ console.log('PASS: authenticated first-run setup, platform password, explicit ba
   const f = fixture('bitcoin');
   vm.runInContext("paymentSummary('unknown', 'No payment recorded'); renderActivity([])", f.context);
   assert.match(f.element('payment-summary').textContent, /unknown/);
-  assert.match(f.element('activity-list').textContent, /No Ark activity/);
+  assert.match(f.element('activity-list').textContent, /No activity yet/);
   f.element('token').value = 'test-token'; await f.trigger('unlock', 'submit');
   await f.trigger('lock');
   assert.equal(f.element('payment-summary').hidden, true);

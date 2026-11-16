@@ -31,8 +31,8 @@
     clearSigning();
   }
   function clearWalletView() {
-    resetWalletControls();PaperclipReview.cancel();PaperclipReceive.clear();$('transaction-result').close();$('wallet-rename').close();renaming=null;$('wallet-rename-form').reset();
-    for(const id of ['cold-address','cold-relay','cold-history','activity-list','history','ln-result','ln-invoice','ln-offer-output','address','deposit-address']) $(id)?.replaceChildren();
+    resetWalletControls();PaperclipActivity.reset();PaperclipReview.cancel();PaperclipReceive.clear();$('transaction-result').close();$('wallet-rename').close();renaming=null;$('wallet-rename-form').reset();
+    for(const id of ['cold-address','cold-relay','cold-history','cold-history-status','activity-list','history','ln-result','ln-invoice','ln-offer-output','address','deposit-address']) $(id)?.replaceChildren();
     for(const id of ['destination','amount','ln-destination','ln-amount','chain-destination','chain-amount','ln-identifier']) if($(id))$(id).value='';
     $('cold-balance').textContent='Loading…';$('cold-pending').textContent='Loading…';history=[];lastRelay=null;
   }
@@ -105,11 +105,9 @@
     const result=await call('refresh');if(ticket!==generation||!selected)return false;
     for(const key of ['confirmed_sat','pending_sat'])if(!Number.isSafeInteger(result[key])||result[key]<0)throw new Error('The QR wallet returned an invalid balance.');
     $('cold-balance').textContent=result.confirmed_sat.toLocaleString();$('cold-pending').textContent=result.pending_sat.toLocaleString();
-    lastRelay=result.last_broadcast;history=Array.isArray(result.transactions)?result.transactions:[];
+    lastRelay=result.last_broadcast;history=result.transactions;
     $('cold-relay').textContent=lastRelay?.state==='pending_broadcast'?'Broadcast outcome is uncertain. Check transaction '+lastRelay.txid+' before another payment.':lastRelay?.state==='submitted'?'Transaction submitted. Waiting for confirmation.':'';
-    const list=$('cold-history');list.replaceChildren();
-    if(!history.length)list.textContent='No transactions found in this account.';
-    for(const transaction of history){const card=document.createElement('article');card.className='activity-card';const heading=document.createElement('h3'),detail=document.createElement('p'),reference=document.createElement('code');heading.textContent=sats(transaction.amount_sat);detail.textContent=transaction.confirmed?'Confirmed':'Unconfirmed';reference.textContent=transaction.txid;card.append(heading,detail,reference);list.append(card);}
+    PaperclipActivity.renderQR(history,$('cold-history'));
     nextAutomaticUpdate=Date.now()+30000;return true;
   }
   function showFrame() {
@@ -140,6 +138,7 @@
     paired=result.id;await load();$('pair-address').textContent=result.first_address;$('pair-confirmation').hidden=false;$('pair-wallet').open=false;$('pair-form').reset();
   });};
   $('pair-use').onclick=()=>{if(paired){$('pair-confirmation').hidden=true;void choose(paired);}};
+  $('cold-history-refresh').onclick=()=>void work('cold-history-status',refresh);
   $('cold-receive').onclick=()=>void work('cold-relay',async()=>{const result=await call('address');$('cold-address').textContent=result.address;PaperclipReceive.show('cold-address',result.address,'Receive to '+selected.label);});
   $('cold-send').onsubmit=event=>{event.preventDefault();void work('signing-status',async()=>{
     if(!selected)throw new Error('Select a QR wallet first.');

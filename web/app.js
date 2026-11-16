@@ -319,15 +319,15 @@ $('ln-check').onsubmit = event => { event.preventDefault(); run(event.submitter,
 $('history-load').onclick = event => run(event.target, async () => {
   if (globalThis.PaperclipAccounts?.selectedId) return globalThis.PaperclipAccounts.refresh();
   const context = walletContext();
+  $('activity-summary').textContent = 'Updating activity\u2026';
   const results = await Promise.allSettled([
     api('history'), api('onchain/transactions'), api('lightning/receives')
   ]);
   if (!token || !currentWallet(context) || $('wallet').hidden) return;
   const [ark, onchain, receives] = results.map(result => result.status === 'fulfilled' ? result.value : null);
   $('history').textContent = JSON.stringify({ark, onchain, lightning_receives: receives}, null, 2);
-  if (ark) renderActivity(ark);
-  else { $('activity-list').replaceChildren(); $('activity-summary').textContent = 'Activity is unavailable. Check connections and try again.'; }
-  if (document.querySelector?.('[data-screen="activity"]')?.hidden !== true) status(results.some(result => result.status === 'rejected') ? 'Some activity is unavailable. This does not mean a payment failed.' : 'Activity updated.');
+  const complete = renderActivity(ark, onchain);
+  if (document.querySelector?.('[data-screen="activity"]')?.hidden !== true) status(!complete || results.some(result => result.status === 'rejected') ? 'Some activity is unavailable. This does not mean a payment failed.' : 'Activity updated.');
 });
 const lockSession = $('lock').onclick;
 $('lock').onclick = () => {
@@ -379,36 +379,10 @@ function paymentSummary(title, detail) {
 $('ln-copy').onclick = event => run(event.target, async () => {
   await navigator.clipboard.writeText($('ln-invoice').textContent); status('Invoice copied.');
 });
-function renderActivity(records) {
-  const list = $('activity-list'); list.replaceChildren();
-  const rows = Array.isArray(records) ? records : [];
-  $('activity-summary').textContent = rows.length + ' Ark movements \u00b7 ' + rows.filter(r => r.status === 'pending').length + ' pending';
-  if (!rows.length) { list.textContent = 'No Ark activity yet. Deposits and payments will appear here.'; return; }
-  for (const row of rows) {
-    const card = document.createElement('article'); card.className = 'activity-row';
-    const amount = Number.isSafeInteger(row.effective_balance_sat) ? row.effective_balance_sat : null;
-    const heading = document.createElement('strong');
-    heading.textContent = ({'bark.arkoor':'Ark transfer','bark.lightning_send':'Lightning','bark.lightning_receive':'Lightning','bark.board':'Board','bark.round':'Round'}[row.subsystem?.name] || row.subsystem?.name || 'Ark') + ' \u00b7 ' + (row.subsystem?.kind || 'Movement');
-    const value = document.createElement('span'); value.className = amount > 0 ? 'positive' : 'amount';
-    value.textContent = amount === null ? 'Amount unavailable' : (amount > 0 ? '+' : '') + amount.toLocaleString() + ' sats';
-    const detail = document.createElement('p');
-    const date = new Date(row.time?.created_at);
-    detail.textContent = (row.status || 'Unknown') + ' \u00b7 ' + (Number.isFinite(date.getTime()) ? date.toLocaleString() : 'Time unavailable') + ' \u00b7 Fee: ' + (Number.isSafeInteger(row.offchain_fee_sat) ? row.offchain_fee_sat.toLocaleString() + ' sats' : 'unavailable');
-    const badge = document.createElement('span'); badge.className = 'activity-state';
-    badge.textContent = ({successful: 'Movement completed', pending: 'Pending', failed: 'Failed', canceled: 'Cancelled'}[row.status] || row.status || 'Status unavailable');
-    const more = document.createElement('details');
-    const summary = document.createElement('summary'); summary.textContent = 'Payment details';
-    const explanation = document.createElement('p');
-    explanation.textContent = row.status === 'pending' ? 'Still in progress. Check the result before attempting another payment.' : row.status === 'failed' ? 'This operation failed. Check any related refund or recovery before retrying.' : 'This record confirms a wallet balance movement. For a multi-step payment, check its payment status and the recipient to confirm final settlement.';
-    const record = document.createElement('pre'); record.textContent = JSON.stringify(row, null, 2);
-    const resultButton = document.createElement('button'); resultButton.className = 'secondary'; resultButton.textContent = 'View result';
-    resultButton.onclick = () => transactionResult(row.status === 'successful' ? 'success' : row.status === 'failed' ? 'failed' : 'pending', row.status === 'successful' ? 'Wallet movement completed' : row.status === 'failed' ? 'Transaction failed' : 'Transaction pending', explanation.textContent);
-    more.append(summary, explanation, record); card.append(resultButton);
-    card.append(heading, value, badge, detail, more); list.append(card);
-  }
-}
+function renderActivity(records, onchain = []) { return PaperclipActivity.set(records, onchain); }
+PaperclipActivity.init();
 const reviewLock = $('lock').onclick;
-$('lock').onclick = () => { reviewLock(); PaperclipReceive.clear(); $('activity-list').replaceChildren(); $('activity-summary').textContent = ''; $('payment-summary').textContent = ''; $('payment-summary').hidden = true; $('ln-copy').hidden = true; };
+$('lock').onclick = () => { reviewLock(); PaperclipReceive.clear(); PaperclipActivity.reset(); $('activity-list').replaceChildren(); $('activity-summary').textContent = ''; $('payment-summary').textContent = ''; $('payment-summary').hidden = true; $('ln-copy').hidden = true; };
 
 // A session belongs to one browser tab. Never save keys or RPC credentials here.
 function sessionRead(key) { try { return sessionStorage.getItem(key); } catch { return null; } }

@@ -166,3 +166,33 @@ and retry scenarios, 14 REST tests, five shared QR verifier tests, 14 Swift
 connection/transport tests, and 16 Android connection/payment-policy tests.
 `just checks` and the shared-source checksums passed. No live payments,
 production restarts, device installs or release publication occurred in this pass.
+
+## Shared Activity follow-up — 2026-11-15
+
+Desktop, Umbrel and StartOS candidate source now shows normal on-chain transactions
+in Activity. All / On-chain / Ark filters keep the ledgers distinct. A transfer
+between ledgers can have a record in each; the screen does not add these amounts
+into a synthetic payment total. On-chain records retain the server's observation
+order, newest first. They show block height when confirmed, without invented dates
+or confirmation counts. QR account history uses the same cards and a refresh action.
+
+Amounts are signed wallet balance changes. An outgoing debit already includes the
+fee paid by that wallet; the UI does not subtract it twice. Transaction fees appear
+in Details and remain unavailable when the server cannot calculate them. Unknown
+statuses do not become success or failure. A completed Ark movement does not claim
+that a multi-step Lightning payment settled at the recipient.
+
+Each ledger reports load failure separately and keeps the available ledger usable.
+Malformed responses do not become empty history. Account changes and lock clear
+records and filters. The first 25 cards per ledger render immediately. Show more
+adds 25 without another API request, preserves expanded details, and moves keyboard
+focus to the first added card. Technical records remain collapsed by default.
+
+The browser regression checks phone, tablet and desktop widths (390, 800 and 1280),
+expanded details without horizontal overflow, accessible filter targets, partial
+failures, unknown fees/statuses, net debit, text-only untrusted values, pagination,
+and hot/QR account isolation. Rendered phone and desktop screenshots were inspected
+and narrow-screen spacing corrected. All nine browser scripts and `just checks`
+passed locally. The preceding security/backend CI run `43776856932` also passed.
+No native adapters changed; these UI changes close a shared browser parity gap.
+Deployment, physical accessibility and live settlement tests remain outstanding.

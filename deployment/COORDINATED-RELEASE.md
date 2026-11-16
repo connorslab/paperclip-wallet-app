@@ -127,9 +127,12 @@ the wrappers still require platform-specific configuration and upgrade tests.
    may survive, but the browser does not reconstruct the same wallet-scoped intent
    and reconciliation gate as mobile. The newer QR broadcast journal does not
    close this gap for hot-wallet operations.
-3. **Activity completeness:** the browser fetches on-chain history but normal
-   Activity cards call `renderActivity(ark)` only. Normal deposits and hot-wallet
-   on-chain sends need readable entries, filters and confirmation state.
+3. **Activity completeness — closed in the candidate follow-up:** normal deposits
+   and on-chain sends now have readable Activity cards, alongside Ark movements.
+   All / On-chain / Ark filters, confirmation state, honest unknown fees, partial
+   failure notices and bounded rendering also cover QR account history. The old
+   comparison table above describes the original audit revision. This follow-up
+   does not change the versions currently delivered by either platform wrapper.
 4. **Packaged JoinBlaket configuration:** the server proxy requires
    `BARKD_JOINBLAKET_URL` and optional Tor/CA settings. Neither inspected wrapper
    supplies those settings. A working jar screen in local fixtures does not mean
@@ -147,7 +150,7 @@ submitting a wallet action.
 
 ### Implementation order
 
-First close exact-review, durable-status and Activity gaps. Then complete direct
+First close exact-review and durable-status gaps. Then complete direct
 CLN/LND and Bridge on the shared server/browser, followed by multi-wallet,
 watch-only, backup and QR boarding workflows. Complete Jam service configuration
 and remaining maker/taker tasks before treating that feature as finished. Finally
