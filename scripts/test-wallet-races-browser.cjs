@@ -81,6 +81,13 @@ const cold='a'.repeat(64);
     assert.equal(await page.locator('#payment-summary').isVisible(),true);
    },{width,platform});
   }
+  await scenario('late manual refresh cannot overwrite the locked status',async({page,hold,settled})=>{
+   const delayed=hold(name=>name==='wallet/balance');
+   await page.locator('#reload').click();await delayed.seen;
+   await page.locator('#lock').click();delayed.release();await settled();
+   assert.equal(await page.locator('#status').textContent(),'Wallet locked.');
+   assert.equal(await page.locator('#wallet').isVisible(),false);
+  });
   await scenario('restore cold selection during an old address request',async({page,hold,select,unlock,settled})=>{
    await select(cold);const delayed=hold((name,body)=>name==='hardware/request'&&body.operation==='address');
    await page.locator('#cold-receive').click();await delayed.seen;

@@ -89,6 +89,34 @@ Play-signed download option in its
   failed in unchanged `libbitcoinkernel-sys` against Homebrew Boost 1.92. Native
   dependency configuration still needs a reproducible release-toolchain definition;
   the local workaround is not evidence of a clean-machine release build.
+- Android CI [43885819059](https://github.com/connorslab/paperclip-wallet-app/actions/runs/43885819059)
+  at `95626fa` passed both native architectures and complete API 35/36 emulator
+  jobs, including the queued-receive regression. Browser CI
+  [43885818832](https://github.com/connorslab/paperclip-wallet-app/actions/runs/43885818832)
+  passed for that revision. iOS CI `43885819065` remains queued.
+- A fresh read-only inspection of `start.local` found Paperclip `0.10.0:0`, CLN
+  and LND running. The installed wallet loads activity and reports the Ark server
+  reachable, but its XBT node connection check fails. That installed package still
+  exposes the older Ark-only Lightning page. This is not acceptance of the newer
+  direct-node candidate, and the backend failure has not been diagnosed anew.
+- Current Android and native iOS simulator adapters passed authenticated CLN/LND
+  identity, three balance reads, deliberate wrong-pin rejection and reconnection
+  against StartOS LAN endpoints. Credentials remained private; no payments or
+  service changes were made. The iOS UI test runner crashed while preparing tests
+  (`XCTWaiter` stalled); the successful in-app read probe does not replace UI acceptance.
+- The current Rust server adapter also passed fresh authenticated CLN/LND LAN
+  identity, repeated balances, wrong-pin rejection and reconnection. A separate
+  native iOS embedded-Tor probe returned promptly after cancellation, authenticated
+  its control connection and reached 30% bootstrap, then failed before contacting
+  LND. An independent local controller timed out; the Tor thread remained in its
+  event loop. The precise failure and retry behavior remain under investigation.
+- All 33 deployment Python unit tests passed using Python 3.13. The separate Linux
+  daemon smoke script requires its built container and was not accepted on macOS.
+- Manual desktop balance refresh now reports partial failures instead of claiming
+  success. Invalid/negative balances display as unavailable, including the recovery
+  summary. A late refresh cannot overwrite the locked status. Browser regressions
+  cover failure, explicit recovery, and lock races at phone/tablet/desktop widths.
+  All 16 browser workflow suites passed with these changes.
 
 ## Acceptance matrix
 

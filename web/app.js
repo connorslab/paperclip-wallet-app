@@ -51,15 +51,17 @@ async function updateBalances(sessionToken) {
   if (!token || token !== sessionToken || accountGeneration !== (globalThis.PaperclipAccounts?.generation ?? 0)) return;
   const [balance, chain, vtxos, exits, tip] = results.map(result => result.status === 'fulfilled' ? result.value : null);
   $('exits').textContent = JSON.stringify(exits, null, 2);
-  $('ark-balance').textContent = Number.isSafeInteger(balance?.spendable_sat) ? balance.spendable_sat.toLocaleString() : 'Unavailable';
-  $('chain-balance').textContent = Number.isSafeInteger(chain?.confirmed_sat) ? chain.confirmed_sat.toLocaleString() : 'Unavailable';
+  const hasArkBalance = Number.isSafeInteger(balance?.spendable_sat) && balance.spendable_sat >= 0;
+  const hasChainBalance = Number.isSafeInteger(chain?.confirmed_sat) && chain.confirmed_sat >= 0;
+  $('ark-balance').textContent = hasArkBalance ? balance.spendable_sat.toLocaleString() : 'Unavailable';
+  $('chain-balance').textContent = hasChainBalance ? chain.confirmed_sat.toLocaleString() : 'Unavailable';
   $('vtxos').textContent = JSON.stringify({balance, onchain: chain, vtxos}, null, 2);
   vtxoSnapshot = {balance: balance || {}, rows: Array.isArray(vtxos) ? vtxos : [], tip: Number.isSafeInteger(tip?.tip_height) ? tip.tip_height : null};
   renderVtxos();
   if (!vtxos || !balance) {
     $('vtxo-list').replaceChildren(); $('vtxo-summary').textContent = 'Recovery balances are unavailable. Check connections and try again.';
   }
-  const incomplete = results.some(result => result.status === 'rejected');
+  const incomplete = results.some(result => result.status === 'rejected') || !hasArkBalance || !hasChainBalance;
   nextAutomaticUpdate = Date.now() + (incomplete ? 120000 : 30000);
   $('wallet-readiness').hidden = !incomplete;
   $('wallet-readiness').textContent = incomplete ? 'Some wallet data is unavailable. Your node may be syncing or busy. Check connections in Settings before sending.' : '';
@@ -175,7 +177,11 @@ $('setup-lock').onclick = () => {
   status('Setup locked. Unlock to check wallet state.');
 };
 $('lock').onclick = () => { token = ''; network = null; $('network').textContent = 'NETWORK UNVERIFIED'; $('deposit-address').textContent = ''; $('exits').textContent = '';  $('wallet').hidden = true; $('login').hidden = false; $('vtxos').textContent = ''; $('address').textContent = ''; $('destination').value = ''; status('Wallet locked.'); };
-$('reload').onclick = event => run(event.target, async () => { await update(); status('Balances updated.'); });
+$('reload').onclick = event => run(event.target, async () => {
+  const context = walletContext();
+  const complete = await update();
+  if (token && currentWallet(context)) status(complete ? 'Balances updated.' : 'Some wallet data is unavailable. Check connections and retry.');
+});
 $('receive').onclick = event => run(event.target, async () => { const receiveSession = token; const result = await api('wallet/addresses/next', {}); if (!token || token !== receiveSession || $('wallet').hidden) return; $('address').textContent = result.address; PaperclipReceive.show('address', result.address, 'Receive on Ark'); status('New Ark receive address.'); });
 $('ark-max').onchange=()=>{$('amount').disabled=$('ark-max').checked;$('amount').required=!$('ark-max').checked;$('ark-estimate').hidden=true;};
 $('send').addEventListener('submit', event => { event.preventDefault(); run(event.submitter, async () => {
@@ -565,7 +571,7 @@ function renderVtxos() {
   const locked = rows.filter(r => r.state?.type === 'locked').reduce((sum,r) => sum + (Number.isSafeInteger(r.amount_sat) ? r.amount_sat : 0),0);
   for (const [label,value] of [['Spendable',balance.spendable_sat],['Needs refresh',balance.needs_refresh_sat],['Locked',locked]]) {
     const card = vtxoNode('article','');
-    card.append(vtxoNode('span',label),vtxoNode('strong',Number.isSafeInteger(value) ? value.toLocaleString()+' sats' : 'Unavailable')); summary.append(card);
+    card.append(vtxoNode('span',label),vtxoNode('strong',Number.isSafeInteger(value) && value >= 0 ? value.toLocaleString()+' sats' : 'Unavailable')); summary.append(card);
   }
   $('vtxo-tip').textContent = tip === null ? 'Chain height unavailable. Expiry blocks are shown without a countdown.' : 'Chain height '+tip.toLocaleString()+' \u00b7 '+count+' current VTXOs. Expiry is measured in blocks, not a guaranteed time.';
   const list = $('vtxo-list'); list.replaceChildren();

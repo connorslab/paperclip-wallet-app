@@ -5,13 +5,14 @@ const fs=require('node:fs'),path=require('node:path'),assert=require('node:asser
  try {
   for(const width of [390,840,1280]) {
    const page=await browser.newPage({viewport:{width,height:1000}}),errors=[];page.on('pageerror',e=>errors.push(e.message));page.setDefaultTimeout(10000);
-   let bad=false;
+   let bad=false, balanceMode='ok';
    await page.route('http://wallet.test/**',route=>{
     const url=new URL(route.request().url()),name=url.pathname.replace('/api/v1/','');
     if(url.pathname.startsWith('/api/')) {
      assert.equal(route.request().method(),'GET','Health must not mutate a wallet');
+     if(name==='onchain/balance' && balanceMode==='offline') return route.fulfill({status:503,json:{error:'Synthetic unavailable backend'}});
      const data=name==='wallet'?{fingerprint:'PRIVATE-FINGERPRINT'}:name==='wallet/identity'?{network:'regtest',exit_profile:2,lightning_enabled:false}:
-      name==='wallet/balance'?{spendable_sat:12345678}:name==='onchain/balance'?{confirmed_sat:87654321}:
+      name==='wallet/balance'?{spendable_sat:balanceMode==='negative'?-1:balanceMode==='invalid'?'unknown':12345678}:name==='onchain/balance'?{confirmed_sat:87654321}:
       name==='hardware/accounts'?{accounts:[]}:
       name==='bitcoin/tip'?{tip_height:bad?'malformed':1000,server:'SECRET-URL',macaroon:'SECRET-CREDENTIAL'}:[];
      return route.fulfill({json:data});
@@ -31,8 +32,22 @@ const fs=require('node:fs'),path=require('node:path'),assert=require('node:asser
    assert(!(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth)));
    if(process.env.PAPERCLIP_SCREENSHOT_DIR) { fs.mkdirSync(process.env.PAPERCLIP_SCREENSHOT_DIR,{recursive:true}); await page.screenshot({path:path.join(process.env.PAPERCLIP_SCREENSHOT_DIR,'wallet-health-'+width+'.png'),fullPage:true}); }
    await page.locator('[data-screen=health] [data-back]').click();await page.locator('[data-view=health]').waitFor({state:'visible'});
+   bad=false;
+   await page.locator('.view-nav [data-view=overview]').click();
+   for(const mode of ['offline','negative','invalid']) {
+    balanceMode=mode;await page.locator('#reload').click();
+    await page.waitForFunction(()=>!document.getElementById('reload').disabled);
+    assert.match(await page.locator('#status').textContent(),/unavailable/i,'A partial or invalid refresh must not claim balances updated');
+    assert.equal(await page.locator(mode==='offline'?'#chain-balance':'#ark-balance').textContent(),'Unavailable');
+    assert.equal(await page.locator('#wallet-readiness').isVisible(),true);
+    if(mode!=='offline') assert.match(await page.locator('#vtxo-summary').textContent(),/SpendableUnavailable/);
+   }
+   balanceMode='ok';await page.locator('#reload').click();await page.waitForFunction(()=>!document.getElementById('reload').disabled);
+   assert.equal(await page.locator('#status').textContent(),'Balances updated.');
+   assert.equal(await page.locator('#wallet-readiness').isVisible(),false);
+   assert.equal(await page.locator('#ark-balance').textContent(),'12,345,678');
    await page.locator('#lock').click();assert.equal(await page.locator('#health-report-text').textContent(),'');assert.deepEqual(errors,[]);await page.close();
   }
-  console.log('PASS wallet health: phone/foldable/desktop fit, back navigation, connection failure, allowlisted downloaded report, lock clearing, no wallet mutations');
+  console.log('PASS wallet health: phone/foldable/desktop fit, back navigation, connection failure, partial/invalid balance refresh and recovery, allowlisted downloaded report, lock clearing, no wallet mutations');
  } finally {await browser.close();}
 })().catch(e=>{console.error(e);process.exit(1)});

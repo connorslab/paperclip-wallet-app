@@ -100,6 +100,20 @@ The harness performs only connect/refresh/read operations, stores its temporary
 connection under a private test directory, and prints no credentials or remote
 response payloads. It requires both CLN and LND cases and does not run onion cases.
 
+On November 16, the current Android adapter and native iOS simulator read probe
+repeated the authenticated CLN and LND LAN checks successfully: trusted public
+identity and network, three balance reads, rejection of an incorrect certificate
+pin, and reconnection afterward. No invoice or payment was created. The separate
+iOS live UI test runner stalled before executing its checks; this remains a UI
+acceptance gap. The installed StartOS `0.10.0:0` package still has the older Ark-only
+Lightning page and an unavailable XBT node check, so these adapter results do not
+establish package upgrade or live-payment acceptance.
+
+The Rust server adapter passed the same live LAN checks on November 16. A new
+native embedded-Tor probe failed after controller authentication and 30% bootstrap,
+before contacting LND. Cancellation returned within the probe's 300 ms window,
+but Tor readiness and post-failure retry remain open acceptance gates.
+
 ## Browser Bridge node funding
 
 The browser candidate can quote a fixed-amount BTC BOLT11 invoice and fund the
