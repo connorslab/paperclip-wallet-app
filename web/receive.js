@@ -57,7 +57,7 @@
     }
   }
 
-  function show(outputId, payload, label) {
+  function show(outputId, payload, label, options = {}) {
     const output = document.getElementById(outputId);
     const previous = cards.get(outputId);
     if (previous) {
@@ -66,7 +66,7 @@
     }
     const card = node('div', null, 'receive-card');
     const caption = node('p', label, 'receive-caption');
-    const notice = node('p', 'Scan with an XBT-compatible wallet.', 'hint');
+    const notice = node('p', options.hint || 'Scan with an XBT-compatible wallet.', 'hint');
     notice.setAttribute('role', 'status');
     card.append(caption);
     let url = null;

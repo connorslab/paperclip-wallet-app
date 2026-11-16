@@ -54,7 +54,7 @@ does not establish parity. Native UI and background scheduling can differ.
 | Lightning through Ark | Shared BOLT11/BOLT12 engine and enforced reviewed debit | Same engine, fixed-amount review and debit capability | Verify live against corrected service; keep unknown outcomes from being resent |
 | Remote CLN and XBT LND | Both adapters, Tor, TLS, BOLT12, balances and status | Direct-node adapters, private credential storage, reviewed sends and durable status implemented | Live node, container Tor and platform package acceptance pending; see REMOTE-LIGHTNING.md |
 | Multiple / hardware / watch-only wallets | Implemented in mobile candidate, visible wallet switcher | Hot/public-account switcher, QR and watch-only pairing, public export/removal, verified signing and durable broadcast journal | Physical Krux round trips, desktop multiple hot profiles, QR-funded Ark boarding and full recovery |
-| Paperclip Bridge | Both mobile directions implemented | Browser flows still missing | Matching quote validation and durable reconciliation; live swap not verified |
+| Paperclip Bridge | Both mobile directions implemented, with separate availability and payment status | Incoming BTC-to-XBT node flow, quote review, history and exact node receipt implemented | Outgoing browser funding flow and live swap acceptance remain |
 | JoinBlaket / Jam | Five jars, remote session, receive, reviewed maker controls | Same tasks through authenticated fixed-upstream proxy | Actual Kilombino XBT Jam endpoint, live validation, bond setup and taker flows |
 | Existing Kilojoin funds | Recovery UI retained; new rounds rejected before database access | No new Kilojoin entry point | Verify existing-round completion and withdrawal on upgraded wallets |
 | Backups / upgrades | Encrypted full backups and scoped mobile wallet state | Complete volume backups | Restore tests, update migrations and desktop backup UX |
@@ -362,3 +362,37 @@ Android run `43811981065` passed both native architectures and API 35; its first
 API 36 run timed out while identifying the onboarding screenshot window. The
 failed job was rerun without weakening the capture check. Its final result and
 the next candidate's complete matrix must be checked before release.
+
+
+## Browser Bridge receive and exact node receipt: 2026-11-15
+
+The shared StartOS/Umbrel browser app now receives XBT into a saved CLN or LND
+node through the Bridge. The entry, conversion review and activity pages show
+a compact BTC-to-XBT availability indicator. A fresh availability check precedes
+node invoice creation. Users review the XBT receive amount and BTC funding amount
+before they reveal the BTC invoice. Expired invoices cannot be shared. History
+uses pages of ten, and an interrupted quote can resume from the saved node invoice.
+No browser route in this change sends or automatically retries a payment.
+
+The server binds an incoming quote to the saved receiving node, signed invoice,
+payment hash and exact amount. Bridge settlement proof alone cannot mark a receive
+successful. Status checks read the receiving node independently of Bridge status;
+an exact settled node receipt can succeed during a Bridge outage. That receipt
+survives restart. Older records with Bridge proof need a verified node receipt
+before they can claim receipt. The browser clears invoice and amount details on
+lock or wallet change and ignores delayed responses from an old session.
+
+Synthetic REST tests passed: 57 executed and one live opt-in test ignored. Browser
+checks passed for both hosts and both node adapters at 390, 840 and 1280 pixels.
+They cover conversion mismatch, explicit BTC sharing, stale/malformed availability,
+a paused service, Bridge proof without node receipt, receipt during a Bridge outage,
+history reload, expiry, interrupted quote recovery and locking during a request.
+Existing navigation, wallet-race, CLN/LND, setup, QR and transport checks also passed.
+The compact and desktop review screenshots were inspected. These tests use no
+live payments and do not establish a successful production swap. Outgoing browser
+Bridge funding and live service acceptance remain release gates.
+
+The API specification/client generation and `just checks` passed. The earlier
+Android run `43811981065` now passes both native architectures and API 35/36;
+the API 36 rerun used the unchanged onboarding check. This does not verify later
+candidate revisions or a physical-device upgrade.

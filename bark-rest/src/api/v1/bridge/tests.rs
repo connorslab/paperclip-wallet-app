@@ -23,7 +23,7 @@ fn fixture(direction: Direction) -> Record {
 	let target = invoice(direction == Direction::ReceiveXbt,100_000,&[3;32],Currency::Bitcoin,3600);
 	let hold = invoice(direction != Direction::ReceiveXbt,200_001,&[3;32],Currency::Bitcoin,1800);
 	let quote = Quote { hold_invoice:hold,hash:sha256::Hash::hash(&[3;32]).to_string(),sat:100.0,pay_sat:201,rate:2.0,spread:0.01,expires_at:1_001_800,token:"ab".repeat(16) };
-	Record {direction,target,quote,created:1_000_001,state:"quoted".into(),verified_settlement:false}
+	Record {direction,target,quote,created:1_000_001,state:"quoted".into(),verified_settlement:false,receive_node_id:None,verified_receipt:false}
 }
 #[test]
 fn quote_binds_both_networks_amounts_hash_and_expiry() {
@@ -145,4 +145,52 @@ async fn repeated_quote_returns_original_without_contacting_service() {
 	let input = QuoteRequest {direction:record.direction,invoice:invoice(false,101_000,&[3;32],Currency::Bitcoin,3600)};
 	assert!(retain_quote(dir.path(),input,|_,_|async { panic!("must reject reused payment hash") }).await.is_err());
 	assert_eq!(records(dir.path()).unwrap().len(),1);
+}
+
+fn receipt(record: &Record) -> BridgeReceipt {
+	BridgeReceipt {node_id:bitcoin::secp256k1::PublicKey::from_secret_key(&Secp256k1::new(),&SecretKey::from_slice(&[2;32]).unwrap()).to_string(),
+		payment_hash:record.quote.hash.clone(),invoice:record.target.clone(),amount_msat:100_000,received:true}
+}
+#[test]
+fn incoming_success_requires_exact_node_receipt_even_with_bridge_proof() {
+	let mut record = fixture(Direction::ReceiveXbt);
+	let proof = || Ok(SwapStatus {state:"settled".into(),preimage:Some("03".repeat(32))});
+	let result = reconcile(&mut record,proof(),Some(Err(anyhow::anyhow!("node unavailable")))).unwrap();
+	assert_eq!(result["bridge_settled"],true); assert_eq!(result["verified_settlement"],false);
+	assert_eq!(result["node_checked"],false);
+	for field in ["node","hash","invoice","amount"] {
+		let mut row = receipt(&record); record.receive_node_id = Some(row.node_id.clone());
+		match field {
+			"node" => row.node_id = bitcoin::secp256k1::PublicKey::from_secret_key(&Secp256k1::new(),&SecretKey::from_slice(&[9;32]).unwrap()).to_string(),
+			"hash" => row.payment_hash = "00".repeat(32), "invoice" => row.invoice = fixture(Direction::PayBtc).target,
+			_ => row.amount_msat += 1,
+		}
+		let result = reconcile(&mut record,proof(),Some(Ok(row))).unwrap();
+		assert_eq!(result["verified_settlement"],false,"accepted changed {field}"); assert_eq!(result["node_checked"],false);
+	}
+	let mut row = receipt(&record); row.received = false;
+	let result = reconcile(&mut record,proof(),Some(Ok(row))).unwrap();
+	assert_eq!(result["node_checked"],true); assert_eq!(result["verified_settlement"],false);
+}
+#[test]
+fn receiving_node_settlement_survives_bridge_outage_and_restart() {
+	let dir = tempfile::tempdir().unwrap(); let mut record = fixture(Direction::ReceiveXbt);
+	let row = receipt(&record);
+	let result = reconcile(&mut record,Err(anyhow::anyhow!("bridge unavailable")),Some(Ok(row))).unwrap();
+	assert_eq!(result["verified_settlement"],true); assert_eq!(result["bridge_checked"],false);
+	assert_eq!(result["bridge_settled"],false); assert_eq!(result["node_checked"],true);
+	save(dir.path(),&record).unwrap();
+	let restored = records(dir.path()).unwrap().remove(0);
+	assert!(settled(&restored)); assert_eq!(public(&restored).unwrap()["verified_settlement"],true);
+}
+#[test]
+fn legacy_incoming_proof_is_not_mistaken_for_node_receipt() {
+	let mut legacy = serde_json::to_value(fixture(Direction::ReceiveXbt)).unwrap();
+	legacy.as_object_mut().unwrap().remove("receive_node_id"); legacy.as_object_mut().unwrap().remove("verified_receipt");
+	legacy["verified_settlement"] = json!(true);
+	let record: Record = serde_json::from_value(legacy).unwrap(); assert!(!settled(&record));
+	assert_eq!(public(&record).unwrap()["verified_settlement"],false);
+	let mut outgoing = fixture(Direction::PayBtc);
+	let result = reconcile(&mut outgoing,Ok(SwapStatus {state:"settled".into(),preimage:Some("03".repeat(32))}),None).unwrap();
+	assert_eq!(result["verified_settlement"],true);
 }

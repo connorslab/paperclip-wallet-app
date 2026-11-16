@@ -17,6 +17,7 @@ use serde_json::{Value, json};
 
 use crate::ServerState;
 use protocol::{Direction, Invoice, Quote};
+use super::remote_node::{self, BridgeReceipt};
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -35,6 +36,8 @@ struct Record {
 	created: u64,
 	state: String,
 	verified_settlement: bool,
+	#[serde(default)] receive_node_id: Option<String>,
+	#[serde(default)] verified_receipt: bool,
 }
 
 pub fn router() -> Router<Arc<ServerState>> {
@@ -106,7 +109,20 @@ fn public(record: &Record) -> anyhow::Result<Value> {
 	Ok(json!({"direction":record.direction,"hash":record.quote.hash,"target_invoice":record.target,
 		"target_msat":target.msat.to_string(),"hold_invoice":record.quote.hold_invoice,"funding_msat":hold.msat.to_string(),
 		"pay_sat":record.quote.pay_sat,"rate":record.quote.rate,"spread":record.quote.spread,
-		"expires_at":record.quote.expires_at,"created":record.created,"state":record.state,"verified_settlement":record.verified_settlement}))
+		"expires_at":record.quote.expires_at,"created":record.created,"state":record.state,
+		"receive_node_id":record.receive_node_id,"bridge_settled":record.verified_settlement,
+		"verified_settlement":settled(record)}))
+}
+fn settled(record: &Record) -> bool {
+	if record.direction == Direction::ReceiveXbt { record.receive_node_id.is_some() && record.verified_receipt }
+	else { record.verified_settlement }
+}
+fn match_receipt(target: &Invoice, node_id: Option<&str>, receipt: &BridgeReceipt) -> anyhow::Result<()> {
+	ensure!(target.xbt && receipt.payment_hash == target.hash && receipt.invoice == target.text && receipt.amount_msat == target.msat,
+		"Node receipt differs from this bridge request");
+	ensure!(receipt.node_id.parse::<bitcoin::secp256k1::PublicKey>().is_ok() && node_id.is_none_or(|id|id == receipt.node_id),
+		"Reconnect the node that owns this bridge request");
+	Ok(())
 }
 async fn info(State(state): State<Arc<ServerState>>, Query(query): Query<DirectionQuery>) -> (StatusCode, HeaderMap, Json<Value>) {
 	response(async {
@@ -129,17 +145,25 @@ async fn quote(State(state): State<Arc<ServerState>>, Json(input): Json<QuoteReq
 		let _lifecycle = state.wallet_lifecycle.lock().await;
 		let root = root(&state).await?;
 		let _file_lock = bark::lock_manager::platform_default(Some(&root),None)?;
+		let state_ref = &state;
 		retain_quote(&root, input, |target, direction| async move {
 			let client = client()?;
 			ensure!(client.availability(direction).await?.open, "The bridge is paused for this direction");
-			tokio::time::timeout(Duration::from_secs(90),client.quote(&target,direction)).await
-				.map_err(|_|anyhow::anyhow!("Bridge quote timed out. No wallet payment was submitted"))?
+			let node_id = if direction == Direction::ReceiveXbt {
+				let receipt = remote_node::bridge_receipt(state_ref,&target.hash).await?;
+				match_receipt(&target,None,&receipt)?;
+				ensure!(!receipt.received, "This node invoice is already paid. Create a new receive request");
+				Some(receipt.node_id)
+			} else { None };
+			let quote = tokio::time::timeout(Duration::from_secs(90),client.quote(&target,direction)).await
+				.map_err(|_|anyhow::anyhow!("Bridge quote timed out. No wallet payment was submitted"))??;
+			Ok((quote,node_id))
 		}).await
 	}.await)
 }
 // Caller holds the wallet lifecycle, bridge session and directory process locks.
 async fn retain_quote<F, Fut>(root: &Path, input: QuoteRequest, create: F) -> anyhow::Result<Value>
-where F: FnOnce(Invoice, Direction) -> Fut, Fut: Future<Output = anyhow::Result<Quote>> {
+where F: FnOnce(Invoice, Direction) -> Fut, Fut: Future<Output = anyhow::Result<(Quote, Option<String>)>> {
 	let target = Invoice::parse(&input.invoice)?;
 	let file = path(root,input.direction,&target.hash)?;
 	// A timeout at the browser or a restart returns the original quote;
@@ -152,9 +176,10 @@ where F: FnOnce(Invoice, Direction) -> Fut, Fut: Future<Output = anyhow::Result<
 	target.target(input.direction,now())?;
 	ensure!(records(root)?.len() < 1000, "Bridge history needs archival before continuing");
 	let text = target.text.clone();
-	let quote = create(target,input.direction).await?;
+	let (quote,receive_node_id) = create(target,input.direction).await?;
 	quote.validate(&Invoice::parse(&text)?,input.direction,Some(now()))?;
-	let record = Record {direction:input.direction,target:text,quote,created:now(),state:"quoted".into(),verified_settlement:false};
+	let record = Record {direction:input.direction,target:text,quote,created:now(),state:"quoted".into(),verified_settlement:false,
+		receive_node_id,verified_receipt:false};
 	save(root,&record)?; public(&record)
 }
 async fn check(State(state): State<Arc<ServerState>>, Json(input): Json<CheckRequest>) -> (StatusCode, HeaderMap, Json<Value>) {
@@ -164,12 +189,36 @@ async fn check(State(state): State<Arc<ServerState>>, Json(input): Json<CheckReq
 		let root = root(&state).await?;
 		let _file_lock = bark::lock_manager::platform_default(Some(&root),None)?;
 		let mut record = load(&root,&path(&root,input.direction,&input.hash)?)?;
-		if !record.verified_settlement {
-			let status = client()?.status(&record.quote).await?;
-			record.state = status.public_state().to_owned();
-			record.verified_settlement = status.verified_settlement(&record.quote.hash);
-			save(&root,&record)?;
-		}
-		public(&record)
+		if settled(&record) { return public(&record); }
+		// A bridge outage cannot prevent checking the receiving node. Neither
+		// operation creates an invoice, quote, or replacement payment.
+		let (bridge, receipt) = tokio::join!(async { client()?.status(&record.quote).await }, async {
+			if record.direction == Direction::ReceiveXbt {
+				Some(remote_node::bridge_receipt(&state,&record.quote.hash).await)
+			} else { None }
+		});
+		let result = reconcile(&mut record,bridge,receipt)?;
+		save(&root,&record)?; Ok(result)
 	}.await)
+}
+fn reconcile(record: &mut Record, bridge: anyhow::Result<protocol::SwapStatus>, receipt: Option<anyhow::Result<BridgeReceipt>>) -> anyhow::Result<Value> {
+	let bridge_checked = bridge.is_ok();
+	if let Ok(status) = bridge {
+		record.state = status.public_state().to_owned();
+		record.verified_settlement |= status.verified_settlement(&record.quote.hash);
+	}
+	let mut node_checked = false;
+	if record.direction == Direction::ReceiveXbt {
+		if let Some(Ok(receipt)) = receipt {
+			let target = Invoice::parse(&record.target)?;
+			if match_receipt(&target,record.receive_node_id.as_deref(),&receipt).is_ok() {
+				node_checked = true;
+				record.receive_node_id = Some(receipt.node_id);
+				record.verified_receipt |= receipt.received;
+			}
+		}
+	}
+	let mut value = public(record)?;
+	value["bridge_checked"] = json!(bridge_checked); value["node_checked"] = json!(node_checked);
+	Ok(value)
 }

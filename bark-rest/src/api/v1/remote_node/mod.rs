@@ -151,6 +151,27 @@ async fn execute(state: &ServerState, sessions: &mut Sessions, input: Request) -
 	let (root, network) = context(state).await?;
 	execute_at(root, network, sessions, input).await
 }
+// Narrow read-only interface for Bridge reconciliation. The caller holds the
+// wallet lifecycle lock; status reads the original durable receive record and
+// checks the current node's identity, invoice, hash and paid amount.
+pub(super) struct BridgeReceipt {
+	pub node_id: String,
+	pub payment_hash: String,
+	pub invoice: String,
+	pub amount_msat: u64,
+	pub received: bool,
+}
+pub(super) async fn bridge_receipt(state: &ServerState, hash: &str) -> anyhow::Result<BridgeReceipt> {
+	tokio::time::timeout(Duration::from_secs(45), async {
+		let mut sessions = state.remote_node.lock().await;
+		let input = Request { operation:Operation::Status, connection:None, destination:String::new(), amount_sat:None,
+			maximum_fee_sat:None, description:String::new(), request_id:String::new(), payment_hash:hash.into(), receive:true };
+		let record: Record = serde_json::from_value(execute(state, &mut sessions, input).await?)?;
+		ensure!(record.receive && record.payment_hash == hash, "Node returned another receive request");
+		Ok(BridgeReceipt {node_id:record.node_id,payment_hash:record.payment_hash,invoice:record.invoice,
+			amount_msat:record.amount_msat.parse()?,received:record.state == "succeeded"})
+	}).await.map_err(|_|anyhow::anyhow!("Node receipt check timed out. Check this saved request again"))?
+}
 async fn execute_at(root: PathBuf, network: Network, sessions: &mut Sessions, input: Request) -> anyhow::Result<Value> {
 	// Also exclude a second daemon process writing the same saved connection.
 	let _lock = bark::lock_manager::platform_default(Some(&root), None)?;

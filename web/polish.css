@@ -166,3 +166,11 @@ textarea:focus-visible{outline:2px solid var(--focus);outline-offset:4px}
 }
 .activity-paging{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:18px 0}.activity-paging[hidden]{display:none}
 .maker-checklist{list-style:none;padding:0;margin:20px 0;display:grid;gap:10px}.maker-checklist[hidden]{display:none}.maker-checklist li{padding:12px 14px;border:1px solid var(--stroke);border-radius:14px;font-size:13px;line-height:1.5;color:#ffad83}.maker-checklist li[data-ready=true]{color:#a0dfbd;background:#65bc8c08}
+
+/* Bridge availability is separate from the status of any payment. */
+.bridge-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:12px 0 20px}.bridge-heading h2{margin:6px 0}
+.bridge-health{display:inline-flex;align-items:center;gap:7px;border:1px solid var(--stroke);border-radius:99px;padding:6px 10px;font-size:12px;line-height:1.5;color:#c4cedd;white-space:nowrap}
+.bridge-health::before{content:'◌';font-size:14px}.bridge-health[data-state=live]{color:#a0dfbd}.bridge-health[data-state=live]::before{content:'●'}.bridge-health[data-state=paused]{color:#f7c990}.bridge-health[data-state=paused]::before{content:'Ⅱ'}
+.bridge-amounts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin:24px 0}.bridge-amounts>div{padding:18px;border:1px solid var(--stroke);border-radius:18px;background:#101d2f}.bridge-amounts span{display:block;color:var(--muted);font-size:13px}.bridge-amounts strong{display:block;font-size:clamp(20px,3vw,30px);margin-top:12px;overflow-wrap:anywhere}
+#bridge-create{max-width:440px}#bridge-resume{margin-top:24px}#bridge-records .menu-row{margin:12px 0}#bridge-recipient,#bridge-reference{overflow-wrap:anywhere;font-size:13px}#bridge-status:empty{display:none}
+@media(max-width:560px){.bridge-amounts{grid-template-columns:1fr;gap:10px}.bridge-amounts>div{padding:14px}.bridge-amounts strong{margin-top:6px}}
