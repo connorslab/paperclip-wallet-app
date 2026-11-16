@@ -1,6 +1,6 @@
 # iPhone Duo compatibility
 
-Status: automated Duo simulator checks are in progress; physical-device acceptance remains open.
+Status: the safe 17-case Duo simulator suite passes; physical-device acceptance remains open.
 
 The app uses system TabView and NavigationStack containers, supports portrait and
 landscape, and limits shared cards to a readable width. Payment/scanner toolbar
@@ -30,8 +30,8 @@ fit columns before rotation. Tests still require readable content, reachable
 controls, selection/privacy preservation, and restoration of the initial layout.
 Scrolling targets the content view rather than the multi-display application.
 
-On 2026-11-16, the open-display suite passed payment reviews, pairing, Bridge
-status, Jars selection and uncertain-payment recovery. Targeted reruns passed
+On 2026-11-16, the complete open-display suite passed all 17 cases, including
+payment reviews, pairing, Bridge status, Jars selection, uncertain-payment recovery,
 health/backup/assistance, large-text recovery, bond setup, dashboard layout and
 nested tab navigation after correcting the test queries. These are synthetic
 fixtures, not live node or payment acceptance. The full regular-phone suite also

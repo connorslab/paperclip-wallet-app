@@ -1525,5 +1525,39 @@ maturity/freeze revalidation. Three additional recovery cases cover task
 cancellation on either side of submission and disk failure after broadcast,
 including reopen of the durable journal and proof of no second broadcast.
 The local companion suite passes 43 tests with one container-only test skipped.
-Both-architecture CI must separately pass these additions; live bonds, client
-payment flows and physical signer acceptance remain open.
+Both Linux architectures passed all 44 cases at `336a24e` in CI run
+`43971866514`; live bonds, client payment flows and physical signer acceptance
+remain open.
+
+## Device UI and candidate evidence: 2026-11-16
+
+- A complete open-Duo run passed all 17 safe UI cases; the regular-phone run
+  separately passed all 17. Android API 35 passed four payment UI cases and all
+  twelve additional Jars, CLN/LND editor, health, Bridge and adaptive-layout cases.
+  These used isolated/synthetic fixtures and do not replace live or physical-device
+  acceptance.
+- Android's multi-class Gradle invocation executed only its first requested class
+  despite reporting success. The remaining classes were run explicitly and all
+  passed. CI already runs one class at a time; it now also rejects missing, stale,
+  skipped-only, failed or wrong-class XML evidence and includes the CLN/LND editor.
+- All 291 shared wallet unit tests passed, including RBF recipient preservation,
+  authority scoping, restart, stale input and receipt-persistence failure cases.
+  Jars setup/recovery, fee replacement, durable submissions and wallet-race browser
+  suites passed at phone and desktop widths with the installed Chrome channel.
+- StartOS run `43965162919` produced both candidate `0.10.0:5` architectures.
+  Downloaded checksums and source records match wallet `69c0cd8` and wrapper
+  `4126111`. Neither artifact has been installed or accepted for release. They
+  precede the test-only additions at `336a24e`; final frozen-source rebuild,
+  installed backup/restore and payment acceptance remain required.
+- Local Apple signing inventory contains Apple Development and Apple Distribution
+  identities, but no Developer ID identity for the new macOS distribution gate.
+  This inventory does not establish signing or store eligibility on other systems.
+
+The broader `just unit` run reproduced the already documented upstream Ark harness
+limitation in `docs/upgrade-0.10.0.md`: 134 pass, 36 fail, one ignored. Its Bitcoin
+kernel/fixtures cannot serve as XBT consensus acceptance; no signature check was
+disabled and the result remains failed. Current frozen-source XBT Knots acceptance
+and migration of the upstream fixtures remain required. Native compilation needed
+the existing Boost.MultiIndex 1.85 compatibility headers; neither a forced header
+nor the Homebrew 1.92 MPL option alone worked. This reinforces the open reproducible
+native toolchain gate rather than closing it with a local workaround.

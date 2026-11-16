@@ -82,6 +82,7 @@ jobs:
       - name: Test Android app and both distribution formats
         working-directory: mobile/android
         run: |
+          python3 -m unittest discover -s scripts -p 'test_*.py'
           sdkmanager 'platforms;android-37.1' 'build-tools;36.0.0' 'ndk;28.0.13004108' 'cmake;3.22.1'
           # Release-format checks are unsigned and use development native libraries.
           # They are not public release candidates; only the debug preview is uploaded.
