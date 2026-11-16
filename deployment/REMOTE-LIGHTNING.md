@@ -99,3 +99,34 @@ PAPERCLIP_LIVE_CONFIG=/private/path/connections.json \
 The harness performs only connect/refresh/read operations, stores its temporary
 connection under a private test directory, and prints no credentials or remote
 response payloads. It requires both CLN and LND cases and does not run onion cases.
+
+## Browser Bridge node funding
+
+The browser candidate can quote a fixed-amount BTC BOLT11 invoice and fund the
+conversion from its saved XBT CLN or LND node. Incoming conversions remain bound
+to an exact node receive request. Ark funding is not yet implemented in the
+browser; this does not close the complete Bridge parity or live-payment gates.
+
+Outgoing review shows the BTC recipient amount, XBT funding amount, maximum
+routing fee and maximum total. The server binds the review to the original saved
+hold invoice, payment hash, node identity, fee cap and Bridge deadline. It checks
+the deadline again after the asynchronous node identity check. The direct-node
+payment route cannot consume a Bridge review without its server-owned quote terms.
+
+The server retains the Bridge/node binding before starting payment, then reuses
+the existing node journal before network submission. A failed or uncertain attempt
+cannot be resubmitted. A status check may establish that an interrupted preflight
+created no node intent; only that case can return to a fresh explicit review.
+Funding success and BTC settlement are separate. Only verified Bridge settlement
+proof marks the BTC payment settled, and an outage does not clear saved funding.
+
+Internal authenticated, unlocked-wallet routes, with `Cache-Control: no-store`:
+
+- `POST /api/v1/bridge/prepare-funding`: saved outgoing `hash` and
+  `maximum_fee_sat`; returns the conversion and exact single-use node review.
+- `POST /api/v1/bridge/fund`: the same hash/fee plus `request_id`; submits once.
+- `POST /api/v1/bridge/check`: direction/hash; reconciles the original node journal
+  independently from Bridge status, without sending another payment.
+
+These are internal `web-ui` routes, outside the default public OpenAPI schema.
+No credential, private Bridge token or settlement preimage is returned to the UI.

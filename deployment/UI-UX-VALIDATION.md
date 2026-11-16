@@ -370,3 +370,26 @@ inner-display attachments for the send, receive and two-column Lightning screens
 those attachments were inspected.
 These checks use synthetic balances and do not verify a physical Duo, screen-reader
 interaction or a live payment. The full release acceptance matrix remains open.
+
+## Browser outgoing Bridge review: 2026-11-16
+
+StartOS and Umbrel share the new node-funded BTC conversion flow. Entry, exact
+cost review and pages of ten saved conversions keep actions separated. Each
+applicable entry/review/history page has an XBT-to-BTC live-status badge, separate
+from the BTC-to-XBT badge and from settlement. The cost panel uses side-by-side
+amounts on wider screens and stacked amounts on narrow screens. Fee input and
+secondary status actions remain reachable by scrolling; no horizontal overflow
+was observed at the tested widths.
+
+The outgoing browser regression passed with CLN/LND fixtures at 390, 840 and
+1280 pixels across both platform skins. It covers amount mismatch, cancellation,
+expiry while reviewing, lost funding responses, reload recovery, funding success
+without settlement, direction-specific malformed availability, delayed approval
+after navigation, and lock clearing. The complete 19-script browser regression
+suite passed, including existing incoming Bridge, navigation, wallet-switch races,
+remote-node and durable-submission recovery. These are synthetic browser checks,
+not live swaps or physical-device accessibility acceptance.
+
+Inspected screenshots: `/tmp/bridge-outgoing-screens/bridge-send-startos-390.png`
+and `/tmp/bridge-outgoing-screens/bridge-send-umbrel-1280.png`. Full test output is
+in `/tmp/bridge-outgoing-web-suite.log`. Browser Ark funding remains a parity gap.

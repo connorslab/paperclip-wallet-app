@@ -1,6 +1,7 @@
 //! Server-owned bridge quotes. Funding and settlement remain separate states;
-//! these routes never send funds or retry a wallet/node payment.
+//! outgoing funding requires an exact review and never retries a node payment.
 mod client;
+mod funding;
 mod protocol;
 #[cfg(test)]
 mod tests;
@@ -38,11 +39,12 @@ struct Record {
 	verified_settlement: bool,
 	#[serde(default)] receive_node_id: Option<String>,
 	#[serde(default)] verified_receipt: bool,
+	#[serde(default)] funding: Option<funding::Funding>,
 }
 
 pub fn router() -> Router<Arc<ServerState>> {
 	Router::new().route("/info",get(info)).route("/quotes",get(list).post(quote))
-		.route("/check",post(check)).layer(DefaultBodyLimit::max(8192))
+		.route("/check",post(check)).route("/prepare-funding",post(funding::prepare)).route("/fund",post(funding::fund)).layer(DefaultBodyLimit::max(8192))
 }
 fn now() -> u64 { SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs() }
 fn response(result: anyhow::Result<Value>) -> (StatusCode, HeaderMap, Json<Value>) {
@@ -111,7 +113,7 @@ fn public(record: &Record) -> anyhow::Result<Value> {
 		"pay_sat":record.quote.pay_sat,"rate":record.quote.rate,"spread":record.quote.spread,
 		"expires_at":record.quote.expires_at,"created":record.created,"state":record.state,
 		"receive_node_id":record.receive_node_id,"bridge_settled":record.verified_settlement,
-		"verified_settlement":settled(record)}))
+		"verified_settlement":settled(record),"funding":record.funding}))
 }
 fn settled(record: &Record) -> bool {
 	if record.direction == Direction::ReceiveXbt { record.receive_node_id.is_some() && record.verified_receipt }
@@ -179,7 +181,7 @@ where F: FnOnce(Invoice, Direction) -> Fut, Fut: Future<Output = anyhow::Result<
 	let (quote,receive_node_id) = create(target,input.direction).await?;
 	quote.validate(&Invoice::parse(&text)?,input.direction,Some(now()))?;
 	let record = Record {direction:input.direction,target:text,quote,created:now(),state:"quoted".into(),verified_settlement:false,
-		receive_node_id,verified_receipt:false};
+		receive_node_id,verified_receipt:false,funding:None};
 	save(root,&record)?; public(&record)
 }
 async fn check(State(state): State<Arc<ServerState>>, Json(input): Json<CheckRequest>) -> (StatusCode, HeaderMap, Json<Value>) {
@@ -192,12 +194,19 @@ async fn check(State(state): State<Arc<ServerState>>, Json(input): Json<CheckReq
 		if settled(&record) { return public(&record); }
 		// A bridge outage cannot prevent checking the receiving node. Neither
 		// operation creates an invoice, quote, or replacement payment.
-		let (bridge, receipt) = tokio::join!(async { client()?.status(&record.quote).await }, async {
+		let (bridge, receipt, funding) = tokio::join!(async { client()?.status(&record.quote).await }, async {
 			if record.direction == Direction::ReceiveXbt {
 				Some(remote_node::bridge_receipt(&state,&record.quote.hash).await)
 			} else { None }
+		}, async {
+			if record.direction == Direction::PayBtc && record.funding.is_some() { Some(funding::check(&state,&record).await) } else { None }
 		});
-		let result = reconcile(&mut record,bridge,receipt)?;
+		let funding_checked = matches!(funding,Some(Ok(_)));
+		if let Some(Ok(status)) = funding {
+			if let Some(saved) = &mut record.funding { saved.state = status.unwrap_or_else(||"not_submitted".into()); }
+		}
+		let mut result = reconcile(&mut record,bridge,receipt)?;
+		result["funding_checked"] = json!(funding_checked);
 		save(&root,&record)?; Ok(result)
 	}.await)
 }

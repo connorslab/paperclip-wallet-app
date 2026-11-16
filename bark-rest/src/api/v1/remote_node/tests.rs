@@ -166,7 +166,7 @@ async fn node_routes_require_authentication_and_a_loaded_wallet() {
 fn review_cannot_change_hash_node_fee_expiry_or_receive_only_mode() {
 	let fixture = Fixture::new(|_|None);
 	let mut node = Node::new(fixture.connection(Implementation::Lnd),None).unwrap();
-	let mut review = Review { id:"review".into(), invoice:"invoice".into(),hash:"01".repeat(32),node_id:node_id(),amount_msat:100000,fee_sat:10,created:Instant::now() };
+	let mut review = Review { id:"review".into(), invoice:"invoice".into(),hash:"01".repeat(32),node_id:node_id(),amount_msat:100000,fee_sat:10,created:Instant::now(),bridge:None };
 	let approval = json!({"operation":"pay","request_id":"review","payment_hash":review.hash,"maximum_fee_sat":10});
 	assert!(check_review(&review,&input(approval.clone()),&node).is_ok());
 	for (field,value) in [("request_id",json!("other")),("payment_hash",json!("02".repeat(32))),("maximum_fee_sat",json!(11))] {
@@ -199,4 +199,107 @@ async fn saved_credential_is_reused_only_for_the_same_endpoint_and_node() {
 	let mut wrong_identity = retained; wrong_identity.node_id = "02".repeat(33);
 	save(&root.path().join("connection.json"),&wrong_identity).unwrap();
 	assert!(execute_at(root.path().into(),Network::Regtest,&mut sessions,input(json!({"operation":"connect","connection":connection}))).await.unwrap_err().to_string().contains("another node"));
+}
+
+#[tokio::test]
+async fn bridge_funding_uses_the_node_journal_and_never_replays_uncertain_results() {
+	for kind in [Implementation::Cln,Implementation::Lnd] {
+		let root = tempfile::tempdir().unwrap(); private_dir(&root.path().join("payments")).unwrap();
+		let text = test_invoice(true); let hash = invoice(&text,Network::Regtest).unwrap().payment_hash().to_string();
+		let journal = record_path(root.path(),&hash,false).unwrap();
+		let binding = root.path().join("bridge-binding.json"); let at_send = journal.clone(); let at_binding = binding.clone();
+		let fixture = Fixture::new(move |request| {
+			if request.starts_with("POST /v1/pay ") || request.starts_with("POST /v2/router/send ") {
+				assert!(at_binding.exists()); assert_eq!(load::<Record>(&at_send).unwrap().state,"unknown");
+				return None;
+			}
+			if request.contains("/v1/listpays ") { return json_response(json!({"pays":[]})); }
+			if request.contains("/v2/router/track/") { return json_response(json!({"result":{"status":"IN_FLIGHT","payment_hash":sha256::Hash::hash(&[3;32]).to_string()}})); }
+			json_response(if kind == Implementation::Cln { json!({"id":node_id(),"network":"regtest"}) } else { json!({"identity_pubkey":node_id(),"chains":[{"chain":"bitcoin","network":"regtest"}]}) })
+		});
+		save(&root.path().join("connection.json"),&fixture.connection(kind)).unwrap();
+		let mut sessions = Sessions::default(); let deadline = model::now().as_secs() + 300;
+		let review = execute_at(root.path().into(),Network::Regtest,&mut sessions,bridge::request(Operation::Prepare,&text,deadline,"",7,"")).await.unwrap();
+		let id = review["request_id"].as_str().unwrap();
+		// Failure to persist the Bridge binding must happen before any send.
+		assert!(bridge::fund_at(root.path().into(),Network::Regtest,&mut sessions,bridge::request(Operation::Pay,&text,deadline,&hash,7,id),|_|anyhow::bail!("disk unavailable")).await.is_err());
+		assert!(!journal.exists());
+		let result = bridge::fund_at(root.path().into(),Network::Regtest,&mut sessions,bridge::request(Operation::Pay,&text,deadline,&hash,7,id),|id|save(&binding,&json!({"node_id":id}))).await.unwrap();
+		assert_eq!(result["state"],"unknown");
+		let mut restarted = Sessions::default();
+		assert!(bridge::fund_at(root.path().into(),Network::Regtest,&mut restarted,bridge::request(Operation::Pay,&text,deadline,&hash,7,id),|_|panic!("must not retain another attempt")).await.is_err());
+		assert!(execute_at(root.path().into(),Network::Regtest,&mut restarted,bridge::request(Operation::Prepare,&text,deadline,"",7,"")).await.is_err());
+		assert!(bridge::status_at(root.path().into(),Network::Regtest,&mut restarted,&text,&hash,&node_id(),8).await.is_err());
+		assert!(bridge::status_at(root.path().into(),Network::Regtest,&mut restarted,&text,&hash,"other-node",7).await.is_err());
+		let status = bridge::status_at(root.path().into(),Network::Regtest,&mut restarted,&text,&hash,&node_id(),7).await.unwrap();
+		assert!(matches!(status.as_deref(),Some("unknown" | "pending")));
+		assert_eq!(fixture.requests.lock().unwrap().iter().filter(|r|r.starts_with("POST /v1/pay ")||r.starts_with("POST /v2/router/send ")).count(),1);
+	}
+}
+
+#[tokio::test]
+async fn bridge_expiry_during_node_preflight_leaves_no_payment_intent() {
+	let root = tempfile::tempdir().unwrap(); private_dir(&root.path().join("payments")).unwrap();
+	let delay = Arc::new(AtomicBool::new(false)); let wait = delay.clone();
+	let fixture = Fixture::new(move |_| {
+		if wait.load(Ordering::SeqCst) { thread::sleep(Duration::from_secs(2)); }
+		json_response(json!({"identity_pubkey":node_id(),"chains":[{"chain":"bitcoin","network":"regtest"}]}))
+	});
+	save(&root.path().join("connection.json"),&fixture.connection(Implementation::Lnd)).unwrap();
+	let text = test_invoice(true); let hash = invoice(&text,Network::Regtest).unwrap().payment_hash().to_string();
+	let mut sessions = Sessions::default(); let deadline = model::now().as_secs() + 6;
+	let review = execute_at(root.path().into(),Network::Regtest,&mut sessions,bridge::request(Operation::Prepare,&text,deadline,"",1,"")).await.unwrap();
+	delay.store(true,Ordering::SeqCst);
+	let error = bridge::fund_at(root.path().into(),Network::Regtest,&mut sessions,bridge::request(Operation::Pay,&text,deadline,&hash,1,review["request_id"].as_str().unwrap()),|_|Ok(())).await.unwrap_err();
+	assert!(error.to_string().contains("expired"));
+	assert!(!record_path(root.path(),&hash,false).unwrap().exists());
+	assert_eq!(bridge::status_at(root.path().into(),Network::Regtest,&mut sessions,&text,&hash,&node_id(),1).await.unwrap(),None);
+	assert!(fixture.requests.lock().unwrap().iter().all(|r|r.starts_with("GET /v1/getinfo ")));
+}
+
+#[tokio::test]
+async fn bridge_approval_cannot_be_used_by_the_direct_payment_route() {
+	let root = tempfile::tempdir().unwrap(); private_dir(&root.path().join("payments")).unwrap();
+	let fixture = Fixture::new(|_|json_response(json!({"identity_pubkey":node_id(),"chains":[{"chain":"bitcoin","network":"regtest"}]})));
+	save(&root.path().join("connection.json"),&fixture.connection(Implementation::Lnd)).unwrap();
+	let text = test_invoice(true); let mut sessions = Sessions::default();
+	let review = execute_at(root.path().into(),Network::Regtest,&mut sessions,bridge::request(Operation::Prepare,&text,model::now().as_secs()+300,"",1,"")).await.unwrap();
+	let request = input(json!({"operation":"pay","request_id":review["request_id"],"payment_hash":review["payment_hash"],"maximum_fee_sat":1}));
+	assert!(execute_at(root.path().into(),Network::Regtest,&mut sessions,request).await.unwrap_err().to_string().contains("another flow"));
+	assert!(records(root.path()).unwrap().is_empty());
+	assert_eq!(fixture.requests.lock().unwrap().len(),1);
+	assert!(serde_json::from_value::<Request>(json!({"operation":"pay","bridge":{"invoice":text,"expires_at":9999999999u64}})).is_err());
+}
+
+#[tokio::test]
+async fn bridge_node_funding_enforces_the_reviewed_fee_and_retains_success() {
+	for kind in [Implementation::Cln,Implementation::Lnd] {
+		let root = tempfile::tempdir().unwrap(); private_dir(&root.path().join("payments")).unwrap();
+		let text = test_invoice(true); let hash = invoice(&text,Network::Regtest).unwrap().payment_hash().to_string();
+		let journal = record_path(root.path(),&hash,false).unwrap(); let at_send = journal.clone();
+		let fixture = Fixture::new(move |request| {
+			if request.starts_with("POST /v1/pay ") || request.starts_with("POST /v2/router/send ") {
+				let body: Value = serde_json::from_str(request.split_once("\r\n\r\n").unwrap().1).unwrap();
+				assert_eq!(load::<Record>(&at_send).unwrap().maximum_fee_sat,7);
+				if kind == Implementation::Cln { assert_eq!(body["maxfee"],"7000msat"); }
+				else { assert_eq!(body["fee_limit_sat"],"7"); assert_eq!(body["cancelable"],false); }
+				let result = json!({"payment_hash":sha256::Hash::hash(&[3;32]).to_string(),"status":if kind == Implementation::Cln {"complete"} else {"SUCCEEDED"}});
+				return json_response(if kind == Implementation::Cln {result} else {json!({"result":result})});
+			}
+			json_response(if kind == Implementation::Cln {json!({"id":node_id(),"network":"regtest"})} else {json!({"identity_pubkey":node_id(),"chains":[{"chain":"bitcoin","network":"regtest"}]})})
+		});
+		save(&root.path().join("connection.json"),&fixture.connection(kind)).unwrap();
+		let mut sessions = Sessions::default(); let deadline = model::now().as_secs()+300;
+		let review = execute_at(root.path().into(),Network::Regtest,&mut sessions,bridge::request(Operation::Prepare,&text,deadline,"",7,"")).await.unwrap();
+		let id = review["request_id"].as_str().unwrap();
+		for (invoice,expiry,fee) in [(text.as_str(),deadline+1,7),(text.as_str(),deadline,8),("different-invoice",deadline,7)] {
+			assert!(bridge::fund_at(root.path().into(),Network::Regtest,&mut sessions,bridge::request(Operation::Pay,invoice,expiry,&hash,fee,id),|_|panic!("must reject changed terms before retaining intent")).await.is_err());
+		}
+		let result = bridge::fund_at(root.path().into(),Network::Regtest,&mut sessions,bridge::request(Operation::Pay,&text,deadline,&hash,7,id),|_|Ok(())).await.unwrap();
+		assert_eq!(result["state"],"succeeded"); assert_eq!(load::<Record>(&journal).unwrap().state,"succeeded");
+		assert_eq!(bridge::status_at(root.path().into(),Network::Regtest,&mut sessions,&text,&hash,&node_id(),7).await.unwrap().as_deref(),Some("succeeded"));
+		let mut damaged: Record = load(&journal).unwrap(); damaged.amount_msat = "100001".into(); save(&journal,&damaged).unwrap();
+		assert!(bridge::status_at(root.path().into(),Network::Regtest,&mut sessions,&text,&hash,&node_id(),7).await.is_err());
+		assert_eq!(fixture.requests.lock().unwrap().iter().filter(|r|r.starts_with("POST /v1/pay ")||r.starts_with("POST /v2/router/send ")).count(),1);
+	}
 }

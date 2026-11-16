@@ -3,6 +3,7 @@
 //! every payment; an unknown outcome can only be observed, never replayed.
 mod model;
 mod transport;
+pub(super) mod bridge;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
@@ -23,12 +24,14 @@ use transport::{Connection, Node};
 
 #[derive(Default)]
 pub(crate) struct Sessions { reviews: HashMap<PathBuf, Review> }
-struct Review { id: String, invoice: String, hash: String, node_id: String, amount_msat: u64, fee_sat: u64, created: Instant }
+struct Review { id: String, invoice: String, hash: String, node_id: String, amount_msat: u64, fee_sat: u64, created: Instant, bridge: Option<bridge::Terms> }
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Request {
 	operation: Operation,
+	// Only the server-owned Bridge flow can attach quote terms.
+	#[serde(skip)] bridge: Option<bridge::Terms>,
 	connection: Option<Connection>,
 	#[serde(default)] destination: String,
 	amount_sat: Option<u64>,
@@ -145,6 +148,8 @@ fn check_review(review: &Review, input: &Request, node: &Node) -> anyhow::Result
 	ensure!(review.id == input.request_id && review.hash == input.payment_hash && input.maximum_fee_sat == Some(review.fee_sat)
 		&& review.node_id == node.connection.node_id && review.created.elapsed() < Duration::from_secs(60), "Payment review changed or expired. Review again; nothing was submitted");
 	ensure!(!node.connection.receive_only, "This connection is set to receive only");
+	ensure!(review.bridge == input.bridge, "Payment review belongs to another flow. Review again");
+	if let Some(terms) = &review.bridge { terms.validate(&review.invoice)?; }
 	Ok(())
 }
 async fn execute(state: &ServerState, sessions: &mut Sessions, input: Request) -> anyhow::Result<Value> {
@@ -165,7 +170,7 @@ pub(super) async fn bridge_receipt(state: &ServerState, hash: &str) -> anyhow::R
 	tokio::time::timeout(Duration::from_secs(45), async {
 		let mut sessions = state.remote_node.lock().await;
 		let input = Request { operation:Operation::Status, connection:None, destination:String::new(), amount_sat:None,
-			maximum_fee_sat:None, description:String::new(), request_id:String::new(), payment_hash:hash.into(), receive:true };
+			maximum_fee_sat:None, description:String::new(), request_id:String::new(), payment_hash:hash.into(), receive:true, bridge:None };
 		let record: Record = serde_json::from_value(execute(state, &mut sessions, input).await?)?;
 		ensure!(record.receive && record.payment_hash == hash, "Node returned another receive request");
 		Ok(BridgeReceipt {node_id:record.node_id,payment_hash:record.payment_hash,invoice:record.invoice,
@@ -223,7 +228,8 @@ async fn execute_at(root: PathBuf, network: Network, sessions: &mut Sessions, in
 			let hash = parsed.payment_hash().to_string();
 			ensure!(!record_path(&root, &hash, false)?.exists(), "This invoice already has a payment attempt. Check its status; it will not be resent");
 			let review = Review { id: sha256::Hash::hash(&bitcoin::secp256k1::rand::random::<[u8;32]>()).to_string(), invoice:text, hash,
-				node_id:node.connection.node_id.clone(), amount_msat:amount, fee_sat:fee, created:Instant::now() };
+				node_id:node.connection.node_id.clone(), amount_msat:amount, fee_sat:fee, created:Instant::now(), bridge:input.bridge };
+			if let Some(terms) = &review.bridge { terms.validate(&review.invoice)?; }
 			let result = review_value(&review); sessions.reviews.insert(root, review); Ok(result)
 		},
 		Operation::Pay => {

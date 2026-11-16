@@ -174,3 +174,5 @@ textarea:focus-visible{outline:2px solid var(--focus);outline-offset:4px}
 .bridge-amounts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin:24px 0}.bridge-amounts>div{padding:18px;border:1px solid var(--stroke);border-radius:18px;background:#101d2f}.bridge-amounts span{display:block;color:var(--muted);font-size:13px}.bridge-amounts strong{display:block;font-size:clamp(20px,3vw,30px);margin-top:12px;overflow-wrap:anywhere}
 #bridge-create{max-width:440px}#bridge-resume{margin-top:24px}#bridge-records .menu-row{margin:12px 0}#bridge-recipient,#bridge-reference{overflow-wrap:anywhere;font-size:13px}#bridge-status:empty{display:none}
 @media(max-width:560px){.bridge-amounts{grid-template-columns:1fr;gap:10px}.bridge-amounts>div{padding:14px}.bridge-amounts strong{margin-top:6px}}
+
+#bridge-pay-check{margin-top:.75rem}#bridge-pay-approve input{max-width:24rem}

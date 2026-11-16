@@ -11,7 +11,7 @@
   const context = () => ({wallet:walletContext(),epoch});
   const current = value => value.epoch === epoch && currentWallet(value.wallet) && !!token && !$('wallet').hidden && !PaperclipAccounts.selectedId;
   const active = () => !!token && !$('wallet').hidden && !PaperclipAccounts.selectedId;
-  const visible = () => active() && !document.hidden && (view === 'lightning' || view === 'node' || view.startsWith('bridge'));
+  const visible = () => active() && !document.hidden && (view === 'lightning' || view === 'node' || ['bridge','bridge-detail','bridge-activity'].includes(view));
   function sats(value, currency) {
     const amount = BigInt(value), fraction = amount % 1000n;
     return (amount / 1000n).toLocaleString() + (fraction ? '.' + String(fraction).padStart(3,'0').replace(/0+$/,'') : '') + ' ' + currency + ' sats';
@@ -30,7 +30,7 @@
     const valid = health && age >= 0 && age < 90000;
     const state = valid && health.open === true ? 'live' : valid && health.open === false ? 'paused' : !health && healthPending ? 'checking' : 'unknown';
     const text = {live:'Live',paused:'Paused',checking:'Checking…',unknown:'Status unknown'}[state];
-    for (const element of document.querySelectorAll('[data-bridge-health]')) {
+    for (const element of document.querySelectorAll('[data-bridge-health]:not([data-bridge-health="toSHA256"])')) {
       element.textContent = 'Bridge · ' + text; element.dataset.state = state;
       element.title = 'BTC → XBT availability. This does not confirm a payment.';
     }
@@ -77,7 +77,7 @@
     $('bridge-deadline').textContent = expired(row) ? 'This invoice is no longer available to pay.' : 'Pay by ' + new Date(row.expires_at * 1000).toLocaleString();
     $('bridge-recipient').textContent = row.receive_node_id; $('bridge-reference').textContent = row.hash;
     $('bridge-rate').textContent = 'Quoted rate: ' + row.rate.toLocaleString() + ' · spread: ' + (row.spread * 100).toLocaleString() + '%';
-    const payable = node(row.receive_node_id) && !expired(row) && !row.verified_settlement && row.state === 'quoted';
+    const payable = node(row.receive_node_id) && !expired(row) && !row.verified_settlement && ['quoted','offered'].includes(row.state);
     $('bridge-show').hidden = !payable; $('bridge-check').hidden = row.verified_settlement;
     if (!payable) clearShare();
   }
@@ -136,7 +136,7 @@
     validate(result);
     if (result.hash !== invoice.payment_hash || result.receive_node_id !== invoice.node_id || result.target_msat !== invoice.amount_msat || result.target_invoice !== invoice.invoice) throw new Error('The conversion differs from your node request. Do not pay it.');
     remember(result); clearShare();
-    if (view.startsWith('bridge')) PaperclipNavigation.show('bridge-detail');
+    if (['bridge','bridge-detail','bridge-activity'].includes(view)) PaperclipNavigation.show('bridge-detail');
     $('bridge-status').textContent = 'Review both amounts, then share the BTC invoice.';
   }
   $('bridge-create').onsubmit = event => {
@@ -173,7 +173,7 @@
     $('bridge-status').textContent = result.verified_settlement ? 'Payment received and verified by your node.' : result.node_checked === false ? 'Your node could not verify receipt. Reconnect the original node and check again.' : 'Your node has not received this payment yet. Check this request again shortly.';
   });
   $('bridge-show').onclick = () => {
-    if (!selected || !node(selected.receive_node_id) || expired(selected) || selected.verified_settlement || selected.state !== 'quoted') return;
+    if (!selected || !node(selected.receive_node_id) || expired(selected) || selected.verified_settlement || !['quoted','offered'].includes(selected.state)) return;
     $('bridge-share').hidden = false; $('bridge-invoice').textContent = selected.hold_invoice;
     PaperclipReceive.show('bridge-invoice',selected.hold_invoice,'Pay with a BTC Lightning wallet',{hint:'Pay this invoice once. Your node receives the quoted XBT amount.'});
   };
@@ -183,7 +183,7 @@
     const next = globalThis.PaperclipAccounts?.generation ?? 0;
     if (generation !== next) { clear(); generation = next; }
     view = event.detail;
-    if (!view.startsWith('bridge')) clearShare();
+    if (!['bridge','bridge-detail','bridge-activity'].includes(view)) clearShare();
     $('bridge-home').hidden = view !== 'bridge'; $('bridge-detail').hidden = view !== 'bridge-detail'; $('bridge-activity').hidden = view !== 'bridge-activity';
     $('bridge-back').hidden = view === 'bridge'; $('bridge-back-lightning').hidden = view !== 'bridge';
     if (view === 'bridge-detail') detail();

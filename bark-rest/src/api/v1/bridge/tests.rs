@@ -19,11 +19,11 @@ fn invoice(xbt: bool, amount: u64, hash: &[u8], currency: Currency, expiry: u64)
 	}
 	raw.sign::<_,()>(|message|Ok(Secp256k1::new().sign_ecdsa_recoverable(message,&SecretKey::from_slice(&[2;32]).unwrap()))).unwrap().to_string()
 }
-fn fixture(direction: Direction) -> Record {
+pub(super) fn fixture(direction: Direction) -> Record {
 	let target = invoice(direction == Direction::ReceiveXbt,100_000,&[3;32],Currency::Bitcoin,3600);
 	let hold = invoice(direction != Direction::ReceiveXbt,200_001,&[3;32],Currency::Bitcoin,1800);
 	let quote = Quote { hold_invoice:hold,hash:sha256::Hash::hash(&[3;32]).to_string(),sat:100.0,pay_sat:201,rate:2.0,spread:0.01,expires_at:1_001_800,token:"ab".repeat(16) };
-	Record {direction,target,quote,created:1_000_001,state:"quoted".into(),verified_settlement:false,receive_node_id:None,verified_receipt:false}
+	Record {direction,target,quote,created:1_000_001,state:"quoted".into(),verified_settlement:false,receive_node_id:None,verified_receipt:false,funding:None}
 }
 #[test]
 fn quote_binds_both_networks_amounts_hash_and_expiry() {
@@ -125,6 +125,8 @@ async fn routes_require_authentication_and_an_unlocked_wallet() {
 	for (path,method,body) in [
 		("/bridge/info?direction=toSHA256","GET",""),("/bridge/quotes","GET",""),
 		("/bridge/quotes","POST",r#"{"direction":"toSHA256","invoice":"fixture"}"#),
+		("/bridge/prepare-funding","POST",r#"{"hash":"fixture","maximum_fee_sat":10}"#),
+		("/bridge/fund","POST",r#"{"hash":"fixture","maximum_fee_sat":10,"request_id":"fixture"}"#),
 		("/bridge/check","POST",r#"{"direction":"toSHA256","hash":"fixture"}"#),
 	] {
 		let request = Request::builder().method(method).uri(path).header("content-type","application/json").body(Body::from(body)).unwrap();

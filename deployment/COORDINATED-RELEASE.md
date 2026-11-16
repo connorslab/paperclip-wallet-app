@@ -54,7 +54,7 @@ does not establish parity. Native UI and background scheduling can differ.
 | Lightning through Ark | Shared BOLT11/BOLT12 engine and enforced reviewed debit | Same engine, fixed-amount review and debit capability | Verify live against corrected service; keep unknown outcomes from being resent |
 | Remote CLN and XBT LND | Both adapters, Tor, TLS, BOLT12, balances and status | Direct-node adapters, private credential storage, reviewed sends and durable status implemented | Live node, container Tor and platform package acceptance pending; see REMOTE-LIGHTNING.md |
 | Multiple / hardware / watch-only wallets | Implemented in mobile candidate, visible wallet switcher | Hot/public-account switcher, QR and watch-only pairing, public export/removal, verified signing and durable broadcast journal | Physical Krux round trips, desktop multiple hot profiles, QR-funded Ark boarding and full recovery |
-| Paperclip Bridge | Both mobile directions implemented, with separate availability and payment status | Incoming BTC-to-XBT node flow, quote review, history and exact node receipt implemented | Outgoing browser funding flow and live swap acceptance remain |
+| Paperclip Bridge | Both mobile directions implemented, with separate availability and payment status | Both node-funded directions, quote review, history and exact receipt/settlement checks implemented | Outgoing browser Ark funding and live swap acceptance remain |
 | JoinBlaket / Jam | Five jars, remote session, receive, reviewed maker controls | Same tasks through authenticated fixed-upstream proxy | Actual Kilombino XBT Jam endpoint, live validation, bond setup and taker flows |
 | Existing Kilojoin funds | Recovery UI retained; new rounds rejected before database access | No new Kilojoin entry point | Verify existing-round completion and withdrawal on upgraded wallets |
 | Backups / upgrades | Encrypted full backups and scoped mobile wallet state | Complete volume backups | Restore tests, update migrations and desktop backup UX |
@@ -430,3 +430,35 @@ These results are not production upgrades or acceptance of later source changes.
 
 Linux build-only run `43825088026` passed AMD64 and ARM64 at `a7439f1`, including
 the latest server Bridge receive changes. The publishing job was skipped.
+
+## Browser Bridge outgoing node payments: 2026-11-16
+
+The shared desktop/StartOS/Umbrel candidate now has an outgoing conversion flow
+for BTC BOLT11 invoices funded by the saved XBT CLN or LND node. Separate entry,
+review and paginated activity pages show direction-specific live availability.
+The review distinguishes the BTC recipient amount, XBT funding, routing fee cap
+and maximum XBT total. Node funding alone never displays BTC settlement success.
+
+The backend reuses the node's durable send journal and consumes an exact review
+once. Quote expiry is rechecked after the final asynchronous node preflight.
+Interrupted funding stays visible after reload/restart and cannot be replayed.
+Only a journal check proving that preflight never submitted can permit a fresh
+review. Delayed browser responses cannot restore approval after lock, navigation
+or a visibility change. Waiting `offered` quotes remain reviewable, matching the
+existing mobile Bridge state mapping.
+
+Validation passed: 63 REST unit tests (one live opt-in test skipped), all 19
+browser regression scripts, API/client regeneration and `just checks`. New browser
+checks cover both hosts and both node adapters at 390, 840 and 1280 pixels,
+including expiry during review, lost responses, restart recovery, changed amounts,
+lock/navigation cancellation and the distinction between funding and settlement.
+Synthetic TLS node tests cover exact fee enforcement, changed quote terms, a
+failed durable write, expiry during node preflight and no replay after restart.
+Compact and wide screenshots were inspected. This implementation is not a live
+swap, deployment or funded upgrade acceptance. Outgoing **Ark** funding in the browser, live Bridge tests,
+container/platform acceptance, device recovery, signing and the other open matrix
+gates remain unfinished. No live funds were used for this change.
+
+Android CI run `43829075539` passed both native architectures and API 35/36 at
+`47ec7dc`. This verifies the preceding mobile review-lifetime/navigation revision,
+not a physical-device upgrade or the newer browser Bridge changes.
