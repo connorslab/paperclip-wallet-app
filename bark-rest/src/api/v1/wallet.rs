@@ -31,7 +31,9 @@ pub fn router() -> Router<Arc<ServerState>> {
 		.route("/connected", get(connected))
 		.route("/identity", get(identity))
 		.route("/create", post(create_wallet))
+		.route("/create-with-entropy", post(create_wallet_with_entropy))
 		.route("/platform-node", get(platform_node))
+		.route("/creation-options", get(creation_options))
 		.route("/mnemonic", get(mnemonic))
 		.route("/ark-info", get(ark_info))
 		.route("/debug-info", get(debug_info))
@@ -66,6 +68,7 @@ pub fn router() -> Router<Arc<ServerState>> {
 		wallet_delete,
 		connected,
 		create_wallet,
+		create_wallet_with_entropy,
 		mnemonic,
 		ark_info,
 		debug_info,
@@ -102,6 +105,7 @@ pub fn router() -> Router<Arc<ServerState>> {
 		bark_json::web::WalletDeleteResponse,
 		bark_json::web::ConnectedResponse,
 		bark_json::web::CreateWalletRequest,
+		bark_json::web::SeedGeneration,
 		bark_json::web::CreateWalletResponse,
 		bark_json::web::MnemonicResponse,
 		bark_json::cli::ArkInfo,
@@ -285,11 +289,36 @@ pub async fn create_wallet(
 	}
 }
 
+/// A distinct route prevents an older host from ignoring the entropy field and
+/// silently creating a different wallet with its default random source.
+#[utoipa::path(
+	post,
+	path = "/create-with-entropy",
+	summary = "Create a wallet with an explicit entropy source",
+	request_body = bark_json::web::CreateWalletRequest,
+	responses((status = 200, description = "Wallet created", body = bark_json::web::CreateWalletResponse)),
+	tag = "wallet"
+)]
+async fn create_wallet_with_entropy(
+	State(state): State<Arc<ServerState>>,
+	Json(req): Json<bark_json::web::CreateWalletRequest>,
+) -> HandlerResult<Json<bark_json::web::CreateWalletResponse>> {
+	if req.seed_generation.is_none() || req.mnemonic.is_some() {
+		badarg!("Choose one new-wallet entropy source without a restore phrase");
+	}
+	create_wallet(State(state), Json(req)).await
+}
+
 /// Return availability only; RPC credentials stay on the server.
 async fn platform_node() -> Json<serde_json::Value> {
 	let available = std::env::var("PAPERCLIP_PLATFORM_CONNECTION")
 		.ok().is_some_and(|path| std::path::Path::new(&path).is_file());
 	Json(serde_json::json!({"available": available}))
+}
+
+async fn creation_options() -> Json<serde_json::Value> {
+	Json(serde_json::json!({"version": 1, "methods": ["system", "dice"], "words": [12, 24],
+		"dice_sides": [6, 12, 20], "maximum_rolls": 1000, "dice_derivation": "paperclip-dice-v1"}))
 }
 
 #[utoipa::path(

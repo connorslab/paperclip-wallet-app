@@ -15,7 +15,7 @@ function fixture(network, lightningEnabled = true, empty = false) {
     return elements.get(id);
   };
   let failPath = null;
-  const context = vm.createContext({crypto:webcrypto, window: {addEventListener() {}}, PaperclipReview: {ask: async () => true, cancel() {}}, PaperclipReceive: {show() {}, clear() {}}, document: {getElementById: element, createElement: () => ({textContent:'',append() {}})}, confirm: () => true, URL, btoa, AbortController, setTimeout, clearTimeout, setInterval: () => {}, sessionStorage: { getItem: () => null, setItem() {}, removeItem() {} },
+  const context = vm.createContext({crypto:webcrypto, window: {addEventListener() {}}, PaperclipReview: {ask: async () => true, cancel() {}}, PaperclipReceive: {show() {}, clear() {}}, document: {addEventListener() {}, getElementById: element, createElement: () => ({textContent:'',append() {}})}, confirm: () => true, URL, btoa, AbortController, setTimeout, clearTimeout, setInterval: () => {}, sessionStorage: { getItem: () => null, setItem() {}, removeItem() {} },
     fetch: async (path, options) => {
       if(path.endsWith('/submissions/ack'))return {ok:true,status:200,json:async()=>({id:JSON.parse(options.body).id,acknowledged:true})};
       if(path.endsWith('/submissions')&&options.method==='GET')return {ok:true,status:200,json:async()=>({version:1,pending:[],recent:[]})};
@@ -24,6 +24,7 @@ function fixture(network, lightningEnabled = true, empty = false) {
       calls.push({path, options});
       if (failPath && path.endsWith(failPath)) throw Error('Transport interrupted');
       const result = path.endsWith('/wallet') ? {fingerprint: empty ? null : 'test-fingerprint'}
+        : path.endsWith('/wallet/creation-options') ? {version:1,methods:['system','dice'],words:[12,24],dice_derivation:'paperclip-dice-v1'}
         : path.endsWith('/wallet/identity') ? {network, exit_profile: 2, submission_journal:1, lightning_enabled: lightningEnabled, lightning_debit_limit: true}
         : path.endsWith('/fees/ark/send') ? {recipient_amount_sat: JSON.parse(options.body).amount_sat, recovery_reserve_sat: 6000, service_fee_sat: 0, total_debit_sat: JSON.parse(options.body).amount_sat + 6000, remaining_spendable_sat: 92000, input_count: 1, vtxos_spent: ['test-vtxo']}
         : path.endsWith('/fees/lightning/review') ? {net_amount_sat: JSON.parse(options.body).amount_sat ?? 2000, fee_sat: 6000, gross_amount_sat: (JSON.parse(options.body).amount_sat ?? 2000) + 6000, vtxos_spent: ['test-vtxo']}
@@ -140,22 +141,24 @@ for (const interrupted of [false, true]) {
   f.element('setup-user').value = 'rpc-user';
   f.element('setup-password').value = 'test-password';
   f.element('setup-ack').checked = false;
+  f.element('setup-seed-method').value = 'system';
+  f.element('setup-seed-words').value = '12';
   await f.trigger('create-wallet', 'onsubmit');
   assert(!f.calls.some(c => c.options.method === 'POST'));
   f.element('setup-ack').checked = true;
-  if (interrupted) f.fail('/wallet/create');
+  if (interrupted) f.fail('/wallet/create-with-entropy');
   await f.trigger('create-wallet', 'onsubmit');
-  const creation = f.calls.filter(c => c.path.endsWith('/wallet/create'));
+  const creation = f.calls.filter(c => c.path.endsWith('/wallet/create-with-entropy'));
   assert.equal(creation.length, 1);
   assert.deepEqual(JSON.parse(creation[0].options.body), {
-    network: 'regtest', ark_server: 'http://asp:3535', force: false,
+    network: 'regtest', ark_server: 'http://asp:3535', force: false, seed_generation:{method:'system',words:12},
     chain_source: {bitcoind: {bitcoind: 'http://selected-knots:18443',
       bitcoind_auth: {'user-pass': {user: 'rpc-user', pass: 'test-password'}}}}
   });
   assert.equal(f.element('setup-password').value, '');
   if (interrupted) {
     await f.trigger('create-wallet', 'onsubmit');
-    assert.equal(f.calls.filter(c => c.path.endsWith('/wallet/create')).length, 1);
+    assert.equal(f.calls.filter(c => c.path.endsWith('/wallet/create-with-entropy')).length, 1);
     await f.trigger('setup-lock');
     assert.equal(f.element('setup').hidden, true);
   }

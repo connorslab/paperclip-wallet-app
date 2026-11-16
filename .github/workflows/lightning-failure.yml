@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
   push:
     branches: ['fix/lightning-failed-payment-costs', 'codex/cross-platform-parity']
-    paths: ['bark/**', 'bark-json/**', 'bark-rest/**', 'mobile/rust/**', 'Cargo.lock', '.github/workflows/lightning-failure.yml']
+    paths: ['bark/**', 'bark-cli/**', 'bark-json/**', 'bark-rest/**', 'mobile/rust/**', 'Cargo.lock', 'justfile', '.github/workflows/lightning-failure.yml']
 permissions:
   contents: read
 jobs:
@@ -32,6 +32,8 @@ jobs:
       - run: nix develop .#build --command just unit-wallet onchain::qr
       - run: nix develop .#build --command just unit-wallet onchain::replacement
       - run: nix develop .#build --command just unit-rest
+      - run: nix develop .#build --command just unit-creation
+      - run: nix develop .#build --command just unit-support
       - run: nix develop .#build --command just unit funded_lightning
       - run: nix develop .#build --command just unit lightning_send_lifetime
       - name: Generate API documentation

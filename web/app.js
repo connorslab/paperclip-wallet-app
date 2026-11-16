@@ -156,8 +156,52 @@ function setupBackend() {
   }
 }
 $('setup-backend').onchange = setupBackend;
+function setupDiceClear() {
+  $('setup-dice-rolls').value = ''; $('setup-dice-ack').checked = false;
+  setupSeedDisplay();
+}
+function setupDiceRolls() {
+  const text = $('setup-dice-rolls').value.trim();
+  const parts = text ? text.split(/[\s,]+/) : [];
+  const sides = Number($('setup-dice-sides').value);
+  if (parts.length > 1000 || parts.some(value => !/^[1-9][0-9]?$/.test(value) || Number(value) > sides))
+    throw new Error('Enter valid physical dice rolls, up to 1000.');
+  return parts.map(Number);
+}
+function setupSeedDisplay() {
+  const dice = $('setup-seed-method').value === 'dice';
+  $('setup-dice').hidden = !dice; $('setup-system-note').hidden = dice;
+  $('setup-seed-summary').textContent = (dice ? 'Physical D' + $('setup-dice-sides').value + ' dice' : 'Secure system random') + ' \u00b7 ' + $('setup-seed-words').value + ' words';
+  const minimum = {6:50,12:36,20:30}[$('setup-dice-sides').value] * ($('setup-seed-words').value === '24' ? 2 : 1);
+  try { $('setup-dice-progress').textContent = setupDiceRolls().length + ' of ' + minimum + ' required rolls \u00b7 up to 1000'; }
+  catch (error) { $('setup-dice-progress').textContent = error.message; }
+}
+function setupGeneration() {
+  const method = $('setup-seed-method').value, words = Number($('setup-seed-words').value);
+  if (!['system','dice'].includes(method) || ![12,24].includes(words)) throw new Error('Choose a seed source and 12 or 24 words.');
+  if (method === 'system') return {method, words};
+  const host = window.location.hostname;
+  if (window.location.protocol !== 'https:' && !['localhost','127.0.0.1','[::1]'].includes(host) && !/^[a-z2-7]{56}\.onion$/.test(host))
+    throw new Error('Use HTTPS, your Tor onion address, or a local desktop connection before entering private dice rolls.');
+  const sides = Number($('setup-dice-sides').value), rolls = setupDiceRolls();
+  if (![6,12,20].includes(sides) || rolls.length < {6:50,12:36,20:30}[sides] * (words === 24 ? 2 : 1) || !$('setup-dice-ack').checked)
+    throw new Error('Complete the required rolls and confirm that you used fair physical dice.');
+  return {method, words, sides, rolls, fair_dice_acknowledged:true};
+}
+for (const id of ['setup-seed-method','setup-dice-sides']) $(id).onchange = setupDiceClear;
+$('setup-seed-words').onchange = () => { $('setup-dice-ack').checked = false; setupSeedDisplay(); };
+$('setup-dice-rolls').oninput = setupSeedDisplay;
+// A revision also invalidates a review if fields change and then change back.
+let setupRevision = 0;
+$('create-wallet').addEventListener('input', () => { setupRevision++; });
+$('create-wallet').addEventListener('change', () => { setupRevision++; });
+window.addEventListener('pagehide', () => { setupRevision++; setupDiceClear(); });
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) { setupRevision++; setupDiceClear(); if (!$('setup').hidden) PaperclipReview.cancel(); }
+});
 $('create-wallet').onsubmit = event => { event.preventDefault(); run(event.submitter, async () => {
   if (!token || setupPending) throw new Error('Lock and unlock to check whether the previous setup completed before retrying.');
+  const setupSession = token, revision = setupRevision;
   const selected = $('setup-network').value;
   if (!['mainnet', 'regtest'].includes(selected) || !$('setup-ack').checked) throw new Error('Choose the network and confirm the backup requirement.');
   const body = {
@@ -165,17 +209,28 @@ $('create-wallet').onsubmit = event => { event.preventDefault(); run(event.submi
     chain_source: $('setup-backend').value === 'installed' ? 'platform' : {bitcoind: {
       bitcoind: endpoint('setup-rpc', ['http:', 'https:']),
       bitcoind_auth: {'user-pass': {user: $('setup-user').value, pass: $('setup-password').value}}
-    }}, force: false
+    }}, force: false, seed_generation: setupGeneration()
   };
   if (body.chain_source !== 'platform' && (!body.chain_source.bitcoind.bitcoind_auth['user-pass'].user || !body.chain_source.bitcoind.bitcoind_auth['user-pass'].pass)) throw new Error('RPC credentials are required.');
-  if (!await PaperclipReview.ask('Create a new wallet on XBT ' + selected + '? For an existing wallet, cancel and restore its complete backup instead.')) return;
+  const options = await api('wallet/creation-options');
+  if (options?.version !== 1 || options.dice_derivation !== 'paperclip-dice-v1' ||
+      !Array.isArray(options.methods) || !Array.isArray(options.words) ||
+      !options.methods?.includes(body.seed_generation.method) || !options.words?.includes(body.seed_generation.words))
+    throw new Error('Update your Paperclip host before creating a wallet with these entropy options.');
+  if (token !== setupSession || setupRevision !== revision || $('setup').hidden) throw new Error('Setup changed. Review it again.');
+  const choice = body.seed_generation.method === 'dice' ? 'physical D' + body.seed_generation.sides + ' dice only' : 'secure system randomness';
+  if (!await PaperclipReview.ask('Create a new wallet on XBT ' + selected + ' with ' + body.seed_generation.words + ' words from ' + choice + '? For an existing wallet, cancel and restore its complete backup instead.')) return;
+  if (token !== setupSession || setupRevision !== revision || $('setup').hidden) throw new Error('Setup changed. Review it again.');
   setupPending = true;
-  $('setup-password').value = '';
-  await api('wallet/create', body);
+  $('setup-password').value = ''; setupDiceClear();
+  try { await api('wallet/create-with-entropy', body); }
+  finally { body.seed_generation.rolls?.fill(0); }
+  if (token !== setupSession || setupRevision !== revision) return;
   setupPending = false;
   await connectWallet();
 }); };
 $('setup-lock').onclick = () => {
+  setupRevision++; setupDiceClear();
   token = ''; $('setup-password').value = ''; $('setup').hidden = true; $('login').hidden = false;
   status('Setup locked. Unlock to check wallet state.');
 };

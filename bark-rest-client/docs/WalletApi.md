@@ -10,6 +10,7 @@ Method | HTTP request | Description
 [**bip321_uri**](WalletApi.md#bip321_uri) | **POST** /api/v1/wallet/bip321 | Build a BIP 321 payment URI
 [**connected**](WalletApi.md#connected) | **GET** /api/v1/wallet/connected | Check server connection
 [**create_wallet**](WalletApi.md#create_wallet) | **POST** /api/v1/wallet/create | Create a wallet
+[**create_wallet_with_entropy**](WalletApi.md#create_wallet_with_entropy) | **POST** /api/v1/wallet/create-with-entropy | Create a wallet with an explicit entropy source
 [**debug_info**](WalletApi.md#debug_info) | **GET** /api/v1/wallet/debug-info | Get wallet debug info
 [**get_vtxo**](WalletApi.md#get_vtxo) | **GET** /api/v1/wallet/vtxos/{id} | Get VTXO detail
 [**get_vtxo_encoded**](WalletApi.md#get_vtxo_encoded) | **GET** /api/v1/wallet/vtxos/{id}/encoded | Get encoded VTXO
@@ -181,6 +182,34 @@ This endpoint does not need any parameter.
 Create a wallet
 
 Creates a new wallet with the specified Ark server and chain source configuration. Fails if a wallet already exists. Returns the wallet fingerprint on success.
+
+### Parameters
+
+
+Name | Type | Description  | Required | Notes
+------------- | ------------- | ------------- | ------------- | -------------
+**create_wallet_request** | [**CreateWalletRequest**](CreateWalletRequest.md) |  | [required] |
+
+### Return type
+
+[**models::CreateWalletResponse**](CreateWalletResponse.md)
+
+### Authorization
+
+[bearer](../README.md#bearer)
+
+### HTTP request headers
+
+- **Content-Type**: application/json
+- **Accept**: application/json
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
+
+
+## create_wallet_with_entropy
+
+> models::CreateWalletResponse create_wallet_with_entropy(create_wallet_request)
+Create a wallet with an explicit entropy source
 
 ### Parameters
 

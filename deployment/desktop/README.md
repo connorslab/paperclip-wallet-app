@@ -14,7 +14,9 @@ python3 deployment/desktop/test_native_daemon.py --binary /absolute/path/to/pape
 This check creates an isolated, unfunded data directory and binds only loopback.
 It checks shared UI assets, owner authentication, cross-origin preflight denial,
 Unix file permissions, graceful shutdown and authentication preservation across
-restart. It does not create wallet keys, use real credentials or contact nodes.
+restart. It also checks advertised entropy choices and rejects invalid generation
+requests before wallet creation. It does not create wallet keys, use real
+credentials or contact nodes.
 Windows ACL acceptance remains separate from the Unix mode checks.
 
 Open work includes the OS-specific launcher and authenticated browser handoff,

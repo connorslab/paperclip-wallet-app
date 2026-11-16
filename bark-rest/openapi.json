@@ -3029,6 +3029,37 @@
         }
       }
     },
+    "/api/v1/wallet/create-with-entropy": {
+      "post": {
+        "tags": [
+          "wallet"
+        ],
+        "summary": "Create a wallet with an explicit entropy source",
+        "operationId": "create_wallet_with_entropy",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateWalletRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Wallet created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateWalletResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/wallet/debug-info": {
       "get": {
         "tags": [
@@ -4662,6 +4693,17 @@
           "network": {
             "$ref": "#/components/schemas/BarkNetwork",
             "description": "The network to use for the wallet"
+          },
+          "seed_generation": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/SeedGeneration",
+                "description": "Explicit new-wallet entropy source. Mutually exclusive with mnemonic."
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         }
       },
@@ -8092,6 +8134,70 @@
             }
           }
         ]
+      },
+      "SeedGeneration": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "words",
+              "method"
+            ],
+            "properties": {
+              "method": {
+                "type": "string",
+                "enum": [
+                  "system"
+                ]
+              },
+              "words": {
+                "type": "integer",
+                "format": "int32",
+                "minimum": 0
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "words",
+              "sides",
+              "rolls",
+              "fair_dice_acknowledged",
+              "method"
+            ],
+            "properties": {
+              "fair_dice_acknowledged": {
+                "type": "boolean"
+              },
+              "method": {
+                "type": "string",
+                "enum": [
+                  "dice"
+                ]
+              },
+              "rolls": {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "format": "int32",
+                  "minimum": 0
+                }
+              },
+              "sides": {
+                "type": "integer",
+                "format": "int32",
+                "minimum": 0
+              },
+              "words": {
+                "type": "integer",
+                "format": "int32",
+                "minimum": 0
+              }
+            }
+          }
+        ],
+        "description": "Private input used once at wallet creation, never retained as configuration."
       },
       "Send": {
         "type": "object",

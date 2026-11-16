@@ -315,6 +315,9 @@ pub struct CreateWalletRequest {
 	pub chain_source: Option<ChainSourceConfig>,
 	/// The optional mnemonic to use for the wallet
 	pub mnemonic: Option<String>,
+	/// Explicit new-wallet entropy source. Mutually exclusive with mnemonic.
+	#[serde(default)]
+	pub seed_generation: Option<SeedGeneration>,
 	/// The network to use for the wallet
 	pub network: BarkNetwork,
 	/// An optional birthday height to start syncing the wallet from
@@ -327,6 +330,15 @@ pub struct CreateWalletRequest {
 	/// Proceed even if the datadir contains unexpected files
 	#[serde(default)]
 	pub force: bool,
+}
+
+/// Private input used once at wallet creation, never retained as configuration.
+#[derive(Serialize, Deserialize)]
+#[serde(tag = "method", rename_all = "snake_case", deny_unknown_fields)]
+#[cfg_attr(feature = "utoipa", derive(ToSchema))]
+pub enum SeedGeneration {
+	System { words: u8 },
+	Dice { words: u8, sides: u8, rolls: Vec<u8>, fair_dice_acknowledged: bool },
 }
 
 /// Networks bark can be used on

@@ -52,7 +52,11 @@ internal fun SeedGenerationDialog(model: WalletModel, done: () -> Unit) {
 		}
 	DisposableEffect(capture, lifecycle) {
 		val observer = LifecycleEventObserver { _, event ->
-			if (event == Lifecycle.Event.ON_STOP) discard()
+			if (event == Lifecycle.Event.ON_STOP) {
+				discard()
+				rolls = emptyList()
+				fair = false
+			}
 		}
 		lifecycle.lifecycle.addObserver(observer)
 		onDispose {
@@ -213,7 +217,8 @@ internal fun SeedGenerationDialog(model: WalletModel, done: () -> Unit) {
 					when (method) {
 						"Dice" -> fair && rolls.size >= SeedEntropy.requiredRolls(words, sides)
 						"Sensors" -> digest != null && !collecting
-						else -> true
+						"System" -> true
+						else -> false
 					}
 				Button(
 					onClick = {
@@ -229,7 +234,8 @@ internal fun SeedGenerationDialog(model: WalletModel, done: () -> Unit) {
 											system.fill(0)
 										}
 									}
-									else -> SeedEntropy.system(words)
+									"System" -> SeedEntropy.system(words)
+									else -> throw IllegalArgumentException("Choose an entropy source before generating recovery words")
 								}
 							model.generateFromEntropy(entropy)
 							done()

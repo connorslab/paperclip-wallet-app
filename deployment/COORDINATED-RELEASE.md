@@ -12,6 +12,72 @@ The release version and date are not assigned yet. The current version numbers
 not a completed unified release. Do not reuse an uploaded build number, rewrite an
 existing release tag, or replace a published binary in place.
 
+## Current acceptance summary: 2026-11-16
+
+The coordinated release is not ready. The table separates completed automated
+checks from the required implementation and acceptance work.
+
+| Area | Verified in the current test pass | Still required |
+| --- | --- | --- |
+| iOS | 112 shared Swift tests; 17 safe UI cases on both regular-phone and open-Duo simulators | Physical signer, camera, accessibility and interrupted/folded payment acceptance; final signed candidate and upgrade |
+| Android | 88 JVM tests; 16 isolated API 35 UI cases; authenticated CLN/LND reads and pin rejection | Final release identity, Play/APK upgrade compatibility, physical/foldable acceptance and current CI completion |
+| Shared desktop UI | All 17 existing browser-flow suites plus entropy, transport and QR checks; phone, foldable and desktop widths where each suite defines them | Installed-host and native desktop acceptance; complete multiple-hot-wallet and hardware-funded Ark workflows |
+| StartOS/Umbrel | Shared REST checks, authenticated CLN/LND reads; both StartOS candidate architectures built and source/checksums checked | Complete backup/restore, candidate installation, bundled Jam pairing/revocation/Tor and upgrades; matching frozen wrappers |
+| Linux/macOS/Windows | Isolated native Apple Silicon daemon authentication and restart smoke | Native launchers and bundled service lifecycle, supported OS matrix, signed installers, notarization where applicable and clean install/upgrade tests |
+| Jars | Real pinned signer, API, bond and interrupted-submission checks | Direct/CoinJoin client review and send flows, bond funding/withdrawal, payment-capable pairing, live maker and physical QR signer acceptance |
+| Payments and recovery | 291 shared wallet tests, exact-cost/RBF/unknown-outcome checks; unified-signature and Electrum-header checks | Live BOLT12/Ark/Bridge settlement, portable recovery/restore and current-source XBT consensus acceptance |
+
+The saved uncertain Ark attempt remains reserved in the private payment ledger.
+A failed sender plus an unavailable receiver record does not justify a retry or
+release of that reservation. The upstream protocol suite still has its documented
+36 failures against bitcoin fixtures/kernel; this result is not a passing XBT
+consensus test. No candidate was installed or published in this test pass.
+
+The additional support-crate suite passes 136 tests. RPC cookie rotation passes
+in direct and SOCKS configurations; the transport tests reject redirects and
+check that HTTPS starts with TLS rather than plaintext credentials. Two new Jam
+tests terminate a writer without cleanup on either side of the durable submission
+boundary. The copied pending journal cannot replay or cancel an uncertain payment.
+The local Jam suite passes 45 cases with one container-only case skipped. Both
+architectures also pass the bundled Jam CI run at `86c1245`. This does not establish full host-volume backup/restore or power-loss acceptance.
+
+### Hot-wallet entropy choices
+
+Paperclip hot-wallet creation now offers secure system randomness and physical
+D6/D12/D20 dice with 12- or 24-word phrases in the shared StartOS/Umbrel/native
+desktop UI. Secure random remains the default. The dice derivation and minimum
+roll counts match iOS and Android; every supplied roll contributes, up to 1000.
+Mobile also retains optional local sensor input mixed with system randomness.
+Sensors never substitute for secure system randomness or claim extra entropy.
+
+Desktop creation checks host support before submission and binds the selected
+source and phrase length to the review. Its distinct creation route prevents an
+older host from ignoring the selection, including during a version change. It
+refuses ordinary plaintext LAN dice submission, invalid rolls and ambiguous
+retries. Hidden-page and lock transitions
+clear the private input. The native daemon rejects malformed choices before it
+creates keys. Existing API clients without a selection retain their prior behavior.
+The OpenAPI specification and client were regenerated. Shared source changes are
+mirrored to the Android branch; installed packages still require a new candidate.
+
+Validation includes matching mobile/Rust dice vectors, invalid-source rejection,
+browser flows at 390/840/1280px, native daemon HTTP checks, 112 Swift tests, Android
+JVM tests and an ARM64 iOS simulator build. iOS now rejects missing sensor input
+instead of silently falling back to system randomness. Android also rejects an
+unknown source and clears dice input on backgrounding. Generic Intel simulator
+linking exposed the existing ARM64-only Rust library search path; it is not covered
+by the successful ARM64 build and remains a native toolchain limitation.
+Android, regular-phone and Duo preparation-screen checks verify source switching,
+disabled generation without required input, and cancellation without creating seed
+words. The test uses the sheet's own scroll view and scrolls toward each control.
+Initial harness attempts selected the underlying view on Duo or dismissed the
+compact sheet with a downward swipe; both test assumptions were corrected.
+
+Android CI at `7940fbd` passed API 35 but failed API 36 during the onboarding
+capture: the emulator showed a System UI not-responding dialog. The app main
+thread was idle, with no recorded app process exit. This is not a passing API 36
+result; the complete flow must pass on a fresh emulator before release.
+
 ## Source and artifacts
 
 ### Native desktop distribution gate: 2026-11-16

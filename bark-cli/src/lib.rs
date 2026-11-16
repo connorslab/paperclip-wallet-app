@@ -1,5 +1,6 @@
 pub mod connection;
 pub mod log;
+pub mod seed;
 pub mod wallet;
 
 pub mod util;

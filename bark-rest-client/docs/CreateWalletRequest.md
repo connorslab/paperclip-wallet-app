@@ -12,5 +12,6 @@ Name | Type | Description | Notes
 **gap_limit** | Option<**i32**> | How many consecutive unused key indices a VTXO key scan may cross before it concludes the wallet doesn't own a recovered/imported VTXO. | [optional]
 **mnemonic** | Option<**String**> | The optional mnemonic to use for the wallet | [optional]
 **network** | [**models::BarkNetwork**](BarkNetwork.md) | The network to use for the wallet |
+**seed_generation** | Option<[**models::SeedGeneration**](SeedGeneration.md)> | Explicit new-wallet entropy source. Mutually exclusive with mnemonic. | [optional]
 
 [[Back to Model list]](../README.md#documentation-for-models) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to README]](../README.md)

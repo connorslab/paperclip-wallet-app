@@ -284,6 +284,27 @@ final class AdaptiveLayoutTests: XCTestCase {
 		// Enter only the preparation sheet; never generate or display recovery words.
 		create.tap()
 		XCTAssertTrue(app.buttons["Generate 24 words"].waitForExistence(timeout: 10))
+		XCTAssertTrue(app.buttons["Generate 24 words"].isEnabled)
+		let seedScroll = app.scrollViews["seed-generation-page"]
+		XCTAssertTrue(seedScroll.exists)
+		for source in ["dice", "sensors", "system"] {
+			let choice = app.buttons["seed-source-\(source)"]
+			// Scroll toward this row only. A downward swipe at the top can
+			// dismiss a compact sheet instead of scrolling its content.
+			for _ in 0..<5 {
+				let midpoint = CGPoint(x: choice.frame.midX, y: choice.frame.midY)
+				let viewport = seedScroll.frame.insetBy(dx: 0, dy: 24)
+				if viewport.contains(midpoint) && choice.isHittable { break }
+				if midpoint.y < viewport.minY { seedScroll.swipeDown() }
+				else { seedScroll.swipeUp() }
+			}
+			capture(app, "Seed source \(source) · no generation")
+			XCTAssertTrue(choice.isHittable)
+			choice.tap()
+			XCTAssertEqual(app.buttons["Generate 24 words"].isEnabled, source == "system")
+		}
+		app.buttons["Cancel"].tap()
+		XCTAssertTrue(create.waitForExistence(timeout: 5))
 	}
 
 	func testWelcomeRecoveryRemainsReachableWithLargeText() {

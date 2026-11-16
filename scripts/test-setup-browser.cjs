@@ -28,7 +28,7 @@ const fs=require('node:fs'),path=require('node:path'),assert=require('node:asser
    assert(await page.locator('#setup-rpc').isVisible());
    const checkbox=await page.locator('#setup-ack').boundingBox();
    assert(checkbox.width<=24 && checkbox.height<=24,'Checkbox must remain compact');
-   const ack=await page.locator('.setup-ack').boundingBox(),buttons=await page.locator('.setup-actions').boundingBox();
+   const ack=await page.locator('.setup-ack').filter({has:page.locator('#setup-ack')}).boundingBox(),buttons=await page.locator('.setup-actions').boundingBox();
    assert(buttons.y>=ack.y+ack.height,'Buttons must be below acknowledgement');
    assert(!(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth)),'No horizontal overflow');
    assert.deepEqual(errors,[]);

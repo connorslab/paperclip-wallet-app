@@ -97,6 +97,7 @@ Class | Method | HTTP request | Description
 *WalletApi* | [**bip321_uri**](docs/WalletApi.md#bip321_uri) | **POST** /api/v1/wallet/bip321 | Build a BIP 321 payment URI
 *WalletApi* | [**connected**](docs/WalletApi.md#connected) | **GET** /api/v1/wallet/connected | Check server connection
 *WalletApi* | [**create_wallet**](docs/WalletApi.md#create_wallet) | **POST** /api/v1/wallet/create | Create a wallet
+*WalletApi* | [**create_wallet_with_entropy**](docs/WalletApi.md#create_wallet_with_entropy) | **POST** /api/v1/wallet/create-with-entropy | Create a wallet with an explicit entropy source
 *WalletApi* | [**debug_info**](docs/WalletApi.md#debug_info) | **GET** /api/v1/wallet/debug-info | Get wallet debug info
 *WalletApi* | [**get_vtxo**](docs/WalletApi.md#get_vtxo) | **GET** /api/v1/wallet/vtxos/{id} | Get VTXO detail
 *WalletApi* | [**get_vtxo_encoded**](docs/WalletApi.md#get_vtxo_encoded) | **GET** /api/v1/wallet/vtxos/{id}/encoded | Get encoded VTXO
@@ -313,6 +314,9 @@ Class | Method | HTTP request | Description
  - [RoundStatusOneOf3](docs/RoundStatusOneOf3.md)
  - [RoundStatusOneOf4](docs/RoundStatusOneOf4.md)
  - [RoundStatusOneOf5](docs/RoundStatusOneOf5.md)
+ - [SeedGeneration](docs/SeedGeneration.md)
+ - [SeedGenerationOneOf](docs/SeedGenerationOneOf.md)
+ - [SeedGenerationOneOf1](docs/SeedGenerationOneOf1.md)
  - [Send](docs/Send.md)
  - [SendApproval](docs/SendApproval.md)
  - [SendOnchainFeeEstimateQuery](docs/SendOnchainFeeEstimateQuery.md)

@@ -317,11 +317,8 @@ fn generate_store_auth_token(datadir: &PathBuf) -> anyhow::Result<AuthToken> {
 }
 
 fn wallet_create_request_to_create_opts(req: CreateWalletRequest) -> anyhow::Result<CreateOpts> {
-	let mnemonic = if let Some(mnemonic) = req.mnemonic {
-		Some(bip39::Mnemonic::from_str(&mnemonic).badarg("Invalid mnemonic")?)
-	} else {
-		None
-	};
+	let mnemonic = bark_cli::seed::resolve(req.mnemonic, req.seed_generation)
+		.badarg("Invalid wallet entropy selection")?;
 
 	#[allow(deprecated)]
 	let mut config = ConfigOpts {

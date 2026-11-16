@@ -15,6 +15,12 @@ unit-mobile filter="":
 unit-rest filter="":
 	cargo test --locked -p bark-rest --features web-ui --lib {{filter}}
 
+unit-support filter="":
+	cargo test --locked -p bark-common -p bark-json -p bark-runtime -p bip321 -p bark-nwc --lib {{filter}}
+
+unit-creation:
+	cargo test --locked -p bark-cli --lib seed::tests
+
 unit-electrum:
 	cargo test --locked -p electrum-client --lib xbt_header_tests
 

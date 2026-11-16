@@ -472,6 +472,7 @@ fn create_opts_to_request(opts: CreateOpts) -> anyhow::Result<models::CreateWall
 		ark_server_access_token: None,
 		chain_source,
 		mnemonic: opts.mnemonic.map(|m| m.to_string()),
+		seed_generation: None,
 		network,
 		birthday_height: opts.birthday_height.map(BlockHeight::to_u32),
 		gap_limit: opts.gap_limit,

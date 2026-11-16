@@ -58,7 +58,7 @@ struct SeedGenerationView: View {
                 Text("Next: write down every word and verify your copy. Keep rolls and sensor inputs private too—they help determine your keys.").font(.caption).foregroundStyle(PaperclipTheme.muted)
                 if !error.isEmpty { Text(error).foregroundStyle(PaperclipTheme.orange) }
             }.walletPageContent()
-        }.walletPageBackground().navigationTitle("Create your seed").navigationBarTitleDisplayMode(.inline)
+        }.accessibilityIdentifier("seed-generation-page").walletPageBackground().navigationTitle("Create your seed").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { sensors.clear(); dismiss() }.disabled(busy) } }
             .onChange(of: method) { _, _ in sensors.clear(); rolls.removeAll(); acknowledged = false; error = "" }
             .onChange(of: sides) { _, _ in rolls.removeAll(); acknowledged = false }
@@ -78,7 +78,7 @@ struct SeedGenerationView: View {
                 Spacer()
                 Image(systemName: method == value ? "checkmark.circle.fill" : "circle").foregroundStyle(method == value ? PaperclipTheme.orange : PaperclipTheme.muted)
             }.contentShape(Rectangle())
-        }.buttonStyle(.plain)
+        }.buttonStyle(.plain).accessibilityIdentifier("seed-source-\(value)")
     }
     private var diceSection: some View {
         WalletSection("Pick your die") {
@@ -183,9 +183,14 @@ struct SeedGenerationView: View {
         Task { @MainActor in
             do {
                 let entropy: Data
-                if method == "dice" { entropy = try SeedEntropy.dice(rolls, sides: sides, words: words) }
-                else if method == "sensors", let digest = sensors.digest { entropy = try SeedEntropy.mix(system: SeedEntropy.system(words: words), sensorDigest: digest, words: words) }
-                else { entropy = try SeedEntropy.system(words: words) }
+                switch method {
+                case "dice": entropy = try SeedEntropy.dice(rolls, sides: sides, words: words)
+                case "sensors":
+                    guard let digest = sensors.digest else { throw SeedEntropy.Failure.invalidSupplement }
+                    entropy = try SeedEntropy.mix(system: SeedEntropy.system(words: words), sensorDigest: digest, words: words)
+                case "system": entropy = try SeedEntropy.system(words: words)
+                default: throw SeedEntropy.Failure.invalidSupplement
+                }
                 try await onGenerate(entropy, words, source)
                 sensors.clear(); rolls.removeAll(); dismiss()
             } catch { self.error = error.localizedDescription }

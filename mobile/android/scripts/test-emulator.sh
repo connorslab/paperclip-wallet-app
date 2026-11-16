@@ -6,7 +6,7 @@ cd "$android_dir"
 mkdir -p app/build/reports/instrumentation
 trap 'adb pull /sdcard/Pictures/PaperclipPreview ./screenshots >/dev/null 2>&1 || true' EXIT
 adb shell cmd uimode night yes
-for test in SecureStoreRecoveryTest PaymentSettingsStorageTest NativeBridgeTest PublicWalletNativeTest AssistanceNativeTest WalletProfilesNativeTest WalletSelectionStateTest BackupLifecycleTest WalletHealthLayoutTest BridgeHealthLayoutTest BridgeFlowLayoutTest JoinBlaketLayoutTest PaymentFlowLayoutTest NodeLayoutTest AdaptiveLayoutTest WalletScreensTest WalletSettingsScreensTest; do
+for test in SecureStoreRecoveryTest PaymentSettingsStorageTest NativeBridgeTest PublicWalletNativeTest AssistanceNativeTest WalletProfilesNativeTest WalletSelectionStateTest BackupLifecycleTest WalletHealthLayoutTest BridgeHealthLayoutTest BridgeFlowLayoutTest JoinBlaketLayoutTest PaymentFlowLayoutTest NodeLayoutTest SeedGenerationLayoutTest AdaptiveLayoutTest WalletScreensTest WalletSettingsScreensTest; do
     result=0
     started=$(date +%s)
     bash gradlew --no-daemon "-Pabis=${PAPERCLIP_TEST_ABI:-x86_64}" \

@@ -35,14 +35,17 @@ def check(binary):
                    BARKD_UI_DEFAULT_CHAIN_SOURCE='http://127.0.0.1:1')
         http = build_opener(ProxyHandler({}))
 
-        def request(path, token=None, origin=None, method=None):
+        def request(path, token=None, origin=None, method=None, body=None):
             headers = {}
             if token is not None:
                 headers['Authorization'] = 'Bearer ' + token
             if origin:
                 headers.update(Origin=origin, **{'Access-Control-Request-Method':'POST',
                     'Access-Control-Request-Headers':'authorization,content-type'})
-            with http.open(Request(endpoint + path, headers=headers, method=method), timeout=3) as response:
+            if body is not None:
+                headers['Content-Type'] = 'application/json'
+            with http.open(Request(endpoint + path, headers=headers, method=method,
+                                   data=json.dumps(body).encode() if body is not None else None), timeout=3) as response:
                 return response.read(), response.headers
 
         initial_token = None
@@ -80,6 +83,24 @@ def check(binary):
                     assert b'id="jam-create"' in request('/')[0], 'Shared Jars setup UI missing'
                     assert b"call('backup_wallet'" in request('/joinblaket.js')[0], 'Shared backup flow missing'
                     assert json.loads(request('/api/v1/joinblaket/connection', token)[0])['configured'] is False
+                    options = json.loads(request('/api/v1/wallet/creation-options', token)[0])
+                    assert options['version'] == 1 and options['methods'] == ['system', 'dice']
+                    assert options['words'] == [12, 24] and options['dice_sides'] == [6, 12, 20]
+                    # Invalid entropy must fail before keys, configuration or RPC
+                    # access. These predictable inputs are not real seed material.
+                    for generation, expected in [
+                            (None, 400),
+                            ({'method':'dice', 'words':24, 'sides':6, 'rolls':[1],
+                              'fair_dice_acknowledged':True}, 400),
+                            ({'method':'system', 'words':15}, 400),
+                            ({'method':'unknown', 'words':24}, 422)]:
+                        try:
+                            request('/api/v1/wallet/create-with-entropy', token, method='POST',
+                                    body={'network':'regtest', 'seed_generation':generation})
+                            raise AssertionError('Invalid entropy created a wallet or silently used random generation')
+                        except HTTPError as error:
+                            assert error.code == expected, 'Unexpected entropy rejection'
+                        assert json.loads(request('/api/v1/wallet', token)[0]) == {'fingerprint':None}
                     try:
                         _, headers = request('/api/v1/wallet', origin='https://untrusted.example', method='OPTIONS')
                         assert headers.get('Access-Control-Allow-Origin') is None, 'Unexpected cross-origin access'
@@ -99,7 +120,7 @@ def check(binary):
                             process.wait(timeout=5)
                             raise AssertionError('Native daemon did not shut down gracefully') from None
                 assert process.returncode == 0, 'Native shutdown failed'
-    print('PASS native daemon: isolated first launch, authenticated shared UI, origin boundary, private files and restart preservation; no wallet or payment created')
+    print('PASS native daemon: isolated first launch, authenticated shared UI, entropy rejection, origin boundary, private files and restart preservation; no wallet or payment created')
 
 
 if __name__ == '__main__':
