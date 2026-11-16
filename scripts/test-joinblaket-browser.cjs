@@ -48,8 +48,7 @@ for (const item of cases) {
    await page.locator('#token').fill('fixture-paperclip-token');
    await page.getByRole('button',{name:'Unlock wallet',exact:true}).click();
    await page.locator('#wallet').waitFor({state:'visible'});
-   await page.locator('.view-nav [data-view="settings"]').click();
-   await page.locator('[data-view="coinjoin"]').click();
+   await page.locator('.view-nav [data-view="coinjoin"]').click();
    await page.locator('#jam-find').click();
    await page.waitForFunction(()=>document.querySelector('#jam-open').getAttribute('href')==='https://jam.example.test/');
    await page.locator('#jam-password').fill('fixture-password');

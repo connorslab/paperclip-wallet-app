@@ -141,6 +141,7 @@ internal fun PaperclipApp(
 				}
 				return@MaterialTheme
 			}
+			val jarsState = remember { JoinBlaketUiState() }
 			var navigation by rememberSaveable(stateSaver = listSaver(
 				save = { it.saved() }, restore = { WalletNavigation.restore(it) },
 			)) { mutableStateOf(WalletNavigation()) }
@@ -192,6 +193,7 @@ internal fun PaperclipApp(
 							listOf(
 									"Wallet" to Icons.Default.AccountBalanceWallet,
 									"Lightning" to Icons.Default.Bolt,
+									"Jars" to Icons.Default.Inventory2,
 									"Activity" to Icons.Default.History,
 									"Settings" to Icons.Default.Tune,
 								)
@@ -251,6 +253,7 @@ internal fun PaperclipApp(
 										Text(
 											when (route) {
 												"Lightning" -> "Your node and Ark payments"
+												"Jars" -> "Your JoinBlaket wallet and maker"
 												"Activity" -> "Your payments, at a glance"
 												else -> "Make your wallet yours"
 											},
@@ -318,7 +321,7 @@ internal fun PaperclipApp(
 											SettingsLink("Security & recovery", "Lock, backups, and recovery", Icons.Default.Shield) { navigate("Security & recovery") }
 											SettingsLink("Connections", "On-chain, Ark, and Tor", Icons.Default.SettingsEthernet) { navigate("Connections") }
 											SettingsLink("Preferences", "Appearance, units, and notifications", Icons.Default.Tune) { navigate("Preferences") }
-											SettingsLink("Wallet tools", "Health, CoinJoin, and advanced actions", Icons.Default.Build) { navigate("Wallet tools") }
+											SettingsLink("Wallet tools", "Health, addresses, and advanced actions", Icons.Default.Build) { navigate("Wallet tools") }
 											SettingsLink("Help & support", "Guides and app information", Icons.Default.Help) { navigate("Help & support") }
 										}
 										}
@@ -333,7 +336,7 @@ internal fun PaperclipApp(
 											SettingsLink("Wallet health", "Connections, recovery, and support report", Icons.Default.HealthAndSafety) { navigate("Wallet health") }
 											if (walletKind == "hardware") SettingsLink("Hardware payment", "Sign with your QR device", Icons.Default.QrCode) { navigate("Hardware payment"); model.clearTools() }
 											if (walletKind == "hot") {
-												SettingsLink("CoinJoin", "JoinBlaket jars & maker", Icons.Default.Shuffle) { navigate("Coinjoin") }
+												SettingsLink("Experimental", "Previous Kilojoin funds and recovery", Icons.Default.Science) { navigate("Experimental") }
 												SettingsLink("Hardware wallet to Ark", "Fund Ark using your QR signer", Icons.Default.QrCode) { navigate("Hardware boarding"); model.clearTools() }
 												SettingsLink("Ark maintenance", "Board, refresh, and recover funds", Icons.Default.Build) { navigate("Ark maintenance"); model.clearTools() }
 												SettingsLink("Message signing", "Prove address ownership", Icons.Default.Edit) { navigate("Message signing"); model.clearTools() }
@@ -385,7 +388,11 @@ internal fun PaperclipApp(
 														.firstOrNull { it.id == s.activeID }
 														?.kind == "hot",
 												)
-										"Coinjoin" -> JoinBlaketPage { navigate("Previous Coinjoin") }
+										"Jars", "Coinjoin" -> JoinBlaketPage(jarsState)
+										"Experimental" -> CardBlock("Experimental") {
+											SettingsLink("Kilojoin recovery", "Manage existing funds and previous rounds", Icons.Default.History) { navigate("Previous Coinjoin") }
+											Text("New CoinJoin activity is available in Jars through your JoinBlaket server.")
+										}
 										"Previous Coinjoin" ->
 											if (coinjoin != null)
 												CoinjoinPage(
@@ -1222,17 +1229,32 @@ private fun Activity(s: WalletState, model: WalletModel) {
 			)
 		}
 	for (item in s.activityRecords.filter { filter == "All" || (filter == "Ark") == it.ark }) {
-		CardBlock(item.kind) {
-			Text(
-				LocalBitcoinUnit.current.display(item.amount),
-				style = MaterialTheme.typography.titleLarge,
-			)
-			Text(item.status.replace('_', ' '))
-			item.time?.let { Text(java.time.Instant.ofEpochMilli(it).toString()) }
-			TextButton(onClick = { detail = item }) { Text("View receipt") }
+		OutlinedCard(Modifier.fillMaxWidth()) {
+		 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+			if (LocalDensity.current.fontScale > 1.3f) {
+				Text(item.kind, style = MaterialTheme.typography.titleMedium)
+				Text(LocalBitcoinUnit.current.display(item.amount), style = MaterialTheme.typography.titleMedium)
+			} else {
+				Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+					Text(item.kind, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+					Text(LocalBitcoinUnit.current.display(item.amount), style = MaterialTheme.typography.titleMedium)
+				}
+			}
+			Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+				Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+					Text(item.status.replace('_', ' '), style = MaterialTheme.typography.bodyMedium)
+					item.time?.let {
+						val date = java.util.Date(it)
+						Text(android.text.format.DateFormat.getMediumDateFormat(context).format(date) + " · " + android.text.format.DateFormat.getTimeFormat(context).format(date),
+							style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+					}
+				}
+				TextButton(onClick = { detail = item }) { Text("View receipt") }
+			}
 			if (!item.ark && item.amount < 0 && item.status == "pending" && s.profiles.firstOrNull { it.id == s.activeID }?.kind == "hot") {
 				FeeReplacementControl(item.id, s.activeID)
 			}
+		 }
 		}
 	}
 	detail?.let { item ->

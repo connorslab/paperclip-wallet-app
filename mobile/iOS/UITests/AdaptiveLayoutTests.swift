@@ -71,6 +71,11 @@ final class AdaptiveLayoutTests: XCTestCase {
 		XCTAssertTrue(security.isHittable)
 		security.tap()
 		XCTAssertTrue(app.navigationBars["Wallet security"].waitForExistence(timeout: 10))
+		app.tabBars.buttons["Jars"].tap()
+		XCTAssertTrue(app.tabBars.buttons["Jars"].isSelected)
+		XCTAssertTrue(app.navigationBars["Jars"].waitForExistence(timeout: 10))
+		XCTAssertFalse(app.buttons["Kilojoin recovery"].exists)
+		capture(app, "Jars primary navigation")
 		app.tabBars.buttons["Wallet"].tap()
 		XCTAssertTrue(app.tabBars.buttons["Wallet"].isSelected)
 		XCTAssertTrue(app.staticTexts["Total balance"].waitForExistence(timeout: 10))
@@ -84,6 +89,11 @@ final class AdaptiveLayoutTests: XCTestCase {
 		XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 10))
 		XCTAssertTrue(settings.isSelected)
 		capture(app, "Settings navigation wide")
+		let experimental = app.buttons["settings-experimental"]
+		for _ in 0..<6 { if experimental.isHittable { break }; app.swipeUp() }
+		experimental.tap()
+		XCTAssertTrue(app.navigationBars["Experimental"].waitForExistence(timeout: 10))
+		XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Kilojoin recovery'")).firstMatch.exists)
 	}
 
 	func testDashboardReflowsWithoutLosingBalanceVisibility() {

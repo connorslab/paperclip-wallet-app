@@ -35,12 +35,24 @@ must identify the wallet that owns it.
 
 ## Navigation
 
-- Keep Wallet, Lightning, Activity and Settings as the four primary destinations.
+- Keep Wallet, Lightning, Jars, Activity and Settings as the five primary destinations.
+- Jars opens the independent JoinBlaket wallet directly. Legacy Kilojoin funds
+  remain under Experimental; no new Kilojoin rounds are enabled. The desktop
+  `coinjoin` URL remains compatible, but selects the Jars navigation item.
 - Preserve each Android tab's nested history. Back returns to the immediate
   parent. Select the current tab again to return to its overview. Activity
   recreation preserves the selected destination. A wallet change clears paths.
 - Retain connection drafts across tab changes without putting credentials in
   Android saved instance state.
+
+The Jars navigation follow-up passed native iOS tab/back/Experimental UI checks,
+Android unit tests (including restoration of older four-tab histories), Android
+app/test APK builds, and browser navigation/Jars/activity flows at phone, tablet
+and desktop widths. Android retains the Jam session in memory across tab switches;
+returning requires refreshed maker status. Password entry and confirmation dialogs
+are not retained across navigation. Native Android runtime acceptance of this
+follow-up remains pending. Screenshots were inspected for the iOS Jars tab and
+the shared browser's five-item phone navigation.
 - Browser Back/Forward, selected-menu state and heading focus follow the visible
   destination. Locked browser history cannot reveal wallet panels.
 - Separate desktop Settings into wallet tools, connections, backup/recovery and

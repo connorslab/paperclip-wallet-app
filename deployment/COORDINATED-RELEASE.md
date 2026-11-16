@@ -14,6 +14,38 @@ existing release tag, or replace a published binary in place.
 
 ## Source and artifacts
 
+### Current release blockers and Jars scope: 2026-11-16
+
+The owner requested bundled JoinBlaket hosting in Paperclip's StartOS and Umbrel
+packages. A separate Kilombino app must not be required. Desktop Paperclip must
+manage all five jars, receiving, fidelity bonds and maker activity itself; mobile
+Paperclip pairs with that same hosted wallet. JoinBlaket retains separate keys,
+wallet files and backup state from Paperclip's hot wallet. The older remote-Jam
+client and proxy are useful foundations, not completion of this requirement.
+
+Before a coordinated release, complete and accept:
+
+- Bundled, pinned JoinBlaket runtime on both server architectures, restricted
+  node RPC access, TLS, complete-volume backups, and authenticated mobile pairing.
+- Consistent desktop/mobile Jars setup, bond review and funding, maker controls
+  and uncertain-action recovery. Creating a bond address must never fund it.
+  Bond setup must identify the wallet, amount, unlock date and fees explicitly.
+- Portable mobile pending-payment and Bridge recovery records; migration,
+  interrupted-restore and full backup/restore acceptance on both host platforms.
+- Remaining desktop multiple-hot-wallet and hardware/QR-funded Ark workflows;
+  physical Krux signing, device accessibility and foldable/Duo acceptance.
+- Live CLN/LND, BOLT12, Ark and both Bridge directions, including failed/unknown
+  outcome reconciliation. Read-only node probes do not establish settlement.
+- One frozen source revision and matching wrappers, final security/regression
+  checks, Android Play/APK signing identities, Apple eligibility and signed
+  candidates, clean installs and in-place upgrades. Passing builds are insufficient.
+
+Build 73 is a locally installed iPhone test candidate. The StartOS test package
+has not been installed; its complete backup is awaiting local authentication.
+The latest UI source adds Jars as the fifth primary destination, after Lightning,
+and retains Kilojoin recovery under Experimental on mobile. The server bundling,
+bond wizard and mobile pairing requirements above remain open.
+
 - Freeze one source commit in `connorslab/paperclip-wallet-app`. Record the commit,
   dependency lockfiles, native toolchain versions and CI runs for every artifact.
 - Build the Apple archive with the native Apple toolchain and existing signing

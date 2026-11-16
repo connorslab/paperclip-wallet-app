@@ -19,34 +19,55 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import org.json.JSONObject
 
+/** In-memory only: tab changes retain the server session, never credentials in saved state. */
+internal class JoinBlaketUiState {
+	val endpoint = mutableStateOf("")
+	val pin = mutableStateOf("")
+	val tor = mutableStateOf(false)
+	val needsRefresh = mutableStateOf(false)
+	val wallets = mutableStateOf(emptyList<String>())
+	val wallet = mutableStateOf("")
+	val client = mutableStateOf<JoinBlaketClient?>(null)
+	val authorization = mutableStateOf<JoinBlaketAuthorization?>(null)
+	val session = mutableStateOf<JSONObject?>(null)
+	val jars = mutableStateOf(emptyList<JSONObject>())
+	val selected = mutableIntStateOf(0)
+	val address = mutableStateOf<String?>(null)
+	val minimum = mutableStateOf("100000")
+	val makerFee = mutableStateOf("100")
+}
+
 /** The Jam daemon owns these accounts; no local seed or Kilojoin namespace is migrated. */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-internal fun JoinBlaketPage(onLegacy: () -> Unit) {
+internal fun JoinBlaketPage(state: JoinBlaketUiState) {
 	val context = LocalContext.current
 	val uriHandler = LocalUriHandler.current
 	val scope = rememberCoroutineScope()
 	val unit = LocalBitcoinUnit.current
-	var endpoint by remember { mutableStateOf("") }
-	var pin by remember { mutableStateOf("") }
-	var tor by remember { mutableStateOf(false) }
+	var endpoint by state.endpoint
+	var pin by state.pin
+	var tor by state.tor
 	var password by remember { mutableStateOf("") }
 	var passphrase by remember { mutableStateOf("") }
 	var showPassphrase by remember { mutableStateOf(false) }
-	var needsRefresh by remember { mutableStateOf(false) }
-	var wallets by remember { mutableStateOf(emptyList<String>()) }
-	var wallet by remember { mutableStateOf("") }
-	var client by remember { mutableStateOf<JoinBlaketClient?>(null) }
-	var authorization by remember { mutableStateOf<JoinBlaketAuthorization?>(null) }
-	var session by remember { mutableStateOf<JSONObject?>(null) }
-	var jars by remember { mutableStateOf(emptyList<JSONObject>()) }
-	var selected by remember { mutableIntStateOf(0) }
-	var address by remember { mutableStateOf<String?>(null) }
+	var needsRefresh by state.needsRefresh
+	var wallets by state.wallets
+	var wallet by state.wallet
+	var client by state.client
+	var authorization by state.authorization
+	var session by state.session
+	var jars by state.jars
+	var selected by state.selected
+	var address by state.address
 	var busy by remember { mutableStateOf(false) }
 	var message by remember { mutableStateOf<String?>(null) }
-	var minimum by remember { mutableStateOf("100000") }
-	var makerFee by remember { mutableStateOf("100") }
+	var minimum by state.minimum
+	var makerFee by state.makerFee
 	var confirmMaker by remember { mutableStateOf(false) }
+	DisposableEffect(state) {
+		onDispose { if (state.authorization.value != null) state.needsRefresh.value = true }
+	}
 	val colors = listOf(Color(0xFFFF9E54), Color(0xFF7AABFF), Color(0xFFFF777B), Color(0xFFCA9A75), Color(0xFFBF98F4))
 	fun run(action: suspend () -> Unit) {
 		if (busy) return
@@ -180,7 +201,6 @@ internal fun JoinBlaketPage(onLegacy: () -> Unit) {
 	}
 	if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
 	message?.let { Text(it) }
-	TextButton(onClick = onLegacy, enabled = !busy) { Text("Previous Kilojoin funds and round recovery") }
 }
 
 @Composable private fun JamJarArt(color: Color, funded: Boolean) {

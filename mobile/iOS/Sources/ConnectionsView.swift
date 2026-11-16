@@ -113,7 +113,7 @@ struct ConnectionsView: View {
 
 struct SettingsView: View {
     @EnvironmentObject var store: WalletStore
-    private enum Page: String, Hashable { case preferences = "Preferences", security = "Security & recovery", tools = "Wallet tools", help = "Help & privacy" }
+    private enum Page: String, Hashable { case preferences = "Preferences", security = "Security & recovery", tools = "Wallet tools", experimental = "Experimental", help = "Help & privacy" }
     @State private var page: Page?
     var body: some View {
         ScrollView {
@@ -126,7 +126,11 @@ struct SettingsView: View {
                 Divider()
                 Button { page = .preferences } label: { WalletNavigationRow("Preferences", subtitle: "Appearance, units, and notifications", icon: "slider.horizontal.3") }
                 Divider()
-                Button { page = .tools } label: { WalletNavigationRow("Wallet tools", subtitle: "Health, CoinJoin, and advanced actions", icon: "wrench.and.screwdriver") }
+                Button { page = .tools } label: { WalletNavigationRow("Wallet tools", subtitle: "Health, addresses, and advanced actions", icon: "wrench.and.screwdriver") }
+                if store.supportsArk {
+                    Divider()
+                    Button { page = .experimental } label: { WalletNavigationRow("Experimental", subtitle: "Previous Kilojoin funds and recovery", icon: "flask") }.accessibilityIdentifier("settings-experimental")
+                }
                 Divider()
                 Button { page = .help } label: { WalletNavigationRow("Help & privacy", subtitle: "Support and privacy information", icon: "questionmark.circle") }
             }.buttonStyle(WalletNavigationButtonStyle()).walletPageContent(maxWidth: 760)
@@ -159,11 +163,16 @@ struct SettingsView: View {
                         case .tools:
                 WalletSection("Wallet tools") {
                     NavigationLink { WalletHealthView() } label: { WalletNavigationRow("Wallet health", subtitle: "Connections, recovery, and support report", icon: "heart.text.square") }
-                    NavigationLink { JoinBlaketView() } label: { WalletNavigationRow("CoinJoin", subtitle: "JoinBlaket jars & maker", icon: "shuffle") }
 
                     NavigationLink { OnchainAddressesView() } label: { WalletNavigationRow("On-chain addresses", subtitle: "Receive and change addresses", icon: "list.bullet") }
                     if store.supportsArk { NavigationLink { MessageSigningView() } label: { WalletNavigationRow("Sign a message", subtitle: "Prove ownership of an on-chain address", icon: "signature") }
                     NavigationLink { ArkMaintenanceView() } label: { WalletNavigationRow("Ark maintenance", subtitle: "Refresh funds and expiry reminders", icon: "arrow.triangle.2.circlepath") } }
+                }
+
+                        case .experimental:
+                WalletSection("Previous CoinJoin account") {
+                    NavigationLink { CoinjoinView() } label: { WalletNavigationRow("Kilojoin recovery", subtitle: "Manage existing funds and previous rounds", icon: "clock.arrow.circlepath") }
+                    Text("New CoinJoin activity is available in Jars through your JoinBlaket server.").font(.caption).foregroundStyle(PaperclipTheme.muted)
                 }
 
                         case .help:

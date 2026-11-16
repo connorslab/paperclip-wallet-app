@@ -23,7 +23,7 @@ const fs = require('node:fs'), path = require('node:path'), assert = require('no
    await page.locator('#token').fill('synthetic-token');
    await page.getByRole('button',{name:'Unlock wallet',exact:true}).click();
    await page.locator('#wallet').waitFor({state:'visible'});
-   for (const view of ['transfer','onchain','lightning','activity','settings','overview']) {
+   for (const view of ['transfer','onchain','lightning','coinjoin','activity','settings','overview']) {
     const nested=['transfer','onchain'].includes(view);
     const menu=page.locator(`.view-nav [data-view="${nested?'overview':view}"]`);
     await menu.click();
@@ -35,7 +35,7 @@ const fs = require('node:fs'), path = require('node:path'), assert = require('no
     assert(!(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth)),'No horizontal overflow');
     assert((await menu.boundingBox()).height>=44,'Navigation touch target');
     assert.equal(await page.locator('[data-screen]:visible').first().evaluate(el=>getComputedStyle(el).animationName),'none','Reduced motion');
-    if (process.env.SCREENSHOT_DIR && ['overview','settings'].includes(view)) {
+    if (process.env.SCREENSHOT_DIR && ['overview','coinjoin','settings'].includes(view)) {
       await page.locator('#network').evaluate(el=>el.textContent='UI FIXTURE · NO LIVE FUNDS');
       await page.screenshot({path:path.join(process.env.SCREENSHOT_DIR,`navigation-${view}-${width}.png`),fullPage:true});
     }

@@ -4,6 +4,16 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class WalletNavigationTest {
+    @Test fun jarsIsIndependentAndOlderTabHistoriesStillRestore() {
+        val previous = listOf("Settings", "Wallet", "Lightning", "Activity", "Settings\u001fConnections")
+        val restored = WalletNavigation.restore(previous)
+        assertEquals("Connections", restored.route)
+        val jars = restored.selectTab("Jars")
+        assertEquals("Jars", jars.route)
+        assertFalse(jars.canGoBack)
+        assertEquals("Connections", jars.selectTab("Settings").route)
+        assertEquals(jars, WalletNavigation.restore(jars.saved()))
+    }
     @Test fun nestedBackReturnsToParentAndKeepsSelectedTab() {
         val nested = WalletNavigation().selectTab("Settings").open("Coinjoin").open("Previous Coinjoin")
         assertEquals("Coinjoin", nested.back().route)

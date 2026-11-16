@@ -157,9 +157,8 @@ struct JoinBlaketView: View {
                 }
                 if model.busy { ProgressView().frame(maxWidth: .infinity) }
                 if let message = model.message { Text(message).font(.subheadline).textSelection(.enabled) }
-                NavigationLink { CoinjoinView() } label: { WalletNavigationRow("Previous CoinJoin account", subtitle: "Kilojoin funds and round recovery", icon: "clock.arrow.circlepath") }
             }.walletPageContent()
-        }.walletPageBackground().navigationTitle("CoinJoin").navigationBarTitleDisplayMode(.inline)
+        }.walletPageBackground().navigationTitle("Jars").navigationBarTitleDisplayMode(.inline)
             .disabled(model.busy)
 #if DEBUG
             .task {

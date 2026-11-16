@@ -83,7 +83,7 @@ import PaperclipMobile
 struct WalletView: View {
     @EnvironmentObject var store: WalletStore
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    private enum Tab: Hashable { case wallet, lightning, activity, settings }
+    private enum Tab: Hashable { case wallet, lightning, jars, activity, settings }
     @State private var selectedTab: Tab = .wallet
     var body: some View {
         Group {
@@ -97,6 +97,8 @@ struct WalletView: View {
                         .tabItem { Label("Wallet", systemImage: "wallet.pass") }.tag(Tab.wallet)
                     NavigationStack { LightningView() }
                         .tabItem { Label("Lightning", systemImage: "bolt.fill") }.tag(Tab.lightning)
+                    NavigationStack { JoinBlaketView() }
+                        .tabItem { Label("Jars", systemImage: "cylinder.fill") }.tag(Tab.jars)
                     ZStack { NavigationStack { ActivityView() }.id(store.walletID) }
                         .tabItem { Label("Activity", systemImage: "clock.arrow.circlepath") }.tag(Tab.activity)
                     ZStack { NavigationStack { SettingsView() }.id(store.walletID) }
@@ -293,13 +295,14 @@ struct DashboardView: View {
 struct ActivityView: View {
     @AppStorage("displayUnit") private var unit: BitcoinUnit = .sats
     @EnvironmentObject var store: WalletStore
+    @Environment(\.dynamicTypeSize) private var textSize
     @State private var filter = "All"
     private var items: [ActivityItem] { store.activity.filter {
         filter == "All" || (filter == "Ark" ? $0.id.hasPrefix("ark-") : !$0.id.hasPrefix("ark-"))
     } }
     var body: some View {
         ScrollView {
-          VStack(spacing: 20) {
+          VStack(spacing: 12) {
             Picker("Activity wallet", selection: $filter) {
                 Text("All").tag("All"); Text("On-chain").tag("On-chain"); Text("Ark").tag("Ark")
             }.pickerStyle(.segmented)
@@ -309,26 +312,28 @@ struct ActivityView: View {
             ForEach(items) { item in
                 if !item.id.hasPrefix("ark-") {
                     NavigationLink { OnchainTransactionView(transaction: item) } label: {
-                        WalletCard { OnchainTransactionRow(item: item) }
+                        WalletCard(inset: 18, spacing: 8) { OnchainTransactionRow(item: item) }
                     }.buttonStyle(.plain)
                 } else {
                     NavigationLink { ArkActivityDetailView(item: item) } label: {
-                    WalletCard {
-                        HStack { Text(item.title).font(.headline); Spacer(); Text(unit.signed(item.amountSat)).monospacedDigit() }
-                        Text(item.status).foregroundStyle(PaperclipTheme.orange)
+                    WalletCard(inset: 18, spacing: 8) {
+                        (textSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 4)) : AnyLayout(HStackLayout(spacing: 12))) {
+                            Text(item.title).font(.headline).frame(maxWidth: .infinity, alignment: .leading)
+                            Text(unit.signed(item.amountSat)).font(.headline).monospacedDigit().fixedSize(horizontal: false, vertical: true)
+                        }
+                        HStack {
+                            Text(item.status).font(.subheadline).foregroundStyle(PaperclipTheme.orange)
+                            Spacer(minLength: 8)
+                            Image(systemName: "chevron.right").font(.system(size: 12, weight: .semibold)).foregroundStyle(PaperclipTheme.muted).accessibilityHidden(true)
+                        }
                         if let date = item.date {
                             Text(date.formatted(date: .abbreviated, time: .shortened)).font(.caption).foregroundStyle(PaperclipTheme.muted)
                         }
-                        HStack {
-                            Text("View details").font(.caption)
-                            Spacer()
-                            Image(systemName: "chevron.right").font(.caption)
-                        }.foregroundStyle(PaperclipTheme.muted)
                     }
-                    }.buttonStyle(.plain)
+                    }.buttonStyle(.plain).accessibilityHint("View transaction details")
                 }
             }
-            Text(store.message).font(.caption)
+            if !store.message.isEmpty { Text(store.message).font(.caption) }
           }.walletPageContent()
         }.scrollContentBackground(.hidden).walletPageBackground().navigationTitle("Activity").navigationBarTitleDisplayMode(.inline)
             .toolbar { Button("Refresh") { store.run { try await store.refreshActivity() } }.disabled(store.busy) }

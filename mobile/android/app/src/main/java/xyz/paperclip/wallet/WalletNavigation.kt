@@ -27,10 +27,12 @@ internal data class WalletNavigation(
     fun saved(): List<String> = listOf(tab) + tabs.map { (stacks[it] ?: listOf(it)).joinToString("\u001f") }
 
     companion object {
-        val tabs = listOf("Wallet", "Lightning", "Activity", "Settings")
+        val tabs = listOf("Wallet", "Lightning", "Jars", "Activity", "Settings")
         fun restore(saved: List<String>): WalletNavigation {
-            if (saved.size != tabs.size + 1 || saved.first() !in tabs) return WalletNavigation()
-            val stacks = tabs.mapIndexed { index, root ->
+            // Preserve existing tab histories across the addition of Jars.
+            val roots = if (saved.size == 5) listOf("Wallet", "Lightning", "Activity", "Settings") else tabs
+            if (saved.size != roots.size + 1 || saved.first() !in roots) return WalletNavigation()
+            val stacks = roots.mapIndexed { index, root ->
                 val path = saved[index + 1].split('\u001f')
                 root to path.takeIf { it.firstOrNull() == root && it.size <= 32 && it.all(String::isNotBlank) }.orEmpty().ifEmpty { listOf(root) }
             }.filter { it.second.size > 1 }.toMap()
