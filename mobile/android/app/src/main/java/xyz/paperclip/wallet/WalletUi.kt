@@ -65,6 +65,31 @@ private val Orange = Color(0xfff56835)
 private val Navy = Color(0xff111c2e)
 private val Panel = Color(0xff1a293e)
 
+internal fun paperclipColors(dark: Boolean) =
+	if (dark)
+		darkColorScheme(
+			primary = Orange,
+			background = Navy,
+			surface = Panel,
+			onPrimary = Color.White,
+			onSurface = Color(0xfff1f4fa),
+			onBackground = Color(0xfff1f4fa),
+			onSurfaceVariant = Color(0xffafbdd1),
+			secondary = Orange,
+			secondaryContainer = Color(0xff49332c),
+			onSecondaryContainer = Color(0xffffba9d),
+			surfaceVariant = Color(0xff293b54),
+		)
+	else
+		lightColorScheme(
+			primary = Color(0xffb93c0c),
+			background = Color(0xfff2f5fa),
+			surface = Color.White,
+			secondary = Color(0xffac390f),
+			secondaryContainer = Color(0xffffdbc9),
+			onSecondaryContainer = Color(0xff6e280e),
+		)
+
 @Composable
 internal fun PaperclipApp(
 	model: WalletModel,
@@ -96,30 +121,7 @@ internal fun PaperclipApp(
 			}
 		}
 	}
-	val colors =
-		if (dark)
-			darkColorScheme(
-				primary = Orange,
-				background = Navy,
-				surface = Panel,
-				onPrimary = Color.White,
-				onSurface = Color(0xfff1f4fa),
-				onBackground = Color(0xfff1f4fa),
-				onSurfaceVariant = Color(0xffafbdd1),
-				secondary = Orange,
-				secondaryContainer = Color(0xff49332c),
-				onSecondaryContainer = Color(0xffffba9d),
-				surfaceVariant = Color(0xff293b54),
-			)
-		else
-			lightColorScheme(
-				primary = Color(0xffb93c0c),
-				background = Color(0xfff2f5fa),
-				surface = Color.White,
-				secondary = Color(0xffac390f),
-				secondaryContainer = Color(0xffffdbc9),
-				onSecondaryContainer = Color(0xff6e280e),
-			)
+	val colors = paperclipColors(dark)
 	CompositionLocalProvider(LocalBitcoinUnit provides displayUnit) {
 		MaterialTheme(colorScheme = colors, shapes = Shapes(large = RoundedCornerShape(26.dp))) {
 			if (!unlocked) {

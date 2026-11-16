@@ -2,6 +2,26 @@ import XCTest
 
 /// Synthetic fixtures only: no wallet credentials, synchronization or payments.
 final class AdaptiveLayoutTests: XCTestCase {
+	func testCompactJarSelectionKeepsAccountActionsNearby() {
+		continueAfterFailure = false
+		XCUIDevice.shared.orientation = .portrait
+		let app = XCUIApplication()
+		app.launchArguments = ["-build61-preview", "-joinblaket-preview", "-appearance", "dark"]
+		app.launch()
+		let first = app.buttons["jar-0"]
+		XCTAssertTrue(first.waitForExistence(timeout: 15))
+		XCTAssertTrue(first.isSelected)
+		XCTAssertTrue(app.buttons["Receive into Apricot"].isHittable, "Jar actions should fit without scrolling through five cards")
+		capture(app, "iOS Jars compact")
+		let last = app.buttons["jar-4"]
+		for _ in 0..<5 { if last.isHittable { break }; app.scrollViews["jar-picker"].swipeLeft() }
+		XCTAssertTrue(last.isHittable)
+		last.tap()
+		XCTAssertTrue(last.isSelected)
+		XCTAssertTrue(app.buttons["Receive into Elderberry"].exists)
+		XCTAssertFalse(app.buttons["Receive into Elderberry"].isEnabled)
+	}
+
 	func testBondSetupKeepsLockDateAndNoFundingExplanationVisible() {
 		continueAfterFailure = false
 		defer { XCUIDevice.shared.orientation = .portrait }

@@ -11,7 +11,7 @@ for (const item of cases) {
 (async()=>{
  const browser=await chromium.launch({headless:true,...(process.env.BROWSER_CHANNEL?{channel:process.env.BROWSER_CHANNEL}:{})});
  try {
-  for(const width of [390,1280]) {
+  for(const width of [390,1280,1440]) {
    const page=await browser.newPage({viewport:{width,height:1000}}),errors=[],actions=[];
    page.setDefaultTimeout(15000);
    page.on('pageerror',error=>errors.push(error.message));
@@ -38,14 +38,14 @@ for (const item of cases) {
       const body=route.request().postDataJSON(); actions.push(body.operation);
       assert.equal(route.request().method(),'POST');
       if(!['wallets','unlock'].includes(body.operation)) {
-       assert.equal(body.wallet,'fixture.jmdat','Jars must retain their own wallet identity');
+       assert.equal(body.wallet,'Sample Jars.jmdat','Jars must retain their own wallet identity');
        assert.equal(body.token,'fixture-token','Jars must retain their separate authorization');
       }
       if(body.operation==='status'&&failStatus)return route.fulfill({status:503,json:{message:'Synthetic stale status'}});
       if(body.operation==='start_maker') return route.fulfill({status:503,json:{message:'Synthetic unknown maker outcome'}});
-      if(body.operation==='wallets') value={wallets:['fixture.jmdat']};
-      else if(body.operation==='unlock') { assert.equal(body.bip39_passphrase,'fixture-passphrase'); value={walletname:'fixture.jmdat',token:'fixture-token'}; }
-      else if(body.operation==='status') value={session:true,wallet_name:'fixture.jmdat',maker_running:false,coinjoin_in_process:false,rescanning:false};
+      if(body.operation==='wallets') value={wallets:['Sample Jars.jmdat']};
+      else if(body.operation==='unlock') { assert.equal(body.bip39_passphrase,'fixture-passphrase'); value={walletname:'Sample Jars.jmdat',token:'fixture-token'}; }
+      else if(body.operation==='status') value={session:true,wallet_name:'Sample Jars.jmdat',maker_running:false,coinjoin_in_process:false,rescanning:false};
       else if(body.operation==='coins') value={jars};
       else if(body.operation==='address') { assert(Number.isInteger(body.jar)&&body.jar>=0&&body.jar<5);received.push(body.jar);value={address:'bc1qsyntheticdisplayonly'+body.jar}; }
       else if(body.operation==='bond_address') {
@@ -75,13 +75,28 @@ for (const item of cases) {
    assert.equal(await page.locator('#jam-password').inputValue(),'');
    assert.equal(await page.locator('#jam-passphrase').inputValue(),'');
    assert.equal(await page.locator('.jam-jar').count(),5);
+   if(process.env.SCREENSHOT_DIR) {
+    await page.locator('#network').evaluate(el=>el.textContent='SAMPLE WALLET · NO LIVE FUNDS');
+    await page.evaluate(()=>window.scrollTo(0,0));
+    await page.screenshot({path:path.join(process.env.SCREENSHOT_DIR,`jars-overview-${width}.png`),animations:'disabled'});
+   }
+   await page.locator('.jam-jar').last().click();
+   await page.locator('.jam-jar').last().focus();
+   await page.keyboard.press('Enter');
+   assert.equal(await page.locator('.jam-jar').last().getAttribute('aria-pressed'),'true');
+   assert(await page.locator('.jam-jar').last().evaluate(el=>el===document.activeElement),'Jar selection preserves keyboard focus');
+   if(width===390) {
+    const bounds=await page.locator('#jam-jars').boundingBox();
+    assert(bounds.height<230,'Jar selector stays in one compact row');
+   }
+
    // The server's Jam wallet is independent of the selected hot/QR/watch account.
    for(const account of ['',...accounts.map(item=>item.id)]) {
     await page.locator('#wallet-select').selectOption(account);
     await page.waitForFunction(id=>PaperclipAccounts.selectedId===id,account);
     await page.locator('.view-nav [data-view="coinjoin"]').click();
     await page.locator('#jam-dashboard').waitFor({state:'visible'});
-    assert.equal(await page.locator('#jam-wallet-name').textContent(),'fixture.jmdat');
+    assert.equal(await page.locator('#jam-wallet-name').textContent(),'Sample Jars.jmdat');
     for(let jar=0;jar<5;jar++) {
      await page.locator('.jam-jar').nth(jar).click();
      assert.equal(await page.locator('#jam-selected-name').textContent(),jars[jar].name);
@@ -114,7 +129,7 @@ for (const item of cases) {
    await page.getByRole('button',{name:'Go back',exact:true}).click();
    assert.equal(actions.filter(action=>action==='bond_address').length,0,'Cancel must not register an address');
    await page.locator('#jam-bond-review').click();
-   assert.match(await page.locator('.review-sheet').textContent(),/fixture.jmdat[\s\S]*2099-12-01[\s\S]*no funds/);
+   assert.match(await page.locator('.review-sheet').textContent(),/Sample Jars.jmdat[\s\S]*2099-12-01[\s\S]*no funds/);
    await page.getByRole('button',{name:'Confirm',exact:true}).click();
    await page.locator('#jam-bond-detail').filter({hasText:'Address ready; no funds sent'}).waitFor();
    assert.equal(actions.filter(action=>action==='bond_address').length,1);

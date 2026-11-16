@@ -74,8 +74,8 @@ fieldset{border:0;padding:0;min-width:0}.grid>*{min-width:0}.grid{gap:18px}.step
 .jam-heading {display:flex;justify-content:space-between;gap:20px;align-items:center;margin-bottom:24px}
 .jam-heading h2 {font-size:clamp(1.7rem,3vw,2.5rem);margin:8px 0}
 .eyebrow {font-size:.72rem;letter-spacing:.15em;color:var(--muted)}
-.jam-jars {display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:12px;margin:24px 0}
-.jam-jar {display:flex;flex-direction:column;align-items:flex-start;gap:12px;padding:22px 18px;border-radius:24px;color:#eef2f8;background:color-mix(in srgb,var(--jar-color) 7%,#162438);border:2px solid transparent;box-shadow:none;font-variant-numeric:tabular-nums}
+.jam-jars {display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:12px;margin:18px 0}
+.jam-jar {display:flex;flex-direction:column;align-items:flex-start;gap:8px;padding:16px;border-radius:20px;color:#eef2f8;background:color-mix(in srgb,var(--jar-color) 7%,#162438);border:2px solid transparent;box-shadow:none;font-variant-numeric:tabular-nums}
 .jam-jar[aria-pressed=true] {border-color:var(--jar-color);background:color-mix(in srgb,var(--jar-color) 16%,#162438)}
 .jar-art {width:56px;height:62px;border:2px solid var(--jar-color);border-radius:14px;position:relative;display:block;align-self:center;margin:12px 0 8px}
 .jar-art::before {content:'';position:absolute;top:-7px;left:-2px;width:56px;height:7px;border-radius:6px;background:var(--jar-color)}
@@ -180,3 +180,23 @@ textarea:focus-visible{outline:2px solid var(--focus);outline-offset:4px}
 
 .bridge-choices{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.bridge-choices .menu-row{flex-wrap:wrap;gap:12px;min-width:0}.bridge-choices .menu-row>span:first-child{min-width:0}
 @media(max-width:740px){.bridge-choices{grid-template-columns:1fr}}
+
+/* Jar selection stays compact; the chosen account's actions remain close by. */
+.jar-selection {font-size:.75rem;color:var(--muted)}
+.jam-detail-grid {align-items:start}
+@media(max-width:640px) {
+  .jam-jars {display:flex;overflow-x:auto;scroll-snap-type:x proximity;padding:4px;gap:10px}
+  .jam-jar {flex:0 0 154px;scroll-snap-align:start}
+  .jar-art {margin:5px 0;transform:scale(.75);height:52px}
+}
+
+/* Keep the shared server shell compact without shrinking touch targets. */
+.session-open main {padding-top:16px}
+.session-open .notice {padding:2px 12px;margin-bottom:8px}
+.wallet-switch select {margin:4px 0 0}
+.wallet-switch {margin-bottom:4px}
+.toolbar {margin-top:10px}
+@media(min-width:720px) {
+  .wallet-switch label {display:flex;align-items:center;gap:12px;max-width:560px;white-space:nowrap}
+  .wallet-switch select {margin:0;min-width:0}
+}

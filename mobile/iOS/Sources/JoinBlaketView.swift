@@ -115,23 +115,26 @@ struct JoinBlaketView: View {
                     }
                     HStack {
                         Text("Your jars").font(.title2.bold())
+                        Text("\(Int(selectedJar) + 1) of 5").font(.caption.monospacedDigit()).foregroundStyle(PaperclipTheme.muted)
                         Spacer()
                         Button { model.perform { try await model.refresh() } } label: { Image(systemName: "arrow.clockwise") }.accessibilityLabel("Refresh jars")
                     }
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 145), spacing: 12)], spacing: 12) {
-                        ForEach(model.jars) { jar in
-                            Button { selectedJar = jar.id; model.address = nil } label: {
-                                VStack(alignment: .leading, spacing: 12) {
-                                    JarIllustration(color: colors[Int(jar.id)], funded: jar.total_sat > 0).frame(height: 70)
-                                    Text(jar.name).font(.headline)
-                                    Text(unit.display(jar.total_sat)).font(.subheadline.monospacedDigit())
-                                    Text(jar.pending_sat > 0 ? "Incoming pending" : " ").font(.caption).foregroundStyle(PaperclipTheme.muted).accessibilityHidden(jar.pending_sat == 0)
-                                }.frame(maxWidth: .infinity, alignment: .leading).padding(18)
-                                    .background(colors[Int(jar.id)].opacity(0.10), in: RoundedRectangle(cornerRadius: 22))
-                                    .overlay(RoundedRectangle(cornerRadius: 22).stroke(selectedJar == jar.id ? colors[Int(jar.id)] : Color.clear, lineWidth: 2))
-                            }.buttonStyle(.plain).accessibilityAddTraits(selectedJar == jar.id ? .isSelected : [])
-                        }
-                    }
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 12) {
+                            ForEach(model.jars) { jar in
+                                Button { selectedJar = jar.id; model.address = nil } label: {
+                                    VStack(alignment: .leading, spacing: 6) {
+                                        JarIllustration(color: colors[Int(jar.id)], funded: jar.total_sat > 0).scaleEffect(0.7).frame(height: 48)
+                                        Text(jar.name).font(.headline)
+                                        Text(unit.display(jar.total_sat)).font(.subheadline.monospacedDigit())
+                                        Text(jar.pending_sat > 0 ? "Incoming pending" : (selectedJar == jar.id ? "Selected" : "Tap to select")).font(.caption).foregroundStyle(PaperclipTheme.muted)
+                                    }.frame(width: 136, alignment: .leading).padding(14)
+                                        .background(colors[Int(jar.id)].opacity(0.10), in: RoundedRectangle(cornerRadius: 22))
+                                        .overlay(RoundedRectangle(cornerRadius: 22).stroke(selectedJar == jar.id ? colors[Int(jar.id)] : Color.clear, lineWidth: 2))
+                                }.buttonStyle(.plain).accessibilityIdentifier("jar-\(jar.id)").accessibilityAddTraits(selectedJar == jar.id ? .isSelected : [])
+                            }
+                        }.padding(2)
+                    }.accessibilityIdentifier("jar-picker")
                     WalletColumns {
                         if let jar = model.jars.first(where: { $0.id == selectedJar }) {
                             WalletSection(jar.name) {

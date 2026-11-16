@@ -1,5 +1,10 @@
 package xyz.paperclip.wallet
 
+import android.graphics.Bitmap
+import androidx.test.platform.app.InstrumentationRegistry
+import java.io.File
+import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -19,6 +24,37 @@ import org.junit.Test
 /** Synthetic session only: no transport, wallet keys or funds. */
 class JoinBlaketLayoutTest {
 	@get:Rule val compose = createComposeRule()
+	@Test fun compactJarSelectionShowsActionsAndKeepsAllAccountsReachable() {
+		val state = JoinBlaketUiState().apply {
+			wallet.value = "Sample Jars wallet · no live funds"
+			session.value = JSONObject().put("session", true).put("maker_running", false)
+				.put("coinjoin_in_process", false).put("rescanning", false)
+			jars.value = listOf("Apricot", "Blueberry", "Cherry", "Date", "Elderberry").mapIndexed { id, name ->
+				JSONObject().put("id", id).put("name", name).put("total_sat", if (id == 0) 200000 else 0)
+					.put("confirmed_sat", if (id == 0) 200000 else 0).put("pending_sat", 0)
+					.put("frozen_sat", 0).put("bond_sat", 0)
+			}
+		}
+		compose.setContent { MaterialTheme(colorScheme = paperclipColors(true)) { Surface(color = MaterialTheme.colorScheme.background) {
+			Column(Modifier.fillMaxSize().safeDrawingPadding().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+				androidx.compose.material3.Text("Jars", style = MaterialTheme.typography.headlineLarge)
+				JoinBlaketPage(state)
+			}
+		} } }
+		compose.onNodeWithTag("jar-0").assertIsSelected()
+		compose.onNodeWithText("Receive into Apricot").assertIsDisplayed()
+		compose.waitForIdle()
+		val instrumentation = InstrumentationRegistry.getInstrumentation()
+		instrumentation.waitForIdleSync()
+		val image = checkNotNull(instrumentation.uiAutomation.takeScreenshot())
+		File(instrumentation.targetContext.getExternalFilesDir(null), "android-jars.png").outputStream().use {
+			image.compress(Bitmap.CompressFormat.PNG, 100, it)
+		}
+		compose.onNodeWithTag("jar-4").performScrollTo().performClick().assertIsSelected()
+		compose.onNodeWithText("Receive into Elderberry").assertExists()
+		compose.runOnIdle { assertEquals(4, state.selected.intValue); assertNull(state.client.value) }
+	}
+
 	@Test fun bondReviewNamesWalletAndDateWithoutFunding() {
 		val state = JoinBlaketUiState().apply {
 			wallet.value = "Fixture Jars wallet"

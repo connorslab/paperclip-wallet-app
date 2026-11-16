@@ -1,5 +1,11 @@
 package xyz.paperclip.wallet
 
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.platform.testTag
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.text.selection.SelectionContainer
@@ -92,8 +98,8 @@ internal fun JoinBlaketPage(state: JoinBlaketUiState) {
 		jars = (0 until response.length()).map { response.getJSONObject(it) }
 		session = current; needsRefresh = false
 	}
-	Text("JoinBlaket", style = MaterialTheme.typography.headlineMedium)
 	if (session == null) {
+		Text("JoinBlaket", style = MaterialTheme.typography.headlineMedium)
 		Text("Connect your Jam server to manage five separate jars and run a maker.", color = MaterialTheme.colorScheme.onSurfaceVariant)
 		TextButton(onClick = { uriHandler.openUri("https://kilombino.com/joinblaket/") }) { Text("Set up Kilombino JoinBlaket") }
 		OutlinedTextField(endpoint, { endpoint = it }, label = { Text("HTTPS or onion address") }, enabled = !busy, modifier = Modifier.fillMaxWidth())
@@ -122,27 +128,32 @@ internal fun JoinBlaketPage(state: JoinBlaketUiState) {
 		Text(unit.display(jars.sumOf { it.getLong("total_sat") }), style = MaterialTheme.typography.headlineLarge)
 		Text(wallet, color = MaterialTheme.colorScheme.onSurfaceVariant)
 		Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-			Text("Your jars", style = MaterialTheme.typography.titleLarge)
+			Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+				Text("Your jars", style = MaterialTheme.typography.titleLarge)
+				Text("${selected + 1} of 5", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+			}
 			TextButton(enabled = !busy, onClick = { run { refresh(checkNotNull(client), checkNotNull(authorization)) } }) { Text("Refresh") }
 		}
-		FlowRow(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+		Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(2.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
 			jars.forEach { jar ->
 				val id = jar.getInt("id")
 				val color = colors[id]
 				OutlinedCard(onClick = { selected = id; address = null }, enabled = !busy,
-					modifier = Modifier.widthIn(min = 145.dp, max = 210.dp),
+					modifier = Modifier.width(164.dp).testTag("jar-$id").semantics { this.selected = selected == id },
+					border = BorderStroke(if (selected == id) 2.dp else 1.dp, if (selected == id) color else MaterialTheme.colorScheme.outlineVariant),
 					colors = CardDefaults.outlinedCardColors(containerColor = color.copy(alpha = if (selected == id) .20f else .07f))) {
-					Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+					Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
 						JamJarArt(color, jar.getLong("total_sat") > 0)
 						Text(jar.getString("name"), style = MaterialTheme.typography.titleMedium)
-						Text(unit.display(jar.getLong("total_sat")))
+						Text(unit.display(jar.getLong("total_sat")), style = MaterialTheme.typography.bodyMedium)
+						Text(if (jar.getLong("pending_sat") > 0) "Incoming pending" else if (selected == id) "Selected" else "Tap to select", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 					}
 				}
 			}
 		}
 		WalletColumns(primary = {
 		jars.firstOrNull { it.getInt("id") == selected }?.let { jar ->
-			Card(Modifier.fillMaxWidth()) {
+			Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
 				Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
 					Text(jar.getString("name"), style = MaterialTheme.typography.titleLarge)
 					for ((field, label) in listOf("confirmed_sat" to "Confirmed", "pending_sat" to "Pending", "frozen_sat" to "Frozen", "bond_sat" to "Fidelity bonds")) {
@@ -255,10 +266,10 @@ internal fun JoinBlaketPage(state: JoinBlaketUiState) {
 }
 
 @Composable private fun JamJarArt(color: Color, funded: Boolean) {
-	Canvas(Modifier.fillMaxWidth().height(70.dp)) {
-		val width = 56.dp.toPx(); val height = 62.dp.toPx(); val x = (size.width - width) / 2
+	Canvas(Modifier.fillMaxWidth().height(48.dp)) {
+		val width = 38.dp.toPx(); val height = 42.dp.toPx(); val x = (size.width - width) / 2
 		drawRoundRect(color.copy(alpha = .08f), Offset(x, 6.dp.toPx()), Size(width, height), CornerRadius(14.dp.toPx()))
-		val fill = if (funded) 30.dp.toPx() else 4.dp.toPx()
+		val fill = if (funded) 22.dp.toPx() else 4.dp.toPx()
 		drawRoundRect(color.copy(alpha = .35f), Offset(x + 5.dp.toPx(), height - fill), Size(width - 10.dp.toPx(), fill), CornerRadius(8.dp.toPx()))
 		drawRoundRect(color.copy(alpha = .65f), Offset(x, 6.dp.toPx()), Size(width, height), CornerRadius(14.dp.toPx()), style = Stroke(2.dp.toPx()))
 		drawRoundRect(color, Offset(x, 0f), Size(width, 7.dp.toPx()), CornerRadius(4.dp.toPx()))

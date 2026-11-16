@@ -28,16 +28,22 @@
     const connected = !!session;
     $('jam-wallet-name').textContent = authorization?.wallet || '';
     $('jam-connect').hidden = connected; $('jam-dashboard').hidden = !connected; $('jam-refresh').hidden = !connected;
+    const jarScroll = $('jam-jars').scrollLeft;
+    const focusedJar = document.activeElement?.closest('.jam-jar')?.dataset.jar;
     $('jam-jars').replaceChildren(); $('jam-amounts').replaceChildren();
     for (const jar of jars) {
       const button = document.createElement('button'); button.type = 'button'; button.className = 'jam-jar';
+      button.dataset.jar = String(jar.id);
       button.style.setProperty('--jar-color', colors[jar.id]); button.setAttribute('aria-pressed', String(jar.id === selected));
       const art = document.createElement('span'); art.className = 'jar-art' + (jar.total_sat > 0 ? ' funded' : ''); art.setAttribute('aria-hidden', 'true');
       const name = document.createElement('strong'); name.textContent = jar.name;
       const balance = document.createElement('span'); balance.textContent = amount(jar.total_sat);
-      button.append(art, name, balance); button.onclick = () => { selected = jar.id; clearAddress(); render(); };
+      const selection = document.createElement('span'); selection.className = 'jar-selection'; selection.textContent = jar.id === selected ? 'Selected' : 'Select jar';
+      button.append(art, name, balance, selection); button.onclick = () => { selected = jar.id; clearAddress(); render(); };
       $('jam-jars').append(button);
     }
+    $('jam-jars').scrollLeft = jarScroll;
+    if (focusedJar !== undefined) $('jam-jars').querySelector(`[data-jar="${focusedJar}"]`)?.focus({preventScroll:true});
     const jar = jars.find(jar => jar.id === selected);
     if (jar) {
       $('jam-selected-name').textContent = jar.name; $('jam-receive').textContent = 'Receive into ' + jar.name;
