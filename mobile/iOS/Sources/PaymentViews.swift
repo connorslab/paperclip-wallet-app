@@ -105,16 +105,28 @@ struct SendView: View {
                         }.transition(.identity)
                     }
                     if let total, let reviewedAmount, !submitted {
-                        WalletSection("Review payment") {
-                            Button("Edit recipient or amount") { reset() }.disabled(store.busy)
-                            LabeledContent("From", value: onchain ? "On-chain wallet" : "Ark balance")
-                            LabeledContent("Recipient receives") { Text(unit.display(reviewedAmount)).foregroundStyle(.primary).monospacedDigit() }
-                            LabeledContent(onchain ? "Network fee" : "Fee / recovery funding") { Text(unit.display(fee)).foregroundStyle(.primary).monospacedDigit() }.accessibilityIdentifier("payment-recovery-funding")
-                            Divider()
-                            LabeledContent("Total debit") { Text(unit.display(total)).foregroundStyle(.primary).monospacedDigit() }.font(.headline).accessibilityIdentifier("payment-total-debit")
-                            Text(target).font(.caption.monospaced()).lineLimit(4).textSelection(.enabled)
-                            Text("Review is valid for 60 seconds. If costs change, review again.").font(.caption).foregroundStyle(PaperclipTheme.muted)
-                            Button("Confirm payment") { confirmation = true }.buttonStyle(WalletPrimaryButtonStyle()).disabled(store.busy)
+                        VStack(spacing: 24) {
+                            PaymentReviewHero(amount: unit.display(reviewedAmount), source: onchain ? "On-chain wallet" : "Ark balance")
+                            WalletSection("Payment details") {
+                                VStack(alignment: .leading, spacing: 10) {
+                                    Text("Recipient").font(.caption).foregroundStyle(PaperclipTheme.muted)
+                                    Text(target).font(.callout.monospaced()).lineLimit(4).textSelection(.enabled)
+                                }.padding(.bottom, 8)
+                                Divider()
+                                LabeledContent(onchain ? "Network fee" : "Fee / recovery funding") {
+                                    Text(unit.display(fee)).foregroundStyle(.primary).monospacedDigit()
+                                }.padding(.vertical, 8).accessibilityIdentifier("payment-recovery-funding")
+                                LabeledContent("Total debit") {
+                                    Text(unit.display(total)).foregroundStyle(.primary).monospacedDigit()
+                                }.font(.headline).accessibilityIdentifier("payment-total-debit")
+                            }
+                            VStack(spacing: 16) {
+                                Text("Review is valid for 60 seconds. If costs change, review again.")
+                                    .font(.caption).foregroundStyle(PaperclipTheme.muted).multilineTextAlignment(.center)
+                                Button("Confirm payment") { confirmation = true }
+                                    .buttonStyle(WalletPrimaryButtonStyle()).disabled(store.busy)
+                                Button("Edit recipient or amount") { reset() }.disabled(store.busy)
+                            }.padding(.top, 8)
                         }.transition(reduceMotion ? .identity : .asymmetric(insertion: .opacity.combined(with: .offset(y: 8)), removal: .identity))
                     }
                     if let issue = amountIssue {
@@ -234,6 +246,32 @@ struct SendView: View {
                 try? await store.refreshActivity()
             } catch { status = "Payment outcome needs checking: \(error.localizedDescription). Check Activity before retrying." }
         }
+    }
+}
+
+private struct PaymentReviewHero: View {
+    let amount: String
+    let source: String
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var appeared = false
+    var body: some View {
+        VStack(spacing: 14) {
+            Image(systemName: "arrow.up.right")
+                .font(.system(size: 27, weight: .semibold))
+                .foregroundStyle(PaperclipTheme.orange)
+                .frame(width: 60, height: 60)
+                .background(PaperclipTheme.orange.opacity(0.12), in: Circle())
+                .rotationEffect(.degrees(appeared || reduceMotion ? 0 : -12))
+                .scaleEffect(appeared || reduceMotion ? 1 : 0.8)
+                .accessibilityHidden(true)
+            Text("Recipient receives").font(.subheadline).foregroundStyle(PaperclipTheme.muted)
+            Text(amount).font(.largeTitle.bold()).monospacedDigit()
+                .multilineTextAlignment(.center).accessibilityIdentifier("payment-recipient-amount")
+            Text("From \(source)").font(.subheadline).foregroundStyle(PaperclipTheme.muted)
+        }.frame(maxWidth: .infinity).padding(.vertical, 24)
+            .onAppear {
+                withAnimation(reduceMotion ? nil : .spring(duration: 0.36, bounce: 0.22)) { appeared = true }
+            }
     }
 }
 

@@ -998,27 +998,23 @@ internal fun Send(s: WalletState, model: WalletModel) {
 		}
 		val quote = s.review
 		if (quote != null) {
-			CardBlock("Review payment") {
-				Text(
-					if (quote.onchain) "From your on-chain balance" else "From your Ark balance",
-					style = MaterialTheme.typography.labelLarge,
-				)
-				Text("Recipient", color = MaterialTheme.colorScheme.onSurfaceVariant)
+			ReviewAmountHero(sats(quote.amount), if (quote.onchain) "On-chain wallet" else "Ark balance")
+			CardBlock("Payment details") {
+				Text("Recipient", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
 				SelectionContainer {
-					Text(
-						quote.destination,
-						style = MaterialTheme.typography.bodySmall,
-						fontFamily = FontFamily.Monospace,
-					)
+					Text(quote.destination, style = MaterialTheme.typography.bodyMedium, fontFamily = FontFamily.Monospace)
 				}
-				BalanceRow("Recipient receives", sats(quote.amount))
-				BalanceRow(if (quote.onchain) "Network fee" else "Fee / recovery funding", sats(quote.fee))
+				Spacer(Modifier.height(8.dp))
 				HorizontalDivider()
+				Spacer(Modifier.height(8.dp))
+				BalanceRow(if (quote.onchain) "Network fee" else "Fee / recovery funding", sats(quote.fee))
 				BalanceRow("Total debit", sats(quote.total))
-				Text("Quotes expire after 60 seconds. Confirm only if these details are correct.")
-				Button(onClick = model::send, enabled = !s.busy, modifier = Modifier.fillMaxWidth()) {
-					Text("Confirm and send")
-				}
+			}
+			Column(Modifier.fillMaxWidth().padding(top = 12.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
+				Text("Quotes expire after 60 seconds. Confirm only if these details are correct.",
+					style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+					textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+				Button(onClick = model::send, enabled = !s.busy, modifier = Modifier.fillMaxWidth()) { Text("Confirm and send") }
 				TextButton(onClick = model::cancelReview, enabled = !s.busy) { Text("Edit recipient or amount") }
 			}
 		} else {

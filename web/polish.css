@@ -209,3 +209,10 @@ textarea:focus-visible{outline:2px solid var(--focus);outline-offset:4px}
 .transfer-flow>section {margin-top:0}
 .receive-card {animation:wallet-view-in .18s ease-out both}
 @media(prefers-reduced-motion:reduce) {.receive-card {animation:none}}
+
+/* Reviews have room for deliberate reading and a distinct confirmation area. */
+.review-sheet {padding:32px;width:min(560px,calc(100% - 28px))}
+.review-sheet h2 {margin-bottom:24px}
+.review-content {line-height:1.8;padding-block:8px 16px}
+.review-actions {margin-top:28px;padding-top:20px;border-top:1px solid var(--stroke)}
+@media(max-width:640px) {.review-sheet {padding:24px}.review-actions {margin-top:20px}}
