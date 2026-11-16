@@ -1,5 +1,23 @@
 # Cross-platform navigation and QR wallet review
 
+## Independent desktop Jars: 2026-11-16
+
+The shared desktop/StartOS/Umbrel UI shows Jars for hot, QR and watch-only account
+selections. The Jars wallet name remains visible and separate from the account
+selector. Browser fixtures passed at 390 and 1280 pixels: all five receive
+destinations retain the Jam wallet authorization across account switches, while
+hot-wallet sends remain blocked from public accounts. Maker eligibility and
+unknown-outcome reconciliation checks also pass. Hardware-wallet and asynchronous
+account-switching browser suites pass without changes to their assertions.
+The desktop screenshot was visually reviewed. This validates the client with
+fixtures; bundled Jam, mobile pairing and guided bond funding remain unfinished.
+
+Android CI run 43908682616 passed API 36 and both native ABI builds, but API 35
+failed before its onboarding screenshot: accessibility was owned by `android`
+with a not-responding dialog. The report does not identify the dialog's subject,
+so it does not establish whether the wallet or another process caused it. Do not
+count that runtime lane as accepted or bypass its screenshot assertion.
+
 ## Dashboard density review: 2026-11-16
 
 iOS build 73 groups the balance and fiat value, places account units beside their

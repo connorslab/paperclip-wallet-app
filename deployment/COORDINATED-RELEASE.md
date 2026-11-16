@@ -46,6 +46,14 @@ The latest UI source adds Jars as the fifth primary destination, after Lightning
 and retains Kilojoin recovery under Experimental on mobile. The server bundling,
 bond wizard and mobile pairing requirements above remain open.
 
+Desktop Jars remains accessible when a hot, QR or watch-only account is selected.
+It identifies the separately authorized Jam wallet and preserves its session when
+the main account changes. Only the two fixed JoinBlaket routes bypass the public
+account's hot-wallet restriction; hot-wallet sends remain blocked. Browser
+fixtures verify receiving into every jar for all three account types, maker
+eligibility and uncertain-action handling. These checks do not establish live
+Jam connectivity, bond funding or bundled-service acceptance.
+
 - Freeze one source commit in `connorslab/paperclip-wallet-app`. Record the commit,
   dependency lockfiles, native toolchain versions and CI runs for every artifact.
 - Build the Apple archive with the native Apple toolchain and existing signing

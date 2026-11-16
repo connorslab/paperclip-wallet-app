@@ -16,6 +16,8 @@ for (const item of cases) {
    page.setDefaultTimeout(15000);
    page.on('pageerror',error=>errors.push(error.message));
    let failStatus=false;
+   const accounts=[{id:'a'.repeat(64),label:'Krux savings',kind:'hardware'},{id:'b'.repeat(64),label:'Watch savings',kind:'watch'}];
+   const received=[];
    const jars=['Apricot','Blueberry','Cherry','Date','Elderberry'].map((name,id)=>({id,name,total_sat:id===0?200000:0,confirmed_sat:id===0?200000:0,pending_sat:0,frozen_sat:0,bond_sat:0}));
    await page.route('http://wallet.test/**',async route=>{
     const url=new URL(route.request().url()),p=url.pathname.replace('/api/v1/','');
@@ -26,17 +28,26 @@ for (const item of cases) {
      if(p==='wallet/balance') value={spendable_sat:0};
      if(p==='onchain/balance') value={confirmed_sat:0};
      if(p==='wallet/vtxos') value=[];
+     if(p==='hardware/accounts') value={accounts};
+     if(p==='hardware/request') {
+      assert.equal(route.request().postDataJSON().operation,'refresh','Jars must not spend from the selected public account');
+      value={confirmed_sat:50000,pending_sat:0,transactions:[],last_broadcast:null};
+     }
      if(p==='joinblaket/connection') value={configured:true,ui_url:'https://jam.example.test/'};
      if(p==='joinblaket/request') {
       const body=route.request().postDataJSON(); actions.push(body.operation);
       assert.equal(route.request().method(),'POST');
+      if(!['wallets','unlock'].includes(body.operation)) {
+       assert.equal(body.wallet,'fixture.jmdat','Jars must retain their own wallet identity');
+       assert.equal(body.token,'fixture-token','Jars must retain their separate authorization');
+      }
       if(body.operation==='status'&&failStatus)return route.fulfill({status:503,json:{message:'Synthetic stale status'}});
       if(body.operation==='start_maker') return route.fulfill({status:503,json:{message:'Synthetic unknown maker outcome'}});
       if(body.operation==='wallets') value={wallets:['fixture.jmdat']};
       else if(body.operation==='unlock') { assert.equal(body.bip39_passphrase,'fixture-passphrase'); value={walletname:'fixture.jmdat',token:'fixture-token'}; }
       else if(body.operation==='status') value={session:true,wallet_name:'fixture.jmdat',maker_running:false,coinjoin_in_process:false,rescanning:false};
       else if(body.operation==='coins') value={jars};
-      else if(body.operation==='address') { assert.equal(body.jar,3); value={address:'bc1qsyntheticdisplayonly'}; }
+      else if(body.operation==='address') { assert(Number.isInteger(body.jar)&&body.jar>=0&&body.jar<5);received.push(body.jar);value={address:'bc1qsyntheticdisplayonly'+body.jar}; }
       else throw new Error('Unexpected mutation '+body.operation);
      }
      return route.fulfill({json:value});
@@ -59,6 +70,25 @@ for (const item of cases) {
    assert.equal(await page.locator('#jam-password').inputValue(),'');
    assert.equal(await page.locator('#jam-passphrase').inputValue(),'');
    assert.equal(await page.locator('.jam-jar').count(),5);
+   // The server's Jam wallet is independent of the selected hot/QR/watch account.
+   for(const account of ['',...accounts.map(item=>item.id)]) {
+    await page.locator('#wallet-select').selectOption(account);
+    await page.waitForFunction(id=>PaperclipAccounts.selectedId===id,account);
+    await page.locator('.view-nav [data-view="coinjoin"]').click();
+    await page.locator('#jam-dashboard').waitFor({state:'visible'});
+    assert.equal(await page.locator('#jam-wallet-name').textContent(),'fixture.jmdat');
+    for(let jar=0;jar<5;jar++) {
+     await page.locator('.jam-jar').nth(jar).click();
+     assert.equal(await page.locator('#jam-selected-name').textContent(),jars[jar].name);
+     await page.locator('#jam-receive').click();
+     await page.waitForFunction(id=>document.querySelector('#jam-address').textContent.includes('bc1qsyntheticdisplayonly'+id),jar);
+    }
+    if(account) {
+     const blocked=await page.evaluate(async()=>{try{await api('onchain/send',{amount_sat:1});return false;}catch(error){return error.message.includes('hot wallet');}});
+     assert(blocked,'Jars access must not enable hot-wallet sends from a public account');
+    }
+   }
+   assert.deepEqual(received,[0,1,2,3,4,0,1,2,3,4,0,1,2,3,4]);
    await page.getByRole('button',{name:/Date.*0 sats/}).click();
    assert.equal(await page.locator('#jam-selected-name').textContent(),'Date');
    await page.locator('#jam-receive').click();
@@ -92,6 +122,6 @@ for (const item of cases) {
    await page.waitForFunction(()=>document.querySelector('#jam-open').getAttribute('href')===null);
    await page.close();
   }
-  console.log('PASS Jar browser: phone/desktop, five jars, correct receive account, password clearing, maker eligibility, no automatic mutation, no overflow/errors');
+  console.log('PASS Jar browser: phone/desktop, all five jars from hot/QR/watch accounts, separate authorization, hot-wallet isolation, password clearing, maker eligibility and uncertain-action recovery, no overflow/errors');
  } finally {await browser.close();}
 })().catch(error=>{console.error(error);process.exit(1)});
