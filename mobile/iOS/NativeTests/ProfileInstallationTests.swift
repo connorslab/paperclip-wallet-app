@@ -79,6 +79,60 @@ final class ProfileInstallationTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: blocked), marker)
     }
 
+    func testUnavailableWalletSwitchPreservesSelectionAndNativeSession() async throws {
+        let wallet = NativeWallet()
+        let savedCatalog = try WalletKeychain.read("wallet-catalog-v1")
+        let target = WalletProfile(name: "Switch target fixture", kind: .hot, network: "xbt-regtest")
+        let active = WalletProfile(name: "Switch active fixture", kind: .hot, network: "xbt-regtest")
+        let targetKey = NativeWallet.KeyRecord(seed: Data(repeating: 59, count: 64), phrase: nil, network: "xbt-regtest")
+        let activeKey = NativeWallet.KeyRecord(seed: Data(repeating: 19, count: 64), phrase: nil, network: "xbt-regtest")
+        let root = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("PaperclipWallets", isDirectory: true)
+        let database = root.appendingPathComponent(target.id).appendingPathComponent("db.sqlite")
+        let held = root.appendingPathComponent(target.id).appendingPathComponent("fixture-held.sqlite")
+        func nativeAddresses(_ key: Data) -> String {
+            "{\"op\":\"addresses_onchain\"}".withCString { request in
+                key.withUnsafeBytes { bytes in
+                    guard let reply = paperclip_mobile_call(request, bytes.bindMemory(to: UInt8.self).baseAddress) else { return "" }
+                    defer { paperclip_mobile_free(reply) }
+                    return String(cString: reply)
+                }
+            }
+        }
+        defer {
+            "{\"op\":\"close\"}".withCString { request in
+                activeKey.seed.withUnsafeBytes { bytes in
+                    if let reply = paperclip_mobile_call(request, bytes.bindMemory(to: UInt8.self).baseAddress) { paperclip_mobile_free(reply) }
+                }
+            }
+            if let savedCatalog { try? WalletKeychain.save(savedCatalog, account: "wallet-catalog-v1") }
+            else { try? WalletKeychain.delete("wallet-catalog-v1") }
+            for profile in [target, active] {
+                try? FileManager.default.removeItem(at: root.appendingPathComponent(profile.id))
+                try? WalletKeychain.delete(profile.keyAccount)
+                try? WalletKeychain.delete(profile.connectionAccount)
+            }
+        }
+        _ = try await wallet.installProfile(target, key: targetKey, connection: WalletConnection())
+        let targetAddress = try await wallet.address(ark: false)
+        _ = try await wallet.installProfile(active, key: activeKey, connection: WalletConnection())
+        let activeAddress = try await wallet.address(ark: false)
+        try FileManager.default.moveItem(at: database, to: held)
+        do { try await wallet.activate(target.id); XCTFail("Unavailable wallet switch succeeded") }
+        catch { XCTAssertTrue(error is WalletFailure) }
+        let selected = try await wallet.selectedProfile()
+        XCTAssertEqual(selected?.id, active.id)
+        let persisted = try JSONDecoder().decode(WalletCatalog.self, from: XCTUnwrap(WalletKeychain.read("wallet-catalog-v1")))
+        XCTAssertEqual(persisted.selected?.id, active.id)
+        XCTAssertTrue(nativeAddresses(activeKey.seed).contains(activeAddress), "Failed switch closed or changed the original native wallet")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: database.path))
+        try FileManager.default.moveItem(at: held, to: database)
+        try await wallet.activate(target.id)
+        let retried = try await wallet.selectedProfile()
+        XCTAssertEqual(retried?.id, target.id)
+        XCTAssertTrue(nativeAddresses(targetKey.seed).contains(targetAddress))
+    }
+
     func testFailedInstallationRemovesOnlyKeysItCreated() async throws {
         let wallet = NativeWallet()
         let previous = try await wallet.selectedProfile()

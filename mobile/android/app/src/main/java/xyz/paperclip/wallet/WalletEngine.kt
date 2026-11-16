@@ -174,14 +174,41 @@ class WalletEngine private constructor(context: Context) {
 
 	suspend fun select(id: String) = serial {
 		val index = registry()
+		val previous = index.selected()
 		index.select(id)
+		if (previous?.getString("id") == id && opened) return@serial invoke("overview_onchain")
+		val reopenPrevious = opened
 		if (opened) invoke("close")
 		opened = false
 		connected = false
-		record = null
-		saveRegistry(index)
-		openStored()
-		invoke("overview_onchain")
+		try {
+			record = checkNotNull(index.selected())
+			// Do not persist an unusable selection. Keep legacy provisioning
+			// completion in the same registry write as the successful switch.
+			openStored(persistProvisioning = false)
+			val overview = invoke("overview_onchain")
+			saveRegistry(index)
+			overview
+		} catch (failure: Exception) {
+			val closed = runCatching { invoke("close") }.isSuccess
+			opened = false
+			connected = false
+			record = null
+			val selectionPreserved = runCatching {
+				registry().selected()?.getString("id") == previous?.getString("id")
+			}.getOrDefault(false)
+			if (!closed || !selectionPreserved) {
+				throw IllegalStateException("Wallet switch could not finish. Saved data was preserved; restart Paperclip before retrying.", failure)
+			}
+			record = previous
+			if (reopenPrevious && previous != null) {
+				try { openStored() } catch (reopenFailure: Exception) {
+					failure.addSuppressed(reopenFailure)
+					throw IllegalStateException("The previous wallet could not reopen. Its saved data was preserved; restart Paperclip.", failure)
+				}
+			}
+			throw failure
+		}
 	}
 
 	suspend fun rename(id: String, name: String) = serial {

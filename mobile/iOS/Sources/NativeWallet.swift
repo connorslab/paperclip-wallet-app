@@ -158,9 +158,28 @@ actor NativeWallet: WalletEngine, WalletBackupEngine {
             _ = try await openStorage(create: false)
             try saveCatalog(next)
         } catch {
-            if opened { _ = try? await call(["op": "close"]) }
-            opened = false; connected = false; catalog = previous
-            if previous.selected != nil { _ = try? await openStorage(create: false) }
+            // Close does not require the target key, which may be unreadable.
+            // Never resume with a cached selection if its commit is uncertain.
+            let closed = (try? await call(["op": "close"], seed: Data(repeating: 0, count: 64))) != nil
+            opened = false; connected = false; fingerprint = ""
+            let selectionPreserved: Bool
+            do {
+                let data = try WalletKeychain.read("wallet-catalog-v1")
+                let saved = try data.map { try JSONDecoder().decode(WalletCatalog.self, from: $0) }
+                selectionPreserved = saved?.selectedID == previous.selectedID
+            } catch {
+                catalog = nil
+                throw WalletFailure(message: "Wallet switch could not finish. Saved data was preserved; unlock and restart Paperclip before retrying.")
+            }
+            guard closed, selectionPreserved else {
+                catalog = nil
+                throw WalletFailure(message: "Wallet switch could not finish. Saved data was preserved; restart Paperclip before retrying.")
+            }
+            catalog = previous
+            if previous.selected != nil {
+                do { _ = try await openStorage(create: false) }
+                catch { throw WalletFailure(message: "The previous wallet could not reopen. Its saved data was preserved; restart Paperclip.") }
+            }
             throw error
         }
     }

@@ -787,3 +787,31 @@ That data was preserved. The UI test now checks that its QA app is empty and giv
 a clear precondition error otherwise. No existing wallet is deleted to make the
 test pass. Logs: `/tmp/android-create-after-runtime.log` and
 `/tmp/android-create-fresh-ui.log`.
+
+
+## Wallet-switch failure parity: 2026-11-16
+
+Android now opens the selected wallet and reads its on-chain overview before it
+commits the new selection. A missing database or failed registry write preserves
+the prior selection and reopens its native session. No wallet directory is removed
+by this recovery. Legacy provisioning completion commits with the successful
+selection. iOS already opens before commit; its failure path now checks native
+close and persistent selection, and reports prior-wallet reopen failures instead
+of ignoring them. Both adapters preserve data and request a restart if the
+selection commit or close is uncertain.
+
+The Android regression reproduced the old bug: selection changed to a wallet with
+an unavailable database. After the fix it passes both missing-database and real
+AtomicFile write failures, verifies the previous session directly through JNI,
+and successfully retries with the target address history intact. All seven
+assistance/public-wallet/backup-lifecycle cases pass on the isolated API 36/16 KB
+emulator. Android unit tests pass (81 run, three opt-in skipped); debug and test
+APK assembly and `just checks` pass.
+
+The iOS native suite passes all four cases. Its new switch regression temporarily
+moves only its own unfunded fixture database, confirms both saved selection and
+the already-open native session remain the original wallet, restores the file,
+and verifies retry and target address history. Bundle verification passes. These
+tests do not simulate process termination, an unreadable persistent catalog during
+commit, a native close failure, or a funded physical-device upgrade. They do not
+establish production readiness.
