@@ -164,6 +164,7 @@ internal fun PaperclipApp(
 			var nodePage by rememberSaveable { mutableStateOf("balance") }
 			LaunchedEffect(nodePage) { if (route == "Lightning") scroll.scrollTo(0) }
 			fun navigate(next: String) {
+				if (route == "Save backup") model.clearBackup()
 				if (next == "Lightning" && tab == "Lightning") nodePage = "balance"
 				navigationDirection = if (next in WalletNavigation.tabs) { if (next == tab && navigation.canGoBack) -1 else 0 } else 1
 				focus.clearFocus()
@@ -173,6 +174,7 @@ internal fun PaperclipApp(
 				navigation = navigation.open(if (next == "Receive Lightning") "Receive" else next)
 			}
 			fun goBack() {
+				if (route == "Save backup") model.clearBackup()
 				navigationDirection = -1
 				focus.clearFocus()
 				model.cancelReview()

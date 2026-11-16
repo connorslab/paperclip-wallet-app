@@ -40,12 +40,17 @@ data class WalletState(
 	val network: String = "xbt-mainnet",
 )
 
-class WalletModel(app: Application) : AndroidViewModel(app) {
+class WalletModel internal constructor(
+	app: Application,
+	private val exportBackup: suspend (String) -> ByteArray,
+) : AndroidViewModel(app) {
+	constructor(app: Application) : this(app, { key -> WalletEngine.shared(app).backup(key) })
 	private val engine = WalletEngine.shared(app)
 	private val mutable = MutableStateFlow(WalletState())
 	val state = mutable.asStateFlow()
 	private var testOnly = false
 	private var backupOwner: String? = null
+	private var backupGeneration = 0L
 	private var maintenance: kotlinx.coroutines.Job? = null
 
 	private fun change(f: (WalletState) -> WalletState) {
@@ -617,9 +622,15 @@ class WalletModel(app: Application) : AndroidViewModel(app) {
 	}
 
 	fun prepareBackup() = job {
+		val ticket = generation
+		val backupTicket = backupGeneration
 		val key = BackupCodec.newKey()
 		val owner = engine.activeID()
-		val bytes = engine.backup(key)
+		val bytes = exportBackup(key)
+		if (ticket != generation || backupTicket != backupGeneration || owner != mutable.value.activeID) {
+			bytes.fill(0)
+			throw kotlinx.coroutines.CancellationException("Backup preparation was cancelled")
+		}
 		backupOwner = owner
 		change { it.copy(recoveryKey = key, backup = bytes, backupSaved = false) }
 	}
@@ -670,6 +681,7 @@ class WalletModel(app: Application) : AndroidViewModel(app) {
 	}
 
 	fun clearBackup() {
+		backupGeneration++
 		backupOwner = null
 		mutable.value.backup?.fill(0)
 		change { it.copy(backup = null, recoveryKey = "", backupStatus = "") }

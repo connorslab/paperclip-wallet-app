@@ -33,6 +33,7 @@ struct BackupView: View {
     @State private var status = ""
     @State private var checkingFile = false
     @State private var exportOwner: String?
+    @State private var exportGeneration = UUID()
     @State private var savedAt: Date?
     @State private var checkedAt: Date?
     private func loadDates() {
@@ -166,15 +167,18 @@ struct BackupView: View {
     private func prepare() async {
         guard let engine else { return }
         busy = true; defer { busy = false }
-        let owner = store.walletID
+        let owner = store.walletID, ticket = exportGeneration
         do {
             let archive = try await engine.exportRecoveryArchive()
-            guard phase == .active, owner == store.walletID else { return }
+            guard phase == .active, owner == store.walletID, ticket == exportGeneration else { return }
             exportOwner = owner
             let key = EncryptedBackup.generateRecoveryKey()
             document = BackupDocument(data: try EncryptedBackup.seal(archive, recoveryKey: key))
             recoveryKey = key; confirmation = ""
-        } catch { clearExport(); status = "Could not create an encrypted backup. No file was exported." }
+        } catch {
+            guard ticket == exportGeneration else { return }
+            clearExport(); status = "Could not create an encrypted backup. No file was exported."
+        }
     }
     private func restore() async {
         guard let engine, let archive = pending else { return }
@@ -185,5 +189,8 @@ struct BackupView: View {
             status = "Recovery data imported. Synchronize with the server before spending."
         } catch { status = "Restore failed or an existing wallet prevented import. Check the native wallet status." }
     }
-    private func clearExport() { recoveryKey = ""; confirmation = ""; document = nil; exporting = false; exportOwner = nil }
+    private func clearExport() {
+        exportGeneration = UUID()
+        recoveryKey = ""; confirmation = ""; document = nil; exporting = false; exportOwner = nil
+    }
 }
