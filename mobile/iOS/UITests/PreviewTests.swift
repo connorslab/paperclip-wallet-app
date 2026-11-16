@@ -48,7 +48,15 @@ final class PreviewTests: XCTestCase {
         XCTAssertNotEqual(address.label, first)
         app.buttons["Done"].tap()
         app.tabBars.buttons["Settings"].tap()
-        app.buttons["settings-security"].tap()
+        let recovery = app.buttons["settings-recovery"]
+        XCTAssertTrue(recovery.waitForExistence(timeout: 10))
+        recovery.tap()
+        XCTAssertTrue(app.navigationBars["Security & recovery"].waitForExistence(timeout: 10))
+        let security = app.buttons["settings-security"]
+        XCTAssertTrue(security.waitForExistence(timeout: 10))
+        for _ in 0..<6 { if security.isHittable { break }; app.swipeUp() }
+        XCTAssertTrue(security.isHittable)
+        security.tap()
         XCTAssertTrue(app.navigationBars["Wallet security"].waitForExistence(timeout: 10))
         XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'Unified sighash · 0x21'")).firstMatch.waitForExistence(timeout: 10))
     }

@@ -529,3 +529,11 @@ wrong keys, wrong networks, a corrected retry and preservation of older staging
 data. All 28 mobile-engine tests passed (one live opt-in test skipped), and
 `just checks` passed. No production wallet or physical device was changed. This
 fix does not close funded backup/restore or platform-upgrade acceptance.
+
+The local iPhone simulator build at `a18742b` also passed native Rust compilation,
+Xcode linking and bundle verification. Its unfunded persistence UI test verified
+seed import, wallet switching, receive-address continuity after relaunch and the
+wallet security page. The first run exposed an outdated test route after Settings
+was condensed; the test now enters Security & recovery before Wallet security.
+The corrected test passed. Server Lightning CI `43837023612` passed at `f8bcbb0`.
+Later CI builds remain separate evidence and must be checked before release.
