@@ -2,8 +2,9 @@
 
 The `web-ui` server candidate provides a direct-node wallet in addition to
 Lightning through Ark. Desktop, Umbrel and StartOS use the same adapter and browser
-pages. This source implementation has not yet been accepted against the live
-StartOS nodes or packaged and installed on either server platform.
+pages. Read-only live acceptance of the candidate adapter has passed against both
+StartOS nodes. Funded operations and installation on either server platform have
+not yet been accepted.
 
 ## Connection and transport
 
@@ -78,3 +79,23 @@ Run `just unit-rest`, `scripts/test-remote-node-browser.cjs`, the deployment Pyt
 unit suite and `just checks`. Live node testing, Tor bootstrap inside the Linux
 container, signed mobile releases and StartOS/Umbrel upgrade/restore checks remain
 required. No funded payment was made for these tests.
+
+On November 15 (local time), the Rust server adapter and Android Kotlin adapter
+each passed authenticated identity verification, three balance reads, deliberate
+wrong-certificate rejection and subsequent recovery against the current StartOS
+CLN and LND LAN endpoints. This used protected existing credentials and certificate
+pins independently verified on StartOS, with no payments or service changes. The
+JVM negotiated the server's Ed25519 certificate; its ECDSA and Ed25519 leaf pins
+must be independently verified before including both in a connection.
+
+The server live check is ignored by default. With a mode-0600 file using the
+existing mobile probe's `cases` schema, explicitly run:
+
+```sh
+PAPERCLIP_LIVE_CONFIG=/private/path/connections.json \
+  just unit-rest 'live_startos_reads -- --ignored --nocapture'
+```
+
+The harness performs only connect/refresh/read operations, stores its temporary
+connection under a private test directory, and prints no credentials or remote
+response payloads. It requires both CLN and LND cases and does not run onion cases.

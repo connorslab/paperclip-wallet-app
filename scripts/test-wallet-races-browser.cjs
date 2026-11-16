@@ -59,7 +59,12 @@ const cold='a'.repeat(64);
    await page.locator('#chain-destination').fill(signer.receive_address);await page.locator('#chain-amount').fill('1000');
    const delayed=hold(name=>name==='onchain/send/commit');
    await page.getByRole('button',{name:'Review on-chain payment',exact:true}).click();await page.getByRole('button',{name:'Confirm',exact:true}).click();await delayed.seen;
-   await page.locator('#lock').click();await unlock();delayed.release();await settled();
+   await page.locator('#lock').click();await unlock();
+   // Finish the new login's independent journal recovery while the old request
+   // is still held. Releasing it earlier legitimately lets that recovery find
+   // the result; it would no longer test an obsolete response updating the UI.
+   await page.waitForFunction(()=>window.testRequests===1&&!document.querySelector('#unlock button').disabled&&!document.querySelector('#submission-warning').hidden);
+   delayed.release();await settled();
    assert.equal(await page.locator('#transaction-result').isVisible(),false,'Old request must not show a receipt in a new login');
    assert.equal(calls.filter(call=>call.name==='onchain/send/commit').length,1,'Never replay the payment');
    assert.equal(await page.locator('#submission-warning').isVisible(),true,'Unknown outcome must remain visible');

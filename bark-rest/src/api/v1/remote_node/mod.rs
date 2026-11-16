@@ -5,6 +5,8 @@ mod model;
 mod transport;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod live_tests;
 
 use std::{collections::HashMap, io::Write, path::{Path, PathBuf}, sync::Arc, time::{Duration, Instant}};
 
@@ -16,7 +18,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use crate::ServerState;
-use model::{identity, invoice, msats, number};
+use model::{identity, invoice, msats};
 use transport::{Connection, Node};
 
 #[derive(Default)]
