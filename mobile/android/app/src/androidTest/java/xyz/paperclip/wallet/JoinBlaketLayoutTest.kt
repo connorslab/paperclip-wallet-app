@@ -50,15 +50,16 @@ class JoinBlaketLayoutTest {
 			Column(Modifier.fillMaxSize().safeDrawingPadding().verticalScroll(rememberScrollState()).padding(20.dp)) { JoinBlaketPage(state) }
 		} } }
 		compose.onNodeWithText("Jars payment activity").performScrollTo().performClick()
-		compose.waitUntil(10000) { compose.onAllNodesWithText("Outcome unknown · check status").fetchSemanticsNodes().isNotEmpty() }
+		compose.waitUntil(10000) { compose.onAllNodesWithText("Status unknown").fetchSemanticsNodes().isNotEmpty() }
 		compose.onNodeWithText("Check status").assertIsDisplayed().performClick()
 		compose.waitUntil(10000) { compose.onAllNodesWithText("Could not check payment status. Check your connection and try again.").fetchSemanticsNodes().isNotEmpty() }
-		compose.onNodeWithText("Outcome unknown · check status").assertIsDisplayed()
+		compose.onNodeWithText("Status unknown").assertIsDisplayed()
 		assertEquals(1, checks.get())
 		capture("android-jam-recovery")
 		compose.onNodeWithText("Check status").performClick()
-		compose.waitUntil(10000) { compose.onAllNodesWithText("Seen by node · confirmation not checked").fetchSemanticsNodes().isNotEmpty() }
+		compose.waitUntil(10000) { compose.onAllNodesWithText("Submitted").fetchSemanticsNodes().isNotEmpty() }
 		compose.onNodeWithText("Check status").assertDoesNotExist()
+		compose.onNodeWithText("Seen by your node. Confirmation has not been checked.").assertExists()
 		assertEquals(2, checks.get())
 		assertTrue(paths.all { it == "/api/v1/session" || it == "/api/v1/wallet/fixture.jmdat/paperclip/payments" || it == "/api/v1/wallet/fixture.jmdat/paperclip/payments/$id" })
 	}

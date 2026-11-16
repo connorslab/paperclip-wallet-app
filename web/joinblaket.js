@@ -32,27 +32,40 @@
     for (const payment of payments) {
       const card = document.createElement('article'); card.className = 'jam-payment';
       const heading = document.createElement('h3');
-      heading.textContent = {preparing:'Review incomplete · not sent',prepared:'Review saved · not sent',
-        submitting:'Outcome unknown · check status',unknown:'Outcome unknown · check status',
-        submitted:'Seen by node · confirmation not checked',cancelled:'Review cancelled · not sent'}[payment.state];
-      card.append(heading);
+      heading.textContent = {preparing:'Review incomplete',prepared:'Review saved',
+        submitting:'Status unknown',unknown:'Status unknown',
+        submitted:'Submitted',cancelled:'Cancelled'}[payment.state];
+      const top = document.createElement('div'); top.className = 'jam-payment-top';
+      const icon = document.createElement('span'); icon.className = 'jam-payment-icon'; icon.textContent = '↗'; icon.setAttribute('aria-hidden','true');
+      top.append(heading,icon); card.append(top);
       if (payment.quote) {
         const q = payment.quote, summary = document.createElement('p'); summary.className = 'jam-payment-amount';
-        summary.textContent = amount(q.amount_sat) + ' · Jar ' + (q.jar + 1) + ' · ' + {send:'Send',fund_bond:'Bond funding',withdraw_bond:'Bond withdrawal'}[q.purpose];
+        summary.textContent = amount(q.amount_sat);
+        const subtitle = document.createElement('p'); subtitle.className = 'jam-payment-subtitle';
+        subtitle.textContent = 'Jar ' + (q.jar + 1) + ' · ' + {send:'Send',fund_bond:'Bond funding',withdraw_bond:'Bond withdrawal'}[q.purpose];
+        const costs = document.createElement('dl'); costs.className = 'jam-payment-costs';
+        for (const [label,value] of [['Mining fee',q.fee_sat],['Total debit',q.total_sat]]) {
+          const cell = document.createElement('div'), term = document.createElement('dt'), total = document.createElement('dd');
+          term.textContent = label; total.textContent = amount(value); cell.append(term,total); costs.append(cell);
+        }
         const details = document.createElement('details'), title = document.createElement('summary'); title.textContent = 'Payment details'; details.append(title);
-        for (const text of ['Mining fee: '+amount(q.fee_sat),'Total: '+amount(q.total_sat),q.destination,'Transaction: '+q.txid]) {
+        for (const text of ['Destination: '+q.destination,'Transaction ID: '+q.txid]) {
           const line = document.createElement('p'); line.textContent = text; line.style.overflowWrap = 'anywhere'; details.append(line);
         }
-        card.append(summary, details);
+        card.append(summary, subtitle, costs, details);
       }
       if (['submitting','unknown'].includes(payment.state)) {
         const warning = document.createElement('p'); warning.textContent = 'This payment may have reached the network. Do not send it again.';
-        const button = document.createElement('button'); button.textContent = 'Check status'; button.className = 'secondary';
+        const button = document.createElement('button'); button.textContent = 'Check status'; button.className = 'jam-payment-check';
         button.onclick = () => work(async () => {
           const updated = paymentRecord(await call('check_payment', {payment_id:payment.id}), payment.id);
           payments = payments.map(row => row.id === payment.id ? updated : row); renderPayments();
         });
         card.append(warning, button);
+      } else {
+        const note = document.createElement('p'); note.className = 'hint';
+        note.textContent = payment.state === 'submitted' ? 'Seen by your node. Confirmation has not been checked.' : 'This review has not been sent.';
+        card.append(note);
       }
       root.append(card);
     }

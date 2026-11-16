@@ -61,11 +61,11 @@ internal data class JoinBlaketPayment(val id: String, val state: String, val quo
 		val txid: String, val amountSat: Long, val feeSat: Long, val totalSat: Long)
 	val needsCheck: Boolean get() = state in setOf("submitting", "unknown")
 	val label: String get() = when (state) {
-		"preparing" -> "Review incomplete · not sent"
-		"prepared" -> "Review saved · not sent"
-		"submitting", "unknown" -> "Outcome unknown · check status"
-		"submitted" -> "Seen by node · confirmation not checked"
-		else -> "Review cancelled · not sent"
+		"preparing" -> "Review incomplete"
+		"prepared" -> "Review saved"
+		"submitting", "unknown" -> "Status unknown"
+		"submitted" -> "Submitted"
+		else -> "Cancelled"
 	}
 	companion object {
 		fun validId(id: String) = id.matches(Regex("[0-9a-f]{64}"))

@@ -1,5 +1,11 @@
 package xyz.paperclip.wallet
 
+import androidx.compose.animation.animateContentSize
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowOutward
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material.icons.filled.WifiOff
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.selected
@@ -165,8 +171,8 @@ internal fun JoinBlaketPage(state: JoinBlaketUiState) {
 			}
 		}
 		TextButton(enabled = !busy && client != null && authorization != null, onClick = { showPayments = true }) { Text("Jars payment activity") }
-		if (showPayments) ModalBottomSheet(onDismissRequest = { showPayments = false }, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
-			JoinBlaketRecoveryPage(checkNotNull(client), checkNotNull(authorization))
+		if (showPayments) ModalBottomSheet(onDismissRequest = { showPayments = false }, containerColor = MaterialTheme.colorScheme.background, tonalElevation = 0.dp, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
+			Box(Modifier.fillMaxHeight(0.94f)) { JoinBlaketRecoveryPage(checkNotNull(client), checkNotNull(authorization)) { showPayments = false } }
 		}
 		WalletColumns(primary = {
 		jars.firstOrNull { it.getInt("id") == selected }?.let { jar ->
@@ -293,7 +299,7 @@ internal fun JoinBlaketPage(state: JoinBlaketUiState) {
 	}
 }
 
-@Composable private fun JoinBlaketRecoveryPage(client: JoinBlaketClient, authorization: JoinBlaketAuthorization) {
+@Composable private fun JoinBlaketRecoveryPage(client: JoinBlaketClient, authorization: JoinBlaketAuthorization, close: () -> Unit) {
 	val scope = rememberCoroutineScope()
 	val unit = LocalBitcoinUnit.current
 	var payments by remember { mutableStateOf<List<JoinBlaketPayment>>(emptyList()) }
@@ -313,35 +319,73 @@ internal fun JoinBlaketPage(state: JoinBlaketUiState) {
 	LaunchedEffect(client, authorization) { work { payments = client.payments(authorization); loaded = true } }
 	Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
 		Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-			Text("Jars payments", style = MaterialTheme.typography.titleLarge)
-			TextButton(enabled = !busy, onClick = { work { payments = client.payments(authorization); loaded = true } }) { Text("Refresh") }
+			TextButton(onClick = close) { Text("Done") }
+			Text("Jars payments", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+			IconButton(enabled = !busy, onClick = { work { payments = client.payments(authorization); loaded = true } }) { Icon(Icons.Default.Refresh, "Refresh") }
 		}
-		Text("Saved payments from your separate Jam wallet. Checking status never sends again.", style = MaterialTheme.typography.bodyMedium)
+		Text("Your Jar transfers, with their latest known status.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
 		if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
-		message?.let { Text(it) }
+		message?.let {
+			Surface(color = MaterialTheme.colorScheme.onSurface.copy(alpha = .05f), shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp)) {
+				Row(Modifier.padding(14.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+					Icon(Icons.Default.WifiOff, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp))
+					Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+				}
+			}
+		}
 		if (loaded && payments.isEmpty()) Text("No saved Paperclip payments in this Jam wallet.")
 		androidx.compose.foundation.lazy.LazyColumn(Modifier.fillMaxWidth().weight(1f, fill = false), contentPadding = PaddingValues(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
 			items(payments.size, key = { payments[it].id }) { index ->
 				val payment = payments[index]
 				WalletSurface {
-					Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-						Text(payment.label, style = MaterialTheme.typography.titleMedium)
+					Column(Modifier.padding(20.dp).animateContentSize(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+						Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+							Surface(color = MaterialTheme.colorScheme.primary.copy(alpha = .10f), shape = androidx.compose.foundation.shape.CircleShape) {
+								Row(Modifier.padding(horizontal = 12.dp, vertical = 7.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+									if (payment.needsCheck) Icon(Icons.Default.Schedule, null, Modifier.size(15.dp), tint = MaterialTheme.colorScheme.primary)
+									Text(payment.label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+								}
+							}
+							Surface(color = MaterialTheme.colorScheme.primary.copy(alpha = .08f), shape = androidx.compose.foundation.shape.CircleShape) {
+								Icon(Icons.Default.ArrowOutward, null, Modifier.padding(9.dp).size(18.dp), tint = MaterialTheme.colorScheme.primary)
+							}
+						}
 						payment.quote?.let { quote ->
-							Text(unit.display(quote.amountSat), style = MaterialTheme.typography.headlineSmall)
-							Text("Jar "+(quote.jar + 1)+" · "+when (quote.purpose) { "send" -> "Send"; "fund_bond" -> "Bond funding"; else -> "Bond withdrawal" })
+							Column(Modifier.fillMaxWidth().padding(vertical = 12.dp), horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+								Text(unit.display(quote.amountSat), style = MaterialTheme.typography.headlineLarge)
+								Text("Jar "+(quote.jar + 1)+" · "+when (quote.purpose) { "send" -> "Send"; "fund_bond" -> "Bond funding"; else -> "Bond withdrawal" }, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+							}
+							Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+								for ((title, value) in listOf("Mining fee" to quote.feeSat, "Total debit" to quote.totalSat)) {
+									Surface(Modifier.weight(1f), color = MaterialTheme.colorScheme.onSurface.copy(alpha = .04f), shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp)) {
+										Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+											Text(title, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+											Text(unit.display(value), style = MaterialTheme.typography.titleSmall)
+										}
+									}
+								}
+							}
 							var details by remember(payment.id) { mutableStateOf(false) }
-							TextButton(onClick = { details = !details }) { Text(if (details) "Hide details" else "Payment details") }
+							TextButton(onClick = { details = !details }, modifier = Modifier.fillMaxWidth()) { Text(if (details) "Hide details" else "Payment details") }
 							if (details) {
-								Text("Mining fee: " + unit.display(quote.feeSat)); Text("Total: " + unit.display(quote.totalSat))
-								SelectionContainer { Column { Text(quote.destination); Text("Transaction: " + quote.txid) } }
+								SelectionContainer {
+									Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+										Text("Destination", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+										Text(quote.destination, style = MaterialTheme.typography.bodySmall)
+										Text("Transaction ID", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+										Text(quote.txid, style = MaterialTheme.typography.bodySmall)
+									}
+								}
 							}
 						}
 						if (payment.needsCheck) {
-							Text("This payment may have reached the network. Do not send it again.")
-							WalletPrimaryButton(enabled = !busy, onClick = { work {
+							Text("This payment may have reached the network. Do not send it again.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+							WalletPrimaryButton(modifier = Modifier.fillMaxWidth(), enabled = !busy, onClick = { work {
 								val updated = client.checkPayment(payment.id, authorization)
 								payments = payments.map { if (it.id == payment.id) updated else it }
-							} }) { Text("Check status") }
+							} }) { Icon(Icons.Default.Refresh, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Check status") }
+						} else {
+							Text(if (payment.state == "submitted") "Seen by your node. Confirmation has not been checked." else "This review has not been sent.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 						}
 					}
 				}

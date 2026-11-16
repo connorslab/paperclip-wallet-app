@@ -72,11 +72,11 @@ public struct JoinBlaketPayment: Decodable, Identifiable, Sendable {
         case preparing, prepared, submitting, unknown, submitted, cancelled
         public var label: String {
             switch self {
-            case .preparing: return "Review incomplete · not sent"
-            case .prepared: return "Review saved · not sent"
-            case .submitting, .unknown: return "Outcome unknown · check status"
-            case .submitted: return "Seen by node · confirmation not checked"
-            case .cancelled: return "Review cancelled · not sent"
+            case .preparing: return "Review incomplete"
+            case .prepared: return "Review saved"
+            case .submitting, .unknown: return "Status unknown"
+            case .submitted: return "Submitted"
+            case .cancelled: return "Cancelled"
             }
         }
     }

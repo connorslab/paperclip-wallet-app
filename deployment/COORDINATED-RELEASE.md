@@ -139,6 +139,15 @@ Play-signed download option in its
 
 ## Latest verification: 2026-11-16
 
+The Jars recovery layout now emphasizes the amount, separates mining fee and total
+debit, uses compact status badges and groups long references behind labelled
+details. Mobile status checks use a full-width primary button; Android has a
+stable-height navy sheet with an explicit Done action. Status transitions respect
+system motion preferences. The shorter Submitted badge retains the explicit
+"Confirmation has not been checked" explanation. Native UI and browser regression
+checks preserve unknown outcomes after lookup failures and never resend payments.
+
+
 Jars now has a separate payment-recovery view in iOS, Android and the shared
 StartOS/Umbrel browser UI. It loads this Jam wallet's saved Paperclip payment
 records and checks the exact transaction after an uncertain submission. These

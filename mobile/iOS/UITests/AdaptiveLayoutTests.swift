@@ -45,7 +45,7 @@ final class AdaptiveLayoutTests: XCTestCase {
 		let app = XCUIApplication()
 		app.launchArguments = ["-build61-preview", "-joinblaket-preview", "-jam-recovery-preview", "-appearance", "dark"]
 		app.launch()
-		let unknown = app.staticTexts["Outcome unknown · check status"]
+		let unknown = app.staticTexts["Status unknown"]
 		XCTAssertTrue(unknown.waitForExistence(timeout: 10))
 		XCTAssertTrue(app.staticTexts["This payment may have reached the network. Do not send it again."].exists)
 		app.buttons["Check status"].tap()
@@ -53,7 +53,8 @@ final class AdaptiveLayoutTests: XCTestCase {
 		XCTAssertTrue(unknown.exists)
 		let attachment = XCTAttachment(screenshot: app.screenshot()); attachment.name = "ios-jam-recovery"; attachment.lifetime = .keepAlways; add(attachment)
 		app.buttons["Check status"].tap()
-		XCTAssertTrue(app.staticTexts["Seen by node · confirmation not checked"].waitForExistence(timeout: 5))
+		XCTAssertTrue(app.staticTexts["Submitted"].waitForExistence(timeout: 5))
+		XCTAssertTrue(app.staticTexts["Seen by your node. Confirmation has not been checked."].exists)
 		XCTAssertFalse(app.buttons["Check status"].exists)
 		app.buttons["Done"].tap()
 		XCTAssertTrue(app.buttons["jar-0"].waitForExistence(timeout: 5))

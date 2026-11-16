@@ -85,18 +85,19 @@ for (const item of cases) {
    assert.equal(await page.locator('.jam-jar').count(),5);
    await page.locator('#jam-payments-panel summary').first().click();
    await page.locator('#jam-payments-load').click();
-   await page.getByRole('heading',{name:'Outcome unknown · check status'}).waitFor();
+   await page.getByRole('heading',{name:'Status unknown'}).waitFor();
    await page.getByText('This payment may have reached the network. Do not send it again.').waitFor();
    failRecovery=true;
    const checksBefore=actions.filter(x=>x==='check_payment').length;
    await page.getByRole('button',{name:'Check status',exact:true}).click();
    await page.waitForFunction(()=>document.querySelector('#jam-status').textContent.includes('Synthetic lookup timeout'));
    assert.equal(actions.filter(x=>x==='check_payment').length,checksBefore+1,'No automatic recovery retries');
-   await page.getByRole('heading',{name:'Outcome unknown · check status'}).waitFor();
+   await page.getByRole('heading',{name:'Status unknown'}).waitFor();
    if(process.env.SCREENSHOT_DIR) await page.locator('#jam-payments-panel').screenshot({path:path.join(process.env.SCREENSHOT_DIR,`jam-recovery-${width}.png`),animations:'disabled'});
    failRecovery=false; recoveryState='submitted';
    await page.getByRole('button',{name:'Check status',exact:true}).click();
-   await page.getByRole('heading',{name:'Seen by node · confirmation not checked'}).waitFor();
+   await page.getByRole('heading',{name:'Submitted'}).waitFor();
+   await page.getByText('Seen by your node. Confirmation has not been checked.').waitFor();
    assert.equal(await page.getByRole('button',{name:'Check status',exact:true}).count(),0);
    assert(!actions.some(x=>/commit|send|cancel/.test(x)),'Recovery never creates, commits or cancels a payment');
    if(width===390) {
@@ -105,7 +106,7 @@ for (const item of cases) {
      if(recovery.quote && recovery.quote.wallet==='fixture.jmdat') recovery.quote.wallet='Sample Jars.jmdat';
      await page.locator('#jam-payments-load').click();
      await page.waitForFunction(()=>document.querySelector('#jam-status').textContent.startsWith('Invalid')||document.querySelector('#jam-status').textContent.startsWith('Missing'));
-     await page.getByRole('heading',{name:'Seen by node · confirmation not checked'}).waitFor();
+     await page.getByRole('heading',{name:'Submitted'}).waitFor();
     }
    }
    await page.locator('#jam-payments-panel summary').first().click();

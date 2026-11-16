@@ -363,6 +363,7 @@ private struct JarGridLayout: Layout {
 private struct JoinBlaketRecoveryView: View {
     let load: () async throws -> [JoinBlaketPayment]
     let check: (String) async throws -> JoinBlaketPayment
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.dismiss) private var dismiss
     @State private var payments: [JoinBlaketPayment] = []
     @State private var busy = false
@@ -373,34 +374,62 @@ private struct JoinBlaketRecoveryView: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                    Text("Saved payments from your separate Jam wallet. Checking status never sends again.")
+                    Text("Your Jar transfers, with their latest known status.")
                         .font(.subheadline).foregroundStyle(PaperclipTheme.muted)
                     if loaded && payments.isEmpty { Text("No saved Paperclip payments in this Jam wallet.") }
                     ForEach(payments) { payment in
                         WalletSection {
-                            Text(payment.state.label).font(.headline)
+                            HStack {
+                                Label(payment.state.label, systemImage: payment.needsCheck ? "clock" : "doc.text")
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(payment.needsCheck ? PaperclipTheme.orange : PaperclipTheme.muted)
+                                    .padding(.horizontal, 12).padding(.vertical, 7)
+                                    .background((payment.needsCheck ? PaperclipTheme.orange : PaperclipTheme.muted).opacity(0.10), in: Capsule())
+                                Spacer()
+                                Image(systemName: "arrow.up.right").font(.headline)
+                                    .foregroundStyle(PaperclipTheme.orange).frame(width: 36, height: 36)
+                                    .background(PaperclipTheme.orange.opacity(0.08), in: Circle()).accessibilityHidden(true)
+                            }
                             if let quote = payment.quote {
-                                Text(unit.display(quote.amount_sat)).font(.title2.bold()).monospacedDigit()
-                                Text("Jar \(Int(quote.jar) + 1) · " + (quote.purpose == "send" ? "Send" : quote.purpose == "fund_bond" ? "Bond funding" : "Bond withdrawal"))
-                                    .font(.subheadline).foregroundStyle(PaperclipTheme.muted)
-                                DisclosureGroup("Payment details") {
-                                    LabeledContent("Mining fee", value: unit.display(quote.fee_sat))
-                                    LabeledContent("Total", value: unit.display(quote.total_sat))
-                                    Text(quote.destination).font(.footnote.monospaced()).textSelection(.enabled)
-                                    Text("Transaction: " + quote.txid).font(.footnote.monospaced()).textSelection(.enabled)
+                                VStack(spacing: 6) {
+                                    Text(unit.display(quote.amount_sat)).font(.largeTitle.weight(.semibold)).monospacedDigit()
+                                        .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
+                                    Text("Jar \(Int(quote.jar) + 1) · " + (quote.purpose == "send" ? "Send" : quote.purpose == "fund_bond" ? "Bond funding" : "Bond withdrawal"))
+                                        .font(.subheadline).foregroundStyle(PaperclipTheme.muted)
+                                }.frame(maxWidth: .infinity).padding(.vertical, 12)
+                                HStack(spacing: 12) {
+                                    paymentCost("Mining fee", amount: quote.fee_sat)
+                                    paymentCost("Total debit", amount: quote.total_sat)
                                 }
+                                DisclosureGroup("Payment details") {
+                                    VStack(alignment: .leading, spacing: 12) {
+                                        paymentReference("Destination", value: quote.destination)
+                                        paymentReference("Transaction ID", value: quote.txid)
+                                    }.padding(.top, 8).frame(maxWidth: .infinity, alignment: .leading)
+                                }.font(.subheadline).padding(.vertical, 4)
                             }
                             if payment.needsCheck {
-                                Text("This payment may have reached the network. Do not send it again.").font(.subheadline)
-                                Button("Check status") { perform {
+                                Text("This payment may have reached the network. Do not send it again.")
+                                    .font(.subheadline).foregroundStyle(PaperclipTheme.muted)
+                                Button { perform {
                                     let updated = try await check(payment.id)
-                                    if let index = payments.firstIndex(where: { $0.id == payment.id }) { payments[index] = updated }
-                                } }.modifier(GlassAction())
+                                    if let index = payments.firstIndex(where: { $0.id == payment.id }) {
+                                        withAnimation(reduceMotion ? nil : .snappy(duration: 0.2)) { payments[index] = updated }
+                                    }
+                                } } label: { Label("Check status", systemImage: "arrow.clockwise") }
+                                    .buttonStyle(WalletPrimaryButtonStyle())
+                            } else {
+                                Text(payment.state == .submitted ? "Seen by your node. Confirmation has not been checked." : "This review has not been sent.")
+                                    .font(.footnote).foregroundStyle(PaperclipTheme.muted)
                             }
                         }
                     }
                     if busy { ProgressView().frame(maxWidth: .infinity) }
-                    if let message { Text(message).font(.subheadline) }
+                    if let message {
+                        Label(message, systemImage: "wifi.exclamationmark").font(.subheadline)
+                            .foregroundStyle(PaperclipTheme.muted).padding(14).frame(maxWidth: .infinity, alignment: .leading)
+                            .background(PaperclipTheme.muted.opacity(0.08), in: RoundedRectangle(cornerRadius: 16))
+                    }
                 }.walletPageContent().disabled(busy)
             }.walletPageBackground().navigationTitle("Jars payments").navigationBarTitleDisplayMode(.inline)
                 .toolbar {
@@ -408,6 +437,19 @@ private struct JoinBlaketRecoveryView: View {
                     ToolbarItem(placement: .topBarTrailing) { Button("Refresh") { refresh() }.disabled(busy) }
                 }
                 .task { refresh() }
+        }
+    }
+    private func paymentCost(_ label: String, amount: UInt64) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(label).font(.caption).foregroundStyle(PaperclipTheme.muted)
+            Text(unit.display(amount)).font(.subheadline.weight(.semibold)).monospacedDigit()
+        }.frame(maxWidth: .infinity, alignment: .leading).padding(12)
+            .background(PaperclipTheme.muted.opacity(0.06), in: RoundedRectangle(cornerRadius: 14))
+    }
+    private func paymentReference(_ label: String, value: String) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text(label).font(.caption).foregroundStyle(PaperclipTheme.muted)
+            Text(value).font(.footnote.monospaced()).textSelection(.enabled)
         }
     }
     private func refresh() { perform { payments = try await load(); loaded = true } }

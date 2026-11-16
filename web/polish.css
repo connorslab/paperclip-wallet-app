@@ -253,12 +253,20 @@ input:focus-visible,select:focus-visible,textarea:focus-visible {box-shadow:0 0 
 .qr-account-active .menu-row small.hot-wallet-tool {display:none}
 
 /* Recovery remains separate from payment creation, with readable exact amounts. */
-#jam-payments {display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:12px;margin-top:16px}
+#jam-payments {display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr));gap:12px;margin-top:16px}
 #jam-payments:empty {display:none}
-.jam-payment {display:flex;flex-direction:column;align-items:flex-start;gap:14px;padding:20px;border:1px solid var(--stroke);border-radius:20px;background:#142338;animation:wallet-view-in .18s ease-out both;min-width:0}
-.jam-payment h3 {font-size:16px;line-height:1.5;color:#eef2f8;margin:0;letter-spacing:0}
+.jam-payment {display:flex;flex-direction:column;align-items:flex-start;gap:14px;padding:22px;border:1px solid var(--stroke);border-radius:24px;background:radial-gradient(ellipse at top left,#f5683509,transparent 65%),#142338;box-shadow:inset 0 1px #ffffff07;animation:wallet-view-in .18s ease-out both;min-width:0;max-width:560px;box-sizing:border-box}
 .jam-payment p {margin:0;max-width:60ch;line-height:1.6}
-.jam-payment .jam-payment-amount {font-size:20px;font-variant-numeric:tabular-nums;color:#eef2f8}
+.jam-payment-top {display:flex;align-items:center;justify-content:space-between;width:100%;gap:12px}
+.jam-payment-top h3 {font-size:12px;line-height:1.5;margin:0;letter-spacing:0;padding:6px 12px;border-radius:999px;background:#f5683515;color:#ffad83}
+.jam-payment-icon {display:grid;place-items:center;width:36px;height:36px;border-radius:50%;background:#f5683512;color:#ffad83;font-size:22px;flex-shrink:0}
+.jam-payment .jam-payment-amount {font-size:clamp(28px,4vw,38px);font-weight:650;letter-spacing:-.035em;text-align:center;align-self:stretch;margin-top:12px;font-variant-numeric:tabular-nums;color:#eef2f8}
+.jam-payment .jam-payment-subtitle {align-self:center;font-size:14px;margin-top:-10px}
+.jam-payment-costs {display:grid;grid-template-columns:1fr 1fr;gap:12px;width:100%;margin:6px 0 0}
+.jam-payment-costs>div {padding:12px;border-radius:14px;background:#ffffff06;min-width:0}
+.jam-payment-costs dt {font-size:12px;color:var(--muted)}
+.jam-payment-costs dd {font-size:14px;font-weight:600;margin:6px 0 0;color:#eef2f8;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
 .jam-payment details {width:100%;min-width:0}
 .jam-payment details p {font-size:13px;overflow-wrap:anywhere;margin-top:8px}
 .jam-payment summary {color:#ffad83;cursor:pointer}
+.jam-payment-check {width:100%;background:linear-gradient(#ca5125,#b8431d);color:white;box-shadow:0 4px 16px #f5683515}
