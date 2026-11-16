@@ -156,6 +156,23 @@ using its actual parser, signing policy, trimming, and QR encoder. Rust tests ve
 SeedSigner and Krux signatures for all four scripts, and Swift tests decode SeedSigner's
 UR output. Optical scanning on physical hardware still requires a device round trip.
 
+The Jars integration targets both **privkeyio XBT SeedSigner** and **connorslab
+XBT Krux** under the common “QR Signer” name. Separate public test vectors cover
+all five BIP84 jar account paths and a payment to a Jam bond address. The
+SeedSigner generator runs its actual review parser before signing. The Krux
+generator uses its signing policy; it does not certify the device review UI.
+Both require unified SIGHASH_ALL (0x21).
+
+The shared verifier also checks Jam's exact CLTV bond script, authenticated
+funding transaction, unlock date, nonfinal sequence and signature. Krux signing
+vectors cover dates before and after 2038. This is preparation for a withdrawal
+flow, not acceptance of hardware bonds: the pinned SeedSigner review parser
+rejects this custom P2WSH script, and Krux's complete descriptor/review workflow
+has not passed. Cold-bond registration, certificate delegation and redemption
+remain separate release gates. Never import a hardware seed into the hosted Jam
+wallet to work around a missing signer capability. Online maker jar coins and a
+cold fidelity bond have different signing requirements.
+
 Do not leave Xcode Device Hub open during camera testing: its remote interaction can
 make physical camera capture unavailable. Test the scanner directly on the iPhone.
 

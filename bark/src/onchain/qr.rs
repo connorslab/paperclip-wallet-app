@@ -5,7 +5,7 @@ use std::str::FromStr;
 use anyhow::{bail, ensure, Context};
 use bdk_wallet::miniscript::{Descriptor, DescriptorPublicKey, ForEachKey};
 use bdk_wallet::miniscript::descriptor::DescriptorType;
-use bitcoin::{Network, Psbt, ScriptBuf, Transaction, TxOut, Witness, VarInt};
+use bitcoin::{Network, Psbt, ScriptBuf, Transaction, TxOut, Witness, VarInt, opcodes};
 use bitcoin::consensus::{deserialize, Decodable, Encodable};
 use bitcoin::secp256k1::{self, Secp256k1};
 use bitcoin_ext::unified::{self, Execution};
@@ -85,7 +85,13 @@ pub fn descriptors(value: &str, script: &str, origin: &str, network: Network, ha
 pub fn prepare(psbt: &mut Psbt) -> anyhow::Result<()> {
 	ensure!(!psbt.inputs.is_empty() && !psbt.unsigned_tx.output.is_empty(), "empty signing request");
 	let previous = prevouts(psbt)?;
-	for (input, previous) in psbt.inputs.iter_mut().zip(previous) {
+	for (index, (input, previous)) in psbt.inputs.iter_mut().zip(previous).enumerate() {
+		if previous.script_pubkey.is_p2wsh() {
+			let script = input.witness_script.as_ref().context("Bond signing requires its witness script")?;
+			let (locktime, _) = fidelity_bond(script)?;
+			ensure!(input.non_witness_utxo.is_some() && script.to_p2wsh() == previous.script_pubkey, "Bond signing requires its complete, matching funding transaction");
+			ensure!(psbt.unsigned_tx.lock_time.to_consensus_u32() >= locktime && psbt.unsigned_tx.input[index].sequence != bitcoin::Sequence::MAX, "Bond transaction must enforce the reviewed unlock date");
+		}
 		if previous.script_pubkey.is_p2pkh() {
 			ensure!(input.non_witness_utxo.is_some(), "Legacy QR signing requires the complete previous transaction");
 			// Krux deliberately rejects witness-only legacy inputs (CVE-2020-14199).
@@ -96,6 +102,23 @@ pub fn prepare(psbt: &mut Psbt) -> anyhow::Result<()> {
 		input.sighash_type = Some(bitcoin::psbt::PsbtSighashType::from_u32(unified::ALL.into()));
 	}
 	Ok(())
+}
+
+/// Only Jam's canonical single-key CLTV script is admitted, not arbitrary P2WSH.
+/// This validates transaction semantics; the caller must separately check chain MTP.
+fn fidelity_bond(script: &bitcoin::Script) -> anyhow::Result<(u32, bitcoin::PublicKey)> {
+	let bytes = script.as_bytes();
+	let length = usize::from(*bytes.first().context("Missing bond script")?);
+	ensure!((length == 4 || length == 5) && bytes.len() == length + 38, "Unsupported bond script");
+	let locktime = u32::from_le_bytes(bytes[1..5].try_into()?);
+	ensure!(locktime >= 500_000_000, "Bond must use a timestamp lock");
+	let key = bitcoin::PublicKey::from_slice(&bytes[length + 4..length + 37])?;
+	ensure!(key.compressed, "Bond requires a compressed key");
+	let canonical = bitcoin::script::Builder::new().push_int(i64::from(locktime))
+		.push_opcode(opcodes::all::OP_CLTV).push_opcode(opcodes::all::OP_DROP)
+		.push_key(&key).push_opcode(opcodes::all::OP_CHECKSIG).into_script();
+	ensure!(canonical.as_script() == script, "Noncanonical or unsupported bond script");
+	Ok((locktime, key))
 }
 
 fn prevouts(psbt: &Psbt) -> anyhow::Result<Vec<TxOut>> {
@@ -161,6 +184,7 @@ pub fn signed_transaction(original: &Psbt, data: &[u8]) -> anyhow::Result<Transa
 			if let Some(parent) = &input.non_witness_utxo {
 				ensure!(parent.compute_txid() == tx.input[i].previous_output.txid && parent.output.get(tx.input[i].previous_output.vout as usize) == Some(&previous[i]), "signer changed previous transaction");
 			}
+			if let Some(script) = &input.witness_script { ensure!(Some(script) == original.inputs[i].witness_script.as_ref(), "signer changed witness script"); }
 			ensure!(input.tap_script_sigs.is_empty() && input.tap_scripts.is_empty(), "script-path signatures are unsupported");
 			if input.final_script_sig.is_some() || input.final_script_witness.is_some() {
 				// Krux retains the Taproot key signature alongside the final witness.
@@ -183,6 +207,10 @@ pub fn signed_transaction(original: &Psbt, data: &[u8]) -> anyhow::Result<Transa
 				let public = bitcoin::PublicKey::from_slice(&key[1..])?;
 				if previous[i].script_pubkey.is_p2pkh() {
 					tx.input[i].script_sig = pushes(&[signature, &public.to_bytes()])?;
+				} else if previous[i].script_pubkey.is_p2wsh() {
+					let script = original.inputs[i].witness_script.as_ref().context("missing bond script")?;
+					ensure!(fidelity_bond(script)?.1 == public, "bond signing key mismatch");
+					tx.input[i].witness = Witness::from_slice(&[signature.as_slice(), script.as_bytes()]);
 				} else {
 					tx.input[i].witness = Witness::from_slice(&[signature.as_slice(), &public.to_bytes()]);
 					if let Some(redeem) = &original.inputs[i].redeem_script { tx.input[i].script_sig = pushes(&[redeem.as_bytes()])?; }
@@ -205,6 +233,20 @@ pub fn signed_transaction(original: &Psbt, data: &[u8]) -> anyhow::Result<Transa
 			let key = secp256k1::XOnlyPublicKey::from_slice(&spk.as_bytes()[2..])?;
 			let hash = unified::digest(&tx, i, &previous, unified::ALL, Execution { script_type: 2, script_code: None, annex: None, leaf: None })?;
 			secp.verify_schnorr(&secp256k1::schnorr::Signature::from_slice(&signature[..64])?, &hash.into(), &key).context("invalid unified signature")?;
+		} else if spk.is_p2wsh() {
+			ensure!(script_sig.is_empty() && witness.len() == 2, "unsupported bond witness");
+			let elements = witness.to_vec();
+			let signature = &elements[0];
+			let script = ScriptBuf::from_bytes(elements[1].clone());
+			let (locktime, key) = fidelity_bond(&script)?;
+			ensure!(original.inputs[i].non_witness_utxo.is_some() && original.inputs[i].witness_script.as_ref() == Some(&script)
+				&& script.to_p2wsh() == *spk, "bond witness differs from the reviewed script");
+			ensure!(tx.lock_time.to_consensus_u32() >= locktime && tx.input[i].sequence != bitcoin::Sequence::MAX, "bond timelock is not enforced");
+			ensure!(signature.last() == Some(&unified::ALL), "bond signer must use unified SIGHASH_ALL (0x21)");
+			let hash = unified::digest(&tx, i, &previous, unified::ALL, Execution { script_type: 1, script_code: Some(&script), annex: None, leaf: None })?;
+			let parsed = secp256k1::ecdsa::Signature::from_der(&signature[..signature.len()-1])?;
+			let mut normal = parsed; normal.normalize_s(); ensure!(normal == parsed, "noncanonical high-S bond signature");
+			secp.verify_ecdsa(&hash.into(), &parsed, &key.inner).context("invalid unified bond signature")?;
 		} else {
 			let legacy = spk.is_p2pkh();
 			let elements = if legacy { script_pushes(&script_sig)? } else { witness.iter().map(|v| v.to_vec()).collect() };
@@ -264,6 +306,64 @@ mod tests {
 
 	fn fixtures() -> Vec<serde_json::Value> {
 		serde_json::from_str(include_str!("../../../mobile/Tests/PaperclipMobileTests/Fixtures/seedsigner.json")).unwrap()
+	}
+
+	#[test]
+	fn qr_signer_jam_jars_and_canonical_bonds_require_exact_unified_signatures() {
+		let fixtures: Vec<serde_json::Value> = serde_json::from_str(include_str!("../../../mobile/Tests/PaperclipMobileTests/Fixtures/krux-jam.json")).unwrap();
+		let seedsigner: Vec<serde_json::Value> = serde_json::from_str(include_str!("../../../mobile/Tests/PaperclipMobileTests/Fixtures/seedsigner-jam.json")).unwrap();
+		for fixture in fixtures.into_iter().chain(seedsigner) {
+			let mut original = Psbt::deserialize(&STANDARD.decode(fixture["original"].as_str().unwrap()).unwrap()).unwrap();
+			prepare(&mut original).unwrap();
+			let signed = STANDARD.decode(fixture["signed"].as_str().unwrap()).unwrap();
+			let tx = signed_transaction(&original, &signed).expect(fixture["name"].as_str().unwrap());
+			assert_eq!(signed_transaction(&original, &bitcoin::consensus::serialize(&tx)).unwrap(), tx);
+			let mut changed = original.clone();
+			changed.unsigned_tx.output[0].value = bitcoin::Amount::from_sat(1);
+			assert!(signed_transaction(&changed, &signed).is_err());
+			let mut changed = tx.clone();
+			let mut witness = changed.input[0].witness.to_vec();
+			*witness[0].last_mut().unwrap() = 1;
+			changed.input[0].witness = Witness::from_slice(&witness);
+			assert!(signed_transaction(&original, &bitcoin::consensus::serialize(&changed)).is_err());
+			if fixture["locktime"].as_u64().unwrap() > 0 {
+				let mut changed = original.clone();
+				changed.unsigned_tx.lock_time = bitcoin::absolute::LockTime::ZERO;
+				assert!(prepare(&mut changed).is_err(), "bond requires its reviewed timelock");
+				let mut changed = original.clone();
+				changed.unsigned_tx.input[0].sequence = bitcoin::Sequence::MAX;
+				assert!(prepare(&mut changed).is_err(), "final sequence disables CLTV");
+				let mut changed = original.clone();
+				changed.inputs[0].witness_script = Some(ScriptBuf::new());
+				assert!(prepare(&mut changed).is_err(), "bond script must match its prevout");
+				let mut changed = original.clone();
+				changed.inputs[0].non_witness_utxo = None;
+				assert!(prepare(&mut changed).is_err(), "bond needs full authenticated parent");
+				let mut changed = tx.clone();
+				let mut witness = changed.input[0].witness.to_vec();
+				witness[1][2] ^= 1;
+				changed.input[0].witness = Witness::from_slice(&witness);
+				assert!(signed_transaction(&original, &bitcoin::consensus::serialize(&changed)).is_err());
+			}
+		}
+	}
+
+	#[test]
+	fn qr_bond_rejects_noncanonical_or_extra_script_operations() {
+		let fixtures: Vec<serde_json::Value> = serde_json::from_str(include_str!("../../../mobile/Tests/PaperclipMobileTests/Fixtures/krux-jam.json")).unwrap();
+		for fixture in fixtures.into_iter().filter(|v| v["locktime"].as_u64().unwrap() != 0) {
+			let original = Psbt::deserialize(&STANDARD.decode(fixture["original"].as_str().unwrap()).unwrap()).unwrap();
+			let script = original.inputs[0].witness_script.as_ref().unwrap();
+			assert_eq!(fidelity_bond(script).unwrap().0, fixture["locktime"].as_u64().unwrap() as u32);
+			let bytes = script.as_bytes();
+			let mut extra = bytes.to_vec(); extra.push(0x61);
+			let mut nonminimal = vec![0x4c]; nonminimal.extend(bytes);
+			let mut no_drop = bytes.to_vec(); no_drop[usize::from(bytes[0]) + 2] = 0x61;
+			let mut negative = bytes.to_vec(); negative[usize::from(bytes[0])] |= 0x80;
+			for changed in [extra, nonminimal, no_drop, negative, vec![], vec![4; 41]] {
+				assert!(fidelity_bond(&ScriptBuf::from_bytes(changed)).is_err());
+			}
+		}
 	}
 
 	#[test]

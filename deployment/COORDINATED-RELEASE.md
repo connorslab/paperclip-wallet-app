@@ -34,6 +34,15 @@ Before a coordinated release, complete and accept:
   CoinJoin payment limits and durable recovery, are required before release.
   Bundled hosting, mobile pairing and bond management have priority over optional
   polish. Remote-Jam support alone does not satisfy these requirements.
+- Each jar send has a Direct/CoinJoin slider on every platform. Its choice is
+  bound to the reviewed intent, fees and recovery record. A failed/unavailable
+  CoinJoin must never fall back to a direct transaction without a new review.
+- QR signing targets both privkeyio's XBT SeedSigner and Paperclip's XBT Krux.
+  It must overlap safely with Jars: deposits from selected hardware
+  wallets, all five account paths, and separately verified bond registration,
+  certificate and matured-withdrawal support. Never import a cold seed into Jam
+  to make a missing hardware flow appear supported. Automated makers still need
+  online signing for their active jar coins; cold bonds have a separate role.
 - Portable mobile pending-payment and Bridge recovery records; migration,
   interrupted-restore and full backup/restore acceptance on both host platforms.
 - Remaining desktop multiple-hot-wallet and hardware/QR-funded Ark workflows;
