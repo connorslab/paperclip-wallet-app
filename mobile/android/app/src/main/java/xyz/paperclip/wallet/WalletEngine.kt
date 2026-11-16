@@ -345,7 +345,11 @@ class WalletEngine private constructor(context: Context) {
 	}
 
 	private fun installProfile(next: JSONObject) {
-		val previous = record ?: registry().selected()
+		val previous = registry().selected()
+		// Match iOS: copy the selected profile's settings before switching.
+		// The legacy fallback may belong to a different, previously used wallet.
+		val settings = connectionFor(previous).also { it.validate() }
+		next.put("connection", settings.json())
 		val reopenPrevious = opened
 		val id = UUID.fromString(next.getString("id")).toString()
 		check(registry().entries().none { it.getString("id") == id }) { "Wallet is already registered" }
@@ -671,6 +675,8 @@ class WalletEngine private constructor(context: Context) {
 		require(!testOnly || network == "xbt-regtest") {
 			"Screenshot mode cannot import a mainnet wallet"
 		}
+		val previous = registry().selected()
+		val settings = connectionFor(previous).also { it.validate() }
 		val seed = Base64.getDecoder().decode(archive.getString("seed"))
 		require(seed.size == 64) { "Invalid recovery seed" }
 		val phrase = if (archive.isNull("seedPhrase")) "" else archive.optString("seedPhrase")
@@ -684,7 +690,6 @@ class WalletEngine private constructor(context: Context) {
 		// archive must not discard its active session or connection state.
 		invoke("verify_backup", JSONObject().put("network", network)
 			.put("directory", root.absolutePath).put("database", archive.getString("recoveryState")), seed.copyOf())
-		val previous = registry().selected()
 		val reopenPrevious = opened
 		val id = UUID.randomUUID().toString()
 		val destination = File(root, id)
@@ -704,6 +709,7 @@ class WalletEngine private constructor(context: Context) {
 			)
 			val next = JSONObject().put("network", network).put("id", id)
 				.put("seed", archive.getString("seed")).put("phrase", phrase)
+				.put("connection", settings.json())
 			// Match iOS: open the restored database before committing its profile.
 			// A failed open must never replace the persisted wallet selection.
 			record = next

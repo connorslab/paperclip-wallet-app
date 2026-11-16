@@ -932,3 +932,42 @@ write before creating the replacement blocker. All four cases pass in 0.416s
 (`/tmp/clean-storage-runtime.log`). This changes test setup only; lost-key
 protection remains enforced. API 35 and 36 CI artifacts confirmed the same setup
 failure, rather than a sync/rename regression.
+
+
+## Profile connection inheritance: 2026-11-16
+
+Android hot-wallet creation, public-account import and encrypted restore now copy
+and validate the selected profile's connection settings before changing sessions.
+Previously a new profile fell back to the last global connection, which could
+belong to a different wallet. The screen retained the selected profile's settings,
+so its displayed server could differ from the backend's saved server. iOS already
+copies the selected connection during profile installation. Existing Android
+profiles and their settings are not rewritten.
+
+Successful add/import/restore also clears the previous receive address, fee-review
+issue and exit/expiry display state. Public import and full restore clear any
+previously displayed recovery phrase. Connection credentials remain in encrypted
+device storage; the archive format is unchanged and does not gain credentials.
+No connection, sync or payment is initiated by copying these settings.
+
+The model/native regression reproduced the old mismatch using distinct reserved
+`.example` endpoints for the selected and legacy connections. With the fix, hot
+creation, encrypted restore and public signer import agree with the screen,
+retain the copied settings after native close/reopen, and clear the old receive
+address. Switching back preserves the source settings. The public signer case
+uses a testnet serialization of the existing public fixture and does not sign or
+broadcast. The regression is included in the existing CI selection-test class.
+
+All 14 storage/native/model/recovery cases pass locally. Fresh-install onboarding
+and both Settings UI tests also pass. Android unit tests pass (81 passed, three
+opt-in skipped), debug/test APK builds and `just checks` pass. Evidence:
+`/tmp/profile-connection-before-runtime.log`,
+`/tmp/profile-connection-final-runtime.log`,
+`/tmp/profile-connection-ui-runtime.log` and
+`/tmp/profile-connection-final-all-runtime.log`.
+
+The Android change is mirrored to both development branches. iOS behavior was
+checked in source and its existing native/UI CI passed at `2c75741`; there is no
+new iOS inheritance-specific runtime test in this change. This does not resolve
+portable payment/Bridge archives, cross-network server setup, post-commit metadata
+read failures, uncertain commits or funded device acceptance. Those gates stay open.
