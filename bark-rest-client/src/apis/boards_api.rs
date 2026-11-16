@@ -31,11 +31,25 @@ pub enum BoardAmountError {
     UnknownValue(serde_json::Value),
 }
 
+/// struct for typed errors of method [`commit_review`]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum CommitReviewError {
+    UnknownValue(serde_json::Value),
+}
+
 /// struct for typed errors of method [`get_pending_boards`]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum GetPendingBoardsError {
     Status500(),
+    UnknownValue(serde_json::Value),
+}
+
+/// struct for typed errors of method [`prepare_review`]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum PrepareReviewError {
     UnknownValue(serde_json::Value),
 }
 
@@ -119,6 +133,47 @@ pub async fn board_amount(configuration: &configuration::Configuration, board_re
     }
 }
 
+/// Consume the exact reviewed funding transaction once after checking wallet identity, expiry, recovery costs and unspent inputs. Pending does not mean spendable. Check status after an uncertain response; never automatically submit a new board.
+pub async fn commit_review(configuration: &configuration::Configuration, board_approval: models::BoardApproval) -> Result<serde_json::Value, Error<CommitReviewError>> {
+    // add a prefix to parameters to efficiently prevent name collisions
+    let p_body_board_approval = board_approval;
+
+    let uri_str = format!("{}/api/v1/boards/commit", configuration.base_path);
+    let mut req_builder = configuration.client.request(reqwest::Method::POST, &uri_str);
+
+    if let Some(ref user_agent) = configuration.user_agent {
+        req_builder = req_builder.header(reqwest::header::USER_AGENT, user_agent.clone());
+    }
+    if let Some(ref token) = configuration.bearer_access_token {
+        req_builder = req_builder.bearer_auth(token.to_owned());
+    };
+    req_builder = req_builder.json(&p_body_board_approval);
+
+    let req = req_builder.build()?;
+    let resp = configuration.client.execute(req).await?;
+
+    let status = resp.status();
+    let content_type = resp
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("application/octet-stream");
+    let content_type = super::ContentType::from(content_type);
+
+    if !status.is_client_error() && !status.is_server_error() {
+        let content = resp.text().await?;
+        match content_type {
+            ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
+            ContentType::Text => return Err(Error::from(serde_json::Error::custom("Received `text/plain` content type response that cannot be converted to `serde_json::Value`"))),
+            ContentType::Unsupported(unknown_type) => return Err(Error::from(serde_json::Error::custom(format!("Received `{unknown_type}` content type response that cannot be converted to `serde_json::Value`")))),
+        }
+    } else {
+        let content = resp.text().await?;
+        let entity: Option<CommitReviewError> = serde_json::from_str(&content).ok();
+        Err(Error::ResponseError(ResponseContent { status, content, entity }))
+    }
+}
+
 /// Returns all boards whose funding transactions have not yet reached the number of on-chain confirmations required by the Ark server.
 pub async fn get_pending_boards(configuration: &configuration::Configuration, ) -> Result<Vec<models::PendingBoardInfo>, Error<GetPendingBoardsError>> {
 
@@ -153,6 +208,47 @@ pub async fn get_pending_boards(configuration: &configuration::Configuration, ) 
     } else {
         let content = resp.text().await?;
         let entity: Option<GetPendingBoardsError> = serde_json::from_str(&content).ok();
+        Err(Error::ResponseError(ResponseContent { status, content, entity }))
+    }
+}
+
+/// Prepare an unsigned funding transaction. Returns a 60-second request ID, board amount, net Ark amount, network fee, boarding fee and recovery reserve. Does not sign or broadcast.
+pub async fn prepare_review(configuration: &configuration::Configuration, board_request: models::BoardRequest) -> Result<serde_json::Value, Error<PrepareReviewError>> {
+    // add a prefix to parameters to efficiently prevent name collisions
+    let p_body_board_request = board_request;
+
+    let uri_str = format!("{}/api/v1/boards/prepare", configuration.base_path);
+    let mut req_builder = configuration.client.request(reqwest::Method::POST, &uri_str);
+
+    if let Some(ref user_agent) = configuration.user_agent {
+        req_builder = req_builder.header(reqwest::header::USER_AGENT, user_agent.clone());
+    }
+    if let Some(ref token) = configuration.bearer_access_token {
+        req_builder = req_builder.bearer_auth(token.to_owned());
+    };
+    req_builder = req_builder.json(&p_body_board_request);
+
+    let req = req_builder.build()?;
+    let resp = configuration.client.execute(req).await?;
+
+    let status = resp.status();
+    let content_type = resp
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("application/octet-stream");
+    let content_type = super::ContentType::from(content_type);
+
+    if !status.is_client_error() && !status.is_server_error() {
+        let content = resp.text().await?;
+        match content_type {
+            ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
+            ContentType::Text => return Err(Error::from(serde_json::Error::custom("Received `text/plain` content type response that cannot be converted to `serde_json::Value`"))),
+            ContentType::Unsupported(unknown_type) => return Err(Error::from(serde_json::Error::custom(format!("Received `{unknown_type}` content type response that cannot be converted to `serde_json::Value`")))),
+        }
+    } else {
+        let content = resp.text().await?;
+        let entity: Option<PrepareReviewError> = serde_json::from_str(&content).ok();
         Err(Error::ResponseError(ResponseContent { status, content, entity }))
     }
 }

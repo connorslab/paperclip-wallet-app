@@ -99,10 +99,18 @@ def supervise():
         adapter = subprocess.Popen(adapter_args(), stdin=subprocess.DEVNULL)
         time.sleep(1)
     wallet = None
+    from node_tor import arguments, start
+    tor = None
+    tor_retry_at = 0
     retry_at = 0
     platform_retry_at = 0
     try:
+        tor_args = arguments(os.environ)
+        tor = start(tor_args, os.environ) if tor_args else None
         while not stopped and (wallet is None or wallet.poll() is None):
+            if tor_args and tor.poll() is not None and time.monotonic() >= tor_retry_at:
+                tor = start(tor_args, os.environ)
+                tor_retry_at = time.monotonic() + 10
             if os.environ.get('PAPERCLIP_NODE_RPC_URL') and time.monotonic() >= platform_retry_at:
                 from platform_node import prepare
                 from pruned_rpc import Node
@@ -133,10 +141,10 @@ def supervise():
                     time.sleep(2)
             time.sleep(.5)
     finally:
-        for child in (wallet, adapter):
+        for child in (wallet, adapter, tor):
             if child and child.poll() is None:
                 child.terminate()
-        for child in (wallet, adapter):
+        for child in (wallet, adapter, tor):
             if child:
                 try:
                     child.wait(timeout=90)

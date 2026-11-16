@@ -52,7 +52,7 @@ does not establish parity. Native UI and background scheduling can differ.
 | --- | --- | --- | --- |
 | Ark payments and recovery | Shared engine, durable payment status, cost review | Shared engine, cost review, status UI | Deploy cookie-rotation fix, verify failed receive recovery and both-direction settlement |
 | Lightning through Ark | Shared BOLT11/BOLT12 engine and enforced reviewed debit | Same engine, fixed-amount review and debit capability | Verify live against corrected service; keep unknown outcomes from being resent |
-| Remote CLN and XBT LND | Both adapters, Tor, TLS, BOLT12, balances and status | Direct-node UI and credential storage still missing | Complete server adapter and UI; verify on each platform |
+| Remote CLN and XBT LND | Both adapters, Tor, TLS, BOLT12, balances and status | Direct-node adapters, private credential storage, reviewed sends and durable status implemented | Live node, container Tor and platform package acceptance pending; see REMOTE-LIGHTNING.md |
 | Multiple / hardware / watch-only wallets | Implemented in mobile candidate, visible wallet switcher | Hot-wallet/QR-account switcher, public pairing, verified signing and durable broadcast journal | Physical Krux round trips, desktop multiple hot/watch-only profiles, QR-funded Ark boarding and full recovery |
 | Paperclip Bridge | Both mobile directions implemented | Browser flows still missing | Matching quote validation and durable reconciliation; live swap not verified |
 | JoinBlaket / Jam | Five jars, remote session, receive, reviewed maker controls | Same tasks through authenticated fixed-upstream proxy | Actual Kilombino XBT Jam endpoint, live validation, bond setup and taker flows |
@@ -178,8 +178,13 @@ its named revision. The following candidate changes supersede specific gaps:
   [Target requirements](https://developer.android.com/google/play/requirements/target-sdk)
   and [Android 16 behavior changes](https://developer.android.com/about/versions/16/behavior-changes-16).
 
-The broader gaps remain open: server-backed durable uncertain-operation recovery,
-direct CLN/LND and Bridge browser flows, full server wallet management and recovery,
+The direct CLN/LND server and browser candidate now includes TLS/Tor transport,
+BOLT11/BOLT12, reviewed sends and durable unknown-payment reconciliation. Local
+synthetic-node tests cover both adapters; live node and installed-package acceptance
+remain pending. See REMOTE-LIGHTNING.md.
+
+The broader gaps remain open: durable uncertain-operation recovery for the other
+server hot-wallet paths, Bridge browser flows, full server wallet management and recovery,
 Jam service acceptance, payment requests, portable contacts/labels and restricted
 receive-only credentials. Public signing identities, coherent release versions,
 physical signer tests, funded recovery and both host upgrade paths remain release

@@ -7,6 +7,7 @@ Method | HTTP request | Description
 [**ark_send_fee**](FeesApi.md#ark_send_fee) | **POST** /api/v1/fees/ark/send | Estimate the full Ark-send cost without sending
 [**board_fee**](FeesApi.md#board_fee) | **GET** /api/v1/fees/board | Estimate board fee
 [**lightning_receive_fee**](FeesApi.md#lightning_receive_fee) | **GET** /api/v1/fees/lightning/receive | Estimate Lightning receive fee
+[**lightning_review**](FeesApi.md#lightning_review) | **POST** /api/v1/fees/lightning/review | Review the full cost of a Lightning request without sending
 [**lightning_send_fee**](FeesApi.md#lightning_send_fee) | **GET** /api/v1/fees/lightning/pay | Estimate Lightning send fee
 [**offboard_all_fee**](FeesApi.md#offboard_all_fee) | **GET** /api/v1/fees/offboard-all | Estimate offboard-all fee
 [**offboard_fee**](FeesApi.md#offboard_fee) | **POST** /api/v1/fees/offboard | Estimate offboard fee
@@ -100,6 +101,36 @@ Name | Type | Description  | Required | Notes
 ### HTTP request headers
 
 - **Content-Type**: Not defined
+- **Accept**: application/json
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
+
+
+## lightning_review
+
+> models::FeeEstimateResponse lightning_review(lightning_review_request)
+Review the full cost of a Lightning request without sending
+
+Send gross_amount_sat as max_total_sat when paying. Estimates do not reserve funds.
+
+### Parameters
+
+
+Name | Type | Description  | Required | Notes
+------------- | ------------- | ------------- | ------------- | -------------
+**lightning_review_request** | [**LightningReviewRequest**](LightningReviewRequest.md) |  | [required] |
+
+### Return type
+
+[**models::FeeEstimateResponse**](FeeEstimateResponse.md)
+
+### Authorization
+
+[bearer](../README.md#bearer)
+
+### HTTP request headers
+
+- **Content-Type**: application/json
 - **Accept**: application/json
 
 [[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)

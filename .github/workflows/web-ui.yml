@@ -34,3 +34,4 @@ jobs:
           node scripts/test-fee-replacement-browser.cjs
           node scripts/test-wallet-transfers-browser.cjs
           node scripts/test-wallet-health-browser.cjs
+          node scripts/test-remote-node-browser.cjs

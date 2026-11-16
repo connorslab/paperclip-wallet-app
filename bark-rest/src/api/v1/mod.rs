@@ -12,6 +12,8 @@ pub mod bitcoin;
 pub mod joinblaket;
 #[cfg(feature = "web-ui")]
 pub mod hardware;
+#[cfg(feature = "web-ui")]
+pub mod remote_node;
 
 use std::sync::Arc;
 
@@ -36,5 +38,7 @@ pub fn router(state: &Arc<ServerState>) -> Router<Arc<ServerState>> {
 	let router = router.nest("/joinblaket", authed_router(state, joinblaket::router()));
 	#[cfg(feature = "web-ui")]
 	let router = router.nest("/hardware", authed_router(state, hardware::router()));
+	#[cfg(feature = "web-ui")]
+	let router = router.nest("/remote-node", authed_router(state, remote_node::router()));
 	router
 }

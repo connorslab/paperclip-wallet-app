@@ -93,6 +93,34 @@ pub enum OnchainUtxosError {
     UnknownValue(serde_json::Value),
 }
 
+/// struct for typed errors of method [`replacement_commit`]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum ReplacementCommitError {
+    UnknownValue(serde_json::Value),
+}
+
+/// struct for typed errors of method [`replacement_prepare`]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum ReplacementPrepareError {
+    UnknownValue(serde_json::Value),
+}
+
+/// struct for typed errors of method [`send_commit`]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum SendCommitError {
+    UnknownValue(serde_json::Value),
+}
+
+/// struct for typed errors of method [`send_prepare`]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum SendPrepareError {
+    UnknownValue(serde_json::Value),
+}
+
 
 /// Generates a new on-chain receiving address. Each call returns the next unused address from the wallet's HD keychain.
 pub async fn onchain_address(configuration: &configuration::Configuration, ) -> Result<models::Address, Error<OnchainAddressError>> {
@@ -472,6 +500,170 @@ pub async fn onchain_utxos(configuration: &configuration::Configuration, ) -> Re
     } else {
         let content = resp.text().await?;
         let entity: Option<OnchainUtxosError> = serde_json::from_str(&content).ok();
+        Err(Error::ResponseError(ResponseContent { status, content, entity }))
+    }
+}
+
+/// Consume a 60-second fee review once after refreshing and verifying the original signatures. Returns txid and submitted or pending_broadcast. Check transaction status before any further action.
+pub async fn replacement_commit(configuration: &configuration::Configuration, replacement_approval: models::ReplacementApproval) -> Result<serde_json::Value, Error<ReplacementCommitError>> {
+    // add a prefix to parameters to efficiently prevent name collisions
+    let p_body_replacement_approval = replacement_approval;
+
+    let uri_str = format!("{}/api/v1/onchain/replacement/commit", configuration.base_path);
+    let mut req_builder = configuration.client.request(reqwest::Method::POST, &uri_str);
+
+    if let Some(ref user_agent) = configuration.user_agent {
+        req_builder = req_builder.header(reqwest::header::USER_AGENT, user_agent.clone());
+    }
+    if let Some(ref token) = configuration.bearer_access_token {
+        req_builder = req_builder.bearer_auth(token.to_owned());
+    };
+    req_builder = req_builder.json(&p_body_replacement_approval);
+
+    let req = req_builder.build()?;
+    let resp = configuration.client.execute(req).await?;
+
+    let status = resp.status();
+    let content_type = resp
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("application/octet-stream");
+    let content_type = super::ContentType::from(content_type);
+
+    if !status.is_client_error() && !status.is_server_error() {
+        let content = resp.text().await?;
+        match content_type {
+            ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
+            ContentType::Text => return Err(Error::from(serde_json::Error::custom("Received `text/plain` content type response that cannot be converted to `serde_json::Value`"))),
+            ContentType::Unsupported(unknown_type) => return Err(Error::from(serde_json::Error::custom(format!("Received `{unknown_type}` content type response that cannot be converted to `serde_json::Value`")))),
+        }
+    } else {
+        let content = resp.text().await?;
+        let entity: Option<ReplacementCommitError> = serde_json::from_str(&content).ok();
+        Err(Error::ResponseError(ResponseContent { status, content, entity }))
+    }
+}
+
+/// Review a replacement of a locally authorized ordinary outgoing payment. Zero new_fee_sat requests twice the original fee. Preserves all recipients, amounts and inputs; additional fee comes only from original change. Returns original_txid, replacement_txid, old_fee_sat, new_fee_sat, additional_fee_sat and recipients.
+pub async fn replacement_prepare(configuration: &configuration::Configuration, replacement_request: models::ReplacementRequest) -> Result<serde_json::Value, Error<ReplacementPrepareError>> {
+    // add a prefix to parameters to efficiently prevent name collisions
+    let p_body_replacement_request = replacement_request;
+
+    let uri_str = format!("{}/api/v1/onchain/replacement/prepare", configuration.base_path);
+    let mut req_builder = configuration.client.request(reqwest::Method::POST, &uri_str);
+
+    if let Some(ref user_agent) = configuration.user_agent {
+        req_builder = req_builder.header(reqwest::header::USER_AGENT, user_agent.clone());
+    }
+    if let Some(ref token) = configuration.bearer_access_token {
+        req_builder = req_builder.bearer_auth(token.to_owned());
+    };
+    req_builder = req_builder.json(&p_body_replacement_request);
+
+    let req = req_builder.build()?;
+    let resp = configuration.client.execute(req).await?;
+
+    let status = resp.status();
+    let content_type = resp
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("application/octet-stream");
+    let content_type = super::ContentType::from(content_type);
+
+    if !status.is_client_error() && !status.is_server_error() {
+        let content = resp.text().await?;
+        match content_type {
+            ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
+            ContentType::Text => return Err(Error::from(serde_json::Error::custom("Received `text/plain` content type response that cannot be converted to `serde_json::Value`"))),
+            ContentType::Unsupported(unknown_type) => return Err(Error::from(serde_json::Error::custom(format!("Received `{unknown_type}` content type response that cannot be converted to `serde_json::Value`")))),
+        }
+    } else {
+        let content = resp.text().await?;
+        let entity: Option<ReplacementPrepareError> = serde_json::from_str(&content).ok();
+        Err(Error::ResponseError(ResponseContent { status, content, entity }))
+    }
+}
+
+/// Consume the prepared review once. Requires the same wallet, request ID, total cost and unspent inputs. Returns txid and submitted or pending_broadcast; neither means confirmed. Never retry an uncertain commit automatically.
+pub async fn send_commit(configuration: &configuration::Configuration, send_approval: models::SendApproval) -> Result<serde_json::Value, Error<SendCommitError>> {
+    // add a prefix to parameters to efficiently prevent name collisions
+    let p_body_send_approval = send_approval;
+
+    let uri_str = format!("{}/api/v1/onchain/send/commit", configuration.base_path);
+    let mut req_builder = configuration.client.request(reqwest::Method::POST, &uri_str);
+
+    if let Some(ref user_agent) = configuration.user_agent {
+        req_builder = req_builder.header(reqwest::header::USER_AGENT, user_agent.clone());
+    }
+    if let Some(ref token) = configuration.bearer_access_token {
+        req_builder = req_builder.bearer_auth(token.to_owned());
+    };
+    req_builder = req_builder.json(&p_body_send_approval);
+
+    let req = req_builder.build()?;
+    let resp = configuration.client.execute(req).await?;
+
+    let status = resp.status();
+    let content_type = resp
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("application/octet-stream");
+    let content_type = super::ContentType::from(content_type);
+
+    if !status.is_client_error() && !status.is_server_error() {
+        let content = resp.text().await?;
+        match content_type {
+            ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
+            ContentType::Text => return Err(Error::from(serde_json::Error::custom("Received `text/plain` content type response that cannot be converted to `serde_json::Value`"))),
+            ContentType::Unsupported(unknown_type) => return Err(Error::from(serde_json::Error::custom(format!("Received `{unknown_type}` content type response that cannot be converted to `serde_json::Value`")))),
+        }
+    } else {
+        let content = resp.text().await?;
+        let entity: Option<SendCommitError> = serde_json::from_str(&content).ok();
+        Err(Error::ResponseError(ResponseContent { status, content, entity }))
+    }
+}
+
+/// Prepare an exact 60-second on-chain review; returns request_id, destination, amount_sat, fee_sat and total_sat. Does not sign or broadcast.
+pub async fn send_prepare(configuration: &configuration::Configuration, onchain_send_request: models::OnchainSendRequest) -> Result<serde_json::Value, Error<SendPrepareError>> {
+    // add a prefix to parameters to efficiently prevent name collisions
+    let p_body_onchain_send_request = onchain_send_request;
+
+    let uri_str = format!("{}/api/v1/onchain/send/prepare", configuration.base_path);
+    let mut req_builder = configuration.client.request(reqwest::Method::POST, &uri_str);
+
+    if let Some(ref user_agent) = configuration.user_agent {
+        req_builder = req_builder.header(reqwest::header::USER_AGENT, user_agent.clone());
+    }
+    if let Some(ref token) = configuration.bearer_access_token {
+        req_builder = req_builder.bearer_auth(token.to_owned());
+    };
+    req_builder = req_builder.json(&p_body_onchain_send_request);
+
+    let req = req_builder.build()?;
+    let resp = configuration.client.execute(req).await?;
+
+    let status = resp.status();
+    let content_type = resp
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("application/octet-stream");
+    let content_type = super::ContentType::from(content_type);
+
+    if !status.is_client_error() && !status.is_server_error() {
+        let content = resp.text().await?;
+        match content_type {
+            ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
+            ContentType::Text => return Err(Error::from(serde_json::Error::custom("Received `text/plain` content type response that cannot be converted to `serde_json::Value`"))),
+            ContentType::Unsupported(unknown_type) => return Err(Error::from(serde_json::Error::custom(format!("Received `{unknown_type}` content type response that cannot be converted to `serde_json::Value`")))),
+        }
+    } else {
+        let content = resp.text().await?;
+        let entity: Option<SendPrepareError> = serde_json::from_str(&content).ok();
         Err(Error::ResponseError(ResponseContent { status, content, entity }))
     }
 }

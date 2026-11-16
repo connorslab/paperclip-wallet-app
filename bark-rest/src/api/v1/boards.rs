@@ -122,11 +122,11 @@ pub(crate) struct PreparedBoard {
 	reserve: u64,
 	created: std::time::Instant,
 }
-#[derive(serde::Deserialize, utoipa::ToSchema)]
-struct BoardApproval {
-	#[schema(value_type = String)] request_id: bitcoin::Txid,
-	amount_sat: u64,
-	total_sat: u64,
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
+pub struct BoardApproval {
+	#[schema(value_type = String)] pub request_id: bitcoin::Txid,
+	pub amount_sat: u64,
+	pub total_sat: u64,
 }
 
 #[utoipa::path(post, path = "/prepare", tag = "boards", request_body = bark_json::web::BoardRequest,

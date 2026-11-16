@@ -33,7 +33,9 @@ Class | Method | HTTP request | Description
 *BitcoinApi* | [**tip**](docs/BitcoinApi.md#tip) | **GET** /api/v1/bitcoin/tip | Get bitcoin tip height
 *BoardsApi* | [**board_all**](docs/BoardsApi.md#board_all) | **POST** /api/v1/boards/board-all | Board all on-chain bitcoin
 *BoardsApi* | [**board_amount**](docs/BoardsApi.md#board_amount) | **POST** /api/v1/boards/board-amount | Board a specific amount
+*BoardsApi* | [**commit_review**](docs/BoardsApi.md#commit_review) | **POST** /api/v1/boards/commit |
 *BoardsApi* | [**get_pending_boards**](docs/BoardsApi.md#get_pending_boards) | **GET** /api/v1/boards/pending | List pending boards
+*BoardsApi* | [**prepare_review**](docs/BoardsApi.md#prepare_review) | **POST** /api/v1/boards/prepare |
 *DefaultApi* | [**ping**](docs/DefaultApi.md#ping) | **GET** /ping | Ping
 *ExitsApi* | [**emergency_exit_fee**](docs/ExitsApi.md#emergency_exit_fee) | **GET** /api/v1/exits/fee | Estimate emergency exit fee
 *ExitsApi* | [**exit_cancel**](docs/ExitsApi.md#exit_cancel) | **POST** /api/v1/exits/cancel/{vtxo_id} | Cancel an exit
@@ -53,6 +55,7 @@ Class | Method | HTTP request | Description
 *FeesApi* | [**ark_send_fee**](docs/FeesApi.md#ark_send_fee) | **POST** /api/v1/fees/ark/send | Estimate the full Ark-send cost without sending
 *FeesApi* | [**board_fee**](docs/FeesApi.md#board_fee) | **GET** /api/v1/fees/board | Estimate board fee
 *FeesApi* | [**lightning_receive_fee**](docs/FeesApi.md#lightning_receive_fee) | **GET** /api/v1/fees/lightning/receive | Estimate Lightning receive fee
+*FeesApi* | [**lightning_review**](docs/FeesApi.md#lightning_review) | **POST** /api/v1/fees/lightning/review | Review the full cost of a Lightning request without sending
 *FeesApi* | [**lightning_send_fee**](docs/FeesApi.md#lightning_send_fee) | **GET** /api/v1/fees/lightning/pay | Estimate Lightning send fee
 *FeesApi* | [**offboard_all_fee**](docs/FeesApi.md#offboard_all_fee) | **GET** /api/v1/fees/offboard-all | Estimate offboard-all fee
 *FeesApi* | [**offboard_fee**](docs/FeesApi.md#offboard_fee) | **POST** /api/v1/fees/offboard | Estimate offboard fee
@@ -84,6 +87,10 @@ Class | Method | HTTP request | Description
 *OnchainApi* | [**onchain_sync**](docs/OnchainApi.md#onchain_sync) | **POST** /api/v1/onchain/sync | Sync on-chain wallet
 *OnchainApi* | [**onchain_transactions**](docs/OnchainApi.md#onchain_transactions) | **GET** /api/v1/onchain/transactions | List on-chain transactions
 *OnchainApi* | [**onchain_utxos**](docs/OnchainApi.md#onchain_utxos) | **GET** /api/v1/onchain/utxos | List on-chain UTXOs
+*OnchainApi* | [**replacement_commit**](docs/OnchainApi.md#replacement_commit) | **POST** /api/v1/onchain/replacement/commit |
+*OnchainApi* | [**replacement_prepare**](docs/OnchainApi.md#replacement_prepare) | **POST** /api/v1/onchain/replacement/prepare |
+*OnchainApi* | [**send_commit**](docs/OnchainApi.md#send_commit) | **POST** /api/v1/onchain/send/commit |
+*OnchainApi* | [**send_prepare**](docs/OnchainApi.md#send_prepare) | **POST** /api/v1/onchain/send/prepare |
 *WalletApi* | [**address**](docs/WalletApi.md#address) | **POST** /api/v1/wallet/addresses/next | Generate Ark address
 *WalletApi* | [**ark_info**](docs/WalletApi.md#ark_info) | **GET** /api/v1/wallet/ark-info | Get Ark server info
 *WalletApi* | [**balance**](docs/WalletApi.md#balance) | **GET** /api/v1/wallet/balance | Get wallet balance
@@ -134,6 +141,7 @@ Class | Method | HTTP request | Description
  - [BitcoindAuthOneOf1UserPass](docs/BitcoindAuthOneOf1UserPass.md)
  - [BitcoindAuthOneOfCookie](docs/BitcoindAuthOneOfCookie.md)
  - [BlockRef](docs/BlockRef.md)
+ - [BoardApproval](docs/BoardApproval.md)
  - [BoardFees](docs/BoardFees.md)
  - [BoardRequest](docs/BoardRequest.md)
  - [ChainSourceConfig](docs/ChainSourceConfig.md)
@@ -247,6 +255,7 @@ Class | Method | HTTP request | Description
  - [LightningReceiveFees](docs/LightningReceiveFees.md)
  - [LightningReceiveInfo](docs/LightningReceiveInfo.md)
  - [LightningReceiveStateKind](docs/LightningReceiveStateKind.md)
+ - [LightningReviewRequest](docs/LightningReviewRequest.md)
  - [LightningSendFees](docs/LightningSendFees.md)
  - [LightningSendInfo](docs/LightningSendInfo.md)
  - [LightningSendStateKind](docs/LightningSendStateKind.md)
@@ -293,6 +302,8 @@ Class | Method | HTTP request | Description
  - [RefreshRequest](docs/RefreshRequest.md)
  - [RemainingExitTransactions](docs/RemainingExitTransactions.md)
  - [RemainingExitTransactionsQuery](docs/RemainingExitTransactionsQuery.md)
+ - [ReplacementApproval](docs/ReplacementApproval.md)
+ - [ReplacementRequest](docs/ReplacementRequest.md)
  - [RoundFlowState](docs/RoundFlowState.md)
  - [RoundParticipationInfo](docs/RoundParticipationInfo.md)
  - [RoundStatus](docs/RoundStatus.md)
@@ -303,6 +314,7 @@ Class | Method | HTTP request | Description
  - [RoundStatusOneOf4](docs/RoundStatusOneOf4.md)
  - [RoundStatusOneOf5](docs/RoundStatusOneOf5.md)
  - [Send](docs/Send.md)
+ - [SendApproval](docs/SendApproval.md)
  - [SendOnchainFeeEstimateQuery](docs/SendOnchainFeeEstimateQuery.md)
  - [SendOnchainRequest](docs/SendOnchainRequest.md)
  - [SendRequest](docs/SendRequest.md)

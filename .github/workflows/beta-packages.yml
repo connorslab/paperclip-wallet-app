@@ -29,6 +29,7 @@ jobs:
       - name: Check adapter and package contracts
         run: |
           python3 -m unittest discover -s deployment -p test_managed_chain.py
+          python3 -m unittest discover -s deployment -p test_node_tor.py
           python3 -m unittest discover -s deployment -p test_pruned_rpc.py
           python3 -m unittest discover -s deployment -p test_package.py
           python3 -m unittest discover -s deployment -p test_container.py

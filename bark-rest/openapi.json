@@ -120,6 +120,35 @@
         }
       }
     },
+    "/api/v1/boards/commit": {
+      "post": {
+        "tags": [
+          "boards"
+        ],
+        "description": "Consume the exact reviewed funding transaction once after checking wallet identity, expiry, recovery costs and unspent inputs. Pending does not mean spendable. Check status after an uncertain response; never automatically submit a new board.",
+        "operationId": "commit_review",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BoardApproval"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Durably accepted board awaiting confirmations",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/boards/pending": {
       "get": {
         "tags": [
@@ -144,6 +173,35 @@
           },
           "500": {
             "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/api/v1/boards/prepare": {
+      "post": {
+        "tags": [
+          "boards"
+        ],
+        "description": "Prepare an unsigned funding transaction. Returns a 60-second request ID, board amount, net Ark amount, network fee, boarding fee and recovery reserve. Does not sign or broadcast.",
+        "operationId": "prepare_review",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BoardRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Exact funding and recovery cost review",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
           }
         }
       }
@@ -1168,6 +1226,58 @@
           },
           "500": {
             "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InternalServerError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/fees/lightning/review": {
+      "post": {
+        "tags": [
+          "fees"
+        ],
+        "summary": "Review the full cost of a Lightning request without sending",
+        "description": "Send gross_amount_sat as max_total_sat when paying. Estimates do not reserve funds.",
+        "operationId": "lightning_review",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LightningReviewRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Cost including recovery reserves",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeeEstimateResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid payment request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequestError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Estimate unavailable",
             "content": {
               "application/json": {
                 "schema": {
@@ -2256,6 +2366,64 @@
         }
       }
     },
+    "/api/v1/onchain/replacement/commit": {
+      "post": {
+        "tags": [
+          "onchain"
+        ],
+        "description": "Consume a 60-second fee review once after refreshing and verifying the original signatures. Returns txid and submitted or pending_broadcast. Check transaction status before any further action.",
+        "operationId": "replacement_commit",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReplacementApproval"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Review or submission result",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/onchain/replacement/prepare": {
+      "post": {
+        "tags": [
+          "onchain"
+        ],
+        "description": "Review a replacement of a locally authorized ordinary outgoing payment. Zero new_fee_sat requests twice the original fee. Preserves all recipients, amounts and inputs; additional fee comes only from original change. Returns original_txid, replacement_txid, old_fee_sat, new_fee_sat, additional_fee_sat and recipients.",
+        "operationId": "replacement_prepare",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReplacementRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Review or submission result",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/onchain/send": {
       "post": {
         "tags": [
@@ -2354,6 +2522,64 @@
                 "schema": {
                   "$ref": "#/components/schemas/InternalServerError"
                 }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/onchain/send/commit": {
+      "post": {
+        "tags": [
+          "onchain"
+        ],
+        "description": "Consume the prepared review once. Requires the same wallet, request ID, total cost and unspent inputs. Returns txid and submitted or pending_broadcast; neither means confirmed. Never retry an uncertain commit automatically.",
+        "operationId": "send_commit",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SendApproval"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Review or submission result",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/onchain/send/prepare": {
+      "post": {
+        "tags": [
+          "onchain"
+        ],
+        "description": "Prepare an exact 60-second on-chain review; returns request_id, destination, amount_sat, fee_sat and total_sat. Does not sign or broadcast.",
+        "operationId": "send_prepare",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OnchainSendRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Review or submission result",
+            "content": {
+              "application/json": {
+                "schema": {}
               }
             }
           }
@@ -4196,6 +4422,29 @@
           "height": {
             "type": "integer",
             "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "BoardApproval": {
+        "type": "object",
+        "required": [
+          "request_id",
+          "amount_sat",
+          "total_sat"
+        ],
+        "properties": {
+          "amount_sat": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "request_id": {
+            "type": "string"
+          },
+          "total_sat": {
+            "type": "integer",
+            "format": "int64",
             "minimum": 0
           }
         }
@@ -6428,6 +6677,15 @@
             "type": "string",
             "description": "The invoice, offer, or lightning address to pay"
           },
+          "max_total_sat": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Maximum wallet debit including service fees and funded recovery reserves.",
+            "minimum": 0
+          },
           "retry_for_secs": {
             "type": [
               "integer",
@@ -6570,6 +6828,27 @@
           "settled",
           "other"
         ]
+      },
+      "LightningReviewRequest": {
+        "type": "object",
+        "description": "Read-only Lightning cost review; no invoice is paid or funds reserved.",
+        "required": [
+          "destination"
+        ],
+        "properties": {
+          "amount_sat": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Omit when the invoice or offer carries an amount.",
+            "minimum": 0
+          },
+          "destination": {
+            "type": "string"
+          }
+        }
       },
       "LightningSendFees": {
         "type": "object",
@@ -7627,6 +7906,40 @@
           }
         }
       },
+      "ReplacementApproval": {
+        "type": "object",
+        "required": [
+          "replacement_txid",
+          "new_fee_sat"
+        ],
+        "properties": {
+          "new_fee_sat": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "replacement_txid": {
+            "type": "string"
+          }
+        }
+      },
+      "ReplacementRequest": {
+        "type": "object",
+        "required": [
+          "txid",
+          "new_fee_sat"
+        ],
+        "properties": {
+          "new_fee_sat": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "txid": {
+            "type": "string"
+          }
+        }
+      },
       "RoundFlowState": {
         "type": "string",
         "description": "Lifecycle phase of a round participation.",
@@ -7781,6 +8094,23 @@
           }
         }
       },
+      "SendApproval": {
+        "type": "object",
+        "required": [
+          "request_id",
+          "total_sat"
+        ],
+        "properties": {
+          "request_id": {
+            "type": "string"
+          },
+          "total_sat": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
       "SendOnchainFeeEstimateQuery": {
         "type": "object",
         "description": "Query parameters for send-onchain fee estimates.",
@@ -7852,7 +8182,7 @@
               "null"
             ],
             "format": "int64",
-            "description": "Optional maximum debit, including recovery reserves. Supported for Ark addresses only.\nThe send recomputes its cost and rejects an increase above this limit before signing.",
+            "description": "Optional maximum debit, including recovery reserves. Supported for Ark and Lightning payments.\nThe send recomputes its cost and rejects an increase above this limit before signing.",
             "minimum": 0
           },
           "method": {

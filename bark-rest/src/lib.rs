@@ -186,6 +186,8 @@ pub struct ServerState {
 	pub(crate) replacement: tokio::sync::Mutex<Option<(Arc<tokio::sync::RwLock<dyn OnchainWalletTrait>>, bark::onchain::replacement::PreparedReplacement)>>,
 	#[cfg(feature = "web-ui")]
 	pub(crate) hardware: tokio::sync::Mutex<api::v1::hardware::Accounts>,
+	#[cfg(feature = "web-ui")]
+	pub(crate) remote_node: tokio::sync::Mutex<api::v1::remote_node::Sessions>,
 	wallet: parking_lot::RwLock<Option<ServerWallet>>,
 	shutdown: CancellationToken,
 	auth_token: Option<AuthToken>,
@@ -292,6 +294,8 @@ impl ServerStateBuilder {
 			send_review: tokio::sync::Mutex::new(None),
 			#[cfg(feature = "web-ui")]
 			hardware: tokio::sync::Mutex::new(Default::default()),
+			#[cfg(feature = "web-ui")]
+			remote_node: tokio::sync::Mutex::new(Default::default()),
 			wallet: parking_lot::RwLock::new(wallet_opt),
 			shutdown: shutdown,
 			auth_token: self.auth_token,

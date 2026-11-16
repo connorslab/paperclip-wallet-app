@@ -14,6 +14,10 @@ Method | HTTP request | Description
 [**onchain_sync**](OnchainApi.md#onchain_sync) | **POST** /api/v1/onchain/sync | Sync on-chain wallet
 [**onchain_transactions**](OnchainApi.md#onchain_transactions) | **GET** /api/v1/onchain/transactions | List on-chain transactions
 [**onchain_utxos**](OnchainApi.md#onchain_utxos) | **GET** /api/v1/onchain/utxos | List on-chain UTXOs
+[**replacement_commit**](OnchainApi.md#replacement_commit) | **POST** /api/v1/onchain/replacement/commit |
+[**replacement_prepare**](OnchainApi.md#replacement_prepare) | **POST** /api/v1/onchain/replacement/prepare |
+[**send_commit**](OnchainApi.md#send_commit) | **POST** /api/v1/onchain/send/commit |
+[**send_prepare**](OnchainApi.md#send_prepare) | **POST** /api/v1/onchain/send/prepare |
 
 
 
@@ -293,6 +297,126 @@ This endpoint does not need any parameter.
 ### HTTP request headers
 
 - **Content-Type**: Not defined
+- **Accept**: application/json
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
+
+
+## replacement_commit
+
+> serde_json::Value replacement_commit(replacement_approval)
+
+
+Consume a 60-second fee review once after refreshing and verifying the original signatures. Returns txid and submitted or pending_broadcast. Check transaction status before any further action.
+
+### Parameters
+
+
+Name | Type | Description  | Required | Notes
+------------- | ------------- | ------------- | ------------- | -------------
+**replacement_approval** | [**ReplacementApproval**](ReplacementApproval.md) |  | [required] |
+
+### Return type
+
+[**serde_json::Value**](serde_json::Value.md)
+
+### Authorization
+
+[bearer](../README.md#bearer)
+
+### HTTP request headers
+
+- **Content-Type**: application/json
+- **Accept**: application/json
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
+
+
+## replacement_prepare
+
+> serde_json::Value replacement_prepare(replacement_request)
+
+
+Review a replacement of a locally authorized ordinary outgoing payment. Zero new_fee_sat requests twice the original fee. Preserves all recipients, amounts and inputs; additional fee comes only from original change. Returns original_txid, replacement_txid, old_fee_sat, new_fee_sat, additional_fee_sat and recipients.
+
+### Parameters
+
+
+Name | Type | Description  | Required | Notes
+------------- | ------------- | ------------- | ------------- | -------------
+**replacement_request** | [**ReplacementRequest**](ReplacementRequest.md) |  | [required] |
+
+### Return type
+
+[**serde_json::Value**](serde_json::Value.md)
+
+### Authorization
+
+[bearer](../README.md#bearer)
+
+### HTTP request headers
+
+- **Content-Type**: application/json
+- **Accept**: application/json
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
+
+
+## send_commit
+
+> serde_json::Value send_commit(send_approval)
+
+
+Consume the prepared review once. Requires the same wallet, request ID, total cost and unspent inputs. Returns txid and submitted or pending_broadcast; neither means confirmed. Never retry an uncertain commit automatically.
+
+### Parameters
+
+
+Name | Type | Description  | Required | Notes
+------------- | ------------- | ------------- | ------------- | -------------
+**send_approval** | [**SendApproval**](SendApproval.md) |  | [required] |
+
+### Return type
+
+[**serde_json::Value**](serde_json::Value.md)
+
+### Authorization
+
+[bearer](../README.md#bearer)
+
+### HTTP request headers
+
+- **Content-Type**: application/json
+- **Accept**: application/json
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
+
+
+## send_prepare
+
+> serde_json::Value send_prepare(onchain_send_request)
+
+
+Prepare an exact 60-second on-chain review; returns request_id, destination, amount_sat, fee_sat and total_sat. Does not sign or broadcast.
+
+### Parameters
+
+
+Name | Type | Description  | Required | Notes
+------------- | ------------- | ------------- | ------------- | -------------
+**onchain_send_request** | [**OnchainSendRequest**](OnchainSendRequest.md) |  | [required] |
+
+### Return type
+
+[**serde_json::Value**](serde_json::Value.md)
+
+### Authorization
+
+[bearer](../README.md#bearer)
+
+### HTTP request headers
+
+- **Content-Type**: application/json
 - **Accept**: application/json
 
 [[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)

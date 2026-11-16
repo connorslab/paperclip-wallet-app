@@ -51,8 +51,8 @@ pub(crate) struct PreparedSend {
 	amount: Amount,
 	created: std::time::Instant,
 }
-#[derive(serde::Deserialize, utoipa::ToSchema)]
-struct SendApproval { #[schema(value_type = String)] request_id: bitcoin::Txid, total_sat: u64 }
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
+pub struct SendApproval { #[schema(value_type = String)] pub request_id: bitcoin::Txid, pub total_sat: u64 }
 
 #[utoipa::path(post, path = "/send/prepare", tag = "onchain", request_body = bark_json::web::OnchainSendRequest,
 	responses((status = 200, description = "Review or submission result", body = serde_json::Value)),
@@ -100,10 +100,10 @@ async fn send_commit(State(state): State<Arc<ServerState>>, Json(body): Json<Sen
 	Ok(Json(serde_json::json!({"state": if broadcast {"submitted"} else {"pending_broadcast"}, "txid": tx.compute_txid()})))
 }
 
-#[derive(serde::Deserialize, utoipa::ToSchema)]
-struct ReplacementRequest { #[schema(value_type = String)] txid: bitcoin::Txid, new_fee_sat: u64 }
-#[derive(serde::Deserialize, utoipa::ToSchema)]
-struct ReplacementApproval { #[schema(value_type = String)] replacement_txid: bitcoin::Txid, new_fee_sat: u64 }
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
+pub struct ReplacementRequest { #[schema(value_type = String)] pub txid: bitcoin::Txid, pub new_fee_sat: u64 }
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
+pub struct ReplacementApproval { #[schema(value_type = String)] pub replacement_txid: bitcoin::Txid, pub new_fee_sat: u64 }
 
 #[utoipa::path(post, path = "/replacement/prepare", tag = "onchain", request_body = ReplacementRequest,
 	responses((status = 200, description = "Review or submission result", body = serde_json::Value)),
