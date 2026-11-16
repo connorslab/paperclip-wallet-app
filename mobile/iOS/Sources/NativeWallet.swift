@@ -169,7 +169,7 @@ actor NativeWallet: WalletEngine, WalletBackupEngine {
     private var connected = false
     private var foreground = true
     private var fingerprint = ""
-    private struct KeyRecord: Codable { let seed: Data; let phrase: String?; let network: String }
+    struct KeyRecord: Codable { let seed: Data; let phrase: String?; let network: String }
     private func record() throws -> KeyRecord? {
         guard let profile = try loadedCatalog().selected, let data = try WalletKeychain.read(profile.keyAccount) else { return nil }
         return try JSONDecoder().decode(KeyRecord.self, from: data)
@@ -203,9 +203,10 @@ actor NativeWallet: WalletEngine, WalletBackupEngine {
         return try await installProfile(WalletProfile(name: name, kind: hardware ? .hardware : .watch, network: network, descriptor: descriptor),
             key: KeyRecord(seed: identity, phrase: nil, network: network), connection: connection)
     }
-    private func installProfile(_ profile: WalletProfile, key: KeyRecord, archive: RecoveryArchive? = nil, connection: WalletConnection? = nil) async throws -> String {
+    func installProfile(_ profile: WalletProfile, key: KeyRecord, archive: RecoveryArchive? = nil, connection: WalletConnection? = nil) async throws -> String {
         guard operations == 0, !provisioning, !transitioning, opening == nil else { throw WalletFailure(message: "Wait for the current wallet operation to finish.") }
         let previous = try loadedCatalog()
+        guard UUID(uuidString: profile.id) != nil, key.seed.count == 64, key.network == profile.network else { throw WalletCatalogError.invalidProfile }
         guard !profile.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, profile.name.count <= 60 else { throw WalletFailure(message: "Enter a wallet name up to 60 characters.") }
         for existing in previous.wallets {
             if let data = try WalletKeychain.read(existing.keyAccount), let stored = try? JSONDecoder().decode(KeyRecord.self, from: data), stored.seed == key.seed && stored.network == key.network {
@@ -215,14 +216,20 @@ actor NativeWallet: WalletEngine, WalletBackupEngine {
         }
         let settings = try connection ?? savedConnection() ?? WalletConnection()
         try settings.validate()
+        var next = previous; try next.add(profile)
+        let destination = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("PaperclipWallets", isDirectory: true).appendingPathComponent(profile.id, isDirectory: true)
+        let destinationExisted = FileManager.default.fileExists(atPath: destination.path)
+        var insertedKey = false, insertedConnection = false
         provisioning = true; transitioning = true
         defer { provisioning = false; transitioning = false }
         if opened { _ = try await call(["op": "close"]) }
         opened = false; connected = false; fingerprint = ""
-        var next = previous; try next.add(profile)
         do {
             try WalletKeychain.insert(JSONEncoder().encode(key), account: profile.keyAccount)
-            try WalletKeychain.save(JSONEncoder().encode(settings), account: profile.connectionAccount)
+            insertedKey = true
+            try WalletKeychain.insert(JSONEncoder().encode(settings), account: profile.connectionAccount)
+            insertedConnection = true
             catalog = next
             if let archive {
                 network = archive.network
@@ -237,9 +244,32 @@ actor NativeWallet: WalletEngine, WalletBackupEngine {
             try saveCatalog(next)
             return id
         } catch {
-            if opened { _ = try? await call(["op": "close"]) }
-            opened = false; connected = false; catalog = previous
-            if previous.selected != nil { _ = try? await openStorage(create: false) }
+            // Read persisted state, not the tentative in-memory catalog. Never
+            // remove keys or files if the commit or native close is uncertain.
+            let closed = (try? await call(["op": "close"], seed: key.seed)) != nil
+            opened = false; connected = false; fingerprint = ""
+            let unregistered: Bool
+            do {
+                let data = try WalletKeychain.read("wallet-catalog-v1")
+                let saved = try data.map { try JSONDecoder().decode(WalletCatalog.self, from: $0) }
+                unregistered = saved?.wallets.contains(where: { $0.id == profile.id }) != true
+            } catch { catalog = nil; throw WalletFailure(message: "Wallet setup could not finish. Data was preserved; unlock and restart Paperclip before retrying.") }
+            guard closed, unregistered else {
+                catalog = nil
+                throw WalletFailure(message: "Wallet setup could not finish. Data was preserved; restart Paperclip before retrying.")
+            }
+            var cleanupFailed = false
+            do {
+                if !destinationExisted, FileManager.default.fileExists(atPath: destination.path) { try FileManager.default.removeItem(at: destination) }
+                if insertedConnection { try WalletKeychain.delete(profile.connectionAccount) }
+                if insertedKey { try WalletKeychain.delete(profile.keyAccount) }
+            } catch { cleanupFailed = true }
+            catalog = previous
+            if previous.selected != nil {
+                do { _ = try await openStorage(create: false) }
+                catch { throw WalletFailure(message: "Setup failed and the previous wallet could not reopen. Its saved data was preserved.") }
+            }
+            if cleanupFailed { throw WalletFailure(message: "Wallet setup failed. Some unregistered data was preserved because cleanup could not finish.") }
             throw error
         }
     }

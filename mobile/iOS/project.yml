@@ -65,6 +65,39 @@ targets:
         BGTaskSchedulerPermittedIdentifiers:
           - xyz.paperclippool.wallet.preview.refresh
           - xyz.paperclippool.wallet.preview.processing
+  PaperclipNativeTestHost:
+    type: application
+    platform: iOS
+    sources: [NativeTests/Host.swift]
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: xyz.paperclippool.wallet.native-test-host
+        'CODE_SIGN_ENTITLEMENTS[sdk=iphonesimulator*]': NativeTests/Simulator.entitlements
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+  PaperclipNativeTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: NativeTests
+        excludes: [Host.swift, Simulator.entitlements]
+      - path: Sources/NativeWallet.swift
+      - path: Sources/EmbeddedTor.swift
+    dependencies:
+      - target: PaperclipNativeTestHost
+      - package: PaperclipMobile
+      - package: TorRuntime
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: xyz.paperclippool.wallet.native-tests
+        SWIFT_VERSION: '5.0'
+        SWIFT_OBJC_BRIDGING_HEADER: Sources/Bridge.h
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/PaperclipNativeTestHost.app/PaperclipNativeTestHost"
+        BUNDLE_LOADER: "$(TEST_HOST)"
+        'LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]': ['$(inherited)', '$(SRCROOT)/../../target/aarch64-apple-ios-sim/debug']
+        'LIBRARY_SEARCH_PATHS[sdk=iphoneos*]': ['$(inherited)', '$(SRCROOT)/../../target/aarch64-apple-ios/debug']
+        OTHER_LDFLAGS: ['$(inherited)', '-lpaperclip_mobile', '-lc++', '-lsqlite3', '-framework', 'Security', '-framework', 'SystemConfiguration']
   PaperclipUITests:
     type: bundle.ui-testing
     platform: iOS
@@ -81,4 +114,4 @@ schemes:
       targets:
         Paperclip: all
     test:
-      targets: [PaperclipUITests]
+      targets: [PaperclipNativeTests, PaperclipUITests]
