@@ -156,6 +156,7 @@ class WalletScreensTest {
 			waitFor("Total balance")
 			compose.onNodeWithTag("wallet-switcher").performClick()
 			waitFor("Add a wallet")
+			compose.onAllNodes(hasContentDescription("Manage ", substring = true)).onFirst().performClick()
 			click("Rename")
 			compose.onNode(hasText("Wallet name") and hasAnyAncestor(isDialog())).performTextReplacement("Everyday wallet")
 			compose.onNodeWithText("Save").performClick()

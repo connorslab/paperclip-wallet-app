@@ -4,39 +4,48 @@ import PaperclipMobile
 struct WalletPickerView: View {
     @EnvironmentObject var store: WalletStore
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.dynamicTypeSize) private var textSize
     @State private var removing: WalletProfile?
     @State private var renamed: WalletProfile?
     @State private var name = ""
     var body: some View {
         ScrollView {
-            VStack(spacing: 20) {
-                WalletBrand()
-                Text("Your wallets, together.").font(.title2.bold()).frame(maxWidth: .infinity, alignment: .leading)
+            VStack(spacing: 14) {
                 if store.syncing { Label("Pausing on-chain refresh…", systemImage: "pause.circle").font(.caption).foregroundStyle(PaperclipTheme.muted) }
                 ForEach(store.profiles) { profile in
-                    WalletCard {
+                    WalletCard(inset: 16) {
+                      HStack(spacing: 8) {
                         Button {
                             Task { await store.pauseSync(); store.run { try await store.selectWallet(profile); dismiss() } }
                         } label: {
                             HStack(spacing: 14) {
-                                Image(systemName: profile.kind.icon).font(.title2).foregroundStyle(PaperclipTheme.orange)
+                                if !textSize.isAccessibilitySize {
+                                    Image(systemName: profile.kind.icon).font(.title2).foregroundStyle(PaperclipTheme.orange)
+                                }
                                 VStack(alignment: .leading, spacing: 4) {
                                     Text(profile.name).font(.headline)
                                     Text(profile.kind.title + (profile.network == "xbt-regtest" ? " · Regtest" : " · XBT"))
                                         .font(.caption).foregroundStyle(PaperclipTheme.muted)
+                                    if textSize.isAccessibilitySize && store.walletID == profile.id {
+                                        Text("Current wallet").font(.caption).foregroundStyle(PaperclipTheme.orange)
+                                    }
                                 }
                                 Spacer()
-                                Image(systemName: store.walletID == profile.id ? "checkmark.circle.fill" : "chevron.right").foregroundStyle(PaperclipTheme.orange)
-                            }.frame(maxWidth: .infinity, minHeight: 64, alignment: .leading).contentShape(Rectangle())
+                                if !textSize.isAccessibilitySize {
+                                    Image(systemName: store.walletID == profile.id ? "checkmark.circle.fill" : "chevron.right").foregroundStyle(PaperclipTheme.orange)
+                                }
+                            }.frame(maxWidth: .infinity, minHeight: 52, alignment: .leading).contentShape(Rectangle())
                         }.buttonStyle(.plain)
                             .accessibilityLabel(profile.name)
                             .accessibilityValue((store.walletID == profile.id ? "Selected. " : "") + profile.kind.title)
                             .accessibilityHint(store.walletID == profile.id ? "Current wallet" : "Switch to this wallet")
-                        HStack {
-                            Button("Rename") { name = profile.name; renamed = profile }.frame(minHeight: 44)
-                            Spacer()
-                            Button("Remove wallet", role: .destructive) { removing = profile }.frame(minHeight: 44)
-                        }.font(.caption)
+                        Menu {
+                            Button("Rename", systemImage: "pencil") { name = profile.name; renamed = profile }
+                            Button("Remove wallet", systemImage: "trash", role: .destructive) { removing = profile }
+                        } label: {
+                            Image(systemName: "ellipsis").font(.system(size: 20)).frame(width: 44, height: 44).contentShape(Rectangle())
+                        }.accessibilityLabel("Manage \(profile.name)")
+                      }
                     }
                 }
                 NavigationLink { AddWalletView() } label: {

@@ -55,10 +55,12 @@ struct WalletNavigationButtonStyle: ButtonStyle {
 struct WalletCard<Content: View>: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var appeared = false
+    var inset: CGFloat = 22
+    var spacing: CGFloat = 16
     @ViewBuilder var content: Content
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) { content }
-            .frame(maxWidth: .infinity, alignment: .leading).padding(22)
+        VStack(alignment: .leading, spacing: spacing) { content }
+            .frame(maxWidth: .infinity, alignment: .leading).padding(inset)
             .modifier(GlassCardSurface())
             .overlay {
                 RoundedRectangle(cornerRadius: 26).stroke(
@@ -142,21 +144,24 @@ private struct GlassCardSurface: ViewModifier {
 }
 
 struct WalletNavigationRow: View {
+    @Environment(\.dynamicTypeSize) private var textSize
     let title: String
     let subtitle: String
     let icon: String
     init(_ title: String, subtitle: String, icon: String) { self.title = title; self.subtitle = subtitle; self.icon = icon }
     var body: some View {
         HStack(spacing: 14) {
+            if !textSize.isAccessibilitySize {
             Image(systemName: icon).font(.title3).foregroundStyle(PaperclipTheme.orange)
                 .frame(width: 40, height: 40).background(PaperclipTheme.orange.opacity(0.09), in: RoundedRectangle(cornerRadius: 12)).accessibilityHidden(true)
+            }
             VStack(alignment: .leading, spacing: 4) {
                 Text(title).fontWeight(.medium).foregroundStyle(.primary).fixedSize(horizontal: false, vertical: true)
                 Text(subtitle).font(.caption).foregroundStyle(PaperclipTheme.muted)
                     .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 4)
-            Image(systemName: "chevron.right").font(.caption.bold()).foregroundStyle(PaperclipTheme.muted).accessibilityHidden(true)
+            Image(systemName: "chevron.right").font(.system(size: 12, weight: .bold)).foregroundStyle(PaperclipTheme.muted).accessibilityHidden(true)
         }.padding(.vertical, 4).frame(minHeight: 44).contentShape(Rectangle()).accessibilityElement(children: .combine)
     }
 }
@@ -213,7 +218,8 @@ struct WalletBalanceNumber: View {
 // Limit the whole content column, never individual cards inside a row.
 extension View {
     func walletPageContent(maxWidth: CGFloat = 760) -> some View {
-        self.frame(maxWidth: maxWidth).padding(22).frame(maxWidth: .infinity)
+        self.frame(maxWidth: maxWidth).padding(.horizontal, 22).padding(.top, 12)
+            .padding(.bottom, 22).frame(maxWidth: .infinity)
     }
     func walletPageBackground() -> some View {
         self.frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -225,25 +231,27 @@ extension View {
 /// navigation state. The breakpoint is based on usable content width, not device type.
 struct WalletColumns<Primary: View, Secondary: View>: View {
 	@Environment(\.dynamicTypeSize) private var textSize
+	let spacing: CGFloat
 	let primary: Primary
 	let secondary: Secondary
 
-	init(@ViewBuilder primary: () -> Primary, @ViewBuilder secondary: () -> Secondary) {
+	init(spacing: CGFloat = 22, @ViewBuilder primary: () -> Primary, @ViewBuilder secondary: () -> Secondary) {
+		self.spacing = spacing
 		self.primary = primary()
 		self.secondary = secondary()
 	}
 
 	var body: some View {
-		WalletColumnLayout(stack: textSize.isAccessibilitySize) {
-			VStack(alignment: .leading, spacing: 22) { primary }.frame(maxWidth: .infinity)
-			VStack(alignment: .leading, spacing: 22) { secondary }.frame(maxWidth: .infinity)
+		WalletColumnLayout(stack: textSize.isAccessibilitySize, spacing: spacing) {
+			VStack(alignment: .leading, spacing: spacing) { primary }.frame(maxWidth: .infinity)
+			VStack(alignment: .leading, spacing: spacing) { secondary }.frame(maxWidth: .infinity)
 		}
 	}
 }
 
 private struct WalletColumnLayout: Layout {
 	let stack: Bool
-	private let spacing: CGFloat = 22
+	let spacing: CGFloat
 
 	private func columns(_ width: CGFloat) -> Bool { !stack && width >= 700 }
 

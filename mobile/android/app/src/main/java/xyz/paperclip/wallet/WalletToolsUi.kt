@@ -3,6 +3,8 @@ package xyz.paperclip.wallet
 import androidx.activity.compose.LocalActivity
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -10,6 +12,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import org.json.JSONObject
 
@@ -29,6 +32,7 @@ internal fun WalletPicker(s: WalletState, model: WalletModel, initialMode: Strin
 	var confirmation by remember { mutableStateOf("") }
 	var renamed by remember { mutableStateOf<WalletProfile?>(null) }
 	var renameValue by remember { mutableStateOf("") }
+	var menuFor by remember { mutableStateOf<String?>(null) }
 	var removal by remember { mutableStateOf<WalletProfile?>(null) }
 	var backupAcknowledged by remember { mutableStateOf(false) }
 	var scanning by remember { mutableStateOf(false) }
@@ -48,10 +52,11 @@ internal fun WalletPicker(s: WalletState, model: WalletModel, initialMode: Strin
 	Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
 		s.profiles.forEach { p ->
 			OutlinedCard(Modifier.fillMaxWidth()) {
+			 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
 				TextButton(
 					onClick = { if (p.id != s.activeID) model.selectWallet(p.id) },
 					enabled = !s.busy,
-					modifier = Modifier.fillMaxWidth().heightIn(min = 64.dp).semantics { selected = p.id == s.activeID },
+					modifier = Modifier.weight(1f).heightIn(min = 64.dp).semantics { selected = p.id == s.activeID },
 				) {
 					Column(Modifier.weight(1f).padding(horizontal = 8.dp), horizontalAlignment = Alignment.Start) {
 						Text(p.name, style = MaterialTheme.typography.titleMedium)
@@ -60,15 +65,18 @@ internal fun WalletPicker(s: WalletState, model: WalletModel, initialMode: Strin
 					}
 					if (p.id == s.activeID) Text("Selected", style = MaterialTheme.typography.labelSmall)
 				}
-				Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-					TextButton(onClick = { renamed = p; renameValue = p.name }, enabled = !s.busy) { Text("Rename") }
-					TextButton(onClick = { removal = p; confirmation = ""; backupAcknowledged = false }, enabled = !s.busy) { Text("Remove", color = MaterialTheme.colorScheme.error) }
+				Box {
+					IconButton(onClick = { menuFor = p.id }, enabled = !s.busy, modifier = Modifier.testTag("wallet-manage-${p.id}")) {
+						Icon(Icons.Default.MoreVert, contentDescription = "Manage ${p.name}")
+					}
+					DropdownMenu(expanded = menuFor == p.id && !s.busy, onDismissRequest = { menuFor = null }) {
+						DropdownMenuItem(text = { Text("Rename") }, onClick = { menuFor = null; renamed = p; renameValue = p.name })
+						if (p.kind != "hot") DropdownMenuItem(text = { Text("Export public descriptor") }, onClick = { menuFor = null; model.exportPublic(p.id) })
+						DropdownMenuItem(text = { Text("Remove", color = MaterialTheme.colorScheme.error) }, onClick = { menuFor = null; removal = p; confirmation = ""; backupAcknowledged = false })
+					}
 				}
+			 }
 			}
-			if (p.kind != "hot")
-				TextButton(onClick = { model.exportPublic(p.id) }, enabled = !s.busy) {
-					Text("Export ${p.name} public descriptor")
-				}
 		}
 		s.toolsResult
 			?.takeIf { it.has("descriptor") }

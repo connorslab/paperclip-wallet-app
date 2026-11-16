@@ -119,39 +119,25 @@ struct DashboardView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
-                if let profile = store.selectedProfile {
-                    NavigationLink { WalletPickerView() } label: {
-                        HStack {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Label(profile.name, systemImage: profile.kind.icon).font(.headline)
-                                Text((store.network == "xbt-mainnet" ? "XBT MAINNET · " : "REGTEST · ") + (profile.kind == .hardware ? "QR wallet · Keys offline" : profile.kind.title))
-                                    .font(.caption).foregroundStyle(PaperclipTheme.muted)
-                            }
-                            Spacer()
-                            Image(systemName: "chevron.down").font(.caption.weight(.semibold)).accessibilityHidden(true)
-                        }.frame(maxWidth: .infinity, minHeight: 44, alignment: .leading).contentShape(Rectangle()).foregroundStyle(.primary)
-                    }.buttonStyle(.plain).accessibilityLabel("Active wallet: \(profile.name). Switch wallet")
-                }
-                WalletColumns {
-                WalletCard {
-                    HStack {
+                WalletColumns(spacing: 14) {
+                WalletCard(inset: 18, spacing: 14) {
+                    HStack(alignment: .top, spacing: 8) {
+                      VStack(alignment: .leading, spacing: 6) {
                         Text("Total balance").font(.subheadline).foregroundStyle(PaperclipTheme.muted)
-                        Spacer(minLength: 0)
-                        Button { hideBalance.toggle() } label: { Image(systemName: hideBalance ? "eye.slash" : "eye").frame(width: 44, height: 44) }.accessibilityLabel("Toggle balance visibility").accessibilityValue(hideBalance ? "Hidden" : "Visible")
-                    }
-                    VStack(alignment: .leading, spacing: 6) {
+                            .accessibilityHint(store.supportsArk ? "On-chain balance plus available Ark funds" : "Total on-chain balance")
                         HStack(alignment: .firstTextBaseline, spacing: 8) {
                             WalletBalanceNumber(sats: totalSats, unit: unit, hidden: hideBalance).font(.system(size: 38, weight: .semibold, design: .rounded)).minimumScaleFactor(0.5).lineLimit(1).privacySensitive().contentTransition(.numericText())
                             Text(unit.title).font(.subheadline).foregroundStyle(PaperclipTheme.muted)
                         }
                         USDValue(sats: store.onchain.flatMap { chain in store.supportsArk ? store.ark.map { chain + $0 } : chain }, hidden: hideBalance, mainnet: store.network == "xbt-mainnet")
-                    }.padding(.vertical, 4)
-                    Text(store.supportsArk ? "Total · on-chain + available Ark" : "Total on-chain balance").font(.caption).foregroundStyle(PaperclipTheme.muted)
+                      }.frame(maxWidth: .infinity, alignment: .leading)
+                      Button { hideBalance.toggle() } label: { Image(systemName: hideBalance ? "eye.slash" : "eye").font(.system(size: 20)).frame(width: 44, height: 44) }.accessibilityLabel("Toggle balance visibility").accessibilityValue(hideBalance ? "Hidden" : "Visible")
+                    }
                     if let pending = store.onchainPending, pending > 0 {
                         Label(hideBalance ? "Pending on-chain: ••••" : "Pending on-chain: " + unit.display(pending), systemImage: "clock")
                             .font(.caption).foregroundStyle(PaperclipTheme.muted).privacySensitive()
                     }
-                    HStack(spacing: 12) {
+                    (balanceTextSize.isAccessibilitySize ? AnyLayout(VStackLayout(spacing: 12)) : AnyLayout(HStackLayout(spacing: 12))) {
                         if !store.isWatchOnly {
                             Button { Task { await store.pauseSync(); sending = true } } label: {
                                 Label("Send", systemImage: "arrow.up.right").frame(maxWidth: .infinity).padding(14)
@@ -172,7 +158,7 @@ struct DashboardView: View {
                         .allowsHitTesting(false)
                 }
                 } secondary: {
-                WalletSection("Accounts") {
+                WalletCard(inset: 18, spacing: 12) {
                     NavigationLink { OnchainOverviewView() } label: {
                         accountRow("On-chain", subtitle: store.supportsArk ? (store.onchainAccount == "segwit" ? "SegWit" : "Taproot") : "Account balance", icon: "link", amount: store.onchain)
                     }.buttonStyle(.plain)
@@ -183,7 +169,14 @@ struct DashboardView: View {
                         }.buttonStyle(.plain)
                     }
                 }
-                WalletSection("Recent activity") {
+                WalletCard(inset: 18, spacing: 10) {
+                    HStack {
+                        Text("Recent activity").font(.subheadline.weight(.semibold)).foregroundStyle(PaperclipTheme.muted)
+                        Spacer(minLength: 12)
+                        NavigationLink { ActivityView() } label: {
+                            Text("View all").font(.subheadline.weight(.semibold)).frame(minHeight: 44)
+                        }.accessibilityLabel("View all activity")
+                    }
                     if store.activity.isEmpty {
                         Label("No activity loaded", systemImage: "clock.arrow.circlepath").font(.headline)
 
@@ -197,10 +190,6 @@ struct DashboardView: View {
                             }
                             Text(item.status).font(.caption).foregroundStyle(PaperclipTheme.muted)
                         }.privacySensitive()
-                        Divider()
-                    }
-                    NavigationLink { ActivityView() } label: {
-                        Label("View all activity", systemImage: "arrow.right").font(.subheadline.weight(.semibold))
                     }
                 }
                 }
@@ -212,7 +201,9 @@ struct DashboardView: View {
                     NavigationLink { ConnectionsView() } label: { Label("Configure your connection", systemImage: "network") }
                 }
                 VStack(alignment: .leading, spacing: 6) {
-                    HStack { if store.busy { ProgressView() }; Text(store.message).font(.caption).foregroundStyle(PaperclipTheme.muted) }
+                    if store.busy || !store.message.isEmpty {
+                        HStack { if store.busy { ProgressView() }; Text(store.message).font(.caption).foregroundStyle(PaperclipTheme.muted) }
+                    }
                     if store.syncing {
                         Button("Pause refresh") { Task { await store.pauseSync() } }
                             .font(.caption.weight(.semibold))
@@ -242,7 +233,26 @@ struct DashboardView: View {
                     do { try await Task.sleep(for: .seconds(5)) } catch { return }
                 }
             }
-            .toolbar { Button { Task { await XBTPrice.shared.refresh(force: true) }; store.run { try await store.synchronize() } } label: { Image(systemName: "arrow.clockwise") }.disabled(store.busy).accessibilityLabel("Synchronize wallet") }
+            .toolbar {
+                ToolbarItem(placement: .principal) {
+                    if let profile = store.selectedProfile {
+                        NavigationLink { WalletPickerView() } label: {
+                            HStack(spacing: 6) {
+                                VStack(spacing: 2) {
+                                    Text(profile.name).font(.headline).lineLimit(1)
+                                    Text((store.network == "xbt-mainnet" ? "XBT · " : "Regtest · ") + profile.kind.title)
+                                        .font(.caption2).foregroundStyle(PaperclipTheme.muted).lineLimit(1)
+                                }
+                                Image(systemName: "chevron.down").font(.caption2.weight(.semibold))
+                            }.frame(minHeight: 44).contentShape(Rectangle()).foregroundStyle(.primary)
+                        }.buttonStyle(.plain).accessibilityLabel("Active wallet: \(profile.name). Switch wallet")
+                            .accessibilityValue((store.network == "xbt-mainnet" ? "XBT mainnet. " : "Regtest. ") + profile.kind.title)
+                    }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button { Task { await XBTPrice.shared.refresh(force: true) }; store.run { try await store.synchronize() } } label: { Image(systemName: "arrow.clockwise") }.disabled(store.busy).accessibilityLabel("Synchronize wallet")
+                }
+            }
             .refreshable { store.run { try await store.synchronize() }; await XBTPrice.shared.refresh(force: true) }
             .animation(reduceMotion ? nil : .smooth(duration: 0.3), value: store.onchain)
             .sheet(isPresented: $sending) { NavigationStack { WalletSendView() } }
@@ -266,9 +276,11 @@ struct DashboardView: View {
                 Spacer(minLength: 0)
             }
             VStack(alignment: .trailing, spacing: 4) {
+              HStack(alignment: .firstTextBaseline, spacing: 4) {
                 WalletBalanceNumber(sats: amount, unit: unit, hidden: hideBalance)
                     .font(.title3.weight(.semibold)).lineLimit(1).minimumScaleFactor(0.6).privacySensitive()
                 Text(unit.title).font(.caption).foregroundStyle(PaperclipTheme.muted)
+              }
                 USDValue(sats: amount, hidden: hideBalance, mainnet: store.network == "xbt-mainnet")
                     .font(.caption2).lineLimit(1).minimumScaleFactor(0.8)
             }
@@ -318,7 +330,7 @@ struct ActivityView: View {
             }
             Text(store.message).font(.caption)
           }.walletPageContent()
-        }.scrollContentBackground(.hidden).walletPageBackground().navigationTitle("Activity")
+        }.scrollContentBackground(.hidden).walletPageBackground().navigationTitle("Activity").navigationBarTitleDisplayMode(.inline)
             .toolbar { Button("Refresh") { store.run { try await store.refreshActivity() } }.disabled(store.busy) }
     }
 }

@@ -449,7 +449,7 @@ internal fun CardBlock(title: String, content: @Composable ColumnScope.() -> Uni
 		shape = RoundedCornerShape(26.dp),
 		colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
 	) {
-		Column(Modifier.padding(22.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+		Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
 			Row(
 				verticalAlignment = Alignment.CenterVertically,
 				horizontalArrangement = Arrangement.spacedBy(9.dp),

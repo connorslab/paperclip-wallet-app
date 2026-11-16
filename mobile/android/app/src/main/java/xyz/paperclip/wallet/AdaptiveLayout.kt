@@ -14,8 +14,8 @@ import androidx.compose.ui.unit.dp
 @Composable
 internal fun WalletColumns(primary: @Composable () -> Unit, secondary: @Composable () -> Unit) {
 	WalletGrid {
-		Column(verticalArrangement = Arrangement.spacedBy(20.dp)) { primary() }
-		Column(verticalArrangement = Arrangement.spacedBy(20.dp)) { secondary() }
+		Column(verticalArrangement = Arrangement.spacedBy(16.dp)) { primary() }
+		Column(verticalArrangement = Arrangement.spacedBy(16.dp)) { secondary() }
 	}
 }
 
@@ -25,7 +25,7 @@ internal fun WalletGrid(content: @Composable () -> Unit) {
 	val fold = LocalWalletFold.current
 	var windowX by remember { mutableFloatStateOf(0f) }
 	Layout(content = content, modifier = Modifier.fillMaxWidth().onGloballyPositioned { windowX = it.positionInWindow().x }) { children, constraints ->
-		val gap = 20.dp.roundToPx()
+		val gap = 16.dp.roundToPx()
 		val hingeLeft = fold?.takeIf { it.vertical }?.let { it.left - windowX.toInt() - gap / 2 }
 		val hingeRight = fold?.takeIf { it.vertical }?.let { it.right - windowX.toInt() + gap / 2 }
 		val split = hingeLeft != null && hingeRight != null && hingeLeft >= 280.dp.roundToPx() &&

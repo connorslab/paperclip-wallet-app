@@ -1,5 +1,32 @@
 # Cross-platform navigation and QR wallet review
 
+## Dashboard density review: 2026-11-16
+
+iOS build 73 groups the balance and fiat value, places account units beside their
+amounts, and puts the activity link in the section heading. Smaller card insets
+and gaps remove empty space without reducing action touch targets. The wallet
+selector occupies the navigation bar; wallet management actions use a menu on
+iOS and Android. Large accessibility text stacks Send and Receive vertically and
+removes decorative picker icons so names remain readable.
+
+Android cards and adaptive grids use smaller insets and gaps. The shared browser
+UI used by desktop, Umbrel and StartOS removes forced metric-card heights and
+reduces header, toolbar, card and wallet-selector padding.
+
+Native Xcode dashboard portrait/landscape and navigation checks passed. Normal
+and largest accessibility text previews were visually inspected; these are
+synthetic simulator fixtures. The Release device build and Tor/framework signature
+checks passed. Android debug and test APKs compile, but two local runtime attempts
+were blocked before onboarding by a System UI ANR; the new menu runtime check is
+not accepted. The attempted Duo run was interrupted during simulator startup and
+does not establish Duo acceptance. All 16 browser suites passed; the bridge-send
+suite needed one unchanged rerun after an initial page-load timeout under host
+contention. Browser health screenshots were inspected at 390 and 1280 px.
+
+These changes do not alter payment, wallet storage or network contracts. Package
+installation, live-node behavior and the remaining coordinated release gates
+require separate evidence.
+
 This source pass covers iOS, Android, and the shared browser UI used by standalone,
 Umbrel and StartOS packages. It does not certify deployed packages or a public
 release. The product direction is one wallet for Ark, Lightning, JoinBlaket jars
