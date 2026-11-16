@@ -815,3 +815,30 @@ and verifies retry and target address history. Bundle verification passes. These
 tests do not simulate process termination, an unreadable persistent catalog during
 commit, a native close failure, or a funded physical-device upgrade. They do not
 establish production readiness.
+
+
+## Android committed-storage recovery: 2026-11-16
+
+SecureStore no longer treats an absent base file as proof that a record is absent.
+It first lets AtomicFile read and recover a committed legacy backup. This matters
+for interrupted writes on supported older Android releases and for their upgrade
+path. File-not-found returns no record only when neither the base nor backup
+exists. Authentication failures and damaged storage still propagate as errors.
+The encryption format, key policy and authenticated record names are unchanged.
+
+The [Android 9 AtomicFile implementation](https://raw.githubusercontent.com/aosp-mirror/platform_frameworks_base/android-9.0.0_r1/core/java/android/util/AtomicFile.java)
+uses the backup during write recovery. The
+[current implementation](https://raw.githubusercontent.com/aosp-mirror/platform_frameworks_base/master/core/java/android/util/AtomicFile.java)
+also handles that legacy backup. The prior base-file check bypassed this behavior.
+A non-secret encrypted fixture reproduced the bug: its committed backup returned
+no record. After the fix, recovery and a repeated read succeed; a modified GCM tag
+still fails authentication. Both cases now run in the Android CI sequence.
+
+All nine secure-storage, assistance, public-wallet and backup-lifecycle cases pass
+on the isolated ARM64 API 36/16 KB emulator. Unit tests pass (81 run, three opt-in
+skipped), debug and test APK assembly passes, and `just checks` passes. This is a
+real AtomicFile/Keystore test with a simulated legacy interrupted-file state, not
+an Android 9 runtime or physical power-loss test. iOS uses Keychain for these app
+records and does not use this Android wrapper. Both development branches receive
+the Android fix; no shared Rust/REST or iOS storage format changes are needed.
+The separate uncertain-commit, process-death and funded-upgrade gates remain open.

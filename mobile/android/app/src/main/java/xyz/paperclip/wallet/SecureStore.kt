@@ -5,6 +5,7 @@ import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.AtomicFile
 import java.io.File
+import java.io.FileNotFoundException
 import java.security.KeyStore
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
@@ -47,8 +48,12 @@ class SecureStore(context: Context) {
 
 	fun read(name: String): ByteArray? {
 		val file = file(name)
-		if (!file.baseFile.exists()) return null
-		val bytes = file.readFully()
+		// AtomicFile must recover a committed legacy backup before deciding
+		// the record is absent. A base-file check skips that recovery.
+		val bytes = try { file.readFully() } catch (failure: FileNotFoundException) {
+			if (file.baseFile.exists() || File(file.baseFile.path + ".bak").exists()) throw failure
+			return null
+		}
 		require(bytes.size >= 28) { "Damaged secure storage" }
 		val cipher = Cipher.getInstance("AES/GCM/NoPadding")
 		cipher.init(Cipher.DECRYPT_MODE, key(), GCMParameterSpec(128, bytes.copyOfRange(0, 12)))
