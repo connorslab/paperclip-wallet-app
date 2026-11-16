@@ -374,6 +374,23 @@ actor NativeWallet: WalletEngine, WalletBackupEngine {
         let source = try await publicWalletFields(sourceID, withConnection: true)
         return try await call(["op": "ark_hardware_prepare", "amount_sat": amount, "source": source])
     }
+    func walletDestinationAddress(_ id: String) async throws -> String {
+        try beginOperation(); defer { operations -= 1 }
+        _ = try await open()
+        let catalog = try loadedCatalog()
+        guard id != catalog.selectedID, let profile = catalog.wallets.first(where: { $0.id == id }),
+              profile.network == catalog.selected?.network, let data = try WalletKeychain.read(profile.keyAccount) else {
+            throw WalletFailure(message: "Choose another saved wallet on the same network.")
+        }
+        let key = try JSONDecoder().decode(KeyRecord.self, from: data)
+        let root = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        let path = profile.id == "legacy" ? root.appendingPathComponent(profile.network == "xbt-regtest" ? "PaperclipRegtest" : "PaperclipMainnet") : root.appendingPathComponent("PaperclipWallets").appendingPathComponent(profile.id)
+        var request: [String: Any] = ["op": "wallet_destination_address", "directory": path.path, "network": profile.network, "kind": profile.kind.rawValue]
+        if let descriptor = profile.descriptor { request["descriptor"] = descriptor }
+        let result = try await call(request, seed: key.seed)
+        guard let address = result["address"] as? String else { throw WalletFailure(message: "Could not get the destination address.") }
+        return address
+    }
     func hardwareReceiveAddress(walletID: String) async throws -> String {
         try beginOperation(); defer { operations -= 1 }
         _ = try await open()
@@ -519,6 +536,19 @@ actor NativeWallet: WalletEngine, WalletBackupEngine {
         guard let encoded = result["database"] as? String, let database = Data(base64Encoded: encoded),
               let saved = try record() else { throw BackupError.invalidArchive }
         return RecoveryArchive(network: network, walletID: fingerprint, createdAt: Date(), seed: saved.seed, recoveryState: database, seedPhrase: saved.phrase)
+    }
+    func verifyRecoveryArchive(_ archive: RecoveryArchive) async throws -> Bool {
+        try beginOperation(); defer { operations -= 1 }
+        try archive.validate()
+        _ = try await open()
+        if let phrase = archive.seedPhrase {
+            let result = try await call(["op":"seed_derive", "phrase":phrase], seed: Data(repeating: 0, count: 64))
+            guard result["seed"] as? String == archive.seed.base64EncodedString() else { throw BackupError.invalidArchive }
+        }
+        let result = try await call(["op":"verify_backup", "network":archive.network,
+            "directory":FileManager.default.temporaryDirectory.path, "database":archive.recoveryState.base64EncodedString()], seed: archive.seed)
+        guard result["verified"] as? Bool == true else { throw BackupError.invalidArchive }
+        return result["matches_current"] as? Bool == true
     }
     func restoreIntoEmptyWallet(_ archive: RecoveryArchive) async throws {
         guard !provisioning else { throw WalletFailure(message: "Wallet setup is already in progress.") }

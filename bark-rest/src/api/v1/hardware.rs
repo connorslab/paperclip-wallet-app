@@ -21,6 +21,7 @@ struct Account { id: String, label: String, receive: String, change: String, net
 
 #[derive(Deserialize)]
 struct Request {
+	#[serde(default)] target_account: Option<String>,
 	operation: Operation,
 	#[serde(default)] account: String,
 	#[serde(default)] label: String,
@@ -35,7 +36,7 @@ struct Request {
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "snake_case")]
-enum Operation { Pair, Rename, Address, Refresh, Prepare, Verify, Broadcast, Cancel }
+enum Operation { Destination, Pair, Rename, Address, Refresh, Prepare, Verify, Broadcast, Cancel }
 
 pub fn router() -> Router<Arc<ServerState>> {
 	Router::new().route("/accounts", get(accounts)).route("/request", post(request))
@@ -140,6 +141,19 @@ async fn request(State(state): State<Arc<ServerState>>, Json(request): Json<Requ
 		let (main, root, network) = context(&state).await?;
 		// Cross-process lock prevents a second wallet server from editing these accounts.
 		let _lock = bark::lock_manager::platform_default(Some(&root), None)?;
+		if matches!(request.operation, Operation::Destination) {
+			let target = request.target_account.as_deref().context("Choose a destination wallet")?;
+			ensure!(target != request.account, "Choose a different destination wallet");
+			let (label, address) = if target.is_empty() {
+				("Hot wallet".to_owned(), state.require_onchain().map_err(|_| anyhow::anyhow!("Hot wallet is unavailable"))?.write().await.address().await?)
+			} else {
+				let account = read_account(&root, target, network)?;
+				ensure!(account_dir(&root, target)?.join("db.sqlite").is_file(), "Destination wallet database is missing; restore it first");
+				let mut wallet = open(&root, &account).await?;
+				(account.label, wallet.address().await?)
+			};
+			return Ok(json!({"account":target, "label":label, "address":address.to_string(), "network":network}));
+		}
 		if matches!(request.operation, Operation::Pair) {
 			let label = wallet_label(&request.label)?;
 			let (receive, change) = qr::descriptors(&request.public_key, &request.script, &request.origin, network, true)?;
@@ -173,7 +187,7 @@ async fn request(State(state): State<Arc<ServerState>>, Json(request): Json<Requ
 			}
 		}
 		match request.operation {
-			Operation::Pair | Operation::Rename => unreachable!(),
+			Operation::Destination | Operation::Pair | Operation::Rename => unreachable!(),
 			Operation::Cancel => { accounts.pending.remove(&directory); Ok(json!({})) },
 			Operation::Address => Ok(json!({"address": wallet.address().await?.to_string()})),
 			Operation::Refresh => {

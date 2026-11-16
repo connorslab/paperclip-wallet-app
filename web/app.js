@@ -259,12 +259,21 @@ function sats(id, optional = false) {
 $('chain-send').onsubmit = event => { event.preventDefault(); run(event.submitter, async () => {
   const destination = $('chain-destination').value.trim(), amount = sats('chain-amount');
   if (!destination) throw new Error('Enter an XBT address.');
-  if (!await PaperclipReview.ask('Send ' + amount.toLocaleString() + ' sats on ' + network + ' to:\n' + destination + '\n\nMiner fees are additional.')) return;
-  const result = await mutate('onchain/send', {destination, amount_sat: amount});
+  const context = walletContext();
+  const quote = await api('onchain/send/prepare', {destination, amount_sat: amount});
+  if (!currentWallet(context) || !token || $('chain-destination').value.trim() !== destination || sats('chain-amount') !== amount) throw new Error('Payment changed. Review again.');
+  if (quote.destination !== destination || quote.amount_sat !== amount || !/^[0-9a-f]{64}$/.test(quote.request_id) ||
+      !Number.isSafeInteger(quote.fee_sat) || quote.fee_sat < 0 || !Number.isSafeInteger(quote.total_sat) || quote.total_sat !== amount + quote.fee_sat) throw new Error('Could not verify the complete payment cost. No payment was sent.');
+  if (!await PaperclipReview.ask('Send ' + amount.toLocaleString() + ' sats on ' + network + ' to:\n' + destination +
+      '\n\nNetwork fee: ' + quote.fee_sat.toLocaleString() + ' sats\nTotal debit: ' + quote.total_sat.toLocaleString() + ' sats')) return;
+  if (!currentWallet(context) || !token || $('chain-destination').value.trim() !== destination || sats('chain-amount') !== amount) throw new Error('Payment changed. Review again.');
+  const result = await mutate('onchain/send/commit', {request_id: quote.request_id, total_sat: quote.total_sat});
+  if (!currentWallet(context)) return;
   $('chain-result').textContent = result.txid;
   $('chain-destination').value = ''; $('chain-amount').value = '';
-  transactionResult('pending', 'Transaction submitted', 'Waiting for confirmation on the XBT network. Do not send it again.', result.txid);
-  status('Transaction submitted. Wait for confirmation; do not send again.');
+  const submitted = result.state === 'submitted';
+  transactionResult('pending', submitted ? 'Transaction submitted' : 'Broadcast not confirmed', submitted ? 'Waiting for confirmation on the XBT network. Do not send it again.' : 'The signed transaction is saved. Check its status before another action.', result.txid);
+  status(submitted ? 'Transaction submitted. Wait for confirmation; do not send again.' : 'Signed payment saved. Check broadcast status; do not send again.');
 }); };
 $('ln-pay').onsubmit = event => { event.preventDefault(); run(event.submitter, async () => {
   if (!lightningEnabled) throw new Error('Lightning is not enabled in this wallet recovery profile.');
@@ -349,11 +358,30 @@ $('deposit').onclick = event => run(event.target, async () => {
   status('Deposit address for ' + (network === 'bitcoin' ? 'XBT mainnet' : 'regtest') + '.');
 });
 $('board').onsubmit = event => { event.preventDefault(); run(event.submitter, async () => {
-  const amount = Number($('board-amount').value);
-  if (!Number.isSafeInteger(amount) || amount < 20000) throw new Error('Enter at least 20,000 whole sats.');
-  if (!await PaperclipReview.ask('Board ' + amount.toLocaleString() + ' sats on ' + network + '? Recovery reserves and miner fees apply.')) return;
-  await mutate('boards/board-amount', {amount_sat: amount}); await update();
-  status('Board submitted. Wait for confirmations; do not submit again.');
+  const amount = sats('board-amount');
+  if (amount < 20000) throw new Error('Enter at least 20,000 whole sats.');
+  const context = walletContext();
+  const quote = await api('boards/prepare', {amount_sat: amount});
+  const unchanged = () => currentWallet(context) && token && sats('board-amount') === amount;
+  if (!unchanged()) throw new Error('Wallet or boarding amount changed. Review again.');
+  const fields = ['board_amount_sat', 'total_sat', 'net_sat', 'reserve_sat', 'network_fee_sat', 'boarding_fee_sat', 'recovery_anchor_sat', 'recovery_miner_fee_sat'];
+  if (!quote || fields.some(key => !Number.isSafeInteger(quote[key]) || quote[key] < 0) ||
+      !/^[0-9a-f]{64}$/.test(quote.request_id) || quote.board_amount_sat !== amount || quote.net_sat <= 0 ||
+      quote.total_sat !== amount + quote.network_fee_sat || quote.net_sat + quote.reserve_sat !== amount ||
+      quote.reserve_sat !== quote.recovery_anchor_sat + quote.recovery_miner_fee_sat || quote.recovery_anchor_sat < quote.boarding_fee_sat) {
+    throw new Error('Could not verify the complete boarding cost. Nothing was submitted.');
+  }
+  if (!await PaperclipReview.ask('Move on-chain XBT into Ark on ' + network + '?\n\n' +
+      'Available in Ark after confirmation: ' + quote.net_sat.toLocaleString() + ' sats\n' +
+      'Recovery reserve: ' + quote.reserve_sat.toLocaleString() + ' sats\n' +
+      'Boarding fee included in reserve: ' + quote.boarding_fee_sat.toLocaleString() + ' sats\n' +
+      'Network fee: ' + quote.network_fee_sat.toLocaleString() + ' sats\n' +
+      'Total debit: ' + quote.total_sat.toLocaleString() + ' sats\n\nKeep a complete backup. Boarding needs confirmations before the Ark funds become spendable.')) return;
+  if (!unchanged()) throw new Error('Wallet or boarding amount changed. Review again.');
+  const result = await mutate('boards/commit', {request_id: quote.request_id, amount_sat: amount, total_sat: quote.total_sat});
+  if (!currentWallet(context)) return;
+  transactionResult('pending', 'Boarding submitted', 'Waiting for funding confirmations. Do not submit another board for this transfer.', result.txid || '');
+  await update(); status('Boarding submitted. Wait for confirmations; do not submit again.');
 }); };
 $('withdraw').onclick = event => run(event.target, async () => {
   if (!await PaperclipReview.ask('Withdraw all Ark funds to your on-chain wallet? Fees apply.')) return;

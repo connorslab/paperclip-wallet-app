@@ -84,6 +84,7 @@ pub struct Session {
 	fingerprint: String,
 	network: Network,
 	quote: Option<(String, u64, u64, Instant, Option<Vec<ark::VtxoId>>)>,
+	replacement_quote: Option<bark::onchain::replacement::PreparedReplacement>,
 	onchain_quote: Option<(String, u64, bitcoin::Psbt, Instant)>,
 	board_quote: Option<(u64, u64, u64, bitcoin::Psbt, bitcoin::secp256k1::Keypair, bitcoin_ext::BlockHeight, Instant)>,
 }
@@ -368,6 +369,50 @@ mod tests {
 		drop(state); drop(other);
 		std::fs::remove_dir_all(base).unwrap();
 	}
+	#[test]
+	fn own_wallet_destination_preserves_source_and_checks_identity() {
+		let base = std::env::temp_dir().join(format!("paperclip-transfer-{}", bitcoin::secp256k1::rand::random::<u64>()));
+		std::fs::create_dir(&base).unwrap();
+		let source = base.join("source"); let target = base.join("target"); let missing = base.join("missing");
+		let mut state = None;
+		for (path, seed) in [(&source, [41;64]), (&target, [42;64])] {
+			dispatch(&mut state, json!({"op":"create", "network":"xbt-regtest", "directory":path}), seed).unwrap();
+			dispatch(&mut state, json!({"op":"close"}), seed).unwrap();
+		}
+		dispatch(&mut state, json!({"op":"open", "network":"xbt-regtest", "directory":source}), [41;64]).unwrap();
+		let source_id = state.as_ref().unwrap().fingerprint.clone();
+		let request = json!({"op":"wallet_destination_address", "network":"xbt-regtest", "directory":target});
+		assert!(dispatch(&mut state, request.clone(), [43;64]).is_err());
+		let first = dispatch(&mut state, request.clone(), [42;64]).unwrap();
+		let second = dispatch(&mut state, request, [42;64]).unwrap();
+		assert_ne!(first, second);
+		assert_eq!(state.as_ref().unwrap().fingerprint, source_id);
+		assert_eq!(state.as_ref().unwrap().dir, source);
+		assert!(dispatch(&mut state, json!({"op":"wallet_destination_address", "network":"xbt-mainnet", "directory":target}), [42;64]).is_err());
+		assert!(dispatch(&mut state, json!({"op":"wallet_destination_address", "network":"xbt-regtest", "directory":source}), [41;64]).is_err());
+		assert!(dispatch(&mut state, json!({"op":"wallet_destination_address", "network":"xbt-regtest", "directory":missing}), [42;64]).is_err());
+		assert!(!missing.exists());
+		drop(state); std::fs::remove_dir_all(base).unwrap();
+	}
+
+	#[test]
+	fn backup_check_preserves_active_wallet_and_cleans_staging() {
+		let directory = tempfile::tempdir().unwrap();
+		let source = directory.path().join("source");
+		let mut state = None;
+		dispatch(&mut state, json!({"op":"create", "network":"xbt-regtest", "directory":source}), [41;64]).unwrap();
+		let archive = dispatch(&mut state, json!({"op":"backup"}), [41;64]).unwrap();
+		let request = json!({"op":"verify_backup", "network":"xbt-regtest", "directory":directory.path(), "database":archive["database"]});
+		let result = dispatch(&mut state, request.clone(), [41;64]).unwrap();
+		assert_eq!(result, json!({"verified":true, "matches_current":true}));
+		assert!(dispatch(&mut state, request.clone(), [42;64]).is_err());
+		let mut invalid = request.clone(); invalid["database"] = json!(STANDARD.encode(b"damaged database"));
+		assert!(dispatch(&mut state, invalid, [41;64]).is_err());
+		assert_eq!(state.as_ref().unwrap().dir, source);
+		assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 1);
+		drop(state);
+	}
+
 }
 
 fn text<'a>(v: &'a Value, key: &str) -> anyhow::Result<&'a str> {
@@ -404,6 +449,33 @@ pub fn dispatch(state: &mut Option<Session>, request: Value, seed: [u8; 64]) -> 
 			_ => bail!("unsupported XBT network"),
 		}
 	};
+	if op == "wallet_destination_address" {
+		let active = state.as_ref().context("Open the source wallet first")?;
+		let directory = PathBuf::from(text(&request, "directory")?);
+		ensure!(directory.join("db.sqlite").is_file(), "Destination wallet database is missing; restore its full backup first");
+		ensure!(requested_network()? == active.network, "Destination wallet is on another network");
+		ensure!(directory.canonicalize()? != active.dir.canonicalize()?, "Choose a different destination wallet");
+		// A separate local session reveals one address. It never changes the source,
+		// connects a backend, signs a transaction, or starts maintenance.
+		let mut target = None;
+		let mut open = request.clone(); open["op"] = json!("open");
+		dispatch(&mut target, open, seed)?;
+		return dispatch(&mut target, json!({"op": "address_onchain"}), seed);
+	}
+	if op == "verify_backup" {
+		let network = requested_network()?;
+		let parent = PathBuf::from(text(&request, "directory")?);
+		ensure!(parent.is_absolute() && parent.is_dir(), "Backup check needs a private temporary directory");
+		let staging = tempfile::Builder::new().prefix("backup-check-").tempdir_in(parent)?;
+		let mut empty = None;
+		// Exercise the real restore validator in an isolated directory. Dropping
+		// staging removes both successful restores and partial error artifacts.
+		dispatch(&mut empty, json!({"op":"restore", "network":request["network"],
+			"directory":staging.path().join("wallet"), "database":request["database"]}), seed)?;
+		let matches = state.as_ref().map(|active| active.kind == "hot" && active.network == network &&
+			active.fingerprint == WalletSeed::new_from_seed(network, &seed).fingerprint().to_string()).unwrap_or(false);
+		return Ok(json!({"verified":true, "matches_current":matches}));
+	}
 	if op == "validate_public_wallet" {
 		let (receive, change) = crate::hardware::descriptors(text(&request, "public_key")?, text(&request, "script")?,
 			request["origin"].as_str().unwrap_or(""), requested_network()?, request["hardware"] == true)?;
@@ -494,7 +566,7 @@ pub fn dispatch(state: &mut Option<Session>, request: Value, seed: [u8; 64]) -> 
 			std::fs::write(&marker, serde_json::to_vec(&json!({"kind": kind, "receive": receive, "change": change}))?)?;
 		}
 		*state = Some(Session { kind: kind.into(), hardware_board: None, hardware_request: None, offer_task: None, receive_task: None, runtime, dir, db, onchain: Arc::new(tokio::sync::RwLock::new(onchain)),
-			wallet: None, ark_wallet: None, _lock: lock, fingerprint: fingerprint.to_string(), network, quote: None, onchain_quote: None, board_quote: None });
+			wallet: None, ark_wallet: None, _lock: lock, fingerprint: fingerprint.to_string(), network, quote: None, replacement_quote: None, onchain_quote: None, board_quote: None });
 		return Ok(json!({"fingerprint": fingerprint.to_string()}));
 	}
 	let session = state.as_mut().context("open a wallet first")?;
@@ -517,7 +589,7 @@ pub fn dispatch(state: &mut Option<Session>, request: Value, seed: [u8; 64]) -> 
 		return result;
 	}
 	let network = session.network;
-	let Session { runtime, wallet, ark_wallet, db, onchain, quote, onchain_quote, board_quote, offer_task, receive_task, hardware_request, hardware_board, kind, dir, .. } = session;
+	let Session { runtime, wallet, ark_wallet, db, onchain, quote, onchain_quote, replacement_quote, board_quote, offer_task, receive_task, hardware_request, hardware_board, kind, dir, .. } = session;
 	runtime.block_on(async {
 		if op == "select_onchain_account" {
 			ensure!(kind == "hot", "only mobile wallets can switch address accounts");
@@ -526,7 +598,7 @@ pub fn dispatch(state: &mut Option<Session>, request: Value, seed: [u8; 64]) -> 
 			let next = mobile_onchain(dir, network, seed, db.clone(), selected).await?;
 			account_setting(dir, Some(selected))?;
 			*onchain.write().await = next;
-			*onchain_quote = None; *board_quote = None;
+			*onchain_quote = None; *replacement_quote = None; *board_quote = None;
 			return Ok(json!({"account":selected}));
 		}
 		if op == "sign_message_onchain" {
@@ -571,6 +643,7 @@ pub fn dispatch(state: &mut Option<Session>, request: Value, seed: [u8; 64]) -> 
 			if let Some(task) = offer_task.take() { task.abort(); let _ = task.await; }
 			if let Some(task) = receive_task.take() { task.abort(); let _ = task.await; }
 			*quote = None;
+			*replacement_quote = None;
 			*onchain_quote = None;
 			*board_quote = None;
 			*hardware_board = None;
@@ -596,7 +669,7 @@ pub fn dispatch(state: &mut Option<Session>, request: Value, seed: [u8; 64]) -> 
 			return crate::coinjoin::dispatch(dir, seed, network, wallet.as_ref(), ark_wallet.as_ref().or(wallet.as_ref()), &request).await;
 		}
 		let chain_wallet = wallet.as_ref().context("connect to a backend first")?;
-		let w = if matches!(op, "chain_health" | "sync_onchain" | "quote_onchain" | "send_onchain" | "activity" | "hardware_prepare" | "hardware_import" | "hardware_broadcast") {
+		let w = if matches!(op, "chain_health" | "replacement_prepare" | "replacement_commit" | "sync_onchain" | "quote_onchain" | "send_onchain" | "activity" | "hardware_prepare" | "hardware_import" | "hardware_broadcast") {
 			chain_wallet
 		} else { ark_wallet.as_ref().unwrap_or(chain_wallet) };
 		if op == "receive_listen" {
@@ -915,6 +988,24 @@ pub fn dispatch(state: &mut Option<Session>, request: Value, seed: [u8; 64]) -> 
 				let broadcast = w.chain().broadcast_tx(&tx).await.is_ok();
 				Ok(json!({"state": if broadcast {"submitted"} else {"pending_broadcast"}, "txid": tx.compute_txid().to_string()}))
 			},
+			"replacement_prepare" => {
+				*replacement_quote = None;
+				ensure!(kind == "hot", "Fee replacement requires a hot wallet; QR signing is not enabled for this action");
+				let mut chain = onchain.write().await;
+				chain.sync(w.chain()).await?;
+				let prepared = chain.prepare_replacement(text(&request, "txid")?.parse()?, request["new_fee_sat"].as_u64().context("Enter the new total fee in sats")?).await?;
+				let review = serde_json::to_value(&prepared.review)?;
+				*replacement_quote = Some(prepared);
+				Ok(review)
+			},
+			"replacement_commit" => {
+				let prepared = replacement_quote.take().context("Review a fee replacement first")?;
+				let mut chain = onchain.write().await;
+				chain.sync(w.chain()).await?;
+				let tx = chain.commit_replacement(prepared, text(&request, "replacement_txid")?.parse()?, request["new_fee_sat"].as_u64().context("Missing reviewed fee")?).await?;
+				let broadcast = w.chain().broadcast_tx(&tx).await.is_ok();
+				Ok(json!({"state": if broadcast {"submitted"} else {"pending_broadcast"}, "txid": tx.compute_txid()}))
+			},
 			"quote_onchain" => {
 				*onchain_quote = None;
 				let destination = text(&request, "destination")?;
@@ -936,7 +1027,8 @@ pub fn dispatch(state: &mut Option<Session>, request: Value, seed: [u8; 64]) -> 
 				let mut onchain = onchain.write().await;
 				let unspent: std::collections::HashSet<_> = onchain.list_unspent().iter().map(|u| u.outpoint).collect();
 				ensure!(psbt.unsigned_tx.input.iter().all(|input| unspent.contains(&input.previous_output)), "inputs changed; review a new quote");
-				let tx = onchain.finish_psbt(psbt).await?.extract_tx()?;
+				let address = destination.parse::<bitcoin::Address<_>>()?.require_network(network)?;
+				let tx = onchain.finish_reviewed_send(psbt, &[(address, Amount::from_sat(amount))]).await?;
 				let txid = tx.compute_txid();
 				let broadcast = w.chain().broadcast_tx(&tx).await.is_ok();
 				Ok(json!({"state": if broadcast {"submitted"} else {"pending_broadcast"}, "txid": txid.to_string()}))

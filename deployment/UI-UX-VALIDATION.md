@@ -222,3 +222,48 @@ publication occurred in this pass.
 `WALLET-INSPIRATION.md` records the primary sources, implemented checklist and
 remaining priorities from Bark, Zeus, Jam and Sparrow. These priorities do not
 claim complete feature parity or close the release gaps.
+
+## Transfer and recovery assistance — 2026-11-15
+
+The recipient form now offers a saved-wallet destination without changing the
+source wallet. Payment assistance stays behind a disclosure in browser/Android
+Activity and inside the iOS transaction detail. Incoming payments do not show a
+fee-increase action. Fee review names the recipients and separates original fee,
+new total fee and additional debit. Unknown broadcast outcomes never celebrate.
+
+Wallet health, backup check and report actions use existing cards, Settings
+navigation and ordinary platform share/file dialogs. Reports are previewed first.
+Backup dates are explicitly local observations rather than claims of cloud upload
+or complete recovery. Advanced fee controls stay optional. A recipient typed while
+an address lookup runs is preserved; account changes invalidate the old result.
+
+Browser checks cover 390 px phone, 840 px foldable and 1280 px desktop health
+layouts, report download allowlisting, failure states and nested back navigation.
+Transfer and replacement checks cover 390/1280 px, exact cost review, cancellation,
+malformed responses, manual edits, no mutation replay and lock/account isolation.
+The browser tests use synthetic public fixtures, not funded wallets or real nodes.
+Health cards reflow into two columns on wide screens and stack for larger text.
+Android custom fee entry starts collapsed, and its approval dialog scrolls long
+recipient details without hiding the confirmation controls.
+
+Native build and simulator/emulator results are recorded in the completion notes;
+physical-device and screen-reader acceptance remain separate release checks.
+
+See `PAYMENT-ASSISTANCE.md` for the security boundaries, tests and remaining scope.
+
+Local follow-up evidence: the four assistance flows passed interaction checks in
+portrait and landscape on a fresh iPhone simulator, including the report share
+action. Whole-application swipes failed to scroll after rotation; targeting the
+actual scroll view resolved the automation failure. Element-cropped screenshots
+also used stale portrait bounds, while the full screen recording showed correct
+layout. Capture uses the full screen to avoid that artifact. This is not a
+physical-device or unfolded-Duo acceptance result.
+
+The rebuilt Android ARM64 emulator passed the real backup/destination checks and
+health layout checks at narrow/wide widths, including larger text. Both packaged
+ABIs' native libraries have 16 KB-compatible ELF segment alignment. Runtime
+acceptance on a 16 KB-page device remains separate. Android unit tests passed
+68 cases with three explicitly live-only skips; release lint reported no errors.
+The target-SDK-36 rebuild passed six Android 15 emulator checks covering native
+backup/destinations, health, Settings navigation, resize, separating hinges and
+tabletop layout. Android 16 and 16 KB runtime checks remain separate.

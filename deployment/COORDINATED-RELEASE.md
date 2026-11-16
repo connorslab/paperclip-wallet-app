@@ -158,6 +158,33 @@ validate one frozen revision in signed mobile candidates and both platform
 packages, including upgrade/restore tests. Do not merge or deploy merely to make
 branch names match while these acceptance gaps remain.
 
+## Production-readiness follow-up: 2026-11-15
+
+The requested finish line is production readiness on all four platforms, not
+just matching source branches. The original comparison above remains an audit of
+its named revision. The following candidate changes supersede specific gaps:
+
+- Exact hot-wallet on-chain review now uses prepare/commit with a retained PSBT,
+  wallet binding, expiry, cost and input checks.
+- Server boarding now has the same review categories as mobile: net Ark funds,
+  recovery reserve, included boarding fee, network fee and total debit. It retains
+  and consumes the exact funding transaction. Live funded acceptance is pending.
+- Ordinary-send fee replacement, owned-wallet destinations, mobile restore checks,
+  health and allowlisted support reports are implemented. See PAYMENT-ASSISTANCE.md
+  for the limits; RBF is not a generic retry or a protocol-funding fee bump.
+- Android targets API 36 for the candidate. Google requires API 36 or higher for
+  phone app submissions from August 31, 2026. Edge-to-edge, supported BackHandler
+  navigation and foldable layouts must remain verified after this change.
+  [Target requirements](https://developer.android.com/google/play/requirements/target-sdk)
+  and [Android 16 behavior changes](https://developer.android.com/about/versions/16/behavior-changes-16).
+
+The broader gaps remain open: server-backed durable uncertain-operation recovery,
+direct CLN/LND and Bridge browser flows, full server wallet management and recovery,
+Jam service acceptance, payment requests, portable contacts/labels and restricted
+receive-only credentials. Public signing identities, coherent release versions,
+physical signer tests, funded recovery and both host upgrade paths remain release
+gates. Existing uploaded build 70 is not replaced by these source changes.
+
 ## Live verification and budget
 
 Use the existing authenticated LND and CLN on StartOS. Preserve TLS verification

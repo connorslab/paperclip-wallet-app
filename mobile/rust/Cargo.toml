@@ -21,6 +21,7 @@ bitcoin.workspace = true
 bdk_wallet.workspace = true
 anyhow.workspace = true
 serde_json.workspace = true
+tempfile = "3"
 serde = { workspace = true, features = ["derive"] }
 paperclip-kilojoin = { git = "https://github.com/connorslab/paperclip-kilojoin-rs", rev = "3b8cf898d05933b337ec24d10547751390b5dbb5" }
 base64.workspace = true

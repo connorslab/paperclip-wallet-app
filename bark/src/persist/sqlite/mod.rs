@@ -94,6 +94,43 @@ impl BarkPersister for SqliteClient {
 	}
 
 	#[cfg(feature = "onchain-bdk")]
+	async fn store_authorized_send(&self, record: &crate::onchain::replacement::AuthorizedSend) -> anyhow::Result<()> {
+		let mut conn = self.connect()?;
+		let tx = conn.transaction()?;
+		let account = self.bdk_namespace.as_deref().unwrap_or("");
+		anyhow::ensure!(record.replaced_by.is_none(), "Cannot import replacement state");
+		if let Some(parent) = record.replaces {
+			let exists: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM bark_authorized_send WHERE account=?1 AND txid=?2)", rusqlite::params![account, parent.to_string()], |r| r.get(0))?;
+			anyhow::ensure!(exists, "Original send authorization is missing");
+		}
+		// UNIQUE(account,replaces) prevents a second replacement, including after a crash.
+		tx.execute("INSERT INTO bark_authorized_send (account, txid, replaces, record) VALUES (?1, ?2, ?3, ?4)",
+			rusqlite::params![account, record.transaction.compute_txid().to_string(), record.replaces.map(|id| id.to_string()), serde_json::to_string(record)?])?;
+		tx.commit()?;
+		Ok(())
+	}
+
+	#[cfg(feature = "onchain-bdk")]
+	async fn authorized_send(&self, txid: Txid) -> anyhow::Result<Option<crate::onchain::replacement::AuthorizedSend>> {
+		let conn = self.connect()?;
+		let account = self.bdk_namespace.as_deref().unwrap_or("");
+		let saved: Option<String> = conn.query_row("SELECT record FROM bark_authorized_send WHERE account=?1 AND txid=?2", rusqlite::params![account, txid.to_string()], |r| r.get(0)).optional()?;
+		let Some(saved) = saved else { return Ok(None) };
+		let mut record: crate::onchain::replacement::AuthorizedSend = serde_json::from_str(&saved)?;
+		let replacement: Option<String> = conn.query_row("SELECT txid FROM bark_authorized_send WHERE account=?1 AND replaces=?2", rusqlite::params![account, txid.to_string()], |r| r.get(0)).optional()?;
+		record.replaced_by = replacement.map(|id| id.parse()).transpose()?;
+		Ok(Some(record))
+	}
+
+	#[cfg(feature = "onchain-bdk")]
+	async fn pending_authorized_sends(&self) -> anyhow::Result<Vec<crate::onchain::replacement::AuthorizedSend>> {
+		let conn = self.connect()?;
+		let mut query = conn.prepare("SELECT a.record FROM bark_authorized_send a WHERE a.account=?1 AND NOT EXISTS (SELECT 1 FROM bark_authorized_send b WHERE b.account=a.account AND b.replaces=a.txid) ORDER BY a.rowid")?;
+		let rows = query.query_map([self.bdk_namespace.as_deref().unwrap_or("")], |r| r.get::<_, String>(0))?;
+		rows.map(|row| Ok(serde_json::from_str(&row?)?)).collect()
+	}
+
+	#[cfg(feature = "onchain-bdk")]
 	async fn initialize_bdk_wallet(&self) -> anyhow::Result<bdk_wallet::ChangeSet> {
 	    let mut conn = self.connect()?;
 		if let Some(name) = &self.bdk_namespace {

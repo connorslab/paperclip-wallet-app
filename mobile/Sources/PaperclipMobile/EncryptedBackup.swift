@@ -61,4 +61,10 @@ public protocol WalletBackupEngine: Sendable {
     // Validate engine schema/network/key ownership, stage in a new protected directory,
     // and atomically commit. Refuse to replace an existing wallet. Reconcile before spending.
     func restoreIntoEmptyWallet(_ archive: RecoveryArchive) async throws
+    // Test restoration in a temporary directory; report whether it matches the active wallet.
+    func verifyRecoveryArchive(_ archive: RecoveryArchive) async throws -> Bool
+}
+
+public extension WalletBackupEngine {
+    func verifyRecoveryArchive(_ archive: RecoveryArchive) async throws -> Bool { throw BackupError.unsupportedFormat }
 }

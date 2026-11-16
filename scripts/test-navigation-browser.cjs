@@ -49,7 +49,7 @@ const fs = require('node:fs'), path = require('node:path'), assert = require('no
    assert.equal(await page.locator('#destination').inputValue(),'ark-synthetic-draft');
    await page.goForward();
    await page.waitForFunction(()=>document.querySelector('.view-nav [data-view="settings"]').getAttribute('aria-current')==='page');
-   await page.locator('[data-view="recovery"]').click();
+   await page.locator('[data-screen="settings"] [data-view="recovery"]').click();
    assert.equal(await page.locator('.view-nav [data-view="settings"]').getAttribute('aria-current'),'page');
    await page.locator('[data-screen="recovery"] [data-back]').click();
    await page.waitForFunction(()=>document.querySelector('[data-screen="settings"]').hidden===false);

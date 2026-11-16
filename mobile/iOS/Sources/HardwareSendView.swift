@@ -33,6 +33,7 @@ struct HardwareSendView: View {
             if prepared == nil {
                 WalletSection("1 · Prepare payment") {
                     Button { scanningDestination = true } label: { Label("Scan recipient", systemImage: "qrcode.viewfinder") }
+                    OwnedWalletDestination(address: $destination)
                     TextField("XBT address", text: $destination, axis: .vertical).textInputAutocapitalization(.never).autocorrectionDisabled()
                     if sendMax { Text("Maximum after fees").font(.headline) }
                     else { TextField(unit.amountPrompt, text: $amount).keyboardType(.decimalPad) }

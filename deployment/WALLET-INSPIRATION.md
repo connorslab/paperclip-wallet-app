@@ -29,7 +29,7 @@ started for this work.
 | Inspiration | Useful Paperclip adaptation | Acceptance criteria and remaining work |
 | --- | --- | --- |
 | [Bark: unified payments](https://second.tech/blog/bark-wallet-now-on-umbrel/) | One paste or scan entry for on-chain, Ark, Lightning invoices and offers. Explain the available route before payment. | Validate XBT network and format first. Show the selected wallet, recipient and bounded cost. Never choose a bridge or a different asset silently. Existing parsers and send paths are a base; unified routing remains open. |
-| [Sparrow: transaction review and coin control](https://www.sparrowwallet.com/features/) | Show recipient amount, fee, total debit and selected coins together. Keep technical details expandable. | Exact hot-wallet on-chain and board review needs a server contract that binds approval to execution. Do not display an estimate as a guaranteed final fee. Preserve Krux signature verification and wallet isolation. This is the highest payment-review priority. |
+| [Sparrow: transaction review and coin control](https://www.sparrowwallet.com/features/) | Show recipient amount, fee, total debit and selected coins together. Keep technical details expandable. | Hot-wallet on-chain prepare/commit now binds exact review to execution. Server boarding now retains and consumes its reviewed funding transaction too; funded acceptance remains open. Do not display an estimate as a guaranteed final fee. Preserve Krux signature verification and wallet isolation. This is the highest payment-review priority. |
 | [Zeus: wallet connections](https://docs.zeusln.app/for-users/using-zeus/wallets/) | Named node profiles with clear active-wallet and connection state. Switch profiles without recreating setup. | Keep credentials and pending work scoped to each profile. Distinguish offline, Tor startup, authentication and stale data. Existing hot/QR wallet selection does not by itself provide complete node-profile parity. |
 | [Zeus: activity tools](https://docs.zeusln.app/for-users/using-zeus/menu/) | Searchable payment details, user labels and account-scoped CSV export. | Export amounts, fees and observed states without secrets. Unknown settlement stays unknown. Partial ledger failure must remain visible. The improved shared Activity screen is the base; export and full search parity remain open. |
 | [Jam: Earn](https://jamdocs.org/interface/03-earn/) and [fidelity bonds](https://jamdocs.org/interface/fidelity-bonds/) | A clear progression from jars to maker readiness, offer review and server operation. | The readiness checklist is implemented. Bond creation and collaborative sends still use Jam. A future in-app flow must disclose lock date, cost and server eligibility before authorization. Do not promise earnings or automatic privacy gains. |
@@ -45,3 +45,11 @@ Keep balance, spendable amount and receive capacity distinct.
 Adapt the workflows rather than copy branding. Bark, Zeus, Jam and Sparrow target
 different networks and server contracts. Their fees, supported formats and
 security assumptions do not automatically apply to XBT or Paperclip Bridge.
+
+## Transfer and assistance follow-up
+
+`PAYMENT-ASSISTANCE.md` records the implemented own-wallet destination flow,
+reviewed RBF policy, wallet health, backup checks and privacy-safe support reports.
+Payment-request management, portable labels/contacts and restricted-credential
+receive-only connections remain open; this is not a completed feature-unification
+release.

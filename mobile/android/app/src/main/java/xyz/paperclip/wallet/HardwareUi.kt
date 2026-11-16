@@ -56,6 +56,7 @@ internal fun HardwarePayment(s: WalletState, model: WalletModel, boarding: Boole
 						)
 					}
 			} else
+				OwnedWalletDestination(s, destination) { destination = it }
 				OutlinedTextField(
 					destination,
 					{ destination = it },

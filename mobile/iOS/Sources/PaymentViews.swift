@@ -56,7 +56,8 @@ struct SendView: View {
             VStack(spacing: 20) {
                 WalletFlowProgress(steps: ["Recipient", "Review", "Status"], current: submitted ? 2 : total == nil ? 0 : 1)
                 WalletSection("Pay from") {
-                    Picker("Wallet", selection: $onchain) { Text("On-chain").tag(true); Text("Ark · Beta").tag(false) }.pickerStyle(.segmented).disabled(store.busy || submitted)
+                    Text(store.selectedProfile?.name ?? "Selected wallet").font(.headline)
+                    Picker("Balance", selection: $onchain) { Text("On-chain").tag(true); Text("Ark · Beta").tag(false) }.pickerStyle(.segmented).disabled(store.busy || submitted)
                     LabeledContent(onchain ? "Confirmed on-chain" : "Available in Ark", value: unit.display(onchain ? store.onchainConfirmed : store.ark)).font(.headline)
                     if onchain, let pending = store.onchainPending, pending > 0 {
                         LabeledContent("Pending confirmation", value: unit.display(pending)).font(.caption)
@@ -67,17 +68,7 @@ struct SendView: View {
                     Text(onchain ? "Send XBT to an on-chain address." : "Pay Lightning invoices, BOLT12 offers, Ark addresses, or withdraw to on-chain.").font(.subheadline).foregroundStyle(PaperclipTheme.muted)
                 }
                 WalletSection("Recipient") {
-                    if !onchain && !submitted && store.profiles.contains(where: { $0.kind == .hardware && $0.network == store.network }) {
-                        Menu {
-                            ForEach(store.profiles.filter { $0.kind == .hardware && $0.network == store.network }) { profile in
-                                Button(profile.name) { store.run {
-                                    destination = try await store.engine.hardwareReceiveAddress(walletID: profile.id)
-                                } }
-                            }
-                        } label: { Label("Withdraw to a saved QR wallet", systemImage: "qrcode") }
-                            .disabled(store.busy || !store.profiles.contains { $0.kind == .hardware && $0.network == store.network })
-                        Text("Offboarding to a hardware address does not need a hardware signature. Verify the receiving address on your signer, then review the withdrawal here.").font(.caption).foregroundStyle(PaperclipTheme.muted)
-                    }
+                    if !submitted { OwnedWalletDestination(address: $destination) }
                     Button { scanning = true } label: { Label("Scan QR code", systemImage: "qrcode.viewfinder") }
                         .disabled(store.busy || submitted)
                     Text(onchain ? "Recipient address" : "Invoice, offer, or address").font(.subheadline.weight(.semibold))
@@ -701,5 +692,34 @@ struct OnchainAddressesView: View {
                 } catch { entries = []; hasMore = false; self.error = error.localizedDescription }
                 loading = false
             }
+    }
+}
+
+struct OwnedWalletDestination: View {
+    @EnvironmentObject var store: WalletStore
+    @Binding var address: String
+    @State private var selectedName = ""
+    @State private var selectedAddress = ""
+    private var destinations: [WalletProfile] { store.profiles.filter { $0.id != store.walletID && $0.network == store.network } }
+    var body: some View {
+        if !destinations.isEmpty {
+            Menu {
+                ForEach(destinations) { profile in
+                    Button(profile.name + " · " + profile.kind.title) {
+                        let owner = store.walletID, before = address
+                        store.run {
+                            let value = try await store.engine.walletDestinationAddress(profile.id)
+                            guard owner == store.walletID, address == before else { throw WalletFailure(message: "Recipient changed. Choose the destination wallet again.") }
+                            selectedName = profile.name; selectedAddress = value; address = value
+                        }
+                    }
+                }
+            } label: { Label("Move to my other wallet", systemImage: "arrow.left.arrow.right") }
+            .disabled(store.busy)
+            if !selectedAddress.isEmpty && address == selectedAddress {
+                Text("From " + (store.selectedProfile?.name ?? "selected wallet") + " to " + selectedName).font(.subheadline.bold())
+                Text("This is an on-chain transfer between your wallets. Network fees apply. Verify a hardware wallet’s receiving address on its signer before approving.").font(.caption).foregroundStyle(PaperclipTheme.muted)
+            }
+        }
     }
 }

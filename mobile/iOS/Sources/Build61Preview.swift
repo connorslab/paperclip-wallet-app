@@ -11,7 +11,15 @@ struct Build61Preview: View {
                 WalletView()
             } else {
             NavigationStack {
-            if ProcessInfo.processInfo.arguments.contains("-joinblaket-preview") {
+            if ProcessInfo.processInfo.arguments.contains("-wallet-health-preview") {
+                WalletHealthView()
+            } else if ProcessInfo.processInfo.arguments.contains("-backup-center-preview") {
+                BackupView(engine: nil)
+            } else if ProcessInfo.processInfo.arguments.contains("-payment-assistance-preview") {
+                OnchainTransactionView(transaction: ActivityItem(id: String(repeating: "ab", count: 32), title: "Sent", status: "Pending", amountSat: -101000, detail: "Synthetic fixture", date: Date()))
+            } else if ProcessInfo.processInfo.arguments.contains("-own-transfer-preview") {
+                SendView()
+            } else if ProcessInfo.processInfo.arguments.contains("-joinblaket-preview") {
                 JoinBlaketView()
             } else if ProcessInfo.processInfo.arguments.contains("-node-connection-preview") {
                 LightningView.connectionPreview()
@@ -45,6 +53,9 @@ struct Build61Preview: View {
             store.loaded = true; store.hasWallet = true
             store.selectedProfile = WalletProfile(id: "preview", name: "Everyday wallet", kind: .hot, network: "xbt-mainnet")
             if let profile = store.selectedProfile { store.profiles = [profile] }
+            if ProcessInfo.processInfo.arguments.contains("-own-transfer-preview") {
+                store.profiles.append(WalletProfile(id: "preview-cold", name: "My Krux savings", kind: .hardware, network: "xbt-mainnet"))
+            }
             store.onchain = 100000; store.onchainConfirmed = 0; store.onchainPending = 100000; store.ark = 100000
             store.observed = Date()
             if ProcessInfo.processInfo.arguments.contains("-dashboard-preview") || ProcessInfo.processInfo.arguments.contains("-wallet-shell-preview") {

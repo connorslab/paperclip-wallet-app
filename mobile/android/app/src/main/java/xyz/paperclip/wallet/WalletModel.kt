@@ -34,6 +34,7 @@ data class WalletState(
 	val recoveryKey: String = "",
 	val backup: ByteArray? = null,
 	val backupSaved: Boolean = false,
+	val backupStatus: String = "",
 	val exitStatus: JSONObject? = null,
 	val expiryHeight: Long? = null,
 	val network: String = "xbt-mainnet",
@@ -44,6 +45,7 @@ class WalletModel(app: Application) : AndroidViewModel(app) {
 	private val mutable = MutableStateFlow(WalletState())
 	val state = mutable.asStateFlow()
 	private var testOnly = false
+	private var backupOwner: String? = null
 	private var maintenance: kotlinx.coroutines.Job? = null
 
 	private fun change(f: (WalletState) -> WalletState) {
@@ -616,11 +618,14 @@ class WalletModel(app: Application) : AndroidViewModel(app) {
 
 	fun prepareBackup() = job {
 		val key = BackupCodec.newKey()
+		val owner = engine.activeID()
 		val bytes = engine.backup(key)
+		backupOwner = owner
 		change { it.copy(recoveryKey = key, backup = bytes, backupSaved = false) }
 	}
 
 	fun backupSaved() {
+		backupOwner?.let { getApplication<Application>().getSharedPreferences("backup-records", 0).edit().putLong("saved-" + it, System.currentTimeMillis()).apply() }
 		change { it.copy(backupSaved = true) }
 	}
 
@@ -634,7 +639,7 @@ class WalletModel(app: Application) : AndroidViewModel(app) {
 		backupSaved()
 	}
 
-	fun restoreBackupFile(uri: Uri, key: String) = job {
+	fun restoreBackupFile(uri: Uri, key: String, checkOnly: Boolean = false) = job {
 		require(key.isNotBlank()) {
 			"Recovery key was cleared. Select the backup again after unlocking."
 		}
@@ -654,12 +659,20 @@ class WalletModel(app: Application) : AndroidViewModel(app) {
 					output.toByteArray()
 				} ?: error("Could not read backup")
 			}
-		restoreArchive(bytes, key)
+		if(checkOnly) {
+			val owner = mutable.value.activeID
+			try {
+				val matches = engine.checkBackup(bytes, key)
+				if(matches) getApplication<Application>().getSharedPreferences("backup-records", 0).edit().putLong("checked-" + owner, System.currentTimeMillis()).apply()
+				change { it.copy(backupStatus = if(matches) "Restore check passed for this wallet. Recent payments may need a newer backup." else "Restore check passed, but this backup belongs to another wallet. No wallet was changed.") }
+			} finally { bytes.fill(0) }
+		} else restoreArchive(bytes, key)
 	}
 
 	fun clearBackup() {
+		backupOwner = null
 		mutable.value.backup?.fill(0)
-		change { it.copy(backup = null, recoveryKey = "") }
+		change { it.copy(backup = null, recoveryKey = "", backupStatus = "") }
 	}
 
 	private suspend fun restoreArchive(bytes: ByteArray, key: String) {

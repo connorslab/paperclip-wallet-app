@@ -132,6 +132,19 @@ pub trait BarkPersister: Send + Sync + 'static {
 	#[cfg(feature = "onchain-bdk")]
 	async fn store_bdk_wallet_changeset(&self, changeset: &ChangeSet) -> anyhow::Result<()>;
 
+	/// Records only explicitly authorized ordinary on-chain sends, never chain history.
+	#[cfg(feature = "onchain-bdk")]
+	async fn store_authorized_send(&self, _record: &crate::onchain::replacement::AuthorizedSend) -> anyhow::Result<()> {
+		anyhow::bail!("This storage backend does not support reviewed fee replacements")
+	}
+
+	#[cfg(feature = "onchain-bdk")]
+	async fn authorized_send(&self, _txid: Txid) -> anyhow::Result<Option<crate::onchain::replacement::AuthorizedSend>> { Ok(None) }
+
+	/// Signed ordinary payments whose replacement chain has no later local approval.
+	#[cfg(feature = "onchain-bdk")]
+	async fn pending_authorized_sends(&self) -> anyhow::Result<Vec<crate::onchain::replacement::AuthorizedSend>> { Ok(Vec::new()) }
+
 	/// Read wallet properties from storage.
 	///
 	/// Returns:

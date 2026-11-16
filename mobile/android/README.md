@@ -71,7 +71,7 @@ Keep keys, SDK installs and native build artifacts outside version control.
 
 ## Emulator and screenshots
 
-Use an API 35 x86_64 emulator with hardware acceleration. Start from empty app
+CI checks API 35 and 36 x86_64 emulators with hardware acceleration. The app targets API 36. Start from empty app
 storage, set dark mode, then run:
 
 ```sh

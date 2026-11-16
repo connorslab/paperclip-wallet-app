@@ -561,6 +561,15 @@ struct OnchainTransactionView: View {
                         copied = true
                     }.buttonStyle(.bordered)
                 }
+                if current.status != "Confirmed" {
+                    WalletSection("Payment assistance") {
+                        Text("An unconfirmed payment is still in progress. Do not send it again.")
+                        Button("Refresh status") { store.run { try await store.refreshActivity() } }.disabled(store.busy)
+                        if current.amountSat < 0 && !store.isHardware && !store.isWatchOnly {
+                            FeeReplacementControl(txid: transaction.id)
+                        }
+                    }
+                }
                 if let explorerURL {
                     WalletSection {
                         Link(destination: explorerURL) {
@@ -572,4 +581,63 @@ struct OnchainTransactionView: View {
             }.walletPageContent()
         }.walletPageBackground().navigationTitle("Transaction").navigationBarTitleDisplayMode(.inline)
     }
+}
+
+private struct FeeReplacementControl: View {
+    @EnvironmentObject var store: WalletStore
+    let txid: String
+    @State private var review: [String: Any]?
+    @State private var owner = ""
+    @State private var result = ""
+    @State private var fee = ""
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Increase the fee from this payment’s change. The recipient and amount stay the same.").font(.subheadline)
+            DisclosureGroup("Custom total fee") {
+                TextField("Total fee in sats (optional)", text: $fee).keyboardType(.numberPad).disabled(store.busy)
+                Text("Leave blank to review twice the original fee. This does not guarantee a confirmation time.").font(.caption)
+            }
+            Button("Review fee increase") {
+                review = nil; result = ""; owner = store.walletID
+                store.run {
+                    let value = fee.isEmpty ? UInt64(0) : UInt64(fee)
+                    guard let value, fee.isEmpty || fee.utf8.allSatisfy({ (48...57).contains($0) }) else { throw WalletFailure(message: "Enter the total fee in whole sats.") }
+                    let response = try await store.engine.operation("replacement_prepare", fields: ["txid": txid, "new_fee_sat": value])
+                    guard owner == store.walletID else { return }
+                    do { try FeeReplacementReview.validate(JSONSerialization.data(withJSONObject: response), expectedTransaction: txid) }
+                    catch { throw WalletFailure(message: "The fee review is incomplete. No replacement was submitted.") }
+                    review = response
+                }
+            }.disabled(store.busy)
+            if let data = review {
+                Divider()
+                Text("Review fee replacement").font(.headline)
+                ForEach(Array((data["recipients"] as? [[String: Any]] ?? []).enumerated()), id: \.offset) { _, recipient in
+                    Text(recipient["address"] as? String ?? "").font(.caption.monospaced()).textSelection(.enabled)
+                    Text("Recipient: " + String((recipient["amount_sat"] as? NSNumber)?.uint64Value ?? 0) + " sats")
+                }
+                LabeledContent("Original fee", value: sats(data["old_fee_sat"]))
+                LabeledContent("New total fee", value: sats(data["new_fee_sat"]))
+                LabeledContent("Additional debit", value: sats(data["additional_fee_sat"]))
+                Text("This replaces the existing transaction. Confirmation is still required.").font(.caption)
+                HStack {
+                    Button("Cancel") { review = nil }
+                    Button("Increase fee") {
+                        review = nil
+                        store.run {
+                            guard owner == store.walletID else { throw WalletFailure(message: "Wallet changed. Review again.") }
+                            let response = try await store.engine.operation("replacement_commit", fields: ["replacement_txid": data["replacement_txid"] ?? "", "new_fee_sat": data["new_fee_sat"] ?? 0])
+                            result = (response["state"] as? String == "submitted" ? "Replacement submitted. Awaiting confirmation." : "Replacement saved. Broadcast is not confirmed; check status before another action.") + "\n" + (response["txid"] as? String ?? "")
+                            try await store.refreshActivity()
+                        }
+                    }.disabled(store.busy || owner != store.walletID)
+                }
+            }
+            if !result.isEmpty { Text(result).font(.caption).textSelection(.enabled) }
+            Text(store.message).font(.caption).foregroundStyle(PaperclipTheme.muted)
+        }.onChange(of: fee) { _, _ in review = nil }
+         .onChange(of: store.walletID) { _, _ in review = nil; result = "" }
+         .onChange(of: store.onchainAccount) { _, _ in review = nil; result = "" }
+    }
+    private func sats(_ value: Any?) -> String { (value as? NSNumber).map { "\($0.uint64Value) sats" } ?? "Unavailable" }
 }

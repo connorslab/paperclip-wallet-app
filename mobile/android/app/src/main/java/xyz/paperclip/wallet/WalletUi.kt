@@ -414,6 +414,7 @@ internal fun PaperclipApp(
 											) {
 												navigate("Alerts")
 											}
+											NavCard("Wallet health", "Connections, recovery, and support report", Icons.Default.HealthAndSafety) { navigate("Wallet health") }
 											NavCard(
 												"Help and support",
 												"Connections, payments and recovery",
@@ -463,6 +464,7 @@ internal fun PaperclipApp(
 										"Wallet security" -> WalletSecurity()
 										"Alerts" -> PaymentSettings()
 										"Help" -> HelpPage()
+										"Wallet health" -> WalletHealthPage(s, model) { navigate(it) }
 										"Buy XBT" -> HelpPage(buy = true)
 										"Bridge" ->
 											if (bridge != null)
@@ -523,7 +525,7 @@ private fun Brand() {
 }
 
 @Composable
-private fun CardBlock(title: String, content: @Composable ColumnScope.() -> Unit) {
+internal fun CardBlock(title: String, content: @Composable ColumnScope.() -> Unit) {
 	Card(
 		Modifier.fillMaxWidth(),
 		border = BorderStroke(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = .09f)),
@@ -1094,6 +1096,7 @@ private fun Send(s: WalletState, model: WalletModel) {
 				(if (source == "Ark") s.ark else s.chain)?.let { sats(it) } ?: "Not synced",
 			)
 			HorizontalDivider()
+			OwnedWalletDestination(s, destination) { destination = it }
 			Field("Address, invoice or offer", destination) { destination = it }
 			TextButton(onClick = { scanning = true }, enabled = !s.busy) { Text("Scan payment QR") }
 			Field("Amount in ${unit.title}", amount, number = true) { amount = it }
@@ -1305,6 +1308,9 @@ private fun Activity(s: WalletState, model: WalletModel) {
 			Text(item.status.replace('_', ' '))
 			item.time?.let { Text(java.time.Instant.ofEpochMilli(it).toString()) }
 			TextButton(onClick = { detail = item }) { Text("View receipt") }
+			if (!item.ark && item.amount < 0 && item.status == "pending" && s.profiles.firstOrNull { it.id == s.activeID }?.kind == "hot") {
+				FeeReplacementControl(item.id, s.activeID)
+			}
 		}
 	}
 	detail?.let { item ->
@@ -1485,6 +1491,16 @@ private fun Connections(s: WalletState, model: WalletModel, draft: MutableState<
 private fun Backup(s: WalletState, model: WalletModel) {
 	val activity = LocalActivity.current as? MainActivity
 	var keySaved by remember { mutableStateOf(false) }
+	val context = LocalContext.current
+	val records = context.getSharedPreferences("backup-records", 0)
+	var checkKey by remember(s.activeID) { mutableStateOf("") }
+	CardBlock("Your recovery plan") {
+		for ((prefix, title) in listOf("saved-" to "Last file saved here", "checked-" to "Last restore check here")) {
+			val date = records.getLong(prefix + s.activeID, 0)
+			Text(title + ": " + if(date == 0L) "Not recorded" else java.text.DateFormat.getDateTimeInstance().format(java.util.Date(date)))
+		}
+		Text("Local records do not confirm cloud upload or that an older backup includes your latest activity.")
+	}
 	CardBlock("Complete recovery backup") {
 		Text(
 			"Includes keys, the complete wallet database and Ark recovery data. Save a fresh backup after using Ark. A seed phrase alone is not enough for offline Ark recovery.",
@@ -1510,6 +1526,12 @@ private fun Backup(s: WalletState, model: WalletModel) {
 			}
 			if (s.backupSaved) Text("Backup file saved. Keep the recovery key separately.")
 		}
+	}
+	CardBlock("Check a saved backup") {
+		Field("Backup recovery key", checkKey, secret = true) { checkKey = it }
+		OutlinedButton(enabled = !s.busy && checkKey.isNotEmpty(), onClick = { activity?.restoreBackup(checkKey, checkOnly = true); checkKey = "" }) { Text("Choose file to check…") }
+		Text("Decrypts the file and tests restoration in temporary storage. It does not add a wallet, connect to servers, or move funds.")
+		if(s.backupStatus.isNotEmpty()) Text(s.backupStatus)
 	}
 }
 

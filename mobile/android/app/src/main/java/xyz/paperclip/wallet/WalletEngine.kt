@@ -426,6 +426,19 @@ class WalletEngine private constructor(context: Context) {
 		}
 	}
 
+	suspend fun walletDestinationAddress(id: String): String = serial {
+		openStored()
+		val index = registry()
+		val source = index.selected() ?: error("Open the source wallet first")
+		val target = index.entries().firstOrNull { it.getString("id") == id } ?: error("Destination wallet is unavailable")
+		require(id != source.getString("id") && target.getString("network") == source.getString("network")) { "Choose another wallet on the same network" }
+		val fields = JSONObject().put("directory", File(root, UUID.fromString(id).toString()).absolutePath)
+			.put("network", target.getString("network")).put("kind", target.optString("kind", "hot"))
+		if (target.has("descriptor")) fields.put("descriptor", target.getString("descriptor"))
+		val key = target.optString("seed").takeIf { it.isNotEmpty() }?.let { Base64.getDecoder().decode(it) } ?: ByteArray(64)
+		invoke("wallet_destination_address", fields, key).getString("address")
+	}
+
 	suspend fun prepareHardwareBoard(sourceID: String, amount: Long): JSONObject {
 		val source = serial {
 			openStored()
@@ -540,6 +553,21 @@ class WalletEngine private constructor(context: Context) {
 		} finally {
 			plain.fill(0)
 		}
+	}
+
+	suspend fun checkBackup(bytes: ByteArray, key: String): Boolean = serial {
+		openStored()
+		val plain = BackupCodec.open(bytes, key)
+		val archive = try { JSONObject(String(plain, Charsets.UTF_8)) } finally { plain.fill(0) }
+		require(archive.getInt("version") == 1 && archive.getString("network") in listOf("xbt-mainnet", "xbt-regtest")) { "Unsupported backup format" }
+		val phrase = if(archive.isNull("seedPhrase")) "" else archive.optString("seedPhrase")
+		if(phrase.isNotEmpty()) require(invoke("seed_derive", JSONObject().put("phrase", phrase)).getString("seed") == archive.getString("seed")) { "Backup words do not match its seed" }
+		val seed = Base64.getDecoder().decode(archive.getString("seed"))
+		require(seed.size == 64) { "Invalid recovery seed" }
+		val result = invoke("verify_backup", JSONObject().put("network", archive.getString("network"))
+			.put("directory", root.absolutePath).put("database", archive.getString("recoveryState")), seed)
+		check(result.getBoolean("verified")) { "Restore check did not complete" }
+		result.getBoolean("matches_current")
 	}
 
 	suspend fun restore(bytes: ByteArray, key: String, testOnly: Boolean = false) = serial {

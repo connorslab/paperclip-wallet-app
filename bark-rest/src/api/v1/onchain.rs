@@ -30,9 +30,13 @@ pub fn router() -> Router<Arc<ServerState>> {
 	Router::new()
 		.route("/message/sign", post(onchain_message_sign))
 		.route("/message/verify", post(onchain_message_verify))
+		.route("/replacement/prepare", post(replacement_prepare))
+		.route("/replacement/commit", post(replacement_commit))
 		.route("/balance", get(onchain_balance))
 		.route("/addresses/next", post(onchain_address))
 		.route("/send", post(onchain_send))
+		.route("/send/prepare", post(send_prepare))
+		.route("/send/commit", post(send_commit))
 		.route("/send-many", post(onchain_send_many))
 		.route("/drain", post(onchain_drain))
 		.route("/utxos", get(onchain_utxos))
@@ -40,9 +44,104 @@ pub fn router() -> Router<Arc<ServerState>> {
 		.route("/sync", post(onchain_sync))
 }
 
+pub(crate) struct PreparedSend {
+	owner: Arc<tokio::sync::RwLock<dyn OnchainWalletTrait>>,
+	psbt: bitcoin::Psbt,
+	destination: bitcoin::Address,
+	amount: Amount,
+	created: std::time::Instant,
+}
+#[derive(serde::Deserialize, utoipa::ToSchema)]
+struct SendApproval { #[schema(value_type = String)] request_id: bitcoin::Txid, total_sat: u64 }
+
+#[utoipa::path(post, path = "/send/prepare", tag = "onchain", request_body = bark_json::web::OnchainSendRequest,
+	responses((status = 200, description = "Review or submission result", body = serde_json::Value)),
+	description = "Prepare an exact 60-second on-chain review; returns request_id, destination, amount_sat, fee_sat and total_sat. Does not sign or broadcast.")]
+async fn send_prepare(State(state): State<Arc<ServerState>>, Json(body): Json<bark_json::web::OnchainSendRequest>) -> HandlerResult<Json<serde_json::Value>> {
+	let _lifecycle = state.wallet_lifecycle.lock().await;
+	let mut review = state.send_review.lock().await; *review = None;
+	let wallet = state.require_wallet()?;
+	let onchain = state.require_onchain()?;
+	let address = body.destination.parse::<bitcoin::Address<_>>().badarg("Invalid destination")?.require_network(wallet.network().await?).badarg("Wrong network")?;
+	if body.amount_sat == 0 { return Err(anyhow::anyhow!("Enter a positive amount").into()); }
+	wallet.chain().update_fee_rates(wallet.config().fallback_fee_rate).await?;
+	let mut guard = onchain.write().await;
+	guard.sync(wallet.chain()).await?;
+	let amount = Amount::from_sat(body.amount_sat);
+	let psbt = guard.prepare_tx(&[(address.clone(), amount)], wallet.chain().fee_rates().await.regular).await?;
+	let fee = psbt.fee().context("Unable to calculate payment fee")?.to_sat();
+	let total = body.amount_sat.checked_add(fee).context("Payment total overflow")?;
+	let result = serde_json::json!({"request_id": psbt.unsigned_tx.compute_txid(), "destination": address.to_string(), "amount_sat": body.amount_sat, "fee_sat": fee, "total_sat": total});
+	*review = Some(PreparedSend { owner: onchain.clone(), psbt, destination: address, amount, created: std::time::Instant::now() });
+	Ok(Json(result))
+}
+
+#[utoipa::path(post, path = "/send/commit", tag = "onchain", request_body = SendApproval,
+	responses((status = 200, description = "Review or submission result", body = serde_json::Value)),
+	description = "Consume the prepared review once. Requires the same wallet, request ID, total cost and unspent inputs. Returns txid and submitted or pending_broadcast; neither means confirmed. Never retry an uncertain commit automatically.")]
+async fn send_commit(State(state): State<Arc<ServerState>>, Json(body): Json<SendApproval>) -> HandlerResult<Json<serde_json::Value>> {
+	let _lifecycle = state.wallet_lifecycle.lock().await;
+	let reviewed = state.send_review.lock().await.take().badarg("Review an on-chain payment first")?;
+	let wallet = state.require_wallet()?; let onchain = state.require_onchain()?;
+	let result: anyhow::Result<bitcoin::Transaction> = async {
+		anyhow::ensure!(Arc::ptr_eq(&onchain, &reviewed.owner), "Wallet changed; review again");
+		anyhow::ensure!(reviewed.created.elapsed() < std::time::Duration::from_secs(60), "Payment review expired");
+		anyhow::ensure!(reviewed.psbt.unsigned_tx.compute_txid() == body.request_id && reviewed.amount.to_sat().checked_add(reviewed.psbt.fee()?.to_sat()) == Some(body.total_sat), "Reviewed payment changed");
+		let mut guard = onchain.write().await;
+		guard.sync(wallet.chain()).await?;
+		anyhow::ensure!(reviewed.created.elapsed() < std::time::Duration::from_secs(60), "Payment review expired during refresh");
+		let chain = cast_bdk_mut(&mut *guard)?;
+		let unspent: std::collections::HashSet<_> = chain.list_unspent().iter().map(|u| u.outpoint).collect();
+		anyhow::ensure!(reviewed.psbt.unsigned_tx.input.iter().all(|i| unspent.contains(&i.previous_output)), "Inputs changed; review again");
+		chain.finish_reviewed_send(reviewed.psbt, &[(reviewed.destination, reviewed.amount)]).await
+	}.await;
+	let tx = result.badarg("Unable to submit reviewed payment")?;
+	let broadcast = wallet.chain().broadcast_tx(&tx).await.is_ok();
+	Ok(Json(serde_json::json!({"state": if broadcast {"submitted"} else {"pending_broadcast"}, "txid": tx.compute_txid()})))
+}
+
+#[derive(serde::Deserialize, utoipa::ToSchema)]
+struct ReplacementRequest { #[schema(value_type = String)] txid: bitcoin::Txid, new_fee_sat: u64 }
+#[derive(serde::Deserialize, utoipa::ToSchema)]
+struct ReplacementApproval { #[schema(value_type = String)] replacement_txid: bitcoin::Txid, new_fee_sat: u64 }
+
+#[utoipa::path(post, path = "/replacement/prepare", tag = "onchain", request_body = ReplacementRequest,
+	responses((status = 200, description = "Review or submission result", body = serde_json::Value)),
+	description = "Review a replacement of a locally authorized ordinary outgoing payment. Zero new_fee_sat requests twice the original fee. Preserves all recipients, amounts and inputs; additional fee comes only from original change. Returns original_txid, replacement_txid, old_fee_sat, new_fee_sat, additional_fee_sat and recipients.")]
+async fn replacement_prepare(State(state): State<Arc<ServerState>>, Json(body): Json<ReplacementRequest>) -> HandlerResult<Json<serde_json::Value>> {
+	let _lifecycle = state.wallet_lifecycle.lock().await;
+	let mut pending = state.replacement.lock().await;
+	*pending = None;
+	let wallet = state.require_wallet()?;
+	let onchain = state.require_onchain()?;
+	let mut guard = onchain.write().await;
+	guard.sync(wallet.chain()).await?;
+	let prepared = cast_bdk_mut(&mut *guard)?.prepare_replacement(body.txid, body.new_fee_sat).await.badarg("Unable to prepare fee replacement")?;
+	let review = serde_json::to_value(&prepared.review).context("Unable to encode replacement review")?;
+	*pending = Some((onchain.clone(), prepared));
+	Ok(Json(review))
+}
+
+#[utoipa::path(post, path = "/replacement/commit", tag = "onchain", request_body = ReplacementApproval,
+	responses((status = 200, description = "Review or submission result", body = serde_json::Value)),
+	description = "Consume a 60-second fee review once after refreshing and verifying the original signatures. Returns txid and submitted or pending_broadcast. Check transaction status before any further action.")]
+async fn replacement_commit(State(state): State<Arc<ServerState>>, Json(body): Json<ReplacementApproval>) -> HandlerResult<Json<serde_json::Value>> {
+	let _lifecycle = state.wallet_lifecycle.lock().await;
+	let (owner, prepared) = state.replacement.lock().await.take().badarg("Review a fee replacement first")?;
+	let wallet = state.require_wallet()?;
+	let onchain = state.require_onchain()?;
+	if !Arc::ptr_eq(&owner, &onchain) { return Err(anyhow::anyhow!("Wallet changed; review again").into()); }
+	let mut guard = onchain.write().await;
+	guard.sync(wallet.chain()).await?;
+	let tx = cast_bdk_mut(&mut *guard)?.commit_replacement(prepared, body.replacement_txid, body.new_fee_sat).await.badarg("Unable to replace payment")?;
+	let broadcast = wallet.chain().broadcast_tx(&tx).await.is_ok();
+	Ok(Json(serde_json::json!({"state": if broadcast {"submitted"} else {"pending_broadcast"}, "txid": tx.compute_txid()})))
+}
+
 #[derive(OpenApi)]
 #[openapi(
 	paths(
+		send_prepare, send_commit, replacement_prepare, replacement_commit,
 		onchain_message_sign,
 		onchain_message_verify,
 		onchain_balance,
@@ -55,6 +154,7 @@ pub fn router() -> Router<Arc<ServerState>> {
 		onchain_sync,
 	),
 	components(schemas(
+		SendApproval, ReplacementRequest, ReplacementApproval,
 		bark_json::web::OnchainMessageRequest,
 		bark_json::web::OnchainMessageProof,
 		bark_json::web::OnchainMessageVerifyRequest,
@@ -200,8 +300,13 @@ pub async fn onchain_send(
 
 	let fee_rate = wallet.chain().fee_rates().await.regular;
 	let amount = Amount::from_sat(body.amount_sat);
-	let txid = cast_bdk_mut(&mut *onchain.write().await)?.send(wallet.chain(), addr, amount, fee_rate).await
-		.context("Failed to send onchain payment")?;
+	let mut guard = onchain.write().await;
+	let chain = cast_bdk_mut(&mut *guard)?;
+	let psbt = chain.prepare_tx(&[(addr.clone(), amount)], fee_rate).await?;
+	let tx = chain.finish_reviewed_send(psbt, &[(addr, amount)]).await?;
+	let txid = tx.compute_txid();
+	// Keep the durable signed transaction on an ambiguous network response.
+	let _ = wallet.chain().broadcast_tx(&tx).await;
 
 	Ok(axum::Json(bark_json::cli::onchain::Send { txid }))
 }
@@ -381,4 +486,30 @@ pub async fn onchain_sync(
 
 	onchain.write().await.sync(wallet.chain()).await?;
 	Ok(())
+}
+
+#[cfg(test)]
+mod assistance_tests {
+	use super::*;
+	use axum::{body::Body, http::{Request, StatusCode}};
+	use tower::ServiceExt;
+	use tokio_util::sync::CancellationToken;
+	use crate::auth::AuthToken;
+
+	#[tokio::test]
+	async fn assistance_routes_require_authentication_and_reject_unprepared_commits() {
+		let token = AuthToken::new([42;32]);
+		let state = Arc::new(ServerState::builder().auth_token(token.clone()).build(CancellationToken::new()));
+		let router = crate::api::v1::router(&state).with_state(state);
+		for path in ["/boards/prepare", "/boards/commit", "/onchain/send/prepare", "/onchain/send/commit", "/onchain/replacement/prepare", "/onchain/replacement/commit"] {
+			let request = Request::builder().method("POST").uri(path).header("content-type", "application/json").body(Body::from("{}")).unwrap();
+			assert_eq!(router.clone().oneshot(request).await.unwrap().status(), StatusCode::UNAUTHORIZED, "{path}");
+		}
+		for (path, field) in [("/boards/commit", "request_id"), ("/onchain/send/commit", "request_id"), ("/onchain/replacement/commit", "replacement_txid")] {
+			let body = serde_json::json!({field: "ab".repeat(32), "total_sat":1000, "new_fee_sat":1000, "amount_sat":500});
+			let request = Request::builder().method("POST").uri(path).header("content-type", "application/json")
+				.header("authorization", format!("Bearer {}", token.encode())).body(Body::from(body.to_string())).unwrap();
+			assert_eq!(router.clone().oneshot(request).await.unwrap().status(), StatusCode::BAD_REQUEST, "Unprepared approval must fail before reaching a wallet");
+		}
+	}
 }

@@ -10,7 +10,7 @@ android {
     defaultConfig {
         applicationId = "xyz.paperclip.wallet.android.preview"
         minSdk = 28
-        targetSdk = 35
+        targetSdk = 36
         versionCode = 4
         versionName = "0.2.0-parity.70"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"

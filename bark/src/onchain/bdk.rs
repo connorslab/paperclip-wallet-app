@@ -292,7 +292,7 @@ impl WalletReplica {
 pub struct OnchainWallet {
 	pub inner: BdkWallet,
 	pub(super) signers: SignersContainer,
-	db: Arc<dyn BarkPersister>,
+	pub(super) db: Arc<dyn BarkPersister>,
 }
 
 impl Deref for OnchainWallet {
@@ -334,7 +334,7 @@ impl OnchainWallet {
 		};
 		let signers = SignersContainer::new();
 		let mut wallet = Self { inner, signers, db };
-		wallet.persist().await?;
+		wallet.recover_authorized_sends().await?;
 		Ok(wallet)
 	}
 
@@ -353,7 +353,7 @@ impl OnchainWallet {
 		};
 		let signers = inner.build_signers(external).context("error building SegWit wallet signers")?;
 		let mut wallet = Self { inner, signers, db };
-		wallet.persist().await?;
+		wallet.recover_authorized_sends().await?;
 		Ok(wallet)
 	}
 
@@ -375,7 +375,7 @@ impl OnchainWallet {
 		};
 		let signers = inner.build_signers(external).context("error building SegWit wallet signers")?;
 		let mut wallet = Self { inner, signers, db };
-		wallet.persist().await?;
+		wallet.recover_authorized_sends().await?;
 		Ok(wallet)
 	}
 
@@ -399,7 +399,9 @@ impl OnchainWallet {
 		};
 		let signers = wallet.build_signers(desc).context("error building wallet signers")?;
 
-		Ok(Self { inner: wallet, signers, db })
+		let mut wallet = Self { inner: wallet, signers, db };
+		wallet.recover_authorized_sends().await?;
+		Ok(wallet)
 	}
 }
 

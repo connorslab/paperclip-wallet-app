@@ -30,7 +30,10 @@ function fixture(network, lightningEnabled = true, empty = false) {
         : path.endsWith('/receives/invoice') ? {invoice: 'ln-test-invoice'}
         : path.endsWith('/onchain/message/sign') ? {...JSON.parse(options.body),scheme:'bip322-simple',signature:'smp-test-proof'}
         : path.endsWith('/onchain/message/verify') ? {valid:true}
-        : path.endsWith('/onchain/send') ? {txid: 'test-txid'} : [];
+        : path.endsWith('/boards/prepare') ? {request_id:'b'.repeat(64),board_amount_sat:25000,total_sat:26000,net_sat:23000,reserve_sat:2000,network_fee_sat:1000,boarding_fee_sat:500,recovery_anchor_sat:1000,recovery_miner_fee_sat:1000}
+        : path.endsWith('/boards/commit') ? {state:'pending',txid:'b'.repeat(64)}
+        : path.endsWith('/onchain/send/prepare') ? {...JSON.parse(options.body),request_id:'a'.repeat(64),fee_sat:100,total_sat:JSON.parse(options.body).amount_sat+100}
+        : path.endsWith('/onchain/send/commit') ? {txid: 'test-txid',state:'submitted'} : [];
       return {ok: true, status: 200, json: async () => result};
     }});
   vm.runInContext(source, context);
@@ -51,7 +54,7 @@ for (const network of ['bitcoin', 'regtest']) {
   assert(!f.calls.some(c => c.path.includes('ark-info')), 'Unlock must not require the ASP');
   f.element('board-amount').value = '25000';
   await f.trigger('board', 'onsubmit');
-  assert.equal(JSON.parse(f.calls.find(c => c.path.endsWith('/board-amount')).options.body).amount_sat, 25000);
+  assert.deepEqual(JSON.parse(f.calls.find(c => c.path.endsWith('/boards/commit')).options.body), {request_id:'b'.repeat(64),amount_sat:25000,total_sat:26000});
   await f.trigger('exit-start');
   await f.trigger('exit-progress');
   await f.trigger('exit-claim');
@@ -60,7 +63,7 @@ for (const network of ['bitcoin', 'regtest']) {
   f.element('chain-destination').value = 'bc1-test-address';
   f.element('chain-amount').value = '1234';
   await f.trigger('chain-send', 'onsubmit');
-  assert.deepEqual(JSON.parse(f.calls.find(c => c.path.endsWith('/onchain/send')).options.body), {destination: 'bc1-test-address', amount_sat: 1234});
+  assert.deepEqual(JSON.parse(f.calls.find(c => c.path.endsWith('/onchain/send/commit')).options.body), {request_id:'a'.repeat(64),total_sat:1334});
   assert.equal(f.element('chain-result').textContent, 'test-txid');
   f.element('ln-destination').value = 'lno-test-offer';
   f.element('ln-amount').value = '2000';
@@ -87,7 +90,7 @@ for (const network of ['bitcoin', 'regtest']) {
   assert.equal(f.element('ln-invoice').textContent, '');
   assert.equal(f.element('history').textContent, '');
 }
-for (const path of ['/lightning/pay', '/onchain/send']) {
+for (const path of ['/lightning/pay', '/onchain/send/commit']) {
   const f = fixture('regtest');
   f.element('token').value = 'test'; await f.trigger('unlock', 'submit');
   const prefix = path.includes('lightning') ? 'ln' : 'chain';

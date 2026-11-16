@@ -14,7 +14,6 @@ struct BackupDocument: FileDocument {
 }
 
 struct BackupView: View {
-    // A production adapter supplies this only after native wallet setup/recovery is implemented.
     let engine: (any WalletBackupEngine)?
     var restoreOnly = false
     @EnvironmentObject var store: WalletStore
@@ -29,14 +28,29 @@ struct BackupView: View {
     @State private var busy = false
     @State private var pending: RecoveryArchive?
     @State private var status = ""
+    @State private var checkingFile = false
+    @State private var exportOwner: String?
+    @State private var savedAt: Date?
+    @State private var checkedAt: Date?
+    private func loadDates() {
+        savedAt = UserDefaults.standard.object(forKey: "backup.saved." + store.walletID) as? Date
+        checkedAt = UserDefaults.standard.object(forKey: "backup.checked." + store.walletID) as? Date
+    }
 
     var body: some View {
         ScrollView { VStack(spacing: 20) {
             if !restoreOnly {
-            WalletSection("Encrypted iCloud Drive backup") {
+            WalletSection("Your recovery plan") {
+                if let savedAt { LabeledContent("Last file saved here", value: savedAt.formatted(date: .abbreviated, time: .shortened)) }
+                else { Text("No backup save recorded on this device.") }
+                if let checkedAt { LabeledContent("Last restore check here", value: checkedAt.formatted(date: .abbreviated, time: .shortened)) }
+                else { Text("No restore check recorded for this wallet.") }
+                Text("These are local records, not confirmation of cloud upload or proof that an older backup includes your latest activity.").font(.caption)
+            }
+            WalletSection("Encrypted wallet backup") {
                 Text("Save an encrypted full-wallet backup to iCloud Drive using Files. Keep its recovery key somewhere separate. Paperclip cannot recover a lost key.")
                 Text("Includes the seed and Ark recovery state. A backup does not stop VTXO expiry; keep refreshing funds.").font(.caption)
-                if engine == nil { Text("Wallet backup is unavailable until a native wallet is connected. This preview does not export a placeholder backup.").foregroundStyle(.orange) }
+                if engine == nil { Text("Create or restore a wallet before preparing a backup.").foregroundStyle(.orange) }
                 Button("Prepare encrypted backup") { Task { await prepare() } }.disabled(engine == nil || busy)
                 if !recoveryKey.isEmpty {
                     Text("Record this recovery key separately from iCloud Drive:").font(.headline)
@@ -46,23 +60,31 @@ struct BackupView: View {
                         .disabled(confirmation.trimmingCharacters(in: .whitespacesAndNewlines) != recoveryKey)
                 }
             }
+            WalletSection("Check a saved backup") {
+                SecureField("Backup recovery key", text: $restoreKey).textInputAutocapitalization(.never).autocorrectionDisabled()
+                Button("Choose file to check…") { checkingFile = true; importing = true }.disabled(engine == nil || restoreKey.isEmpty || busy)
+                Text("Decrypts the file and tests restoration in temporary storage. It does not add a wallet, connect to servers, or move funds.").font(.caption)
+            }
             NavigationLink { BackupView(engine: engine, restoreOnly: true) } label: {
                 WalletCard { WalletNavigationRow("Restore a backup", subtitle: "Add as a separate wallet", icon: "icloud.and.arrow.down") }
             }
             } else {
             WalletSection("Restore as another wallet") {
                 SecureField("Backup recovery key", text: $restoreKey).textInputAutocapitalization(.never).autocorrectionDisabled()
-                Button("Choose backup from iCloud Drive…") { importing = true }
+                Button("Choose backup file…") { checkingFile = false; importing = true }
                     .disabled(engine == nil || restoreKey.isEmpty || busy)
                 Text("Restoration never replaces an existing wallet. Avoid using the same restored wallet on two devices simultaneously.").font(.caption)
             }
             }
             if !status.isEmpty { WalletSection { Text(status) } }
-        }.walletPageContent().textFieldStyle(WalletInputStyle()) }.navigationTitle(restoreOnly ? "Restore backup" : "Encrypted backup").walletPageBackground()
+        }.walletPageContent().textFieldStyle(WalletInputStyle()) }.navigationTitle(restoreOnly ? "Restore backup" : "Backup & recovery").walletPageBackground()
             .fileExporter(isPresented: $exporting, document: document, contentType: .data,
                 defaultFilename: "Paperclip-\(Date().formatted(.iso8601.year().month().day())).pcbackup") { result in
                 switch result {
-                case .success: status = "Encrypted file saved to your selected location. iCloud upload completion is managed by Files."
+                case .success:
+                    if let exportOwner { UserDefaults.standard.set(Date(), forKey: "backup.saved." + exportOwner) }
+                    loadDates()
+                    status = "Encrypted file saved to your selected location. Cloud upload completion is managed by Files."
                 case .failure: status = "Backup was not saved. Try again; keep your recovery key."
                 }
                 clearExport()
@@ -78,12 +100,15 @@ struct BackupView: View {
             } message: {
                 Text("Backup network: \(pending?.network ?? "unknown"). The native engine will validate recovery state before importing.")
             }
+            .onAppear { loadDates() }
+            .onChange(of: store.walletID) { _, _ in clearExport(); restoreKey = ""; pending = nil; status = ""; loadDates() }
             .onChange(of: phase) { _, phase in
                 if phase == .background { clearExport(); restoreKey = ""; pending = nil; restoring = false }
             }
     }
     @MainActor private func loadBackup(_ result: Result<URL, Error>, key: String) async {
         busy = true; defer { busy = false }
+        let owner = store.walletID, checkOnly = checkingFile
         do {
             let url = try result.get()
             let archive = try await Task.detached {
@@ -94,15 +119,24 @@ struct BackupView: View {
                 let data = try file.read(upToCount: EncryptedBackup.maximumBytes + 1) ?? Data()
                 return try EncryptedBackup.open(data, recoveryKey: key)
             }.value
-            guard phase == .active else { return }
-            pending = archive; restoring = true
+            guard phase == .active, owner == store.walletID else { return }
+            if checkOnly {
+                guard let engine else { throw BackupError.unsupportedFormat }
+                let matches = try await engine.verifyRecoveryArchive(archive)
+                guard phase == .active, owner == store.walletID else { return }
+                if matches { UserDefaults.standard.set(Date(), forKey: "backup.checked." + owner); loadDates() }
+                status = matches ? "Restore check passed for this wallet. Backup created " + archive.createdAt.formatted(date: .abbreviated, time: .shortened) + ". Recent payments may need a newer backup." : "Restore check passed, but this backup belongs to another wallet. No wallet was changed."
+            } else { pending = archive; restoring = true }
         } catch { status = "Could not open backup. Check the file and recovery key. No wallet was changed." }
     }
     private func prepare() async {
         guard let engine else { return }
         busy = true; defer { busy = false }
+        let owner = store.walletID
         do {
             let archive = try await engine.exportRecoveryArchive()
+            guard phase == .active, owner == store.walletID else { return }
+            exportOwner = owner
             let key = EncryptedBackup.generateRecoveryKey()
             document = BackupDocument(data: try EncryptedBackup.seal(archive, recoveryKey: key))
             recoveryKey = key; confirmation = ""
@@ -117,5 +151,5 @@ struct BackupView: View {
             status = "Recovery data imported. Synchronize with the server before spending."
         } catch { status = "Restore failed or an existing wallet prevented import. Check the native wallet status." }
     }
-    private func clearExport() { recoveryKey = ""; confirmation = ""; document = nil; exporting = false }
+    private func clearExport() { recoveryKey = ""; confirmation = ""; document = nil; exporting = false; exportOwner = nil }
 }

@@ -19,7 +19,8 @@ const cold='a'.repeat(64);
     const value=name==='wallet'?{fingerprint:'synthetic'}:name==='wallet/identity'?{network:'regtest',exit_profile:2,lightning_enabled:true,lightning_debit_limit:true}:
      name==='hardware/accounts'?{accounts:[{id:cold,label:'Savings signer',kind:'hardware'}]}:
      name==='wallet/balance'?{spendable_sat:12345}:name==='onchain/balance'?{confirmed_sat:6789}:
-     name==='onchain/send'?{txid:'b'.repeat(64)}:
+     name==='onchain/send/prepare'?{...body,request_id:'d'.repeat(64),fee_sat:100,total_sat:body.amount_sat+100}:
+     name==='onchain/send/commit'?{txid:'b'.repeat(64),state:'submitted'}:
      name==='history'?[{id:'fresh-record',status:'successful',effective_balance_sat:123,subsystem:{name:'bark.arkoor',kind:'send'},time:{created_at:'2026-11-15T12:00:00Z'},offchain_fee_sat:0}]:
      name==='hardware/request'?(body.operation==='refresh'?{confirmed_sat:22222,pending_sat:0,transactions:[]}:
       body.operation==='address'?{address:signer.receive_address}:
@@ -50,11 +51,11 @@ const cold='a'.repeat(64);
   await scenario('late hot-send response cannot reopen a receipt after relock',async({page,hold,unlock,settled,calls})=>{
    await page.locator('.overview-note [data-view="onchain"]').click();
    await page.locator('#chain-destination').fill(signer.receive_address);await page.locator('#chain-amount').fill('1000');
-   const delayed=hold(name=>name==='onchain/send');
-   await page.locator('#chain-send button').click();await page.getByRole('button',{name:'Confirm',exact:true}).click();await delayed.seen;
+   const delayed=hold(name=>name==='onchain/send/commit');
+   await page.getByRole('button',{name:'Review on-chain payment',exact:true}).click();await page.getByRole('button',{name:'Confirm',exact:true}).click();await delayed.seen;
    await page.locator('#lock').click();await unlock();delayed.release();await settled();
    assert.equal(await page.locator('#transaction-result').isVisible(),false,'Old request must not show a receipt in a new login');
-   assert.equal(calls.filter(call=>call.name==='onchain/send').length,1,'Never replay the payment');
+   assert.equal(calls.filter(call=>call.name==='onchain/send/commit').length,1,'Never replay the payment');
    assert.equal(await page.locator('#submission-warning').isVisible(),true,'Unknown outcome must remain visible');
   });
   await scenario('old activity response cannot clear a newer wallet view',async({page,hold,select,settled})=>{

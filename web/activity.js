@@ -13,7 +13,7 @@ const PaperclipActivity = (() => {
     const height=Number.isSafeInteger(row.confirmation?.height)&&row.confirmation.height>=0?row.confirmation.height:null;
     const confirmed=qr?row.confirmed===true:height!==null;
     const unconfirmed=qr?row.confirmed===false:row.confirmation===null;
-    return {kind:'onchain',change,reference:typeof row.txid==='string'?row.txid:'',
+    return {kind:'onchain',qr,change,reference:typeof row.txid==='string'?row.txid:'',
       title:row.is_cpfp===true?'Network fee bump':change===null||change===0?'On-chain transfer':change>0?'Received on-chain':'Sent on-chain',
       state:confirmed?'confirmed':unconfirmed?'pending':'unknown',badge:confirmed?'Confirmed':unconfirmed?'Unconfirmed':'Status unavailable',
       when:height===null?'':('Block '+height.toLocaleString()),fee:amount(row.onchain_fee_sat),raw:row,
@@ -40,6 +40,7 @@ const PaperclipActivity = (() => {
     facts.append(element('dt',row.kind==='onchain'?'Transaction fee':'Ark fee'),element('dd',row.fee!==null&&row.fee>=0?row.fee.toLocaleString()+' sats':'Unavailable'));
     if(row.reference){facts.append(element('dt',row.kind==='onchain'?'Transaction ID':'Movement ID'),element('dd',row.reference,'activity-reference'));}
     details.append(facts);
+    if(row.kind==='onchain'&&!row.qr&&row.state==='pending'&&row.change<0&&/^[0-9a-f]{64}$/.test(row.reference)&&globalThis.PaperclipFeeReplacement) details.append(PaperclipFeeReplacement.control(row.reference));
     if(row.kind==='onchain')details.append(element('p','The balance change includes the wallet\u2019s debit and any fee it paid. The transaction fee is the total network fee, not an extra debit.','hint'));
     const technical=element('details','');technical.append(element('summary','Technical record'),element('pre',JSON.stringify(row.raw,null,2)));details.append(technical);
     node.append(icon,heading,value,when,details);return node;

@@ -1,7 +1,7 @@
 'use strict';
 // Navigation never repeats a wallet action or dismisses an uncertain payment.
 (() => {
-  const titles = {overview:'Your wallet', transfer:'Send & receive', onchain:'On-chain', lightning:'Lightning', activity:'Activity', settings:'Settings', recovery:'Recovery', coinjoin:'CoinJoin', wallets:'Your wallets', signing:'Send with your signer'};
+  const titles = {overview:'Your wallet', transfer:'Send & receive', onchain:'On-chain', lightning:'Lightning', activity:'Activity', settings:'Settings', recovery:'Recovery', health:'Wallet health', coinjoin:'CoinJoin', wallets:'Your wallets', signing:'Send with your signer'};
   let current = 'overview';
   const valid = view => Object.hasOwn(titles, view);
   const requestedView = () => valid(location.hash.slice(1)) ? location.hash.slice(1) : 'overview';
@@ -21,7 +21,7 @@
       panel.hidden = panel.dataset.screen !== view || (!!panel.dataset.wallet && panel.dataset.wallet !== kind);
       panel.classList.toggle('view-enter', !panel.hidden);
     });
-    const section = ['recovery', 'coinjoin', 'wallets'].includes(view) ? 'settings' : ['transfer', 'onchain', 'signing'].includes(view) ? 'overview' : view;
+    const section = ['recovery', 'coinjoin', 'wallets', 'health'].includes(view) ? 'settings' : ['transfer', 'onchain', 'signing'].includes(view) ? 'overview' : view;
     document.querySelectorAll('.view-nav [data-view]').forEach(button => {
       const selected = button.dataset.view === section;
       button.setAttribute('aria-pressed', String(selected));

@@ -22,6 +22,7 @@ class MainActivity : FragmentActivity() {
 	private val unlocked = mutableStateOf(false)
 	private val authError = mutableStateOf("")
 	private var restoreKey = ""
+	private var checkBackupOnly = false
 	private val export =
 		registerForActivityResult(
 			ActivityResultContracts.CreateDocument("application/octet-stream"),
@@ -32,14 +33,15 @@ class MainActivity : FragmentActivity() {
 		registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
 			val key = restoreKey
 			restoreKey = ""
-			if (uri != null) model.restoreBackupFile(uri, key)
+			if (uri != null) model.restoreBackupFile(uri, key, checkBackupOnly)
 		}
 
 	fun exportBackup() {
 		export.launch("paperclip-wallet.backup")
 	}
 
-	fun restoreBackup(key: String) {
+	fun restoreBackup(key: String, checkOnly: Boolean = false) {
+		checkBackupOnly = checkOnly
 		restoreKey = key
 		restore.launch(arrayOf("*/*"))
 	}

@@ -137,6 +137,7 @@ struct SettingsView: View {
                     }
                 }
                 WalletSection("Wallet tools") {
+                    NavigationLink { WalletHealthView() } label: { WalletNavigationRow("Wallet health", subtitle: "Connections, recovery, and support report", icon: "heart.text.square") }
                     NavigationLink { JoinBlaketView() } label: { WalletNavigationRow("CoinJoin", subtitle: "JoinBlaket jars & maker", icon: "shuffle") }
 
                     NavigationLink { OnchainAddressesView() } label: { WalletNavigationRow("On-chain addresses", subtitle: "Receive and change addresses", icon: "list.bullet") }
@@ -209,5 +210,52 @@ struct ArkMaintenanceView: View {
                 Text(maintenance.notificationStatus).font(.caption)
             }
         }.walletPageContent() }.navigationTitle("Ark maintenance").walletPageBackground()
+    }
+}
+
+
+struct WalletHealthView: View {
+    @EnvironmentObject var store: WalletStore
+    @State private var report = ""
+    private var kind: String { store.isHardware ? "hardware" : store.isWatchOnly ? "watch" : "hot" }
+    var body: some View {
+        ScrollView { VStack(spacing: 20) {
+            WalletColumns {
+            WalletSection("Current wallet") {
+                Text(store.selectedProfile?.name ?? "Selected wallet").font(.headline)
+                LabeledContent("Network", value: store.network == "xbt-mainnet" ? "XBT mainnet" : "XBT regtest")
+                LabeledContent("Signing", value: store.isHardware ? "On your signer" : store.isWatchOnly ? "Watch only" : "On this device")
+                Text(store.chainConnectionDescription)
+                if let date = store.observed { Text("Balance snapshot: " + date.formatted(date: .abbreviated, time: .shortened)).font(.caption) }
+                else { Text("No recent balance snapshot. Refresh before making decisions.").font(.caption) }
+                Button("Check connection") { Task { await store.checkChainConnection(force: true) } }.disabled(store.chainChecking || store.busy)
+                if store.chainChecking { ProgressView("Checking on-chain backend…") }
+                Button("Refresh wallet") { store.runSync { try await store.synchronize() } }.disabled(store.busy || store.syncing)
+                if !store.message.isEmpty { Text(store.message).font(.caption) }
+            }
+            } secondary: {
+            WalletSection("Recovery readiness") {
+                if store.supportsArk {
+                    NavigationLink { BackupView(engine: store.engine) } label: { WalletNavigationRow("Backup & recovery", subtitle: "Save or check a complete backup", icon: "icloud.and.arrow.up") }
+                    Text("Back up after using Ark. Seed words alone do not include its recovery state.").font(.caption)
+                } else {
+                    Text("Keep your signing seed on the signer and a copy of the public descriptor. A public descriptor can restore monitoring, but cannot sign.")
+                }
+                Text("For a pending payment, open its Activity entry before trying another send. An on-chain fee increase keeps the original recipient and requires a new review.").font(.caption)
+            }
+            }
+            WalletSection("Support report") {
+                Text("Preview a short technical summary. Addresses, balances, payment details, names, server URLs, and credentials are excluded.").font(.caption)
+                Button("Prepare support report") {
+                    let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "unknown"
+                    report = "Paperclip support report v1\nPlatform: iOS\nBuild: \(build)\nNetwork: \(store.network == "xbt-mainnet" ? "mainnet" : "regtest")\nWallet type: \(kind)\nOn-chain connection: \(store.chainConnected ? "recently verified" : "not recently verified")\nBalance snapshot: \(store.observed == nil ? "unavailable" : "available; may be cached")\nSecrets and financial details: excluded"
+                }
+                if !report.isEmpty {
+                    Text(report).font(.caption.monospaced()).textSelection(.enabled)
+                    ShareLink("Share report…", item: report)
+                }
+            }
+        }.walletPageContent(maxWidth: 1120) }.navigationTitle("Wallet health").walletPageBackground()
+            .onChange(of: store.walletID) { _, _ in report = "" }
     }
 }

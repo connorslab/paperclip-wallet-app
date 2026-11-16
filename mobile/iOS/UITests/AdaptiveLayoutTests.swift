@@ -2,6 +2,43 @@ import XCTest
 
 /// Synthetic fixtures only: no wallet credentials, synchronization or payments.
 final class AdaptiveLayoutTests: XCTestCase {
+	func testAssistanceHealthAndBackupStayReadableInCompactAndWideLayouts() {
+		continueAfterFailure = false
+		defer { XCUIDevice.shared.orientation = .portrait }
+		for (flag, title, control) in [
+			("-wallet-health-preview", "Wallet health", "Prepare support report"),
+			("-backup-center-preview", "Backup & recovery", "Choose file to check…"),
+			("-payment-assistance-preview", "Transaction", "Review fee increase"),
+			("-own-transfer-preview", "Send XBT", "Move to my other wallet")
+		] {
+			XCUIDevice.shared.orientation = .portrait
+			let app = XCUIApplication()
+			app.launchArguments = ["-build61-preview", flag, "-appearance", "dark"]
+			app.launch()
+			XCTAssertTrue(app.navigationBars[title].waitForExistence(timeout: 15))
+			let button = app.buttons[control].firstMatch
+			for _ in 0..<8 { if button.isHittable { break }; app.scrollViews.firstMatch.swipeUp() }
+			XCTAssertTrue(button.exists)
+			if flag != "-backup-center-preview" { XCTAssertTrue(button.isHittable) }
+			capture(app, "Assistance compact " + title)
+			XCUIDevice.shared.orientation = .landscapeLeft
+			let landscape = NSPredicate { _, _ in app.frame.width > app.frame.height }
+			XCTAssertTrue(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: landscape, object: app)], timeout: 10) == .completed)
+			XCTAssertTrue(app.scrollViews.firstMatch.waitForExistence(timeout: 10))
+			for _ in 0..<8 { if button.isHittable { break }; app.scrollViews.firstMatch.swipeUp() }
+			XCTAssertTrue(button.exists)
+			if flag != "-backup-center-preview" { XCTAssertTrue(button.isHittable) }
+			capture(app, "Assistance wide " + title)
+			if flag == "-wallet-health-preview" {
+				button.tap()
+				let share = app.buttons["Share report…"].firstMatch
+				for _ in 0..<8 { if share.isHittable { break }; app.scrollViews.firstMatch.swipeUp() }
+				XCTAssertTrue(share.isHittable)
+			}
+			app.terminate()
+		}
+	}
+
 	func testTabSelectionAndNestedBackRemainStable() {
 		continueAfterFailure = false
 		XCUIDevice.shared.orientation = .portrait
@@ -205,7 +242,8 @@ final class AdaptiveLayoutTests: XCTestCase {
 	}
 
 	private func capture(_ app: XCUIApplication, _ name: String) {
-		let attachment = XCTAttachment(screenshot: app.screenshot())
+		// Element screenshots can crop using stale portrait bounds after rotation.
+		let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
 		attachment.name = name
 		attachment.lifetime = .keepAlways
 		add(attachment)
