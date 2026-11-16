@@ -46,11 +46,16 @@ class WalletScreensTest {
 			}.getOrDefault(emptyList()) else emptyList()
 			val label = instrumentation.targetContext.applicationInfo.loadLabel(instrumentation.targetContext.packageManager).toString()
 			val mentionsApp = root?.findAccessibilityNodeInfosByText(label)?.isNotEmpty() == true
+			// Fixed categories only: never include arbitrary dialog titles/text.
+			val systemSubject = if (dialog != "not-responding" || mentionsApp) "none" else
+				listOf("System UI" to "system-ui", "Process system" to "system-process",
+					"Pixel Launcher" to "launcher", "Google Play services" to "play-services")
+					.firstOrNull { root?.findAccessibilityNodeInfosByText(it.first)?.isNotEmpty() == true }?.second ?: "unknown"
 			// Only code symbols and line numbers, never message text, arguments,
 			// local values or the system ANR trace (which can include private data).
 			val mainMethods = android.os.Looper.getMainLooper().thread.stackTrace.take(16)
 				.map { "${it.className}.${it.methodName}:${it.lineNumber}" }
-			throw AssertionError("Cannot capture $name: active accessibility package was ${observedPackage ?: "unavailable"}; expected ${instrumentation.targetContext.packageName}; dialog=$dialog; mentionsApp=$mentionsApp; recent exit reason codes=$exits; main methods=$mainMethods", error)
+			throw AssertionError("Cannot capture $name: active accessibility package was ${observedPackage ?: "unavailable"}; expected ${instrumentation.targetContext.packageName}; dialog=$dialog; mentionsApp=$mentionsApp; systemSubject=$systemSubject; recent exit reason codes=$exits; main methods=$mainMethods", error)
 		}
 		val image = checkNotNull(instrumentation.uiAutomation.takeScreenshot())
 		// Public test images survive the test runner's automatic APK uninstall.
