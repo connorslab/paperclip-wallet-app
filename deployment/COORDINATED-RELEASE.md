@@ -52,13 +52,20 @@ Play-signed download option in its
 - iOS CI [43859699438](https://github.com/connorslab/paperclip-wallet-app/actions/runs/43859699438)
   at `2c75741` passed Swift/native tests, device and simulator builds, bundle checks
   and UI tests, including the wallet-switch regression.
-- Android CI [43868317424](https://github.com/connorslab/paperclip-wallet-app/actions/runs/43868317424)
-  at `657592f` passed native builds but failed the new replacement-failure fixture
-  on both API 35/36. The fixture created a blocker before provisioning a device
-  key, correctly triggering lost-key protection. It now performs a normal write
-  before injecting the fault. All four storage tests pass on a fresh local API 36
-  installation; the corrected fixture still needs CI confirmation.
-  These passes do not close the live, physical-device or packaging gates below.
+- Android CI [43872328985](https://github.com/connorslab/paperclip-wallet-app/actions/runs/43872328985)
+  at `40a855a` passed both native architectures and the complete API 36 job. The
+  corrected storage fixture also passed API 35. That job later failed onboarding
+  because a system ANR dialog covered the app. The dialog did not match the app
+  label, the app had no recorded process exit, and its main thread was idle. The
+  affected system component and root cause remain unknown. Bounded diagnostics
+  now classify known system component labels without printing dialog contents.
+  Assertions and timeouts are unchanged.
+- Android CI [43873204870](https://github.com/connorslab/paperclip-wallet-app/actions/runs/43873204870)
+  at `046dcf7` passed native builds and API 36 storage/profile tests, then hit the
+  same system ANR obstruction at the first onboarding capture. API 35 is still
+  running. This recurrence remains unresolved. New deletion-failure changes have
+  local evidence below and need separate CI confirmation. These checks do not
+  close live, physical-device or distribution gates.
 
 ## Acceptance matrix
 
@@ -971,3 +978,41 @@ checked in source and its existing native/UI CI passed at `2c75741`; there is no
 new iOS inheritance-specific runtime test in this change. This does not resolve
 portable payment/Bridge archives, cross-network server setup, post-commit metadata
 read failures, uncertain commits or funded device acceptance. Those gates stay open.
+
+
+## Failed storage deletion and alert settings: 2026-11-16
+
+Android SecureStore now reports failed deletion instead of accepting AtomicFile's
+silent failure. It removes backup and staging paths before the base record, so a
+failed backup deletion cannot restore a supposedly removed record. Missing paths
+are an idempotent success; nonempty directories and unrelated contents are never
+removed recursively. Failures propagate to wallet-removal recovery instead of
+reporting completed cleanup. This does not provide secure erasure or prove
+power-loss durability. iOS already checks Keychain deletion return codes.
+
+A real filesystem fault reproduced the old false success. Tests now block each
+of the base, backup and staging paths in turn, check that failure is reported,
+preserve marker contents and the base record when a sidecar cannot be removed,
+then remove only the fixture blocker and verify successful, idempotent retry.
+
+Payment alert settings also handle reset failure: the stored preference and toggle
+remain unchanged, a short error appears, and retry can succeed after the storage
+fault is resolved. A Compose test exercises this with a real blocked staging path,
+restores prior alert preferences/state, and never requests notification permission.
+The new test is included in CI. No payment, network or wallet-signing operation is
+part of these tests.
+
+All 18 storage, native, model and Settings UI cases pass on the isolated ARM64
+API 36/16 KB emulator, including interrupted wallet removal and the new alert
+reset/retry case. Unit tests pass (81 passed, three opt-in skipped), debug/test APK
+builds and `just checks` pass. Evidence: `/tmp/storage-delete-before-runtime.log`
+and `/tmp/storage-delete-final-runtime.log`. Both development branches receive the
+fix. Broader process-death, uncertain-commit and funded-upgrade gates remain open.
+
+The local release lint check first failed with unresolved references to unchanged
+Kotlin declarations. A full non-incremental compile passed without source changes;
+the normal `lintRelease` command then passed too. The lint report has zero errors,
+41 warnings and two hints; this is not a clean-warning or release acceptance claim.
+Logs: `/tmp/storage-delete-lint.log`, `/tmp/storage-delete-lint-full-compile.log`
+and `/tmp/storage-delete-lint-recheck.log`. Build settings were not changed to
+permanently disable incremental compilation.

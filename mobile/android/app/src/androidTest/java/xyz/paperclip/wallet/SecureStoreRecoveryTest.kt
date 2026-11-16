@@ -12,6 +12,38 @@ import org.junit.Test
 
 /** Uses only named non-secret fixtures; never moves an app wallet record. */
 class SecureStoreRecoveryTest {
+    @Test fun failedDeletionIsReportedWithoutRemovingUnrelatedContents() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val store = SecureStore(context)
+        val name = "qa-atomic-deletion"
+        val base = File(context.noBackupFilesDir, "vault/$name")
+        val paths = listOf(File(base.path + ".bak"), File(base.path + ".new"), base)
+        check(paths.none { it.exists() }) { "Preserve existing recovery fixtures" }
+        try {
+            for (blocked in paths) {
+                store.write(name, "Non-secret deletion fixture".toByteArray())
+                if (blocked == base) check(base.delete())
+                check(blocked.mkdir())
+                val marker = File(blocked, "keep")
+                marker.writeText("Preserve unrelated contents")
+                try { store.delete(name); fail("Incomplete deletion was reported as complete") }
+                catch (_: IOException) {}
+                assertEquals("Preserve unrelated contents", marker.readText())
+                if (blocked != base) assertTrue("Failed sidecar cleanup removed the committed record", base.isFile)
+                check(marker.delete())
+                check(blocked.delete())
+                store.delete(name)
+                assertTrue(paths.none { it.exists() })
+                store.delete(name) // Absence is an idempotent success.
+                assertNull(store.read(name))
+            }
+        } finally {
+            // Remove only the exact directories/files owned by this test.
+            for (path in paths) if (path.isDirectory) { File(path, "keep").delete(); path.delete() }
+            store.delete(name)
+        }
+    }
+
     @Test fun separateStoreInstancesCannotReadOrReplaceAnIncompleteWrite() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val name = "qa-atomic-concurrent"

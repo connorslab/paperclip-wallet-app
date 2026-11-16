@@ -7,6 +7,7 @@ import android.util.AtomicFile
 import java.io.File
 import java.io.FileNotFoundException
 import java.io.IOException
+import java.nio.file.Files
 import java.security.KeyStore
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
@@ -93,6 +94,15 @@ class SecureStore(context: Context) {
 	}
 
 	fun delete(name: String) = synchronized(storageLock) {
-		file(name).delete()
+		val base = file(name).baseFile
+		// AtomicFile.delete ignores failures. Remove recovery/staging files
+		// first, so a failed backup deletion cannot resurrect a deleted base.
+		try {
+			for (path in listOf(File(base.path + ".bak"), File(base.path + ".new"), base)) {
+				Files.deleteIfExists(path.toPath())
+			}
+		} catch (failure: IOException) {
+			throw IOException("Could not remove saved wallet data. Check device storage before retrying removal.", failure)
+		}
 	}
 }

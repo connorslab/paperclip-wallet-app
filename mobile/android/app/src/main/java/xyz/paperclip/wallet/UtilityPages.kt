@@ -34,11 +34,16 @@ internal fun PaymentSettings() {
 		Switch(
 			alerts,
 			{ enabled ->
-				alerts = enabled
-				prefs.edit().putBoolean("alerts", enabled).apply()
-				PaymentAlerts(context).reset()
-				if (enabled && Build.VERSION.SDK_INT >= 33)
-					permission.launch(Manifest.permission.POST_NOTIFICATIONS)
+				try {
+					PaymentAlerts(context).reset()
+					alerts = enabled
+					prefs.edit().putBoolean("alerts", enabled).apply()
+					message = ""
+					if (enabled && Build.VERSION.SDK_INT >= 33)
+						permission.launch(Manifest.permission.POST_NOTIFICATIONS)
+				} catch (_: Exception) {
+					message = "Could not update payment alerts. Check device storage and try again."
+				}
 			},
 		)
 		Text("Payment status notifications")
