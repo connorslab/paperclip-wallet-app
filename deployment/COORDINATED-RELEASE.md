@@ -611,3 +611,41 @@ ARM64 emulator. This is not enough to dismiss the CI failures. One API 35 job re
 was requested, and capture failures now report only the observed package name,
 without logging wallet text. The same active-window assertion and timeout remain.
 CI emulator acceptance is still open; investigate repeated failures before release.
+
+
+## Mobile backup navigation and CI follow-up: 2026-11-16
+
+The mobile backup center now separates Save, Check and Restore into task pages.
+The hub shows local backup/check dates and reflows into two columns on wider
+screens. Copy describes the archive as wallet keys and native Ark recovery data;
+it no longer promises complete app recovery. App payment warnings, Bridge history
+and node connections remain outside the archive. The portable recovery-envelope
+and funded restore gates above are still open.
+
+Android unit tests and ARM64 APK/test APK assembly pass. The Settings navigation
+regression passes on the opened foldable and its compact cover display, including
+all three backup tasks, Back navigation and disabled import controls without a
+key. Screenshots were inspected. A forced size/density override on the opened
+foldable caused a Compose layout-idle timeout before reaching Settings; the actual
+fold states pass with unchanged assertions. No real wallet was used.
+
+Android CI `43841741884` passes both native architectures and API 35/36 at
+`c2f6ce9`, which includes the earlier restore preflight fixes. This is separate
+from validation of these newer UI changes. iOS CI `43841772329` still failed
+SwiftUI type checking in `LightningView.body`. The next change separates the
+navigation destination and dashboard from lifecycle modifiers; its older-CI
+compiler validation is still pending. No release has been published.
+
+Android CI `43842873294` also passes both native architectures and API 35/36 at
+`9dee1c0`, with the unchanged active-window assertion and added package-only
+failure diagnostics. This provides later CI passes without proving the cause of
+the earlier two-platform capture failure. The new backup UI still needs its own
+CI run. Local Android unit results are 81 passed and three opt-in skipped.
+
+The native Apple simulator build, Tor/bundle/signature verification and three
+selected UI tests pass locally: compact/landscape assistance and backup navigation,
+Bridge entry and both directions, and Lightning layout. Backup screenshots were
+inspected in compact and landscape layouts. `just checks` passes. This validates
+the smaller Lightning view expressions with local Xcode, while a fresh iOS CI run
+must still verify the compiler that failed previously. No physical device, live
+payment, production service or store submission was changed.

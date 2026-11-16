@@ -115,7 +115,7 @@ struct LightningView: View {
 
             if busy { ProgressView(operation) }
     }
-    var body: some View {
+    private var dashboard: some View {
         ScrollView {
           VStack(spacing: 14) {
             if !connection.endpoint.isEmpty && (connecting || !connectionError.isEmpty) { connectionSummary }
@@ -127,20 +127,22 @@ struct LightningView: View {
           }.walletPageContent(maxWidth: 1120).textFieldStyle(WalletInputStyle())
         }.navigationTitle("Lightning").walletPageBackground()
             .sensoryFeedback(.selection, trigger: page)
-            .navigationDestination(item: $page) { selected in
-                ScrollView {
-                    VStack(spacing: 20) {
-                        switch selected {
-                        case .bridge: LightningBridgeMenu()
-                        case .balance: balanceCard.disabled(busy)
-                        case .connection: connectionCard
-                        case .receive: receiveCard.disabled(busy)
-                        case .pay: payCard.disabled(busy)
-                        case .status: statusCard.disabled(busy)
-                        }
-                        if busy || !message.isEmpty { WalletSection { if busy { ProgressView(operation) }; Text(message).font(.caption) } }
-                    }.walletPageContent(maxWidth: selected == .connection ? 1120 : 680).textFieldStyle(WalletInputStyle())
-                }.walletPageBackground().navigationTitle(selected.rawValue).navigationBarTitleDisplayMode(.inline)
+            .navigationDestination(item: $page) { selected in destination(selected) }
+    }
+    private func destination(_ selected: Page) -> some View {
+        ScrollView {
+            VStack(spacing: 20) {
+                switch selected {
+                case .bridge: LightningBridgeMenu()
+                case .balance: balanceCard.disabled(busy)
+                case .connection: connectionCard
+                case .receive: receiveCard.disabled(busy)
+                case .pay: payCard.disabled(busy)
+                case .status: statusCard.disabled(busy)
+                }
+                if busy || !message.isEmpty { WalletSection { if busy { ProgressView(operation) }; Text(message).font(.caption) } }
+            }.walletPageContent(maxWidth: selected == .connection ? 1120 : 680).textFieldStyle(WalletInputStyle())
+        }.walletPageBackground().navigationTitle(selected.rawValue).navigationBarTitleDisplayMode(.inline)
             .sheet(item: $receipt) { receipt in
                 NavigationStack { PaymentReceiptView(receipt: receipt, amount: reviewedPayment.map { $0.millisatoshis / 1000 }, mainnet: nodeNetwork == .mainnet) { self.receipt = nil; page = nil } }
             }
@@ -148,17 +150,19 @@ struct LightningView: View {
                 Button("Cancel", role: .cancel) {}
                 Button("Pay invoice") { pay() }
             } message: { Text("\(reviewAmount)\nMaximum fee: \(maximumFee) \(unit.title)") }
-                    .fullScreenCover(isPresented: $scanning) {
-                        QRScannerView { value in
-                            let normalized = PaymentInput.normalized(value)
-                            if normalized.lowercased().hasPrefix("lno1") {
-                                payOffer = true; payInvoice = normalized
-                            } else if PaymentInput.isBolt11(normalized) || normalized.lowercased().hasPrefix("lni1") {
-                                payOffer = false; payInvoice = normalized
-                            } else { status = "Scan a Lightning invoice or a BOLT12 offer." }
-                        }
-                    }
+            .fullScreenCover(isPresented: $scanning) {
+                QRScannerView { value in
+                    let normalized = PaymentInput.normalized(value)
+                    if normalized.lowercased().hasPrefix("lno1") {
+                        payOffer = true; payInvoice = normalized
+                    } else if PaymentInput.isBolt11(normalized) || normalized.lowercased().hasPrefix("lni1") {
+                        payOffer = false; payInvoice = normalized
+                    } else { status = "Scan a Lightning invoice or a BOLT12 offer." }
+                }
             }
+    }
+    var body: some View {
+        dashboard
             .task(id: scene) {
                 #if DEBUG && targetEnvironment(simulator)
                 if ProcessInfo.processInfo.arguments.contains("-lightning-balance-preview") || ProcessInfo.processInfo.arguments.contains("-node-connection-preview") { return }
