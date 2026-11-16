@@ -261,7 +261,7 @@ struct WalletHealthView: View {
             } secondary: {
             WalletSection("Recovery readiness") {
                 if store.supportsArk {
-                    NavigationLink { BackupView(engine: store.engine) } label: { WalletNavigationRow("Backup & recovery", subtitle: "Save or check a complete backup", icon: "icloud.and.arrow.up") }
+                    NavigationLink { BackupView(engine: store.engine) } label: { WalletNavigationRow("Backup & recovery", subtitle: "Save, check, or restore a backup", icon: "icloud.and.arrow.up") }
                     Text("Back up after using Ark. Seed words alone do not include its recovery state.").font(.caption)
                 } else {
                     Text("Keep your signing seed on the signer and a copy of the public descriptor. A public descriptor can restore monitoring, but cannot sign.")

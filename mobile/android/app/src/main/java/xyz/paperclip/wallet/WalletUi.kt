@@ -180,7 +180,7 @@ internal fun PaperclipApp(
 				navigation = navigation.back()
 			}
 			BackHandler(navigation.canGoBack) { if (!s.busy) goBack() }
-			FoldAwareFrame(allowColumns = !s.hasWallet || route in setOf("Wallet", "Settings", "Lightning")) {
+			FoldAwareFrame(allowColumns = !s.hasWallet || route in setOf("Wallet", "Settings", "Lightning", "Backup")) {
 			Scaffold(
 				containerColor = colors.background,
 				bottomBar = {
@@ -323,7 +323,7 @@ internal fun PaperclipApp(
 										"Security & recovery" -> CardBlock("Protect your wallet") {
 											SettingsLink("Wallet security", "Device authentication and protected storage", Icons.Default.Lock) { navigate("Wallet security") }
 											if (walletKind == "hot") {
-												SettingsLink("Full encrypted backup", "Keys and Ark recovery data", Icons.Default.Shield) { navigate("Backup") }
+												SettingsLink("Backup & recovery", "Save, check, or restore a backup", Icons.Default.Shield) { navigate("Backup") }
 												SettingsLink("Emergency exit", "Recover without the Ark server", Icons.Default.Security) { navigate("Emergency exit"); model.checkExit() }
 											}
 										}
@@ -399,7 +399,13 @@ internal fun PaperclipApp(
 										"Message signing" -> MessageSigning(s, model)
 										"On-chain tools" -> OnchainTools(s, model)
 										"Connections" -> Connections(s, model, connectionDraft)
-										"Backup" -> Backup(s, model)
+										"Backup" -> Backup(s, ::navigate)
+										"Save backup" -> BackupExport(s, model)
+										"Check backup" -> BackupCheck(s)
+										"Restore backup" -> CardBlock("Restore as another wallet") {
+											Text("Existing wallets are never replaced. Keep the original wallet offline while using its restored copy.")
+											RestoreBackup(s.busy)
+										}
 										"Emergency exit" -> EmergencyExit(s, model)
 									}
 								}
@@ -1397,22 +1403,33 @@ private fun Connections(s: WalletState, model: WalletModel, draft: MutableState<
 }
 
 @Composable
-private fun Backup(s: WalletState, model: WalletModel) {
-	val activity = LocalActivity.current as? MainActivity
-	var keySaved by remember { mutableStateOf(false) }
-	val context = LocalContext.current
-	val records = context.getSharedPreferences("backup-records", 0)
-	var checkKey by remember(s.activeID) { mutableStateOf("") }
-	CardBlock("Your recovery plan") {
-		for ((prefix, title) in listOf("saved-" to "Last file saved here", "checked-" to "Last restore check here")) {
-			val date = records.getLong(prefix + s.activeID, 0)
-			Text(title + ": " + if(date == 0L) "Not recorded" else java.text.DateFormat.getDateTimeInstance().format(java.util.Date(date)))
+private fun Backup(s: WalletState, navigate: (String) -> Unit) {
+	val records = LocalContext.current.getSharedPreferences("backup-records", 0)
+	WalletColumns(primary = {
+		CardBlock("Your recovery plan") {
+			for ((prefix, title) in listOf("saved-" to "Last file saved", "checked-" to "Last restore check")) {
+				val date = records.getLong(prefix + s.activeID, 0)
+				Text(title + ": " + if (date == 0L) "Not recorded" else java.text.DateFormat.getDateTimeInstance().format(java.util.Date(date)))
+			}
+			Text("Recorded on this device. Your storage provider manages cloud upload.", style = MaterialTheme.typography.bodySmall)
 		}
-		Text("Local records do not confirm cloud upload or that an older backup includes your latest activity.")
-	}
-	CardBlock("Complete recovery backup") {
+	}, secondary = {
+		CardBlock("Backup actions") {
+			SettingsLink("Save a backup", "Encrypt your keys and Ark state", Icons.Default.CloudUpload) { navigate("Save backup") }
+			SettingsLink("Check a saved backup", "Verify its file and recovery key", Icons.Default.VerifiedUser) { navigate("Check backup") }
+			SettingsLink("Restore a backup", "Add as a separate wallet", Icons.Default.CloudDownload) { navigate("Restore backup") }
+		}
+	})
+}
+
+@Composable
+private fun BackupExport(s: WalletState, model: WalletModel) {
+	val activity = LocalActivity.current as? MainActivity
+	var keySaved by remember(s.activeID, s.recoveryKey) { mutableStateOf(false) }
+	var scopeExpanded by remember { mutableStateOf(false) }
+	CardBlock("Encrypted wallet backup") {
 		Text(
-			"Includes keys, the complete wallet database and Ark recovery data. Save a fresh backup after using Ark. A seed phrase alone is not enough for offline Ark recovery.",
+			"Save your wallet keys and Ark state. Keep the recovery key separately; Paperclip cannot recover a lost key.",
 		)
 		Button(
 			onClick = {
@@ -1435,11 +1452,22 @@ private fun Backup(s: WalletState, model: WalletModel) {
 			}
 			if (s.backupSaved) Text("Backup file saved. Keep the recovery key separately.")
 		}
+		TextButton(onClick = { scopeExpanded = !scopeExpanded }) { Text("What this backup includes") }
+		if (scopeExpanded) {
+			Text("Wallet keys and the native Ark recovery database. App payment warnings, Bridge history and node connections stay on this device.")
+			Text("Save a fresh backup after using Ark. A backup does not stop VTXO expiry; keep refreshing funds.")
+		}
 	}
+}
+
+@Composable
+private fun BackupCheck(s: WalletState) {
+	val activity = LocalActivity.current as? MainActivity
+	var checkKey by remember(s.activeID) { mutableStateOf("") }
 	CardBlock("Check a saved backup") {
 		Field("Backup recovery key", checkKey, secret = true) { checkKey = it }
 		OutlinedButton(enabled = !s.busy && checkKey.isNotEmpty(), onClick = { activity?.restoreBackup(checkKey, checkOnly = true); checkKey = "" }) { Text("Choose file to check…") }
-		Text("Decrypts the file and tests restoration in temporary storage. It does not add a wallet, connect to servers, or move funds.")
+		Text("Verifies the file and tests restoration without changing your wallets or moving funds.")
 		if(s.backupStatus.isNotEmpty()) Text(s.backupStatus)
 	}
 }
@@ -1448,7 +1476,7 @@ private fun Backup(s: WalletState, model: WalletModel) {
 private fun RestoreBackup(busy: Boolean) {
 	var key by remember { mutableStateOf("") }
 	val activity = LocalActivity.current as? MainActivity
-	Field("Full-backup recovery key", key, secret = true) { key = it }
+	Field("Backup recovery key", key, secret = true) { key = it }
 	OutlinedButton(
 		onClick = {
 			activity?.restoreBackup(key)
@@ -1456,7 +1484,7 @@ private fun RestoreBackup(busy: Boolean) {
 		},
 		enabled = !busy && key.isNotBlank(),
 	) {
-		Text("Restore full backup")
+		Text("Choose backup file…")
 	}
 }
 

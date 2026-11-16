@@ -7,7 +7,7 @@ final class AdaptiveLayoutTests: XCTestCase {
 		defer { XCUIDevice.shared.orientation = .portrait }
 		for (flag, title, control) in [
 			("-wallet-health-preview", "Wallet health", "Prepare support report"),
-			("-backup-center-preview", "Backup & recovery", "Choose file to check…"),
+			("-backup-center-preview", "Backup & recovery", "backup-check"),
 			("-payment-assistance-preview", "Transaction", "Review fee increase"),
 			("-own-transfer-preview", "Send XBT", "Move to my other wallet")
 		] {
@@ -19,7 +19,7 @@ final class AdaptiveLayoutTests: XCTestCase {
 			let button = app.buttons[control].firstMatch
 			for _ in 0..<8 { if button.isHittable { break }; app.scrollViews.firstMatch.swipeUp() }
 			XCTAssertTrue(button.exists)
-			if flag != "-backup-center-preview" { XCTAssertTrue(button.isHittable) }
+			XCTAssertTrue(button.isHittable)
 			capture(app, "Assistance compact " + title)
 			XCUIDevice.shared.orientation = .landscapeLeft
 			let landscape = NSPredicate { _, _ in app.frame.width > app.frame.height }
@@ -27,13 +27,26 @@ final class AdaptiveLayoutTests: XCTestCase {
 			XCTAssertTrue(app.scrollViews.firstMatch.waitForExistence(timeout: 10))
 			for _ in 0..<8 { if button.isHittable { break }; app.scrollViews.firstMatch.swipeUp() }
 			XCTAssertTrue(button.exists)
-			if flag != "-backup-center-preview" { XCTAssertTrue(button.isHittable) }
+			XCTAssertTrue(button.isHittable)
 			capture(app, "Assistance wide " + title)
 			if flag == "-wallet-health-preview" {
 				button.tap()
 				let share = app.buttons["Share report…"].firstMatch
 				for _ in 0..<8 { if share.isHittable { break }; app.scrollViews.firstMatch.swipeUp() }
 				XCTAssertTrue(share.isHittable)
+			} else if flag == "-backup-center-preview" {
+				for (action, destination, field) in [
+					("backup-save", "Save backup", "Prepare encrypted backup"),
+					("backup-check", "Check backup", "Choose file to check…"),
+					("backup-restore", "Restore backup", "Choose backup file…")
+				] {
+					app.buttons[action].tap()
+					XCTAssertTrue(app.navigationBars[destination].waitForExistence(timeout: 10))
+					XCTAssertTrue(app.buttons[field].waitForExistence(timeout: 10))
+					capture(app, "Backup task " + destination)
+					app.navigationBars[destination].buttons.firstMatch.tap()
+					XCTAssertTrue(app.buttons["backup-save"].waitForExistence(timeout: 10))
+				}
 			}
 			app.terminate()
 		}

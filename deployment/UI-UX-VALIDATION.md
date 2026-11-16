@@ -412,3 +412,28 @@ Inspected screenshots are under `/tmp/bridge-ark-screens/`, including
 `bridge-send-ark-startos-390.png` and `bridge-send-ark-umbrel-1280.png`.
 This is browser fixture acceptance; live swaps and physical accessibility tests
 remain separate release gates.
+
+
+## Backup task navigation: 2026-11-16
+
+The mobile recovery hub now shows local save/check dates and three task links:
+Save, Check and Restore. Wider screens place the summary and actions in separate
+columns; compact screens retain all choices on one short page. Detailed archive
+scope is disclosed on the Save page. It accurately excludes separate app payment
+warnings, Bridge history and node connections; complete portable recovery remains
+an acceptance gate in COORDINATED-RELEASE.md.
+
+Android's existing Settings navigation test now exercises the hub, every task and
+Back navigation. It passed on both the actual opened Pixel Fold emulator and its
+cover display. Both hub screenshots and the expanded Save page were inspected.
+No encryption key was generated and no backup was imported in these UI checks.
+A separate run using forced size/density overrides timed out on pending Compose
+layout before Settings; it is not counted as a compact-screen pass. No test
+assertion or timeout was weakened to obtain the actual fold-state passes.
+
+The native iPhone simulator test passed the compact/landscape health, backup,
+transaction-assistance and owned-wallet-transfer fixtures. Backup navigation now
+opens all three tasks and returns to the hub. The first run used a title-only
+selector for a combined navigation row and was stopped; stable link identifiers
+fixed the test query, and the hub links must now be hittable in both orientations.
+This is synthetic navigation evidence, not Files import or funded restore proof.

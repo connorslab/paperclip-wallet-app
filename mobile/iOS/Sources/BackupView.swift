@@ -13,9 +13,12 @@ struct BackupDocument: FileDocument {
     func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper { FileWrapper(regularFileWithContents: data) }
 }
 
+enum BackupPage { case overview, save, check }
+
 struct BackupView: View {
     let engine: (any WalletBackupEngine)?
     var restoreOnly = false
+    var page = BackupPage.overview
     @EnvironmentObject var store: WalletStore
     @Environment(\.scenePhase) private var phase
     @State private var recoveryKey = ""
@@ -37,47 +40,78 @@ struct BackupView: View {
         checkedAt = UserDefaults.standard.object(forKey: "backup.checked." + store.walletID) as? Date
     }
 
-    var body: some View {
-        ScrollView { VStack(spacing: 20) {
-            if !restoreOnly {
-            WalletSection("Your recovery plan") {
-                if let savedAt { LabeledContent("Last file saved here", value: savedAt.formatted(date: .abbreviated, time: .shortened)) }
-                else { Text("No backup save recorded on this device.") }
-                if let checkedAt { LabeledContent("Last restore check here", value: checkedAt.formatted(date: .abbreviated, time: .shortened)) }
-                else { Text("No restore check recorded for this wallet.") }
-                Text("These are local records, not confirmation of cloud upload or proof that an older backup includes your latest activity.").font(.caption)
-            }
-            WalletSection("Encrypted wallet backup") {
-                Text("Save an encrypted full-wallet backup to iCloud Drive using Files. Keep its recovery key somewhere separate. Paperclip cannot recover a lost key.")
-                Text("Includes the seed and Ark recovery state. A backup does not stop VTXO expiry; keep refreshing funds.").font(.caption)
-                if engine == nil { Text("Create or restore a wallet before preparing a backup.").foregroundStyle(.orange) }
-                Button("Prepare encrypted backup") { Task { await prepare() } }.disabled(engine == nil || busy)
-                if !recoveryKey.isEmpty {
-                    Text("Record this recovery key separately from iCloud Drive:").font(.headline)
-                    Text(recoveryKey).font(.system(.caption, design: .monospaced)).textSelection(.enabled).privacySensitive()
-                    SecureField("Re-enter the saved recovery key", text: $confirmation).textInputAutocapitalization(.never).autocorrectionDisabled()
-                    Button("Save encrypted file to Files…") { exporting = true }
-                        .disabled(confirmation.trimmingCharacters(in: .whitespacesAndNewlines) != recoveryKey)
-                }
-            }
-            WalletSection("Check a saved backup") {
-                SecureField("Backup recovery key", text: $restoreKey).textInputAutocapitalization(.never).autocorrectionDisabled()
-                Button("Choose file to check…") { checkingFile = true; importing = true }.disabled(engine == nil || restoreKey.isEmpty || busy)
-                Text("Decrypts the file and tests restoration in temporary storage. It does not add a wallet, connect to servers, or move funds.").font(.caption)
-            }
+    private var title: String {
+        if restoreOnly { return "Restore backup" }
+        switch page { case .overview: return "Backup & recovery"; case .save: return "Save backup"; case .check: return "Check backup" }
+    }
+    private var recoverySummary: some View {
+        WalletSection("Your recovery plan") {
+            LabeledContent("Last file saved", value: savedAt?.formatted(date: .abbreviated, time: .shortened) ?? "Not recorded")
+            LabeledContent("Last restore check", value: checkedAt?.formatted(date: .abbreviated, time: .shortened) ?? "Not recorded")
+            Text("Recorded on this device. Your storage provider manages cloud upload.").font(.caption).foregroundStyle(PaperclipTheme.muted)
+        }
+    }
+    private var backupScope: some View {
+        DisclosureGroup("What this backup includes") {
+            Text("Wallet keys and the native Ark recovery database. App payment warnings, Bridge history and node connections stay on this device.")
+            Text("Save a fresh backup after using Ark. A backup does not stop VTXO expiry; keep refreshing funds.")
+        }.font(.caption).foregroundStyle(PaperclipTheme.muted)
+    }
+    private var actions: some View {
+        WalletSection {
+            NavigationLink { BackupView(engine: engine, page: .save) } label: {
+                WalletNavigationRow("Save a backup", subtitle: "Encrypt your keys and Ark state", icon: "icloud.and.arrow.up")
+            }.accessibilityIdentifier("backup-save")
+            Divider()
+            NavigationLink { BackupView(engine: engine, page: .check) } label: {
+                WalletNavigationRow("Check a saved backup", subtitle: "Verify its file and recovery key", icon: "checkmark.shield")
+            }.accessibilityIdentifier("backup-check")
+            Divider()
             NavigationLink { BackupView(engine: engine, restoreOnly: true) } label: {
-                WalletCard { WalletNavigationRow("Restore a backup", subtitle: "Add as a separate wallet", icon: "icloud.and.arrow.down") }
-            }
-            } else {
+                WalletNavigationRow("Restore a backup", subtitle: "Add as a separate wallet", icon: "icloud.and.arrow.down")
+            }.accessibilityIdentifier("backup-restore")
+        }.buttonStyle(WalletNavigationButtonStyle())
+    }
+    @ViewBuilder private var content: some View {
+        if restoreOnly {
             WalletSection("Restore as another wallet") {
                 SecureField("Backup recovery key", text: $restoreKey).textInputAutocapitalization(.never).autocorrectionDisabled()
                 Button("Choose backup file…") { checkingFile = false; importing = true }
                     .disabled(engine == nil || restoreKey.isEmpty || busy)
-                Text("Restoration never replaces an existing wallet. Avoid using the same restored wallet on two devices simultaneously.").font(.caption)
+                Text("Existing wallets are never replaced. Keep the original wallet offline while using its restored copy.").font(.caption)
             }
+        } else {
+            switch page {
+            case .overview:
+                WalletColumns { recoverySummary } secondary: { actions }
+            case .save:
+                WalletSection("Encrypted wallet backup") {
+                    Text("Save your wallet keys and Ark state to Files. Keep the recovery key separately; Paperclip cannot recover a lost key.")
+                    if engine == nil { Text("Create or restore a wallet before preparing a backup.").foregroundStyle(.orange) }
+                    Button("Prepare encrypted backup") { Task { await prepare() } }.disabled(engine == nil || busy)
+                    if !recoveryKey.isEmpty {
+                        Text("Store this recovery key separately:").font(.headline)
+                        Text(recoveryKey).font(.system(.caption, design: .monospaced)).textSelection(.enabled).privacySensitive()
+                        SecureField("Re-enter the saved recovery key", text: $confirmation).textInputAutocapitalization(.never).autocorrectionDisabled()
+                        Button("Save encrypted file to Files…") { exporting = true }
+                            .disabled(confirmation.trimmingCharacters(in: .whitespacesAndNewlines) != recoveryKey)
+                    }
+                    backupScope
+                }
+            case .check:
+                WalletSection("Check a saved backup") {
+                    SecureField("Backup recovery key", text: $restoreKey).textInputAutocapitalization(.never).autocorrectionDisabled()
+                    Button("Choose file to check…") { checkingFile = true; importing = true }.disabled(engine == nil || restoreKey.isEmpty || busy)
+                    Text("Verifies the file and tests restoration without changing your wallets or moving funds.").font(.caption)
+                }
             }
-            if !status.isEmpty { WalletSection { Text(status) } }
-        }.walletPageContent().textFieldStyle(WalletInputStyle()) }.navigationTitle(restoreOnly ? "Restore backup" : "Backup & recovery").walletPageBackground()
+        }
+        if !status.isEmpty { WalletSection { Text(status) } }
+    }
+    var body: some View {
+        ScrollView { VStack(spacing: 20) { content }
+            .walletPageContent(maxWidth: page == .overview && !restoreOnly ? 1120 : 680).textFieldStyle(WalletInputStyle())
+        }.navigationTitle(title).walletPageBackground()
             .fileExporter(isPresented: $exporting, document: document, contentType: .data,
                 defaultFilename: "Paperclip-\(Date().formatted(.iso8601.year().month().day())).pcbackup") { result in
                 switch result {
@@ -140,7 +174,7 @@ struct BackupView: View {
             let key = EncryptedBackup.generateRecoveryKey()
             document = BackupDocument(data: try EncryptedBackup.seal(archive, recoveryKey: key))
             recoveryKey = key; confirmation = ""
-        } catch { clearExport(); status = "Could not create a complete backup. No file was exported." }
+        } catch { clearExport(); status = "Could not create an encrypted backup. No file was exported." }
     }
     private func restore() async {
         guard let engine, let archive = pending else { return }
