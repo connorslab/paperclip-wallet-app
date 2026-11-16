@@ -122,8 +122,8 @@ html {scroll-padding-block:24px 140px}
 .signing-qr svg{display:block;width:100%;height:auto}
 .file-button{display:inline-flex;align-items:center;min-height:48px;padding:10px 14px;border:1px solid var(--stroke);border-radius:14px;gap:12px;flex-wrap:wrap;max-width:100%}
 .file-button input{max-width:100%;width:220px;font-size:.85rem}
-#qr-scanner,#wallet-rename{width:min(92vw,600px);max-height:90vh;overflow:auto;padding:24px;border:1px solid var(--stroke);border-radius:24px;background:var(--surface);color:#eef2f8}
-#qr-scanner::backdrop,#wallet-rename::backdrop{background:#07101acc;backdrop-filter:blur(8px)}
+#qr-scanner,#wallet-rename,#wallet-remove{width:min(92vw,600px);max-height:90vh;overflow:auto;padding:24px;border:1px solid var(--stroke);border-radius:24px;background:var(--surface);color:#eef2f8}
+#qr-scanner::backdrop,#wallet-rename::backdrop,#wallet-remove::backdrop{background:#07101acc;backdrop-filter:blur(8px)}
 #scanner-video{display:block;width:100%;max-height:50vh;border-radius:16px;background:#05080e}
 #pair-wallet{margin:24px 0}
 #pair-confirmation output{overflow-wrap:anywhere}

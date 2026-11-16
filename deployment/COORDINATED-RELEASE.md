@@ -53,7 +53,7 @@ does not establish parity. Native UI and background scheduling can differ.
 | Ark payments and recovery | Shared engine, durable payment status, cost review | Shared engine, cost review, status UI | Deploy cookie-rotation fix, verify failed receive recovery and both-direction settlement |
 | Lightning through Ark | Shared BOLT11/BOLT12 engine and enforced reviewed debit | Same engine, fixed-amount review and debit capability | Verify live against corrected service; keep unknown outcomes from being resent |
 | Remote CLN and XBT LND | Both adapters, Tor, TLS, BOLT12, balances and status | Direct-node adapters, private credential storage, reviewed sends and durable status implemented | Live node, container Tor and platform package acceptance pending; see REMOTE-LIGHTNING.md |
-| Multiple / hardware / watch-only wallets | Implemented in mobile candidate, visible wallet switcher | Hot-wallet/QR-account switcher, public pairing, verified signing and durable broadcast journal | Physical Krux round trips, desktop multiple hot/watch-only profiles, QR-funded Ark boarding and full recovery |
+| Multiple / hardware / watch-only wallets | Implemented in mobile candidate, visible wallet switcher | Hot/public-account switcher, QR and watch-only pairing, public export/removal, verified signing and durable broadcast journal | Physical Krux round trips, desktop multiple hot profiles, QR-funded Ark boarding and full recovery |
 | Paperclip Bridge | Both mobile directions implemented | Browser flows still missing | Matching quote validation and durable reconciliation; live swap not verified |
 | JoinBlaket / Jam | Five jars, remote session, receive, reviewed maker controls | Same tasks through authenticated fixed-upstream proxy | Actual Kilombino XBT Jam endpoint, live validation, bond setup and taker flows |
 | Existing Kilojoin funds | Recovery UI retained; new rounds rejected before database access | No new Kilojoin entry point | Verify existing-round completion and withdrawal on upgraded wallets |
@@ -198,6 +198,23 @@ bridge status alone cannot establish settlement without valid payment proof.
 Synthetic regression checks passed: 40 REST tests, 9 Swift bridge tests and 75
 Android unit tests (3 skipped). These checks do not establish live bridge or
 installed-package acceptance.
+
+The browser/server public-wallet candidate now supports watch-only accounts,
+public descriptor exports and removal from the wallet list. Signing and broadcast
+are rejected by the server for watch-only accounts. Removal requires the exact
+wallet name and backup acknowledgement, and is blocked while the saved broadcast
+has not confirmed. It archives the account instead of deleting the database:
+importing the same public account restores address indexes and history. A missing
+database is an error, never an invitation to create a fresh address history.
+Existing QR accounts retain their signing type when loading the older schema.
+Public exports contain no spending keys, but reveal wallet addresses and activity;
+the export review explains that privacy consequence.
+
+Synthetic tests cover archive/restore index continuity, missing-database refusal,
+watch-only signing refusal, public export, active-account removal and uncertain
+broadcast blocking. Browser flows pass at 390 and 1280 pixels. The Android compact
+menu smoke test and separate settings test pass on an unfunded API 35 emulator;
+the CI test now follows the nested menu routes introduced by the compact layout.
 
 The broader gaps remain open: Bridge browser flows, full server wallet management and recovery,
 Jam service acceptance, payment requests, portable contacts/labels and restricted

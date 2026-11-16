@@ -3,7 +3,7 @@
 use std::{collections::HashMap, io::Write, path::{Path, PathBuf}, sync::Arc, time::{Duration, Instant}};
 
 use anyhow::{Context, ensure};
-use axum::{Json, Router, extract::{DefaultBodyLimit, State}, http::StatusCode, routing::{get, post}};
+use axum::{Json, Router, extract::{DefaultBodyLimit, State}, http::{HeaderMap, StatusCode, header}, routing::{get, post}};
 use base64::{Engine, engine::general_purpose::STANDARD};
 use bitcoin::{Amount, Network, Psbt, Transaction, hashes::{Hash, sha256}};
 use bark::{onchain::{OnchainWallet, OnchainWalletTrait, qr}, persist::sqlite::SqliteClient};
@@ -17,7 +17,14 @@ pub(crate) struct Accounts { pending: HashMap<PathBuf, Pending> }
 struct Pending { psbt: Psbt, signed: Option<Transaction>, created: Instant }
 
 #[derive(Clone, Deserialize, Serialize)]
-struct Account { id: String, label: String, receive: String, change: String, network: Network }
+struct Account {
+	id: String, label: String, receive: String, change: String, network: Network,
+	#[serde(default)] kind: AccountKind,
+	#[serde(default)] archived: bool,
+}
+#[derive(Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum AccountKind { #[default] Hardware, Watch }
 
 #[derive(Deserialize)]
 struct Request {
@@ -33,10 +40,13 @@ struct Request {
 	#[serde(default)] request_id: String,
 	#[serde(default)] signed: String,
 	#[serde(default)] txid: String,
+	#[serde(default)] kind: AccountKind,
+	#[serde(default)] confirmation: String,
+	#[serde(default)] backup_acknowledged: bool,
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "snake_case")]
-enum Operation { Destination, Pair, Rename, Address, Refresh, Prepare, Verify, Broadcast, Cancel }
+enum Operation { Destination, Pair, Rename, Export, Remove, Address, Refresh, Prepare, Verify, Broadcast, Cancel }
 
 pub fn router() -> Router<Arc<ServerState>> {
 	Router::new().route("/accounts", get(accounts)).route("/request", post(request))
@@ -62,29 +72,36 @@ fn account_dir(root: &Path, id: &str) -> anyhow::Result<PathBuf> {
 	Ok(root.join(id))
 }
 fn private_dir(path: &Path) -> anyhow::Result<()> {
+	ensure!(!path.is_symlink(), "Public wallet storage must not be a symbolic link");
 	std::fs::create_dir_all(path)?;
 	#[cfg(unix)] { use std::os::unix::fs::PermissionsExt; std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700))?; }
 	Ok(())
 }
 fn save(path: &Path, value: &impl Serialize) -> anyhow::Result<()> {
-	let staging = path.with_extension("pending");
-	let mut options = std::fs::OpenOptions::new(); options.create(true).truncate(true).write(true);
-	#[cfg(unix)] { use std::os::unix::fs::OpenOptionsExt; options.mode(0o600); }
-	let mut file = options.open(&staging)?;
-	file.write_all(&serde_json::to_vec(value)?)?; file.sync_all()?;
-	std::fs::rename(staging, path)?;
+	ensure!(!path.is_symlink(), "Public wallet storage must not be a symbolic link");
+	let mut file = tempfile::NamedTempFile::new_in(path.parent().context("Account directory missing")?)?;
+	file.write_all(&serde_json::to_vec(value)?)?; file.as_file().sync_all()?;
+	file.persist(path).map_err(|_| anyhow::anyhow!("Could not save public wallet"))?;
 	std::fs::File::open(path.parent().context("Account directory missing")?)?.sync_all()?;
 	Ok(())
 }
 fn read_account(root: &Path, id: &str, network: Network) -> anyhow::Result<Account> {
+	let account = read_stored_account(root, id, network)?;
+	ensure!(!account.archived, "This public wallet was removed. Pair its public account again to restore it");
+	Ok(account)
+}
+fn read_stored_account(root: &Path, id: &str, network: Network) -> anyhow::Result<Account> {
+	ensure!(!account_dir(root, id)?.is_symlink() && !account_dir(root, id)?.join("account.json").is_symlink(), "Public wallet storage must not be a symbolic link");
 	let account: Account = serde_json::from_slice(&std::fs::read(account_dir(root, id)?.join("account.json"))?)?;
 	ensure!(account.id == id && account.network == network && account_id(&account.receive, network) == id, "QR wallet identity mismatch");
-	let (receive, change) = qr::descriptors(&account.receive, "segwit", "", network, true)?;
+	let (receive, change) = qr::descriptors(&account.receive, "segwit", "", network, account.kind == AccountKind::Hardware)?;
 	ensure!(receive.split('#').next() == account.receive.split('#').next() && change.split('#').next() == account.change.split('#').next(), "QR wallet descriptors changed");
 	Ok(account)
 }
 async fn open(root: &Path, account: &Account) -> anyhow::Result<OnchainWallet> {
 	let file = account_dir(root, &account.id)?.join("db.sqlite");
+	ensure!(!file.is_symlink(), "Public wallet storage must not be a symbolic link");
+	ensure!(file.is_file() || !account_dir(root, &account.id)?.join("account.json").exists(), "Public wallet database is missing. Restore its backup before using this account");
 	let mut options = std::fs::OpenOptions::new(); options.create(true).append(true);
 	#[cfg(unix)] { use std::os::unix::fs::OpenOptionsExt; options.mode(0o600); }
 	options.open(&file)?;
@@ -99,13 +116,14 @@ async fn context(state: &ServerState) -> anyhow::Result<(bark::Wallet, PathBuf, 
 	private_dir(&root)?;
 	Ok((wallet, root, properties.network))
 }
-fn response(result: anyhow::Result<Value>) -> (StatusCode, Json<Value>) {
+fn response(result: anyhow::Result<Value>) -> (StatusCode, HeaderMap, Json<Value>) {
+	let mut headers = HeaderMap::new(); headers.insert(header::CACHE_CONTROL, "no-store".parse().unwrap());
 	match result {
-		Ok(value) => (StatusCode::OK, Json(value)),
-		Err(error) => (StatusCode::BAD_REQUEST, Json(json!({"message": error.to_string()}))),
+		Ok(value) => (StatusCode::OK, headers, Json(value)),
+		Err(error) => (StatusCode::BAD_REQUEST, headers, Json(json!({"message": error.to_string()}))),
 	}
 }
-async fn accounts(State(state): State<Arc<ServerState>>) -> (StatusCode, Json<Value>) {
+async fn accounts(State(state): State<Arc<ServerState>>) -> (StatusCode, HeaderMap, Json<Value>) {
 	let _lifecycle = state.wallet_lifecycle.lock().await;
 	let _guard = state.hardware.lock().await;
 	response(async {
@@ -114,8 +132,8 @@ async fn accounts(State(state): State<Arc<ServerState>>) -> (StatusCode, Json<Va
 		for entry in std::fs::read_dir(&root)? {
 			let entry = entry?;
 			if entry.file_type()?.is_dir() && entry.path().join("account.json").exists() {
-				let account = read_account(&root, &entry.file_name().to_string_lossy(), network)?;
-				accounts.push(json!({"id": account.id, "label": account.label, "kind": "hardware"}));
+				let account = read_stored_account(&root, &entry.file_name().to_string_lossy(), network)?;
+				if !account.archived { accounts.push(json!({"id": account.id, "label": account.label, "kind": account.kind})); }
 			}
 		}
 		accounts.sort_by_key(|a| a["label"].as_str().unwrap_or_default().to_owned());
@@ -126,6 +144,7 @@ async fn accounts(State(state): State<Arc<ServerState>>) -> (StatusCode, Json<Va
 #[derive(Deserialize, Serialize)]
 struct Relay { txid: String, transaction: String, state: String }
 fn relay(path: &Path) -> anyhow::Result<Option<Relay>> {
+	ensure!(!path.is_symlink(), "Public wallet storage must not be a symbolic link");
 	if !path.exists() { return Ok(None); }
 	Ok(Some(serde_json::from_slice(&std::fs::read(path)?)?))
 }
@@ -134,7 +153,20 @@ fn check_request(pending: &Pending, id: &str) -> anyhow::Result<()> {
 	ensure!(pending.psbt.unsigned_tx.compute_txid().to_string() == id, "This response belongs to another signing request");
 	Ok(())
 }
-async fn request(State(state): State<Arc<ServerState>>, Json(request): Json<Request>) -> (StatusCode, Json<Value>) {
+fn archive(root: &Path, account: &Account, confirmation: &str, acknowledged: bool) -> anyhow::Result<()> {
+	ensure!(acknowledged && confirmation == format!("REMOVE {}", account.label), "Confirm the wallet name and keep its public export before removing it");
+	let directory = account_dir(root, &account.id)?;
+	ensure!(relay(&directory.join("broadcast.json"))?.is_none_or(|r| r.state == "confirmed"), "Wait for the saved broadcast to confirm before removing this wallet");
+	let mut archived = account.clone(); archived.archived = true;
+	// Preserve the database and address indexes. Pairing the same public account
+	// restores it; deleting it would risk address reuse and lose payment recovery.
+	save(&directory.join("account.json"), &archived)
+}
+fn can_sign(account: &Account) -> anyhow::Result<()> {
+	ensure!(!account.archived && account.kind == AccountKind::Hardware, "This watch-only wallet cannot create or broadcast signing requests");
+	Ok(())
+}
+async fn request(State(state): State<Arc<ServerState>>, Json(request): Json<Request>) -> (StatusCode, HeaderMap, Json<Value>) {
 	let _lifecycle = state.wallet_lifecycle.lock().await;
 	let mut accounts = state.hardware.lock().await;
 	response(async {
@@ -156,17 +188,23 @@ async fn request(State(state): State<Arc<ServerState>>, Json(request): Json<Requ
 		}
 		if matches!(request.operation, Operation::Pair) {
 			let label = wallet_label(&request.label)?;
-			let (receive, change) = qr::descriptors(&request.public_key, &request.script, &request.origin, network, true)?;
+			let (receive, change) = qr::descriptors(&request.public_key, &request.script, &request.origin, network, request.kind == AccountKind::Hardware)?;
 			let id = account_id(&receive, network);
 			let directory = account_dir(&root, &id)?;
 			ensure!(directory.exists() || std::fs::read_dir(&root)?.count() < 32, "This server supports up to 32 QR wallets");
 			private_dir(&directory)?;
-			let account = Account { id, label, receive, change, network };
+			if directory.join("account.json").exists() {
+				let saved = read_stored_account(&root, &id, network)?;
+				ensure!(saved.kind == request.kind, "This account is already saved with another wallet type");
+				ensure!(directory.join("db.sqlite").is_file(), "Restore the existing wallet database before pairing this account again");
+			}
+			let account = Account { id, label, receive, change, network, kind: request.kind, archived: false };
 			let mut wallet = open(&root, &account).await?;
 			// Pairing does not create a new receive address each time the same account is scanned.
 			let first = wallet.address_page(0, false)?.0[0].1.clone();
 			save(&directory.join("account.json"), &account)?;
 			wallet.persist().await?;
+			accounts.pending.remove(&directory);
 			return Ok(json!({"id": account.id, "label": account.label, "receive": account.receive, "first_address": first}));
 		}
 		if matches!(request.operation, Operation::Rename) {
@@ -176,6 +214,16 @@ async fn request(State(state): State<Arc<ServerState>>, Json(request): Json<Requ
 		}
 		let account = read_account(&root, &request.account, network)?;
 		let directory = account_dir(&root, &account.id)?;
+		if matches!(request.operation, Operation::Export) {
+			return Ok(json!({"version":1,"id":account.id,"label":account.label,"kind":account.kind,"network":network,
+				"descriptor":account.receive,"change_descriptor":account.change}));
+		}
+		if matches!(request.operation, Operation::Remove) {
+			archive(&root, &account, &request.confirmation, request.backup_acknowledged)?;
+			accounts.pending.remove(&directory);
+			return Ok(json!({"removed":true,"id":account.id}));
+		}
+		if matches!(request.operation, Operation::Prepare | Operation::Verify | Operation::Broadcast) { can_sign(&account)?; }
 		let mut wallet = open(&root, &account).await?;
 		let relay_file = directory.join("broadcast.json");
 		// Recover the exact pre-relay journal. Never automatically submit it again.
@@ -187,7 +235,7 @@ async fn request(State(state): State<Arc<ServerState>>, Json(request): Json<Requ
 			}
 		}
 		match request.operation {
-			Operation::Destination | Operation::Pair | Operation::Rename => unreachable!(),
+			Operation::Destination | Operation::Pair | Operation::Rename | Operation::Export | Operation::Remove => unreachable!(),
 			Operation::Cancel => { accounts.pending.remove(&directory); Ok(json!({})) },
 			Operation::Address => Ok(json!({"address": wallet.address().await?.to_string()})),
 			Operation::Refresh => {
@@ -268,11 +316,11 @@ mod tests {
 		let mut saved = Vec::new();
 		for fixture in fixtures().iter().take(2) {
 			let (receive, change) = qr::descriptors(fixture["public_key"].as_str().unwrap(), fixture["script"].as_str().unwrap(), "", Network::Bitcoin, true).unwrap();
-			let account = Account { id: account_id(&receive, Network::Bitcoin), label: "Test signer".into(), receive, change, network: Network::Bitcoin };
+			let account = Account { id: account_id(&receive, Network::Bitcoin), label: "Test signer".into(), receive, change, network: Network::Bitcoin, kind: AccountKind::Hardware, archived: false };
 			let dir = account_dir(&root, &account.id).unwrap(); private_dir(&dir).unwrap();
+			let mut wallet = open(&root, &account).await.unwrap();
 			save(&dir.join("account.json"), &account).unwrap();
 			let account = read_account(&root, &account.id, Network::Bitcoin).unwrap();
-			let mut wallet = open(&root, &account).await.unwrap();
 			let first = wallet.address().await.unwrap().to_string();
 			assert_eq!(first, fixture["receive_address"]);
 			assert!(wallet.balance().total() == Amount::ZERO);
@@ -293,6 +341,47 @@ mod tests {
 		assert_ne!(saved[0], saved[1]);
 		for id in ["../db.sqlite", "hot", "", &"A".repeat(64)] { assert!(account_dir(&root, id).is_err()); }
 		std::fs::remove_dir_all(root).unwrap();
+	}
+	#[test]
+	fn watch_only_accounts_cannot_sign_and_legacy_accounts_keep_their_kind() {
+		let fixture = &fixtures()[0];
+		let (receive, change) = qr::descriptors(fixture["public_key"].as_str().unwrap(), fixture["script"].as_str().unwrap(), "", Network::Bitcoin, true).unwrap();
+		let legacy = json!({"id":account_id(&receive,Network::Bitcoin),"label":"Existing account","receive":receive,"change":change,"network":"bitcoin"});
+		let mut account: Account = serde_json::from_value(legacy).unwrap();
+		assert!(can_sign(&account).is_ok());
+		account.kind = AccountKind::Watch;
+		assert!(can_sign(&account).is_err());
+		account.kind = AccountKind::Hardware; account.archived = true;
+		assert!(can_sign(&account).is_err());
+	}
+	#[tokio::test]
+	async fn removed_public_accounts_keep_indexes_and_block_uncertain_broadcasts() {
+		let root = tempfile::tempdir().unwrap();
+		let fixture = &fixtures()[0];
+		let (receive, change) = qr::descriptors(fixture["public_key"].as_str().unwrap(), fixture["script"].as_str().unwrap(), "", Network::Bitcoin, true).unwrap();
+		let account = Account { id: account_id(&receive,Network::Bitcoin),label:"Cold storage".into(),receive,change,network:Network::Bitcoin,kind:AccountKind::Hardware,archived:false };
+		let directory = account_dir(root.path(),&account.id).unwrap(); private_dir(&directory).unwrap();
+		let mut wallet = open(root.path(),&account).await.unwrap();
+		save(&directory.join("account.json"),&account).unwrap();
+		let first = wallet.address().await.unwrap(); drop(wallet);
+		assert!(archive(root.path(),&account,"REMOVE Cold storage",false).is_err());
+		assert!(archive(root.path(),&account,"REMOVE Another wallet",true).is_err());
+		for state in ["pending_broadcast","submitted","unknown"] {
+			save(&directory.join("broadcast.json"),&Relay { txid:"synthetic".into(),transaction:"".into(),state:state.into() }).unwrap();
+			assert!(archive(root.path(),&account,"REMOVE Cold storage",true).is_err());
+			assert!(read_account(root.path(),&account.id,Network::Bitcoin).is_ok());
+		}
+		save(&directory.join("broadcast.json"),&Relay { txid:"synthetic".into(),transaction:"".into(),state:"confirmed".into() }).unwrap();
+		archive(root.path(),&account,"REMOVE Cold storage",true).unwrap();
+		assert!(read_account(root.path(),&account.id,Network::Bitcoin).is_err());
+		let mut restored = read_stored_account(root.path(),&account.id,Network::Bitcoin).unwrap();
+		assert!(restored.archived); restored.archived = false;
+		save(&directory.join("account.json"),&restored).unwrap();
+		let mut wallet = open(root.path(),&restored).await.unwrap();
+		assert_ne!(wallet.address().await.unwrap(),first,"Restoring a public account must not reset its receive index");
+		drop(wallet);
+		std::fs::remove_file(directory.join("db.sqlite")).unwrap();
+		assert!(open(root.path(),&restored).await.is_err(),"A missing wallet database must never silently reset address history");
 	}
 	#[test]
 	fn stale_or_other_wallet_responses_cannot_use_a_signing_request() {

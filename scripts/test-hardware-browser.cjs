@@ -24,7 +24,12 @@ const urFixtures=JSON.parse(fs.readFileSync(path.join(__dirname,'../mobile/Tests
       if(body.operation==='verify')value={verified:true,fee_sat:1000,txid:'d'.repeat(64)};
       if(body.operation==='broadcast'){value={state:'pending_broadcast',txid:body.txid};receipts[body.account]=value;}
       if(body.operation==='rename'){const account=accounts.find(item=>item.id===body.account);account.label=body.label;value={id:account.id,label:account.label};}
-      if(body.operation==='pair'){const account={id:'e'.repeat(64),label:body.label,kind:'hardware'};accounts.push(account);value={...account,first_address:fixtures[2].receive_address};}
+      if(body.operation==='pair'){const account={id:(body.kind==='watch'?'f':'e').repeat(64),label:body.label,kind:body.kind||'hardware'};accounts.push(account);value={...account,first_address:fixtures[2].receive_address};}
+      if(body.operation==='export'){const account=accounts.find(item=>item.id===body.account);value={...account,descriptor:fixtures[0].public_key,change_descriptor:fixtures[0].public_key};}
+      if(body.operation==='remove'){
+       if(receipts[body.account]?.state==='pending_broadcast')return route.fulfill({status:400,json:{message:'Wait for the saved broadcast to confirm before removing this wallet'}});
+       const index=accounts.findIndex(item=>item.id===body.account),account=accounts[index];assert.equal(body.confirmation,'REMOVE '+account.label);assert.equal(body.backup_acknowledged,true);accounts.splice(index,1);value={removed:true,id:account.id};
+      }
      }
      return route.fulfill({json:value});
     }
@@ -109,9 +114,32 @@ const urFixtures=JSON.parse(fs.readFileSync(path.join(__dirname,'../mobile/Tests
    await page.locator('#token').fill('synthetic-token');await page.getByRole('button',{name:'Unlock wallet',exact:true}).click();
    await page.locator('#wallet').waitFor({state:'visible'});
    await page.locator('#wallet-select').selectOption('');await page.locator('#ark-balance').waitFor({state:'visible'});assert.equal(await page.locator('#cold-balance').isVisible(),false);
+   await page.getByRole('button',{name:'Manage wallets',exact:true}).click();
+   const savings=page.locator('.wallet-choice').filter({has:page.getByRole('button',{name:'Rename Savings Krux',exact:true})});
+   await savings.locator('summary').click();await page.getByRole('button',{name:'Remove Savings Krux',exact:true}).click();
+   assert.equal(await page.locator('#wallet-remove-confirm').isEnabled(),false);
+   await page.locator('#wallet-remove-name').fill('REMOVE Savings Krux');await page.locator('#wallet-remove-backup').check();await page.locator('#wallet-remove-confirm').click();
+   await page.locator('#wallet-remove-error').filter({hasText:'Wait for the saved broadcast'}).waitFor();
+   assert.equal(await page.locator('#wallet-select').inputValue(),'');await page.locator('#wallet-remove-cancel').click();
+   await page.locator('#pair-wallet > summary').click();await page.locator('#pair-name').fill('Watch savings');await page.locator('#pair-key').fill(fixtures[2].public_key);await page.locator('#pair-kind').selectOption('watch');
+   await page.getByRole('button',{name:'Pair public account',exact:true}).click();await page.locator('#pair-confirmation').waitFor({state:'visible'});await page.locator('#pair-use').click();
+   await page.waitForFunction(()=>document.querySelector('#wallet-kind').textContent==='WATCH-ONLY WALLET');
+   assert.equal(await page.getByRole('button',{name:'↗ Send',exact:true}).isVisible(),false);
+   await page.evaluate(()=>PaperclipNavigation.show('signing'));await page.locator('#watch-only-notice').waitFor({state:'visible'});assert.equal(await page.locator('#cold-send').isVisible(),false);
+   await page.getByRole('button',{name:'Manage wallets',exact:true}).click();
+   const watch=page.locator('.wallet-choice').filter({has:page.getByRole('button',{name:'Rename Watch savings',exact:true})});await watch.locator('summary').click();
+   await page.getByRole('button',{name:'Export Watch savings public account',exact:true}).click();
+   const download=page.waitForEvent('download');await page.getByRole('button',{name:'Confirm',exact:true}).click();
+   const saved=await download;assert.equal(fs.readFileSync(await saved.path(),'utf8'),fixtures[0].public_key);
+   await page.getByRole('button',{name:'Remove Watch savings',exact:true}).click();
+   if(process.env.SCREENSHOT_DIR)await page.screenshot({path:path.join(process.env.SCREENSHOT_DIR,`public-wallet-remove-${width}.png`),fullPage:true});
+   await page.locator('#wallet-remove-name').fill('REMOVE wrong wallet');await page.locator('#wallet-remove-backup').check();assert.equal(await page.locator('#wallet-remove-confirm').isEnabled(),false);
+   await page.locator('#wallet-remove-name').fill('REMOVE Watch savings');await page.locator('#wallet-remove-confirm').click();await page.locator('#wallet-remove').waitFor({state:'hidden'});
+   await page.locator('#wallet-account-status').filter({hasText:'Removed from the wallet list'}).waitFor();assert.equal(await page.locator('#wallet-select').inputValue(),'');
+   assert.equal(await page.getByRole('button',{name:'Rename Watch savings',exact:true}).count(),0);
    await page.locator('#lock').click();await page.goBack();assert.equal(await page.locator('#wallet').isVisible(),false);assert.equal(await page.locator('#pair-key').inputValue(),'');assert.deepEqual(errors,[]);
    assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));await page.close();
   }
-  console.log('PASS: Krux/UR codecs, public pairing, wallet isolation, draft cancellation, verified signing, uncertain broadcast, and lock cleanup at phone/desktop widths');
+  console.log('PASS: QR/watch-only pairing, public export, guarded removal, Krux/UR codecs, wallet isolation, verified signing, uncertain broadcast, and lock cleanup at phone/desktop widths');
  }finally{await browser.close();}
 })().catch(error=>{console.error(error);process.exitCode=1;});
