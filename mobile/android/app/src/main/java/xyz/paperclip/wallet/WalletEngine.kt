@@ -609,28 +609,54 @@ class WalletEngine private constructor(context: Context) {
 		// archive must not discard its active session or connection state.
 		invoke("verify_backup", JSONObject().put("network", network)
 			.put("directory", root.absolutePath).put("database", archive.getString("recoveryState")), seed.copyOf())
+		val previous = registry().selected()
+		val reopenPrevious = opened
+		val id = UUID.randomUUID().toString()
+		val destination = File(root, id)
+		check(!destination.exists()) { "Restore destination already exists; existing data was preserved" }
 		if (opened) invoke("close")
 		opened = false
 		connected = false
 		record = null
-		val id = UUID.randomUUID().toString()
-		invoke(
-			"restore",
-			JSONObject()
-				.put("network", network)
-				.put("directory", File(root, id).absolutePath)
-				.put("database", archive.getString("recoveryState")),
-			seed,
-		)
-		val next =
-			JSONObject()
-				.put("network", network)
-				.put("id", id)
-				.put("seed", archive.getString("seed"))
-				.put("phrase", phrase)
-		saveRecord(next)
-		record = next
-		openStored()
+		try {
+			invoke(
+				"restore",
+				JSONObject()
+					.put("network", network)
+					.put("directory", destination.absolutePath)
+					.put("database", archive.getString("recoveryState")),
+				seed,
+			)
+			val next = JSONObject().put("network", network).put("id", id)
+				.put("seed", archive.getString("seed")).put("phrase", phrase)
+			// Match iOS: open the restored database before committing its profile.
+			// A failed open must never replace the persisted wallet selection.
+			record = next
+			openStored()
+			saveRecord(next)
+		} catch (failure: Exception) {
+			val closed = runCatching { invoke("close") }.isSuccess
+			opened = false
+			connected = false
+			record = null
+			// Confirm registration did not commit before removing only this attempt's
+			// new directory. Unreadable storage or an uncertain close preserves it.
+			val unregistered = runCatching { registry().entries().none { it.getString("id") == id } }.getOrDefault(false)
+			if (!closed || !unregistered) {
+				throw IllegalStateException("Restore could not finish. Wallet data was preserved; restart Paperclip before trying again.", failure)
+			}
+			if (destination.exists() && !destination.deleteRecursively()) {
+				failure.addSuppressed(IllegalStateException("Unregistered restore data could not be removed"))
+			}
+			record = previous
+			if (reopenPrevious && previous != null) {
+				try { openStored() } catch (reopenFailure: Exception) {
+					failure.addSuppressed(reopenFailure)
+					throw IllegalStateException("Restore failed and the previous wallet could not reopen. Its saved data was preserved.", failure)
+				}
+			}
+			throw failure
+		} finally { seed.fill(0) }
 	}
 
 	private fun pendingRecords(): JSONObject {

@@ -63,6 +63,63 @@ class AssistanceNativeTest {
         }
     }
 
+    @Test fun failedRestoreRegistrationPreservesActiveWalletAndAllowsRetry() = runBlocking<Unit> {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val engine = WalletEngine.shared(context)
+        val original = engine.activeID()
+        val created = mutableListOf<String>()
+        val blocker = java.io.File(context.noBackupFilesDir, "vault/wallet-registry.new")
+        check(!blocker.exists()) { "Atomic storage staging already exists; preserve it" }
+        var ownsBlocker = false
+        var archive: ByteArray? = null
+        var activeSeed: ByteArray? = null
+        try {
+            engine.create(engine.phrase(), "xbt-regtest", "Restore commit source")
+            val source = checkNotNull(engine.activeID()); created += source
+            val sourceAddress = engine.call("address_onchain").getString("address")
+            val key = BackupCodec.newKey()
+            val bytes = engine.backup(key); archive = bytes
+            engine.create(engine.phrase(), "xbt-regtest", "Restore commit active")
+            val active = checkNotNull(engine.activeID()); created += active
+            val activeKey = BackupCodec.newKey()
+            val encrypted = engine.backup(activeKey)
+            val plain = try { BackupCodec.open(encrypted, activeKey) } finally { encrypted.fill(0) }
+            activeSeed = try { Base64.getDecoder().decode(JSONObject(String(plain, Charsets.UTF_8)).getString("seed")) } finally { plain.fill(0) }
+            val sourceProfile = engine.profiles().first { it.id == source }
+            engine.removeWallet(source, sourceProfile.name, "REMOVE ${sourceProfile.name}", true)
+            engine.open()
+            val profiles = engine.profiles()
+            val directories = java.io.File(context.noBackupFilesDir, "wallets").list().orEmpty().toSet()
+            // Fail the real AtomicFile commit after native restore/open. The base
+            // registry remains readable; no production-only failure hooks needed.
+            check(blocker.mkdir()); ownsBlocker = true
+            java.io.File(blocker, "fixture").writeText("block atomic write")
+            try { engine.restore(bytes, key, testOnly = true); fail("Blocked registration succeeded") }
+            catch (_: java.io.IOException) {}
+            assertEquals(active, engine.activeID())
+            assertEquals(profiles, engine.profiles())
+            val reply = NativeBridge.call("{\"op\":\"overview_onchain\"}".toByteArray(), checkNotNull(activeSeed))
+            try { assertTrue("Failed registration left the original native wallet closed", JSONObject(String(reply, Charsets.UTF_8)).has("ok")) }
+            finally { reply.fill(0) }
+            assertEquals(directories, java.io.File(context.noBackupFilesDir, "wallets").list().orEmpty().toSet())
+            check(blocker.deleteRecursively()); ownsBlocker = false
+            engine.restore(bytes, key, testOnly = true)
+            val restored = checkNotNull(engine.activeID()); created += restored
+            assertNotEquals(active, restored)
+            assertTrue(engine.checkBackup(bytes, key))
+            val addresses = engine.call("addresses_onchain").toString()
+            assertTrue("Restored wallet lost its receive address", addresses.contains(sourceAddress))
+        } finally {
+            if (ownsBlocker) blocker.deleteRecursively()
+            archive?.fill(0); activeSeed?.fill(0)
+            for (id in created) {
+                val profile = engine.profiles().firstOrNull { it.id == id } ?: continue
+                engine.removeWallet(id, profile.name, "REMOVE ${profile.name}", true)
+            }
+            if (original != null && engine.profiles().any { it.id == original }) engine.select(original)
+        }
+    }
+
     @Test fun transfersAndBackupChecksPreserveSourceIdentity() = runBlocking<Unit> {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val engine = WalletEngine.shared(context)

@@ -649,3 +649,26 @@ inspected in compact and landscape layouts. `just checks` passes. This validates
 the smaller Lightning view expressions with local Xcode, while a fresh iOS CI run
 must still verify the compiler that failed previously. No physical device, live
 payment, production service or store submission was changed.
+
+
+## Android restore registration failure: 2026-11-16
+
+Android now opens a restored database before committing its profile and selection,
+matching iOS's installation order. If installation fails, it closes the attempted
+session, confirms that registration did not commit, removes only that attempt's
+new directory, and reopens the previously open wallet. An uncertain close or
+unreadable registry preserves data and asks the user to restart. Restoring does
+not automatically reconnect the node or chain backend.
+
+A real AtomicFile write failure reproduced the previous bug: selection remained
+unchanged while the native session was closed. The regression now passes, checking
+JNI directly, profile/selection preservation, directory cleanup and successful
+retry with receive-address continuity. All three AssistanceNativeTest cases pass
+on an unfunded Android API 35 emulator, as do 81 unit tests (three opt-in skipped),
+ARM64 APK/test APK assembly and `just checks`. Existing iOS code already reopens
+the previous profile; no Swift/backend contract changed in this follow-up.
+
+This covers a synchronous registration-write failure. It does not prove process-
+death atomicity, cleanup when storage remains unreadable, iOS orphan cleanup, or
+funded restore acceptance. Portable app payment/Bridge recovery records remain
+missing from archives. No live funds or physical device was used.
