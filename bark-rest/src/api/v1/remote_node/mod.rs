@@ -269,18 +269,10 @@ async fn execute_at(root: PathBuf, network: Network, sessions: &mut Sessions, in
 			let mut record: Record = load(&path)?;
 			ensure!(record.node_id == node.connection.node_id, "Reconnect the node that owns this payment");
 			verified(&node, network).await?;
-			if input.receive {
+			if input.receive && record.state != "succeeded" {
 				let result = node.request(if node.cln() { "v1/listinvoices".into() } else { format!("v1/invoice/{}",record.payment_hash) }.as_str(), node.cln().then(||json!({"payment_hash":record.payment_hash})), false).await?;
-				let row = if node.cln() { result["invoices"].as_array().and_then(|rows|rows.iter().find(|r|r["payment_hash"] == record.payment_hash)).context("Invoice is not currently reported by this node")? } else { &result };
-				let settled = if node.cln() { row["status"] == "paid" } else { row["state"] == "SETTLED" };
-				let got = if node.cln() { &row["payment_hash"] } else { &row["r_hash"] };
-				ensure!(model::hash(got)?.to_string() == record.payment_hash, "Node returned another invoice");
-				if settled {
-					let paid = number(&row[if node.cln() { "amount_received_msat" } else { "amt_paid_msat" }])?;
-					ensure!(paid >= record.amount_msat.parse::<u64>()?, "Received amount does not match the invoice");
-					record.state = "succeeded".into();
-				} else if row["status"] == "expired" || row["state"] == "CANCELED" { record.state = "expired".into(); }
-			} else if !matches!(record.state.as_str(), "succeeded" | "failed") {
+				record.state = model::invoice_receipt(&result,node.cln(),&record.payment_hash,&record.invoice,record.amount_msat.parse()?)?.into();
+			} else if !input.receive && !matches!(record.state.as_str(), "succeeded" | "failed") {
 				let rows = if node.cln() {
 					let result = node.request("v1/listpays", Some(json!({"payment_hash":record.payment_hash})), false).await?;
 					result["pays"].as_array().context("Invalid node payment status")?.clone()

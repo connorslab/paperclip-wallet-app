@@ -10,6 +10,11 @@ internal class BridgeInvoice(input: String) {
 	val expires: Long
 	val xbt: Boolean
 
+	fun validateNodeReceive(amountSat: Long, receipt: NodeInvoiceReceipt) {
+		require(xbt && amountSat in 1..2_100_000_000_000_000L && msat == Math.multiplyExact(amountSat, 1000L)) { "The node invoice amount or network changed. Nothing was requested from the bridge." }
+		require(receipt == NodeInvoiceReceipt.WAITING) { "The node must confirm this invoice is unpaid before a bridge request." }
+	}
+
 	init {
 		val raw = input.trim().replace(Regex("(?i)^lightning:"), "")
 		require(raw.length in 100..2000 && (raw == raw.lowercase() || raw == raw.uppercase())) {

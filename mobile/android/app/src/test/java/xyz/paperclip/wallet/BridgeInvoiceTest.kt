@@ -101,4 +101,34 @@ class BridgeInvoiceTest {
 				.xbt,
 		)
 	}
+	@Test fun nodeReceiptBindsHashInvoiceAndExactAmount() {
+		val target = BridgeInvoice(invoice(true))
+		val row = JSONObject().put("payment_hash", target.hash).put("bolt11", target.text).put("amount_msat", "1000000msat").put("status", "unpaid")
+		fun cln(rows: List<JSONObject> = listOf(row)) = NodeInvoiceReceipt.decode(JSONObject().put("invoices", org.json.JSONArray(rows)), false, target)
+		assertEquals(NodeInvoiceReceipt.WAITING, cln())
+		assertThrows(IllegalArgumentException::class.java) { cln(listOf(row, row)) }
+		row.put("status", "paid").put("amount_received_msat", "999999msat")
+		assertThrows(IllegalArgumentException::class.java) { cln() }
+		row.put("amount_received_msat", "1000000msat")
+		assertEquals(NodeInvoiceReceipt.PAID, cln())
+		row.put("bolt11", invoice(true, hashByte = 2))
+		assertThrows(IllegalArgumentException::class.java) { cln() }
+		val lnd = JSONObject().put("r_hash", java.util.Base64.getEncoder().encodeToString(ByteArray(32) { 1 })).put("payment_request", target.text).put("value_msat", "1000000").put("state", "OPEN")
+		fun decode() = NodeInvoiceReceipt.decode(lnd, true, target)
+		assertEquals(NodeInvoiceReceipt.WAITING, decode())
+		lnd.put("state", "ACCEPTED"); assertEquals(NodeInvoiceReceipt.ACCEPTED, decode())
+		lnd.put("state", "SETTLED").put("amt_paid_msat", "1000000").put("settled", false)
+		assertThrows(IllegalArgumentException::class.java) { decode() }
+		lnd.put("settled", true); assertEquals(NodeInvoiceReceipt.PAID, decode())
+		lnd.put("value_msat", "999999"); assertThrows(IllegalArgumentException::class.java) { decode() }
+	}
+
+	@Test fun bridgeReceiveRequiresTheRequestedAmountAndUnpaidNodeInvoice() {
+		val target = BridgeInvoice(invoice(true))
+		target.validateNodeReceive(1000, NodeInvoiceReceipt.WAITING)
+		for (amount in listOf(0L, 999L, 1001L, Long.MAX_VALUE)) assertThrows(IllegalArgumentException::class.java) { target.validateNodeReceive(amount, NodeInvoiceReceipt.WAITING) }
+		for (state in listOf(NodeInvoiceReceipt.ACCEPTED, NodeInvoiceReceipt.PAID, NodeInvoiceReceipt.ENDED)) assertThrows(IllegalArgumentException::class.java) { target.validateNodeReceive(1000, state) }
+		assertThrows(IllegalArgumentException::class.java) { BridgeInvoice(invoice()).validateNodeReceive(1000, NodeInvoiceReceipt.WAITING) }
+	}
+
 }

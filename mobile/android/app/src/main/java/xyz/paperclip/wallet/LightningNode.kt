@@ -330,32 +330,12 @@ internal constructor(val connection: NodeConnection, private val client: OkHttpC
 			)
 	}
 
-	suspend fun received(invoice: BridgeInvoice): Boolean {
-		val result =
-			request(
-				if (lnd) "v1/invoice/" + invoice.hash else "v1/listinvoices",
-				if (lnd) null else JSONObject().put("payment_hash", invoice.hash),
-			)
-		if (lnd) {
-			require(hashHex(result.getString("r_hash")) == invoice.hash)
-			if (result.optString("state") != "SETTLED") return false
-			require(nodeAmount(result.get("amt_paid_msat")) >= invoice.msat)
-			return true
-		}
-		val rows = result.getJSONArray("invoices")
-		for (i in 0 until rows.length()) {
-			val row = rows.getJSONObject(i)
-			if (
-				row.optString("payment_hash") == invoice.hash && row.optString("status") == "paid"
-			) {
-				require(
-					row.optString("bolt11") == invoice.text &&
-						nodeAmount(row.get("amount_received_msat")) >= invoice.msat,
-				)
-				return true
-			}
-		}
-		return false
+	suspend fun receivedInvoice(invoice: BridgeInvoice): NodeInvoiceReceipt {
+		val result = request(
+			if (lnd) "v1/invoice/" + invoice.hash else "v1/listinvoices",
+			if (lnd) null else JSONObject().put("payment_hash", invoice.hash),
+		)
+		return NodeInvoiceReceipt.decode(result, lnd, invoice)
 	}
 
 	suspend fun track(hash: String): JSONObject {

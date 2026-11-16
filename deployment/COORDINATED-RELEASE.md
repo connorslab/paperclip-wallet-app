@@ -189,6 +189,16 @@ Lightning, withdrawal and recovery operations. Older-server financial submission
 fails closed. See PAYMENT-ASSISTANCE.md for the remaining crash-window, archival
 and installed-package acceptance limits.
 
+Invoice receipts on iOS, Android and the shared server now require the original
+invoice, payment hash and amount to agree. LND settlement also requires its
+settled flag, and CLN must return exactly one matching invoice. Android Bridge
+checks the receiving node independently of bridge-service availability, and
+requires a matching, unpaid node invoice before quoting a receive. An outgoing
+bridge status alone cannot establish settlement without valid payment proof.
+Synthetic regression checks passed: 40 REST tests, 9 Swift bridge tests and 75
+Android unit tests (3 skipped). These checks do not establish live bridge or
+installed-package acceptance.
+
 The broader gaps remain open: Bridge browser flows, full server wallet management and recovery,
 Jam service acceptance, payment requests, portable contacts/labels and restricted
 receive-only credentials. Public signing identities, coherent release versions,

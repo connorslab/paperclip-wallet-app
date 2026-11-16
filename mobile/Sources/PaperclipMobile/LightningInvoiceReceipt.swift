@@ -1,4 +1,5 @@
 import Foundation
+import CoreFoundation
 
 /// An invoice's preimage is known before it is paid. Only the node's paid state
 /// and received amount establish receipt; preimage possession alone does not.
@@ -9,12 +10,13 @@ public struct LightningInvoiceReceipt: Equatable, Sendable {
         guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { throw ConnectionError.response }
         func msat(_ value: Any?) -> UInt64? {
             if let string = value as? String { return UInt64(string.hasSuffix("msat") ? String(string.dropLast(4)) : string) }
-            if let number = value as? NSNumber { return UInt64(number.stringValue) }
+            if let number = value as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID() { return UInt64(number.stringValue) }
             return nil
         }
         if implementation == .cln {
-            guard let rows = object["invoices"] as? [[String: Any]],
-                  let row = rows.first(where: { ($0["payment_hash"] as? String)?.lowercased() == invoice.hash }),
+            guard let rows = object["invoices"] as? [[String: Any]] else { throw ConnectionError.response }
+            let matches = rows.filter { ($0["payment_hash"] as? String)?.lowercased() == invoice.hash }
+            guard matches.count == 1, let row = matches.first,
                   let bolt11 = row["bolt11"] as? String, try BridgeInvoice(bolt11) == invoice,
                   msat(row["amount_msat"]) == invoice.msat else { throw ConnectionError.response }
             switch row["status"] as? String {
@@ -32,7 +34,8 @@ public struct LightningInvoiceReceipt: Equatable, Sendable {
               msat(object["value_msat"]) == invoice.msat else { throw ConnectionError.response }
         switch object["state"] as? String {
         case "SETTLED":
-            guard object["settled"] as? Bool == true, let received = msat(object["amt_paid_msat"]), received >= invoice.msat else { throw ConnectionError.response }
+            guard let settled = object["settled"] as? NSNumber, CFGetTypeID(settled) == CFBooleanGetTypeID(), settled.boolValue,
+                  let received = msat(object["amt_paid_msat"]), received >= invoice.msat else { throw ConnectionError.response }
             return Self(state: .paid)
         case "OPEN": return Self(state: .waiting)
         case "ACCEPTED": return Self(state: .accepted)

@@ -96,6 +96,30 @@ pub(super) fn issued(invoice: &Invoice, offer: &Offer, amount_msat: u64) -> anyh
 	ensure!(invoice.offer_id() == Some(offer.id()), "Invoice belongs to a different offer");
 	Ok(())
 }
+/// Invoice ownership and amount must agree before any receive status is trusted.
+pub(super) fn invoice_receipt(result: &Value, cln: bool, expected: &str, invoice: &str, amount_msat: u64) -> anyhow::Result<&'static str> {
+	let row = if cln {
+		let rows = result["invoices"].as_array().context("Node invoice records are unavailable")?;
+		let matches: Vec<_> = rows.iter().filter(|r| hash(&r["payment_hash"]).is_ok_and(|h| h.to_string() == expected)).collect();
+		ensure!(matches.len() == 1, "The node did not identify exactly one matching invoice");
+		matches[0]
+	} else { result };
+	ensure!(hash(&row[if cln { "payment_hash" } else { "r_hash" }])?.to_string() == expected, "Node returned another invoice");
+	ensure!(row[if cln { "bolt11" } else { "payment_request" }].as_str().is_some_and(|text| text.eq_ignore_ascii_case(invoice)), "Node invoice differs from the saved request");
+	ensure!(number(&row[if cln { "amount_msat" } else { "value_msat" }])? == amount_msat, "Node invoice amount differs from the saved request");
+	let state = row[if cln { "status" } else { "state" }].as_str().context("Missing node invoice state")?;
+	match (cln, state) {
+		(true, "unpaid") | (false, "OPEN" | "ACCEPTED") => Ok("pending"),
+		(true, "expired") | (false, "CANCELED") => Ok("expired"),
+		(true, "paid") | (false, "SETTLED") => {
+			ensure!(cln || row["settled"] == true, "Node settlement is not confirmed");
+			ensure!(number(&row[if cln { "amount_received_msat" } else { "amt_paid_msat" }])? >= amount_msat, "Received amount does not match the invoice");
+			Ok("succeeded")
+		},
+		_ => anyhow::bail!("Node invoice state is unavailable"),
+	}
+}
+
 pub(super) fn payment_state(rows: &[Value], expected: &str) -> &'static str {
 	let rows: Vec<_> = rows.iter().filter(|row| hash(&row["payment_hash"]).is_ok_and(|hash| hash.to_string() == expected)).collect();
 	if rows.is_empty() { return "unknown"; }
@@ -124,4 +148,30 @@ mod tests {
 		assert_eq!(payment_state(&[json!({"payment_hash":hash,"status":"FAILED"}),json!({"payment_hash":hash,"status":"IN_FLIGHT"})], &hash), "pending");
 		assert_eq!(payment_state(&[json!({"payment_hash":hash,"status":"SUCCEEDED"})], &hash), "succeeded");
 	}
+	#[test]
+	fn invoice_receipt_requires_exact_request_amount_and_settlement() {
+		let expected = "01".repeat(32);
+		let mut row = json!({"r_hash":STANDARD.encode([1;32]),"payment_request":"fixture-invoice","value_msat":"1000000","state":"OPEN"});
+		assert_eq!(invoice_receipt(&row,false,&expected,"fixture-invoice",1000000).unwrap(),"pending");
+		row["state"] = json!("SETTLED"); row["amt_paid_msat"] = json!("1000000");
+		assert!(invoice_receipt(&row,false,&expected,"fixture-invoice",1000000).is_err());
+		row["settled"] = json!(true);
+		assert_eq!(invoice_receipt(&row,false,&expected,"fixture-invoice",1000000).unwrap(),"succeeded");
+		for (field,value) in [("r_hash",json!("02".repeat(32))),("payment_request",json!("another-invoice")),("value_msat",json!(999999)),("amt_paid_msat",json!(999999)),("value_msat",json!(true))] {
+			let mut changed = row.clone(); changed[field] = value;
+			assert!(invoice_receipt(&changed,false,&expected,"fixture-invoice",1000000).is_err());
+		}
+	}
+
+	#[test]
+	fn cln_invoice_receipt_rejects_ambiguous_and_incomplete_records() {
+		let expected = "01".repeat(32);
+		let row = json!({"payment_hash":expected,"bolt11":"fixture-invoice","amount_msat":"1000000msat","amount_received_msat":"1000000msat","status":"paid"});
+		assert_eq!(invoice_receipt(&json!({"invoices":[row.clone()]}),true,&expected,"fixture-invoice",1000000).unwrap(),"succeeded");
+		assert!(invoice_receipt(&json!({"invoices":[row.clone(),row.clone()]}),true,&expected,"fixture-invoice",1000000).is_err());
+		assert!(invoice_receipt(&json!({"invoices":[]}),true,&expected,"fixture-invoice",1000000).is_err());
+		let mut wrong = row; wrong["amount_msat"] = json!(999999);
+		assert!(invoice_receipt(&json!({"invoices":[wrong]}),true,&expected,"fixture-invoice",1000000).is_err());
+	}
+
 }

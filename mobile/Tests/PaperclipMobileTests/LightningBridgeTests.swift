@@ -114,10 +114,23 @@ final class LightningBridgeTests: XCTestCase {
         XCTAssertThrowsError(try decode())
         row["settled"] = true
         XCTAssertEqual(try decode().state, .paid)
+        row["settled"] = 1
+        XCTAssertThrowsError(try decode())
+        row["settled"] = true
         row["amt_paid_msat"] = "999999"
         XCTAssertThrowsError(try decode())
         row["amt_paid_msat"] = "1000000"; row["payment_request"] = invoice(xbt: true, hashByte: 2)
         XCTAssertThrowsError(try decode())
+    }
+
+    func testReceiptRejectsAmbiguousRowsAndBooleanAmounts() throws {
+        let target = try BridgeInvoice(invoice(xbt: true, amount: "10p"))
+        let row: [String: Any] = ["payment_hash": target.hash, "bolt11": target.text, "amount_msat": "1", "status": "unpaid"]
+        XCTAssertThrowsError(try LightningInvoiceReceipt.decode(JSONSerialization.data(withJSONObject: ["invoices": [row, row]]), implementation: .cln, invoice: target))
+        var invalid = row; invalid["amount_msat"] = true
+        XCTAssertThrowsError(try LightningInvoiceReceipt.decode(JSONSerialization.data(withJSONObject: ["invoices": [invalid]]), implementation: .cln, invoice: target))
+        let lnd: [String: Any] = ["payment_request": target.text, "r_hash": Data(repeating: 1, count: 32).base64EncodedString(), "value_msat": true, "state": "OPEN"]
+        XCTAssertThrowsError(try LightningInvoiceReceipt.decode(JSONSerialization.data(withJSONObject: lnd), implementation: .lnd, invoice: target))
     }
 
     func testUSDEquivalentUsesRateDirectionWithoutAddingSpreadAgain() throws {

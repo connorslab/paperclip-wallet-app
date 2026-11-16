@@ -3,7 +3,6 @@ package xyz.paperclip.wallet
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import java.security.MessageDigest
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -107,6 +106,7 @@ internal class BridgeModel(app: Application) : AndroidViewModel(app) {
 	private fun unsettled(r: JSONObject) =
 		r.optBoolean("submitted") &&
 			!r.optBoolean("verified") &&
+			!(r.optBoolean("receive") && r.optString("node_state") == "ended") &&
 			!(r.optString("funding") in listOf("failed", "not_sent") &&
 				r.optString("bridge") in listOf("failed", "aborted", "expired"))
 
@@ -143,12 +143,16 @@ internal class BridgeModel(app: Application) : AndroidViewModel(app) {
 		}
 		change { it.copy(nativeQuote = null, nodeReview = null) }
 		val n = if (source == "node" || receiveXbt) node() else null
+		val requestedAmount = if (receiveXbt) WalletModel.positiveAmount(amount) else null
 		val target =
 			BridgeInvoice(
-				if (receiveXbt) checkNotNull(n).invoice(WalletModel.positiveAmount(amount))
+				if (receiveXbt) checkNotNull(n).invoice(checkNotNull(requestedAmount))
 				else targetText,
 			)
 		target.validateTarget(receiveXbt)
+		if (receiveXbt) {
+			target.validateNodeReceive(checkNotNull(requestedAmount), checkNotNull(n).receivedInvoice(target))
+		}
 		check(
 			(0 until journal.length()).none {
 				journal.getJSONObject(it).let { r ->
@@ -324,48 +328,20 @@ internal class BridgeModel(app: Application) : AndroidViewModel(app) {
 		loadJournal()
 		val r = mutable.value.record ?: return
 		if (r.optBoolean("verified")) return
-		require(r.optBoolean("private_api") == !read("bridge-api-key").isNullOrEmpty()) {
-			"Restore the original bridge API connection"
-		}
-		val status = client().status(BridgeQuote(r.getJSONObject("quote")))
-		val next = JSONObject(r.toString()).put("bridge", status.optString("state"))
-		val preimage = status.optString("preimage")
-		val proof =
-			if (preimage.matches(Regex("[0-9a-fA-F]{64}"))) {
-				val bytes = preimage.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
-				try {
-					MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") {
-						"%02x".format(it)
-					} == r.getString("hash")
-				} finally {
-					bytes.fill(0)
-				}
-			} else false
-		if (r.optBoolean("receive")) {
-			val n = node()
-			require(
-				n.connection.endpoint == r.getString("node_endpoint") &&
-					n.connection.implementation == r.getString("node_implementation"),
-			)
-			next.put("verified", n.received(BridgeInvoice(r.getString("target"))))
-		} else next.put("verified", status.optString("state") == "settled" && proof)
-		// Funding and bridge settlement are separate facts. A node outage must not
-		// discard a verified bridge settlement, and status checks never resend.
-		if (!next.optBoolean("verified")) {
-			try {
-				reconcileFunding(next)
-			} catch (e: CancellationException) {
-				throw e
-			} catch (_: Exception) {
-				change {
-					it.copy(
-						message =
-							"Funding status unavailable. The saved payment has not been resent.",
-					)
-				}
-			}
-		}
-		save(next)
+		val observation = BridgeSettlement.observe(r,
+			bridge = {
+				require(r.optBoolean("private_api") == !read("bridge-api-key").isNullOrEmpty()) { "Restore the original bridge API connection" }
+				client().status(BridgeQuote(r.getJSONObject("quote")))
+			},
+			receive = {
+				val n = node()
+				require(n.connection.endpoint == r.getString("node_endpoint") && n.connection.implementation == r.getString("node_implementation"))
+				n.receivedInvoice(BridgeInvoice(r.getString("target")))
+			},
+			funding = { reconcileFunding(it) },
+		)
+		save(observation.record)
+		change { it.copy(message = observation.message) }
 	}
 
 	fun saveKey(value: String) = job {
