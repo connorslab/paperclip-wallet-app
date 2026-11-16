@@ -71,9 +71,19 @@ async fn connection(State(state): State<Arc<ServerState>>) -> (StatusCode, Json<
 	if state.auth_token().is_none() { return (StatusCode::FORBIDDEN, Json(json!({"message": "Configure wallet authentication first"}))); }
 	let proxy = std::env::var("BARKD_JOINBLAKET_TOR_PROXY").ok();
 	let url = std::env::var("BARKD_JOINBLAKET_URL").ok().and_then(|value| endpoint(&value, proxy.as_deref()).ok());
-	let ui_url = url.as_ref().filter(|url| url.scheme() == "https" && !url.host_str().is_some_and(|host| host.ends_with(".onion")));
+	let ui_url = url.as_ref().filter(|url| browser_handoff(url));
 	// Only expose a validated, credential-free HTTPS URL for browser handoff.
 	(StatusCode::OK, Json(json!({"configured": url.is_some(), "ui_url": ui_url.map(Url::as_str)})))
+}
+
+fn browser_handoff(url: &Url) -> bool {
+	let Some(host) = url.host_str() else { return false; };
+	let ip = host.trim_start_matches('[').trim_end_matches(']').parse::<std::net::IpAddr>().ok();
+	// A loopback API belongs to the host running Jam, not the user's browser.
+	// Bundled wallets are managed inside Paperclip; never send users to their
+	// own localhost when the daemon lives on a different machine.
+	url.scheme() == "https" && host != "localhost" && !host.ends_with(".localhost")
+		&& !host.ends_with(".onion") && !ip.is_some_and(|ip| ip.is_loopback() || ip.is_unspecified())
 }
 
 fn endpoint(text: &str, proxy: Option<&str>) -> anyhow::Result<Url> {
@@ -277,6 +287,13 @@ async fn request(State(state): State<Arc<ServerState>>, Json(input): Json<Reques
 #[cfg(test)]
 mod tests {
 	use super::*;
+	#[test]
+	fn jam_browser_handoff_never_points_to_host_loopback() {
+		for url in ["https://localhost:28183", "https://jam.localhost", "https://127.0.0.1:28183", "https://127.1.2.3", "https://[::1]", "https://0.0.0.0", "https://[::]", "http://jam.example", "https://example.onion"] {
+			assert!(!browser_handoff(&url.parse().unwrap()));
+		}
+		for url in ["https://jam.example", "https://192.168.1.23:28183"] { assert!(browser_handoff(&url.parse().unwrap())); }
+	}
 	#[test]
 	fn jam_creation_validates_filename_and_keeps_secrets_out_of_normal_responses() {
 		let mut input: Request = serde_json::from_value(json!({"operation":"create_wallet","wallet":"My-Jars.jmdat","password":"synthetic-password"})).unwrap();
