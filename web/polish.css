@@ -200,3 +200,12 @@ textarea:focus-visible{outline:2px solid var(--focus);outline-offset:4px}
   .wallet-switch label {display:flex;align-items:center;gap:12px;max-width:560px;white-space:nowrap}
   .wallet-switch select {margin:0;min-width:0}
 }
+
+/* One transfer task at a time; switching keeps drafts but invalidates cost review. */
+.transfer-flow {grid-template-columns:minmax(0,1fr);max-width:760px}
+.transfer-switch {display:flex;gap:8px}
+.transfer-switch button {flex:1}
+.transfer-switch [aria-pressed=true] {background:#f5683526;border-color:#ff9369;color:#ffb18a}
+.transfer-flow>section {margin-top:0}
+.receive-card {animation:wallet-view-in .18s ease-out both}
+@media(prefers-reduced-motion:reduce) {.receive-card {animation:none}}

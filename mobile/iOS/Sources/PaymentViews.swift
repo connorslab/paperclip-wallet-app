@@ -12,6 +12,7 @@ struct SendView: View {
     @AppStorage("displayUnit") private var unit: BitcoinUnit = .sats
     @EnvironmentObject var store: WalletStore
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var onchain = true
     @State private var destination = ""
     @State private var amount = ""
@@ -49,93 +50,103 @@ struct SendView: View {
         return view
     }
     #endif
+    private var stage: Int { submitted ? 2 : total == nil ? 0 : 1 }
     private var target: String { PaymentInput.normalized(destination) }
     private var invoice: Bool { !onchain && PaymentInput.isBolt11(destination) }
     var body: some View {
-        ScrollView {
-            VStack(spacing: 20) {
-                WalletFlowProgress(steps: ["Recipient", "Review", "Status"], current: submitted ? 2 : total == nil ? 0 : 1)
-                WalletSection("Pay from") {
-                    Text(store.selectedProfile?.name ?? "Selected wallet").font(.headline)
-                    Picker("Balance", selection: $onchain) { Text("On-chain").tag(true); Text("Ark · Beta").tag(false) }.pickerStyle(.segmented).disabled(store.busy || submitted)
-                    LabeledContent(onchain ? "Confirmed on-chain" : "Available in Ark", value: unit.display(onchain ? store.onchainConfirmed : store.ark)).font(.headline)
-                    if onchain, let pending = store.onchainPending, pending > 0 {
-                        LabeledContent("Pending confirmation", value: unit.display(pending)).font(.caption)
-                        Text("Pending payments and change may not be available to send. Review checks the coins available now.").font(.caption).foregroundStyle(PaperclipTheme.muted)
+        ScrollViewReader { scroll in
+            ScrollView {
+                VStack(spacing: 16) {
+                    WalletFlowProgress(steps: ["Recipient", "Review", "Status"], current: stage).id("payment-top")
+                    if stage == 0 {
+                        WalletSection("Pay from") {
+                            Text(store.selectedProfile?.name ?? "Selected wallet").font(.headline)
+                            Picker("Balance", selection: $onchain) { Text("On-chain").tag(true); Text("Ark · Beta").tag(false) }.pickerStyle(.segmented).disabled(store.busy || submitted)
+                            LabeledContent(onchain ? "Confirmed on-chain" : "Available in Ark", value: unit.display(onchain ? store.onchainConfirmed : store.ark)).font(.headline)
+                            DisclosureGroup("Balance details") {
+                                if onchain, let pending = store.onchainPending, pending > 0 {
+                                    LabeledContent("Pending confirmation", value: unit.display(pending)).font(.caption)
+                                    Text("Pending payments and change may not be available to send. Review checks the coins available now.").font(.caption).foregroundStyle(PaperclipTheme.muted)
+                                }
+                                USDValue(sats: onchain ? store.onchainConfirmed : store.ark, mainnet: store.network == "xbt-mainnet")
+                                if onchain { Text(store.onchainAccount == "segwit" ? "SegWit account" : "Taproot account").font(.caption).foregroundStyle(PaperclipTheme.muted) }
+                                Text(onchain ? "Send XBT to an on-chain address." : "Pay Lightning invoices, BOLT12 offers, Ark addresses, or withdraw to on-chain.").font(.subheadline).foregroundStyle(PaperclipTheme.muted)
+                            }.font(.caption).tint(PaperclipTheme.muted)
+                        }.transition(.identity)
+                        WalletSection("Recipient") {
+                            if !submitted { OwnedWalletDestination(address: $destination) }
+                            Button { scanning = true } label: { Label("Scan QR code", systemImage: "qrcode.viewfinder") }
+                                .disabled(store.busy || submitted)
+                            Text(onchain ? "Recipient address" : "Invoice, offer, or address").font(.subheadline.weight(.semibold))
+                            TextField(onchain ? "XBT address" : "Paste an invoice, offer, or address", text: $destination, axis: .vertical)
+                                .accessibilityIdentifier("payment-recipient")
+                                .textInputAutocapitalization(.never).autocorrectionDisabled().disabled(store.busy || submitted)
+                            if !invoice || needsAmount {
+                                if sendMax { Text("Maximum after fees").font(.headline) }
+                                else {
+                                    Text("Amount · " + unit.title).font(.subheadline.weight(.semibold))
+                                    TextField(unit.amountPrompt, text: $amount).keyboardType(.decimalPad)
+                                        .accessibilityLabel("Amount in " + unit.title).disabled(store.busy || submitted)
+                                }
+                                if onchain || (!invoice && !target.lowercased().hasPrefix("lno1") && !target.lowercased().hasPrefix("lnurl")) {
+                                    Button(sendMax ? "Use a specific amount" : "Send Max") { sendMax.toggle(); reset() }.disabled(store.busy || submitted)
+                                    if sendMax { Text(onchain ? "Uses all spendable coins in the selected account, minus the network fee. Reserved or immature funds may remain. Review the final amount below." : "For Ark or on-chain addresses. Deducts fees and required recovery funding. Reserved or ineligible funds may remain; review the recipient amount below.").font(.caption).foregroundStyle(PaperclipTheme.muted) }
+                                }
+                                if needsAmount { Text("This request has no fixed amount. Choose the amount to send.").font(.caption) }
+                            } else {
+                                Label("Amount comes from the invoice", systemImage: "bolt.fill").font(.subheadline).foregroundStyle(PaperclipTheme.muted)
+                            }
+                            Button { review() } label: { Text("Review payment").frame(maxWidth: .infinity) }.buttonStyle(WalletPrimaryButtonStyle())
+                                .disabled(store.busy || target.isEmpty || submitted)
+                            if target.isEmpty && !submitted {
+                                Text("Scan or paste a recipient to continue. Nothing is sent until you review and confirm.")
+                                    .font(.caption).foregroundStyle(PaperclipTheme.muted)
+                            }
+                        }.transition(.identity)
                     }
-                    USDValue(sats: onchain ? store.onchainConfirmed : store.ark, mainnet: store.network == "xbt-mainnet")
-                    if onchain { Text(store.onchainAccount == "segwit" ? "SegWit account" : "Taproot account").font(.caption).foregroundStyle(PaperclipTheme.muted) }
-                    Text(onchain ? "Send XBT to an on-chain address." : "Pay Lightning invoices, BOLT12 offers, Ark addresses, or withdraw to on-chain.").font(.subheadline).foregroundStyle(PaperclipTheme.muted)
-                }
-                WalletSection("Recipient") {
-                    if !submitted { OwnedWalletDestination(address: $destination) }
-                    Button { scanning = true } label: { Label("Scan QR code", systemImage: "qrcode.viewfinder") }
-                        .disabled(store.busy || submitted)
-                    Text(onchain ? "Recipient address" : "Invoice, offer, or address").font(.subheadline.weight(.semibold))
-                    TextField(onchain ? "XBT address" : "Paste an invoice, offer, or address", text: $destination, axis: .vertical)
-                        .textInputAutocapitalization(.never).autocorrectionDisabled().disabled(store.busy || submitted)
-                    if !invoice || needsAmount {
-                        if sendMax { Text("Maximum after fees").font(.headline) }
-                        else {
-                            Text("Amount · " + unit.title).font(.subheadline.weight(.semibold))
-                            TextField(unit.amountPrompt, text: $amount).keyboardType(.decimalPad)
-                                .accessibilityLabel("Amount in " + unit.title).disabled(store.busy || submitted)
+                    if let total, let reviewedAmount, !submitted {
+                        WalletSection("Review payment") {
+                            Button("Edit recipient or amount") { reset() }.disabled(store.busy)
+                            LabeledContent("From", value: onchain ? "On-chain wallet" : "Ark balance")
+                            LabeledContent("Recipient receives") { Text(unit.display(reviewedAmount)).foregroundStyle(.primary).monospacedDigit() }
+                            LabeledContent(onchain ? "Network fee" : "Fee / recovery funding") { Text(unit.display(fee)).foregroundStyle(.primary).monospacedDigit() }.accessibilityIdentifier("payment-recovery-funding")
+                            Divider()
+                            LabeledContent("Total debit") { Text(unit.display(total)).foregroundStyle(.primary).monospacedDigit() }.font(.headline).accessibilityIdentifier("payment-total-debit")
+                            Text(target).font(.caption.monospaced()).lineLimit(4).textSelection(.enabled)
+                            Text("Review is valid for 60 seconds. If costs change, review again.").font(.caption).foregroundStyle(PaperclipTheme.muted)
+                            Button("Confirm payment") { confirmation = true }.buttonStyle(WalletPrimaryButtonStyle()).disabled(store.busy)
+                        }.transition(reduceMotion ? .identity : .asymmetric(insertion: .opacity.combined(with: .offset(y: 8)), removal: .identity))
+                    }
+                    if let issue = amountIssue {
+                        WalletSection("Choose a different amount") {
+                            Text(issue.message).font(.subheadline).foregroundStyle(PaperclipTheme.muted)
+                            if let suggested = issue.suggested {
+                                Button("Use \(unit.display(suggested))") {
+                                    sendMax = false; amount = unit.input(suggested); reset()
+                                }.disabled(store.busy).accessibilityIdentifier("ark-use-suggested-amount")
+                            }
+                            if let maximum = issue.maximum {
+                                Button("Use Send Max · \(unit.display(maximum))") {
+                                    sendMax = true; reset()
+                                }.disabled(store.busy).accessibilityIdentifier("ark-use-maximum-amount")
+                            }
+                            Text("Review the updated amount before sending.").font(.caption).foregroundStyle(PaperclipTheme.muted)
                         }
-                        if onchain || (!invoice && !target.lowercased().hasPrefix("lno1") && !target.lowercased().hasPrefix("lnurl")) {
-                            Button(sendMax ? "Use a specific amount" : "Send Max") { sendMax.toggle(); reset() }.disabled(store.busy || submitted)
-                            if sendMax { Text(onchain ? "Uses all spendable coins in the selected account, minus the network fee. Reserved or immature funds may remain. Review the final amount below." : "For Ark or on-chain addresses. Deducts fees and required recovery funding. Reserved or ineligible funds may remain; review the recipient amount below.").font(.caption).foregroundStyle(PaperclipTheme.muted) }
+                    }
+                    if store.busy || !status.isEmpty {
+                        WalletSection { if store.busy { ProgressView("Working…") }; Text(status).font(.subheadline).textSelection(.enabled) }
+                    }
+                    if submitted {
+                        WalletSection {
+                            Label(outcome, systemImage: "clock")
+                            Text("Check Activity for the final result before making another attempt.").font(.subheadline)
+                            Button("Done") { dismiss() }.modifier(GlassAction())
                         }
-                        if needsAmount { Text("This request has no fixed amount. Choose the amount to send.").font(.caption) }
-                    } else {
-                        Label("Amount comes from the invoice", systemImage: "bolt.fill").font(.subheadline).foregroundStyle(PaperclipTheme.muted)
                     }
-                    Button { review() } label: { Text("Review payment").frame(maxWidth: .infinity) }.buttonStyle(WalletPrimaryButtonStyle())
-                        .disabled(store.busy || target.isEmpty || submitted)
-                    if target.isEmpty && !submitted {
-                        Text("Scan or paste a recipient to continue. Nothing is sent until you review and confirm.")
-                            .font(.caption).foregroundStyle(PaperclipTheme.muted)
-                    }
-                }
-                if let total, let reviewedAmount {
-                    WalletSection("Review payment") {
-                        LabeledContent("From", value: onchain ? "On-chain wallet" : "Ark balance")
-                        LabeledContent("Recipient receives", value: unit.display(reviewedAmount))
-                        LabeledContent("Fee / recovery funding", value: unit.display(fee)).accessibilityIdentifier("payment-recovery-funding")
-                        Divider()
-                        LabeledContent("Total debit", value: unit.display(total)).font(.headline).accessibilityIdentifier("payment-total-debit")
-                        Text(target).font(.caption.monospaced()).lineLimit(4).textSelection(.enabled)
-                        Text("Review is valid for 60 seconds. If costs change, review again.").font(.caption).foregroundStyle(PaperclipTheme.muted)
-                        Button("Confirm payment") { confirmation = true }.buttonStyle(WalletPrimaryButtonStyle()).disabled(store.busy)
-                    }
-                }
-                if let issue = amountIssue {
-                    WalletSection("Choose a different amount") {
-                        Text(issue.message).font(.subheadline).foregroundStyle(PaperclipTheme.muted)
-                        if let suggested = issue.suggested {
-                            Button("Use \(unit.display(suggested))") {
-                                sendMax = false; amount = unit.input(suggested); reset()
-                            }.disabled(store.busy).accessibilityIdentifier("ark-use-suggested-amount")
-                        }
-                        if let maximum = issue.maximum {
-                            Button("Use Send Max · \(unit.display(maximum))") {
-                                sendMax = true; reset()
-                            }.disabled(store.busy).accessibilityIdentifier("ark-use-maximum-amount")
-                        }
-                        Text("Review the updated amount before sending.").font(.caption).foregroundStyle(PaperclipTheme.muted)
-                    }
-                }
-                if store.busy || !status.isEmpty {
-                    WalletSection { if store.busy { ProgressView("Working…") }; Text(status).font(.subheadline).textSelection(.enabled) }
-                }
-                if submitted {
-                    WalletSection {
-                        Label(outcome, systemImage: "clock")
-                        Text("Check Activity for the final result before making another attempt.").font(.subheadline)
-                        Button("Done") { dismiss() }.modifier(GlassAction())
-                    }
-                }
-            }.walletPageContent().textFieldStyle(WalletInputStyle())
-        }.scrollDismissesKeyboard(.interactively).walletPageBackground().navigationTitle(onchain ? "Send XBT" : "Pay from Ark · Beta")
+                }.walletPageContent().textFieldStyle(WalletInputStyle())
+                    .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: stage)
+            }.onChange(of: stage) { _, _ in scroll.scrollTo("payment-top", anchor: .top) }
+        }.scrollDismissesKeyboard(.interactively).walletPageBackground().navigationTitle(onchain ? "Send XBT" : "Pay from Ark · Beta").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done", systemImage: "checkmark") { dismiss() } } }
             .task {
                 #if DEBUG && targetEnvironment(simulator)
@@ -230,6 +241,7 @@ struct ReceiveView: View {
     @AppStorage("displayUnit") private var unit: BitcoinUnit = .sats
     @EnvironmentObject var store: WalletStore
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var route = 0
     @State private var amount = ""
     @State private var value = ""
@@ -249,14 +261,10 @@ struct ReceiveView: View {
     init(route: Int = 0) { _route = State(initialValue: route) }
     var body: some View {
         ScrollView {
-            VStack(spacing: 24) {
-                WalletBrand()
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(value.isEmpty ? "Receive with Paperclip" : "Ready to receive")
-                        .font(.title2.bold())
-                    Text(value.isEmpty ? "Choose how you’d like to receive. We’ll prepare an address or payment request to share." : "Let the sender scan your code, or copy and share the request below.")
-                        .font(.subheadline).foregroundStyle(PaperclipTheme.muted)
-                }.frame(maxWidth: .infinity, alignment: .leading)
+            VStack(spacing: 16) {
+                WalletFlowProgress(steps: ["Request", "Share"], current: value.isEmpty ? 0 : 1)
+                Text(value.isEmpty ? "Choose how to receive" : "Ready to receive")
+                    .font(.title2.bold()).frame(maxWidth: .infinity, alignment: .leading)
                 if value.isEmpty {
                 WalletSection {
                     Button { choosingMethod = true } label: {
@@ -267,10 +275,7 @@ struct ReceiveView: View {
                 }
                 if value.isEmpty {
                 WalletSection(route >= 2 ? "Payment request" : "Your receiving address") {
-                if route < 2 {
-                    Text(route == 0 ? "Create an address controlled by your wallet. Only send XBT on the matching network." : "Create an Ark address to share with the sender.")
-                        .font(.subheadline).foregroundStyle(PaperclipTheme.muted)
-                }
+
                 if route >= 2 { TextField(route == 3 ? unit.amountPrompt + " (optional)" : unit.amountPrompt, text: $amount).keyboardType(.decimalPad).textFieldStyle(WalletInputStyle()).disabled(store.busy) }
                 if route == 3 {
                     TextField("Offer description", text: $offerDescription).textFieldStyle(WalletInputStyle()).disabled(store.busy)
@@ -339,7 +344,7 @@ struct ReceiveView: View {
                 }
                 if store.busy { ProgressView() }
                 Text(store.message).font(.caption).foregroundStyle(.secondary)
-            }.frame(maxWidth: .infinity).padding(24)
+            }.walletPageContent()
         }.frame(maxWidth: .infinity, maxHeight: .infinity)
             .walletPageBackground().navigationTitle(route == 0 ? "Receive XBT" : "Receive · Ark Beta").toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done", systemImage: "checkmark") { dismiss() } } }
             .navigationBarTitleDisplayMode(.inline)

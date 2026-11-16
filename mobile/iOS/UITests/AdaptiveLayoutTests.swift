@@ -2,6 +2,25 @@ import XCTest
 
 /// Synthetic fixtures only: no wallet credentials, synchronization or payments.
 final class AdaptiveLayoutTests: XCTestCase {
+	func testSendReviewIsOneStepAndEditingPreservesRecipient() {
+		continueAfterFailure = false
+		let app = XCUIApplication()
+		app.launchArguments = ["-build61-preview", "-ark-fee-preview", "-appearance", "dark"]
+		app.launch()
+		let confirm = app.buttons["Confirm payment"]
+		XCTAssertTrue(confirm.waitForExistence(timeout: 15))
+		XCTAssertTrue(confirm.isHittable)
+		XCTAssertFalse(app.buttons["Scan QR code"].exists)
+		XCTAssertTrue(app.staticTexts["payment-total-debit"].exists || app.otherElements["payment-total-debit"].exists)
+		capture(app, "Send review compact")
+		app.buttons["Edit recipient or amount"].tap()
+		XCTAssertFalse(confirm.exists)
+		XCTAssertTrue(app.buttons["Scan QR code"].exists)
+		let recipient = app.textFields["payment-recipient"]
+		XCTAssertTrue(recipient.exists)
+		XCTAssertEqual(recipient.value as? String, "Ark recipient · simulator preview")
+	}
+
 	func testCompactJarSelectionKeepsAccountActionsNearby() {
 		continueAfterFailure = false
 		XCUIDevice.shared.orientation = .portrait

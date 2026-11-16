@@ -193,7 +193,8 @@ $('send').addEventListener('submit', event => { event.preventDefault(); run(even
   if (!network) throw new Error('Unlock and verify the wallet network first.');
   if (uncertainMutation) throw new Error('Check the previous submission in Activity before another payment.');
   const context=walletContext();
-  const unchanged=()=>currentWallet(context)&&token&&network&&$('destination').value.trim()===destination&&$('ark-max').checked===maximum&&(maximum||Number($('amount').value)===entered);
+  const transferRevision = window.PaperclipTransfer?.revision ?? 0;
+  const unchanged=()=>(window.PaperclipTransfer?.revision ?? 0)===transferRevision&&currentWallet(context)&&token&&network&&$('destination').value.trim()===destination&&$('ark-max').checked===maximum&&(maximum||Number($('amount').value)===entered);
   $('ark-estimate').hidden = true;
   status('Estimating the recipient amount and recovery reserve. No payment has been sent.');
   const quote = await api('fees/ark/send', maximum?{destination,send_max:true}:{destination,amount_sat:entered});

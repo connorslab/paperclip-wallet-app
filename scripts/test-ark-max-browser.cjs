@@ -24,6 +24,18 @@ const fs=require('node:fs'),path=require('node:path'),assert=require('node:asser
    await page.goto('http://wallet.test/');await page.locator('#token').fill('fixture-token');await page.getByRole('button',{name:'Unlock wallet',exact:true}).click();await page.locator('#wallet').waitFor({state:'visible'});
    await page.locator('[data-wallet="hot"] [data-view="transfer"]').first().click();await page.locator('#destination').fill('synthetic-ark-address');await page.locator('#ark-max').check();assert.equal(await page.locator('#amount').isEnabled(),false);
    const submit=page.getByRole('button',{name:'Review transfer',exact:true});
+   await page.locator('#transfer-receive-choice').click();
+   assert(await page.locator('#receive').isVisible());assert(!(await page.locator('#send').isVisible()));
+   await page.locator('#transfer-send-choice').click();
+   assert.equal(await page.locator('#destination').inputValue(),'synthetic-ark-address');
+   assert(await page.locator('#ark-max').isChecked());
+   const tabSeen=new Promise(resolve=>arrived=resolve);wait=new Promise(resolve=>release=resolve);
+   await submit.click();await tabSeen;
+   await page.locator('#transfer-receive-choice').click();await page.locator('#transfer-send-choice').click();
+   release();wait=null;
+   await page.getByText('Wallet or payment details changed. Review the transfer again.',{exact:true}).waitFor();
+   assert(!calls.some(c=>c.name==='submissions'&&c.body));
+
    await submit.click();await page.getByRole('button',{name:'Confirm',exact:true}).waitFor();const text=await page.locator('.review-content').textContent();for(const term of ['Send Max','70,000','1,000','71,000','400','Recovery'])assert(text.includes(term));
    if(process.env.SCREENSHOT_DIR){fs.mkdirSync(process.env.SCREENSHOT_DIR,{recursive:true});await page.screenshot({path:path.join(process.env.SCREENSHOT_DIR,`ark-max-review-${width}.png`),fullPage:true});}
    assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));await page.getByRole('button',{name:'Go back',exact:true}).click();assert(!calls.some(c=>c.name==='submissions'&&c.body));

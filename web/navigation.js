@@ -56,4 +56,21 @@
     }
   }).observe($('wallet'), {attributes:true, attributeFilter:['hidden']});
   window.PaperclipNavigation = {show, refresh:()=>show(current,{record:false,focus:false})};
+  let transferRevision = 0;
+  function transfer(direction) {
+    if (!['send','receive'].includes(direction)) return;
+    transferRevision++;
+    window.PaperclipReview?.cancel();
+    $('ark-estimate').hidden = true;
+    for (const name of ['send','receive']) {
+      const active = name === direction;
+      $('transfer-' + name).hidden = !active;
+      $('transfer-' + name).classList.toggle('view-enter', active);
+      $('transfer-' + name + '-choice').setAttribute('aria-pressed', String(active));
+    }
+  }
+  $('transfer-send-choice').onclick = () => transfer('send');
+  $('transfer-receive-choice').onclick = () => transfer('receive');
+  window.PaperclipTransfer = {get revision() {return transferRevision;}};
+
 })();

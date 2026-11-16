@@ -164,6 +164,9 @@ internal fun PaperclipApp(
 			val focus = LocalFocusManager.current
 			val scrollPositions = remember(s.activeID) { mutableMapOf<String, ScrollState>() }
 			val scroll = scrollPositions.getOrPut("$tab:$route") { ScrollState(0) }
+			LaunchedEffect(route, s.review != null, s.result != null, s.address.isNotEmpty()) {
+				if (route in listOf("Send", "Receive")) scroll.scrollTo(0)
+			}
 			var nodePage by rememberSaveable { mutableStateOf("balance") }
 			LaunchedEffect(nodePage) { if (route == "Lightning") scroll.scrollTo(0) }
 			fun navigate(next: String) {
@@ -914,7 +917,7 @@ internal fun SeedWords(words: List<String>) {
 }
 
 @Composable
-private fun Send(s: WalletState, model: WalletModel) {
+internal fun Send(s: WalletState, model: WalletModel) {
 	val unit = LocalBitcoinUnit.current
 	// Keep the draft when reviewing/cancelling, but never persist payment details to saved state.
 	var destination by remember { mutableStateOf("") }
@@ -929,159 +932,161 @@ private fun Send(s: WalletState, model: WalletModel) {
 			true
 		}
 	val focus = LocalFocusManager.current
-	val result = s.result
-	if (result != null) {
-		val status = PaymentStatus.from(result.optString("state"))
-		CardBlock(status.title) {
-			val tint =
-				when (status) {
-					PaymentStatus.COMPLETE -> Color(0xff53b88c)
-					PaymentStatus.NOT_SENT -> MaterialTheme.colorScheme.error
-					else -> MaterialTheme.colorScheme.primary
+	PaymentStage(listOf("Recipient", "Review", "Status"), if (s.result != null) 2 else if (s.review != null) 1 else 0) {
+		val result = s.result
+		if (result != null) {
+			val status = PaymentStatus.from(result.optString("state"))
+			CardBlock(status.title) {
+				val tint =
+					when (status) {
+						PaymentStatus.COMPLETE -> Color(0xff53b88c)
+						PaymentStatus.NOT_SENT -> MaterialTheme.colorScheme.error
+						else -> MaterialTheme.colorScheme.primary
+					}
+				Column(
+					Modifier.fillMaxWidth().padding(vertical = 12.dp).semantics {
+						liveRegion = LiveRegionMode.Polite
+					},
+					horizontalAlignment = Alignment.CenterHorizontally,
+					verticalArrangement = Arrangement.spacedBy(18.dp),
+				) {
+					if (status == PaymentStatus.COMPLETE) VerifiedPaymentCelebration()
+					else Icon(
+						if (status == PaymentStatus.COMPLETE) Icons.Default.CheckCircle
+						else if (status == PaymentStatus.NOT_SENT) Icons.Default.ErrorOutline
+						else Icons.Default.Schedule,
+						null,
+						Modifier.background(tint.copy(alpha = .12f), RoundedCornerShape(28.dp))
+							.padding(20.dp)
+							.size(48.dp),
+						tint = tint,
+					)
+					Text(status.detail, style = MaterialTheme.typography.titleMedium)
 				}
-			Column(
-				Modifier.fillMaxWidth().padding(vertical = 12.dp).semantics {
-					liveRegion = LiveRegionMode.Polite
-				},
-				horizontalAlignment = Alignment.CenterHorizontally,
-				verticalArrangement = Arrangement.spacedBy(18.dp),
-			) {
-				if (status == PaymentStatus.COMPLETE) VerifiedPaymentCelebration()
-				else Icon(
-					if (status == PaymentStatus.COMPLETE) Icons.Default.CheckCircle
-					else if (status == PaymentStatus.NOT_SENT) Icons.Default.ErrorOutline
-					else Icons.Default.Schedule,
-					null,
-					Modifier.background(tint.copy(alpha = .12f), RoundedCornerShape(28.dp))
-						.padding(20.dp)
-						.size(48.dp),
-					tint = tint,
-				)
-				Text(status.detail, style = MaterialTheme.typography.titleMedium)
-			}
-			result
-				.optString("txid")
-				.takeIf { it.isNotEmpty() }
-				?.let {
-					Text("Transaction ID", style = MaterialTheme.typography.labelMedium)
-					SelectionContainer {
-						Text(
-							it,
-							fontFamily = FontFamily.Monospace,
-							style = MaterialTheme.typography.bodySmall,
-						)
+				result
+					.optString("txid")
+					.takeIf { it.isNotEmpty() }
+					?.let {
+						Text("Transaction ID", style = MaterialTheme.typography.labelMedium)
+						SelectionContainer {
+							Text(
+								it,
+								fontFamily = FontFamily.Monospace,
+								style = MaterialTheme.typography.bodySmall,
+							)
+						}
+					}
+				result.optString("reason").takeIf { it.isNotEmpty() }?.let { Text(it) }
+				OutlinedButton(onClick = model::checkPayment, enabled = !s.busy && s.connected) {
+					Text("Check payment status")
+				}
+				if (status in listOf(PaymentStatus.COMPLETE, PaymentStatus.NOT_SENT)) {
+					Button(
+						onClick = {
+							destination = ""
+							amount = ""
+							model.dismissResult()
+						},
+						enabled = !s.busy,
+						modifier = Modifier.fillMaxWidth(),
+					) {
+						Text("Done")
 					}
 				}
-			result.optString("reason").takeIf { it.isNotEmpty() }?.let { Text(it) }
-			OutlinedButton(onClick = model::checkPayment, enabled = !s.busy && s.connected) {
-				Text("Check payment status")
 			}
-			if (status in listOf(PaymentStatus.COMPLETE, PaymentStatus.NOT_SENT)) {
+			return@PaymentStage
+		}
+		val quote = s.review
+		if (quote != null) {
+			CardBlock("Review payment") {
+				Text(
+					if (quote.onchain) "From your on-chain balance" else "From your Ark balance",
+					style = MaterialTheme.typography.labelLarge,
+				)
+				Text("Recipient", color = MaterialTheme.colorScheme.onSurfaceVariant)
+				SelectionContainer {
+					Text(
+						quote.destination,
+						style = MaterialTheme.typography.bodySmall,
+						fontFamily = FontFamily.Monospace,
+					)
+				}
+				BalanceRow("Recipient receives", sats(quote.amount))
+				BalanceRow(if (quote.onchain) "Network fee" else "Fee / recovery funding", sats(quote.fee))
+				HorizontalDivider()
+				BalanceRow("Total debit", sats(quote.total))
+				Text("Quotes expire after 60 seconds. Confirm only if these details are correct.")
+				Button(onClick = model::send, enabled = !s.busy, modifier = Modifier.fillMaxWidth()) {
+					Text("Confirm and send")
+				}
+				TextButton(onClick = model::cancelReview, enabled = !s.busy) { Text("Edit recipient or amount") }
+			}
+		} else {
+			CardBlock("Send XBT") {
+				Text("Pay from", style = MaterialTheme.typography.labelLarge)
+				Choices(listOf("Ark", "On-chain"), source, enabled = !s.busy) { source = it }
+				BalanceRow(
+					"Balance",
+					(if (source == "Ark") s.ark else s.chain)?.let { sats(it) } ?: "Not synced",
+				)
+				HorizontalDivider()
+				OwnedWalletDestination(s, destination) { destination = it }
+				Field("Address, invoice or offer", destination) { destination = it }
+				TextButton(onClick = { scanning = true }, enabled = !s.busy) { Text("Scan payment QR") }
+				Field("Amount in ${unit.title}", amount, number = true) { amount = it }
+				Text(
+					if (source == "Ark")
+						"Ark address, on-chain withdrawal, BOLT11 invoice or BOLT12 offer."
+					else "Send from your on-chain balance.",
+					style = MaterialTheme.typography.bodySmall,
+				)
 				Button(
 					onClick = {
-						destination = ""
-						amount = ""
-						model.dismissResult()
+						focus.clearFocus()
+						model.quote(
+							destination.trim(),
+							unit.backendAmount(amount),
+							source == "On-chain",
+						)
 					},
-					enabled = !s.busy,
+					enabled = !s.busy && s.connected && destination.isNotBlank(),
 					modifier = Modifier.fillMaxWidth(),
 				) {
-					Text("Done")
+					Text("Review payment")
 				}
+				OutlinedButton(
+					onClick = {
+						focus.clearFocus()
+						model.quote(destination.trim(), "", source == "On-chain", sendMax = true)
+					},
+					enabled = !s.busy && s.connected && destination.isNotBlank(),
+				) {
+					Text("Review Send Max")
+				}
+				s.reviewIssue?.let { issue ->
+					Text(issue.optString("message"))
+					if (!issue.isNull("suggested_amount_sat"))
+						TextButton(
+							onClick = {
+								amount = unit.input(issue.getLong("suggested_amount_sat"))
+								model.quote(
+									destination.trim(),
+									unit.backendAmount(amount),
+									source == "On-chain",
+								)
+							},
+						) {
+							Text("Review suggested amount")
+						}
+				}
+				if (!s.connected) Text("Connect your chain backend in Settings first.")
 			}
-		}
-		return
-	}
-	val quote = s.review
-	if (quote != null) {
-		CardBlock("Review payment") {
-			Text(
-				if (quote.onchain) "From your on-chain balance" else "From your Ark balance",
-				style = MaterialTheme.typography.labelLarge,
-			)
-			Text("Recipient", color = MaterialTheme.colorScheme.onSurfaceVariant)
-			SelectionContainer {
-				Text(
-					quote.destination,
-					style = MaterialTheme.typography.bodySmall,
-					fontFamily = FontFamily.Monospace,
-				)
-			}
-			BalanceRow("Amount", sats(quote.amount))
-			BalanceRow("Fee", sats(quote.fee))
-			HorizontalDivider()
-			BalanceRow("Total", sats(quote.total))
-			Text("Quotes expire after 60 seconds. Confirm only if these details are correct.")
-			Button(onClick = model::send, enabled = !s.busy, modifier = Modifier.fillMaxWidth()) {
-				Text("Confirm and send")
-			}
-			TextButton(onClick = model::cancelReview, enabled = !s.busy) { Text("Cancel") }
-		}
-	} else {
-		CardBlock("Send XBT") {
-			Text("Pay from", style = MaterialTheme.typography.labelLarge)
-			Choices(listOf("Ark", "On-chain"), source, enabled = !s.busy) { source = it }
-			BalanceRow(
-				"Balance",
-				(if (source == "Ark") s.ark else s.chain)?.let { sats(it) } ?: "Not synced",
-			)
-			HorizontalDivider()
-			OwnedWalletDestination(s, destination) { destination = it }
-			Field("Address, invoice or offer", destination) { destination = it }
-			TextButton(onClick = { scanning = true }, enabled = !s.busy) { Text("Scan payment QR") }
-			Field("Amount in ${unit.title}", amount, number = true) { amount = it }
-			Text(
-				if (source == "Ark")
-					"Ark address, on-chain withdrawal, BOLT11 invoice or BOLT12 offer."
-				else "Send from your on-chain balance.",
-				style = MaterialTheme.typography.bodySmall,
-			)
-			Button(
-				onClick = {
-					focus.clearFocus()
-					model.quote(
-						destination.trim(),
-						unit.backendAmount(amount),
-						source == "On-chain",
-					)
-				},
-				enabled = !s.busy && s.connected && destination.isNotBlank(),
-				modifier = Modifier.fillMaxWidth(),
-			) {
-				Text("Review payment")
-			}
-			OutlinedButton(
-				onClick = {
-					focus.clearFocus()
-					model.quote(destination.trim(), "", source == "On-chain", sendMax = true)
-				},
-				enabled = !s.busy && s.connected && destination.isNotBlank(),
-			) {
-				Text("Review Send Max")
-			}
-			s.reviewIssue?.let { issue ->
-				Text(issue.optString("message"))
-				if (!issue.isNull("suggested_amount_sat"))
-					TextButton(
-						onClick = {
-							amount = unit.input(issue.getLong("suggested_amount_sat"))
-							model.quote(
-								destination.trim(),
-								unit.backendAmount(amount),
-								source == "On-chain",
-							)
-						},
-					) {
-						Text("Review suggested amount")
-					}
-			}
-			if (!s.connected) Text("Connect your chain backend in Settings first.")
 		}
 	}
 }
 
 @Composable
-private fun Receive(s: WalletState, model: WalletModel, initialMethod: String) {
+internal fun Receive(s: WalletState, model: WalletModel, initialMethod: String) {
 	val unit = LocalBitcoinUnit.current
 	var kind by rememberSaveable(initialMethod) { mutableStateOf(initialMethod) }
 	var amount by remember { mutableStateOf("") }
@@ -1093,100 +1098,113 @@ private fun Receive(s: WalletState, model: WalletModel, initialMethod: String) {
 			copied = false
 		}
 	}
-	CardBlock("Receive XBT") {
-		Choices(
-			if (s.profiles.firstOrNull { it.id == s.activeID }?.kind in listOf("hardware", "watch"))
-				listOf("On-chain")
-			else listOf("On-chain", "Ark", "Lightning"),
-			kind,
-			enabled = !s.busy,
-		) {
-			kind = it
-			model.clearReceive()
-		}
-		Text(
-			when (kind) {
-				"Ark" -> "Receive directly from another compatible Ark wallet."
-				"Lightning" -> "Create an invoice for the amount you want to receive through Ark."
-				else -> "Receive XBT from an on-chain wallet or exchange."
-			},
-			style = MaterialTheme.typography.bodyMedium,
-			color = MaterialTheme.colorScheme.onSurfaceVariant,
-		)
-		if (kind == "Lightning")
-			Field("Amount in ${unit.title}", amount, number = true, enabled = !s.busy) {
-				amount = it
+	PaymentStage(listOf("Request", "Share"), if (s.address.isEmpty()) 0 else 1) {
+		CardBlock(if (s.address.isEmpty()) "Receive XBT" else "Ready to receive") {
+			if (s.address.isEmpty()) {
+			Choices(
+				if (s.profiles.firstOrNull { it.id == s.activeID }?.kind in listOf("hardware", "watch"))
+					listOf("On-chain")
+				else listOf("On-chain", "Ark", "Lightning"),
+				kind,
+				enabled = !s.busy,
+			) {
+				kind = it
 				model.clearReceive()
 			}
-		if (kind != "On-chain" && !s.connected)
-			Text("Connect and sync your wallet first.", style = MaterialTheme.typography.bodySmall)
-		Button(
-			onClick = {
-				focus.clearFocus()
-				model.receive(kind, unit.backendAmount(amount))
-			},
-			modifier = Modifier.fillMaxWidth(),
-			enabled = !s.busy && (kind == "On-chain" || s.connected),
-		) {
-			Text(if (kind == "Lightning") "Create invoice" else "Create address")
-		}
-		if (s.address.isNotEmpty()) {
-			val qr =
-				remember(s.address) {
-					val bits = QRCodeWriter().encode(s.address, BarcodeFormat.QR_CODE, 640, 640)
-					Bitmap.createBitmap(640, 640, Bitmap.Config.ARGB_8888)
-						.apply {
-							val pixels =
-								IntArray(640 * 640) {
-									if (bits[it % 640, it / 640]) android.graphics.Color.BLACK
-									else android.graphics.Color.WHITE
-								}
-							setPixels(pixels, 0, 640, 0, 0, 640, 640)
-						}
-						.asImageBitmap()
-				}
-			Image(
-				qr,
-				"Receive QR code",
-				Modifier.align(Alignment.CenterHorizontally)
-					.widthIn(max = 280.dp)
-					.fillMaxWidth()
-					.aspectRatio(1f)
-					.background(Color.White, RoundedCornerShape(20.dp))
-					.padding(12.dp),
-			)
 			Text(
-				if (kind == "Lightning") "Lightning invoice" else "$kind address",
-				style = MaterialTheme.typography.labelLarge,
-			)
-			SelectionContainer {
-				Text(
-					s.address,
-					fontFamily = FontFamily.Monospace,
-					style = MaterialTheme.typography.bodySmall,
-				)
-			}
-			val context = LocalContext.current
-			OutlinedButton(
-				modifier = Modifier.fillMaxWidth().semantics { liveRegion = LiveRegionMode.Polite },
-				onClick = {
-					(context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager)
-						.setPrimaryClip(
-							ClipData.newPlainText(
-								if (kind == "Lightning") "Lightning invoice" else "Receive address",
-								s.address,
-							),
-						)
-					copied = true
+				when (kind) {
+					"Ark" -> "Receive directly from another compatible Ark wallet."
+					"Lightning" -> "Create an invoice for the amount you want to receive through Ark."
+					else -> "Receive XBT from an on-chain wallet or exchange."
 				},
+				style = MaterialTheme.typography.bodyMedium,
+				color = MaterialTheme.colorScheme.onSurfaceVariant,
+			)
+			if (kind == "Lightning")
+				Field("Amount in ${unit.title}", amount, number = true, enabled = !s.busy) {
+					amount = it
+					model.clearReceive()
+				}
+			if (kind != "On-chain" && !s.connected)
+				Text("Connect and sync your wallet first.", style = MaterialTheme.typography.bodySmall)
+			Button(
+				onClick = {
+					focus.clearFocus()
+					model.receive(kind, unit.backendAmount(amount))
+				},
+				modifier = Modifier.fillMaxWidth(),
+				enabled = !s.busy && (kind == "On-chain" || s.connected),
 			) {
-				Icon(
-					if (copied) Icons.Default.Check else Icons.Default.ContentCopy,
-					null,
-					Modifier.size(18.dp),
+				Text(if (kind == "Lightning") "Create invoice" else "Create address")
+			}
+			}
+			if (s.address.isNotEmpty()) {
+				val qr =
+					remember(s.address) {
+						val bits = QRCodeWriter().encode(s.address, BarcodeFormat.QR_CODE, 640, 640)
+						Bitmap.createBitmap(640, 640, Bitmap.Config.ARGB_8888)
+							.apply {
+								val pixels =
+									IntArray(640 * 640) {
+										if (bits[it % 640, it / 640]) android.graphics.Color.BLACK
+										else android.graphics.Color.WHITE
+									}
+								setPixels(pixels, 0, 640, 0, 0, 640, 640)
+							}
+							.asImageBitmap()
+					}
+				Image(
+					qr,
+					"Receive QR code",
+					Modifier.align(Alignment.CenterHorizontally)
+						.widthIn(max = 280.dp)
+						.fillMaxWidth()
+						.aspectRatio(1f)
+						.background(Color.White, RoundedCornerShape(20.dp))
+						.padding(12.dp),
 				)
-				Spacer(Modifier.width(8.dp))
-				Text(if (copied) "Copied" else "Copy")
+				Text(
+					if (kind == "Lightning") "Lightning invoice" else "$kind address",
+					style = MaterialTheme.typography.labelLarge,
+				)
+				var showFullRequest by remember(s.address) { mutableStateOf(false) }
+				TextButton(onClick = { showFullRequest = !showFullRequest }) {
+					Text(if (showFullRequest) "Hide full address or request" else "View full address or request")
+				}
+				if (showFullRequest) SelectionContainer {
+					Text(s.address, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall)
+				}
+				val context = LocalContext.current
+				Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+				OutlinedButton(
+					modifier = Modifier.weight(1f).semantics { liveRegion = LiveRegionMode.Polite },
+					onClick = {
+						(context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager)
+							.setPrimaryClip(
+								ClipData.newPlainText(
+									if (kind == "Lightning") "Lightning invoice" else "Receive address",
+									s.address,
+								),
+							)
+						copied = true
+					},
+				) {
+					Icon(
+						if (copied) Icons.Default.Check else Icons.Default.ContentCopy,
+						null,
+						Modifier.size(18.dp),
+					)
+					Spacer(Modifier.width(8.dp))
+					Text(if (copied) "Copied" else "Copy")
+				}
+				OutlinedButton(modifier = Modifier.weight(1f), onClick = {
+					context.startActivity(android.content.Intent.createChooser(
+						android.content.Intent(android.content.Intent.ACTION_SEND).setType("text/plain")
+							.putExtra(android.content.Intent.EXTRA_TEXT, s.address), "Share payment request"))
+				}) { Text("Share") }
+				}
+				if (kind == "On-chain") Text("Only send XBT to this address. BTC uses a different network.", style = MaterialTheme.typography.bodySmall)
+				TextButton(onClick = model::clearReceive, enabled = !s.busy) { Text("Create another request") }
 			}
 		}
 	}
