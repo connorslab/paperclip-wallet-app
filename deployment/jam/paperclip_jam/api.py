@@ -79,7 +79,7 @@ class MutationGuard:
         if wallet_route and parts[-1] in ('lock', 'unlock'):
             return await self.app(scope, receive, send)
         read_only = method == 'GET' and (re.fullmatch(r'/api/v1/wallet/[^/]+/paperclip/identity', path) or path in ('/api/v1/session', '/api/v1/wallet/all') or
-            (wallet_route and parts[-1] in ('display', 'utxos', 'history')))
+            (wallet_route and parts[-1] in ('display', 'utxos', 'history', 'getseed')))
         if not path.startswith('/api/') or read_only or method == 'OPTIONS':
             return await self.app(scope, receive, send)
         async with self.service.lock:

@@ -13,13 +13,13 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible{ou
 .view-nav button[aria-pressed=true]{background:#f5683522;color:#ffb089;box-shadow:inset 0 0 0 1px #f5683550}
 .view-enter{animation:wallet-view-in .22s ease-out both}
 @keyframes wallet-view-in{from{opacity:.35;transform:translateY(6px)}to{opacity:1;transform:none}}
-.review-sheet{width:min(520px,calc(100% - 28px));max-height:85dvh;border:1px solid var(--stroke);border-radius:26px;padding:28px;background:#1a293e;color:#eef2f8;box-shadow:0 28px 100px #0008}
-.review-sheet[open]{animation:wallet-view-in .2s ease-out}
-.review-sheet::backdrop{background:#080f1dcc;backdrop-filter:blur(5px)}
+:is(.review-sheet,.jam-backup-sheet){width:min(520px,calc(100% - 28px));max-height:85dvh;border:1px solid var(--stroke);border-radius:26px;padding:28px;background:#1a293e;color:#eef2f8;box-shadow:0 28px 100px #0008}
+:is(.review-sheet,.jam-backup-sheet)[open]{animation:wallet-view-in .2s ease-out}
+:is(.review-sheet,.jam-backup-sheet)::backdrop{background:#080f1dcc;backdrop-filter:blur(5px)}
 .review-content{white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.65;color:#c8d3e3;font-size:14px;max-height:55dvh;overflow:auto}
 .review-actions{display:flex;gap:12px;margin-top:24px}.review-actions button{flex:1}
 #status{padding:12px 0;line-height:1.5}
-@media(max-width:640px){.view-nav{position:fixed;top:auto;bottom:max(10px,env(safe-area-inset-bottom));left:12px;right:12px;width:auto;display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:3px;padding:6px;border-radius:22px}.view-nav button{font-size:11px;padding:8px 5px;min-height:39px}.session-open footer{padding-bottom:130px}.review-sheet{margin:auto auto 14px;border-radius:26px;padding:22px}.metrics strong{font-size:34px;letter-spacing:-1px}}
+@media(max-width:640px){.view-nav{position:fixed;top:auto;bottom:max(10px,env(safe-area-inset-bottom));left:12px;right:12px;width:auto;display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:3px;padding:6px;border-radius:22px}.view-nav button{font-size:11px;padding:8px 5px;min-height:39px}.session-open footer{padding-bottom:130px}:is(.review-sheet,.jam-backup-sheet){margin:auto auto 14px;border-radius:26px;padding:22px}.metrics strong{font-size:34px;letter-spacing:-1px}}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
 
 .activity-state{display:inline-block;padding:4px 9px;border:1px solid var(--stroke);border-radius:999px;font-size:12px;color:#d4dfed}.activity-row details{grid-column:1/-1}.activity-row pre{white-space:pre-wrap;overflow-wrap:anywhere}.connection-list{border-block:1px solid var(--stroke);margin:20px 0;padding:8px 0}
@@ -211,11 +211,11 @@ textarea:focus-visible{outline:2px solid var(--focus);outline-offset:4px}
 @media(prefers-reduced-motion:reduce) {.receive-card {animation:none}}
 
 /* Reviews have room for deliberate reading and a distinct confirmation area. */
-.review-sheet {padding:32px;width:min(560px,calc(100% - 28px))}
-.review-sheet h2 {margin-bottom:24px}
+:is(.review-sheet,.jam-backup-sheet) {padding:32px;width:min(560px,calc(100% - 28px))}
+:is(.review-sheet,.jam-backup-sheet) h2 {margin-bottom:24px}
 .review-content {line-height:1.8;padding-block:8px 16px}
 .review-actions {margin-top:28px;padding-top:20px;border-top:1px solid var(--stroke)}
-@media(max-width:640px) {.review-sheet {padding:24px}.review-actions {margin-top:20px}}
+@media(max-width:640px) {:is(.review-sheet,.jam-backup-sheet) {padding:24px}.review-actions {margin-top:20px}}
 
 /* Shared rhythm for settings, node tools, Jars and recovery on both server hosts. */
 .wallet-content section > h2:first-child,
@@ -253,7 +253,7 @@ input:focus-visible,select:focus-visible,textarea:focus-visible {box-shadow:0 0 
 .qr-account-active .menu-row small.hot-wallet-tool {display:none}
 
 /* Payment recovery uses the same surface and hierarchy as review and receipts. */
-.review-sheet,.transaction-result,.jam-payment {box-sizing:border-box;border-radius:22px;background:var(--surface);border:1px solid var(--stroke)}
+:is(.review-sheet,.jam-backup-sheet),.transaction-result,.jam-payment {box-sizing:border-box;border-radius:22px;background:var(--surface);border:1px solid var(--stroke)}
 #jam-payments {display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr));gap:16px;margin-top:16px}
 #jam-payments:empty {display:none}
 .jam-payment {display:flex;flex-direction:column;gap:12px;padding:20px;animation:wallet-view-in .18s ease-out both;min-width:0;max-width:560px}
@@ -297,3 +297,14 @@ button,a,summary {touch-action:manipulation}
 .activity-facts {font-size:14px;line-height:1.5}
 .activity-facts dt:first-child,.activity-facts dd:nth-child(2) {font-weight:650}
 .activity-row .activity-state {font-weight:550}
+
+/* Jars recovery stays in a focused, locally rendered owner-only dialog. */
+#jam-backup-dialog { width: min(34rem, calc(100vw - 2rem)); max-height: calc(100dvh - 2rem); overflow-y: auto; box-sizing: border-box; }
+#jam-backup-dialog label { display: grid; gap: .4rem; margin-block: .8rem; }
+#jam-backup-dialog button { margin-block: .5rem; }
+#jam-backup-reveal, #jam-backup-next, #jam-backup-finish { width: 100%; }
+#jam-backup-close { display: block; margin-inline: auto; min-height: 44px; }
+#jam-backup-dialog input { min-width: 0; width: 100%; box-sizing: border-box; }
+.jam-backup-words { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .7rem 1.5rem; padding-inline-start: 1.8rem; font-family: ui-monospace, monospace; }
+.jam-backup-words li { overflow-wrap: anywhere; }
+@media (max-width: 420px) { .jam-backup-words { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

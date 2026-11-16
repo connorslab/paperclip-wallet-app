@@ -26,6 +26,7 @@ jobs:
           node scripts/test-receive-qr.mjs
           node scripts/test-setup-browser.cjs
           node scripts/test-joinblaket-browser.cjs
+          node scripts/test-jars-setup-browser.cjs
           node scripts/test-navigation-browser.cjs
           node scripts/test-hardware-browser.cjs
           node scripts/test-wallet-races-browser.cjs

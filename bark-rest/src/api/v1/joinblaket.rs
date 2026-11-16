@@ -1,5 +1,6 @@
 //! Browser bridge to one administrator-configured JoinBlaket daemon.
-//! Never accepts a browser-selected upstream, exports seeds, or retries actions.
+//! Never accepts a browser-selected upstream or retries actions. Recovery words
+//! require the owner's authenticated route and a fresh Jam password check.
 
 use std::{sync::Arc, time::Duration};
 
@@ -36,7 +37,24 @@ pub struct Request {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "snake_case")]
-enum Operation { Wallets, Unlock, Status, Identity, Coins, Address, BondAddress, StartMaker, StopMaker, Payments, CheckPayment, #[serde(skip)] PairingSession }
+enum Operation { Wallets, CreateWallet, BackupWallet, Unlock, Status, Identity, Coins, Address, BondAddress, StartMaker, StopMaker, Payments, CheckPayment, #[serde(skip)] PairingSession }
+
+fn create_body(input: &Request) -> anyhow::Result<Value> {
+	let name = input.wallet.strip_suffix(".jmdat").context("Use a .jmdat wallet filename")?;
+	ensure!(!name.is_empty() && name.len() <= 48 && name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_'), "Use letters, numbers, hyphens or underscores for the wallet name");
+	ensure!(input.password.chars().count() >= 12 && input.password.len() <= 16_384 && !input.password.trim().is_empty(), "Use a Jam wallet password of at least 12 characters");
+	ensure!(input.bip39_passphrase.is_empty(), "New Jars wallets use recovery words without an extra BIP39 passphrase");
+	Ok(json!({"walletname":input.wallet,"password":input.password,"wallettype":"sw-fb"}))
+}
+
+fn wallet_authorization(result: &Value, wallet: &str) -> anyhow::Result<Value> {
+	ensure!(result["walletname"] == wallet, "Jam returned a different wallet");
+	let token = result["token"].as_str().context("Jam returned no wallet authorization")?;
+	ensure!(!token.is_empty() && token.len() < 16_384 && token.bytes().all(|b| (33..=126).contains(&b)), "Invalid Jam wallet authorization");
+	// Creation can return recovery words and refresh tokens. Only the dedicated
+	// password-verified backup operation may return recovery words to the owner.
+	Ok(json!({"walletname":wallet,"token":token}))
+}
 
 fn bond_month(value: &str, now: chrono::DateTime<chrono::Utc>) -> anyhow::Result<()> {
 	ensure!(value.len() == 7 && value.as_bytes()[4] == b'-'
@@ -112,14 +130,27 @@ async fn execute_bound(input: Request, expected_identity: Option<&str>) -> anyho
 	let client = builder.build().context("Could not initialize Jam transport")?;
 	if matches!(input.operation, Operation::Wallets) { return upstream(&client, &base, &["wallet", "all"], "", None).await; }
 	wallet_path(&input.wallet)?;
-	if matches!(input.operation, Operation::Unlock) {
+	if matches!(input.operation, Operation::CreateWallet) {
+		let body = create_body(&input)?;
+		// Jam serializes creation and refuses an existing filename. Never retry a
+		// lost response; the owner can find and unlock the same wallet to back up.
+		let result = upstream(&client, &base, &["wallet", "create"], "", Some(body)).await?;
+		return wallet_authorization(&result, &input.wallet);
+	}
+	if matches!(input.operation, Operation::Unlock | Operation::BackupWallet) {
 		ensure!(input.password.len() <= 16_384 && input.bip39_passphrase.len() <= 16_384, "Jam unlock input too long");
+		if matches!(input.operation, Operation::BackupWallet) { ensure!(!input.password.is_empty(), "Enter the Jam wallet password to view recovery words"); }
 		let mut body = json!({"password": input.password});
 		if !input.bip39_passphrase.is_empty() { body["bip39_passphrase"] = input.bip39_passphrase.into(); }
 		let result = upstream(&client, &base, &["wallet", &input.wallet, "unlock"], "", Some(body)).await?;
-		ensure!(result["walletname"] == input.wallet, "Jam wallet changed during unlock");
-		// No seed or unrelated daemon response fields may cross this boundary.
-		return Ok(json!({"walletname": result["walletname"], "token": result["token"]}));
+		let mut authorization = wallet_authorization(&result, &input.wallet)?;
+		if matches!(input.operation, Operation::BackupWallet) {
+			let result = upstream(&client, &base, &["wallet", &input.wallet, "getseed"], authorization["token"].as_str().unwrap(), None).await?;
+			let phrase = result["seedphrase"].as_str().context("Jam recovery words are unavailable")?;
+			ensure!(phrase.len() <= 512 && bark::bip39::Mnemonic::parse(phrase).is_ok(), "Jam returned invalid recovery words");
+			authorization["seedphrase"] = phrase.into();
+		}
+		return Ok(authorization);
 	}
 	ensure!(!input.token.is_empty() && input.token.len() < 16_384 && input.token.bytes().all(|b| (33..=126).contains(&b)), "Unlock your Jam wallet first");
 	let session = upstream(&client, &base, &["session"], &input.token, None).await?;
@@ -197,7 +228,7 @@ async fn execute_bound(input: Request, expected_identity: Option<&str>) -> anyho
 			upstream(&client, &base, &["wallet", &input.wallet, "maker", "stop"], &input.token, None).await?;
 			Ok(json!({"requested":true}))
 		},
-		Operation::Wallets | Operation::Unlock | Operation::Identity | Operation::PairingSession => unreachable!("handled above"),
+		Operation::Wallets | Operation::CreateWallet | Operation::BackupWallet | Operation::Unlock | Operation::Identity | Operation::PairingSession => unreachable!("handled above"),
 	}
 }
 
@@ -246,6 +277,21 @@ async fn request(State(state): State<Arc<ServerState>>, Json(input): Json<Reques
 #[cfg(test)]
 mod tests {
 	use super::*;
+	#[test]
+	fn jam_creation_validates_filename_and_keeps_secrets_out_of_normal_responses() {
+		let mut input: Request = serde_json::from_value(json!({"operation":"create_wallet","wallet":"My-Jars.jmdat","password":"synthetic-password"})).unwrap();
+		assert!(create_body(&input).is_ok());
+		for name in ["../wallet.jmdat", "wallet", ".jmdat", "a/b.jmdat", "a\\b.jmdat", "a\0.jmdat", "a b.jmdat"] {
+			input.wallet = name.into(); assert!(create_body(&input).is_err());
+		}
+		input.wallet = "My-Jars.jmdat".into(); input.password = "short".into(); assert!(create_body(&input).is_err());
+		input.password = "synthetic-password".into(); input.bip39_passphrase = "unexpected-passphrase".into(); assert!(create_body(&input).is_err());
+		let result = wallet_authorization(&json!({"walletname":"My-Jars.jmdat","token":"synthetic-token",
+			"seedphrase":"must-not-escape","refresh_token":"must-not-escape"}), "My-Jars.jmdat").unwrap();
+		assert!(result.get("seedphrase").is_none() && result.get("refresh_token").is_none());
+		assert!(wallet_authorization(&json!({"walletname":"other.jmdat","token":"synthetic-token"}), "My-Jars.jmdat").is_err());
+		assert!(wallet_authorization(&json!({"walletname":"My-Jars.jmdat","token":""}), "My-Jars.jmdat").is_err());
+	}
 	#[test]
 	fn jam_recovery_matches_shared_cases_and_strips_private_fields() {
 		let cases: Value = serde_json::from_str(include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../mobile/Tests/PaperclipMobileTests/Fixtures/jam-recovery.json"))).unwrap();

@@ -83,6 +83,58 @@ class RuntimeTest(unittest.TestCase):
         self.assertEqual(self.client.get(target).status_code, 401)
         self.backend.broadcast_transaction.assert_not_awaited()
 
+    def test_first_run_creation_password_backup_and_existing_file_preservation(self):
+        # Real encryption/file creation and password checks, synthetic chain only.
+        # Never use response.text in assertions: lifecycle replies contain secrets.
+        logger.remove()
+        self.state.wallet_service = None
+        self.state.wallet_name = None
+        self.client.headers.pop('Authorization', None)
+        wallet = 'new-fixture.jmdat'
+        password = 'synthetic-test-password'
+        with patch('jmwalletd._backend.get_backend', AsyncMock(return_value=self.backend)), \
+                patch('jmwalletd.wallet_ops._get_network', return_value='regtest'), \
+                patch.object(WalletService, 'sync', AsyncMock()), \
+                patch.object(self.state, 'start_tx_monitor'), \
+                patch.object(self.state, 'wait_tx_monitor_ready', AsyncMock(return_value=True)):
+            created = self.client.post('/api/v1/wallet/create', json={
+                'walletname': wallet, 'password': password, 'wallettype': 'sw-fb'})
+            self.assertEqual(created.status_code, 201)
+            self.assertTrue(Mnemonic('english').check(created.json()['seedphrase']))
+            wallet_file = self.state.wallets_dir / wallet
+            before = wallet_file.read_bytes()
+            self.assertTrue(wallet_file.stat().st_mode & 0o777 == 0o600)
+            seed_path = f'/api/v1/wallet/{wallet}/getseed'
+            self.assertEqual(self.client.get(seed_path).status_code, 401)
+            invalid = self.client.post(f'/api/v1/wallet/{wallet}/unlock', json={'password':'wrong-fixture'})
+            self.assertNotEqual(invalid.status_code, 200)
+            # The wrong-password backoff is tested upstream; skip its clock here.
+            with patch.object(self.state, 'unlock_retry_delay', return_value=0):
+                unlocked = self.client.post(f'/api/v1/wallet/{wallet}/unlock', json={'password':password})
+            self.assertEqual(unlocked.status_code, 200)
+            self.client.headers['Authorization'] = 'Bearer ' + unlocked.json()['token']
+            backup = self.client.get(seed_path)
+            self.assertEqual(backup.status_code, 200)
+            self.assertTrue(backup.json()['seedphrase'] == created.json()['seedphrase'])
+            self.state.wallet_service = None
+            self.state.wallet_name = None
+            duplicate = self.client.post('/api/v1/wallet/create', json={
+                'walletname':wallet, 'password':password, 'wallettype':'sw-fb'})
+            self.assertNotEqual(duplicate.status_code, 201)
+            self.assertTrue(wallet_file.read_bytes() == before)
+        self.backend.broadcast_transaction.assert_not_awaited()
+
+    def test_owner_backup_remains_available_during_pending_payment(self):
+        self.state.wallet_mnemonic = Mnemonic('english').to_mnemonic(bytes(32))
+        self.prepare()
+        target = '/api/v1/wallet/fixture.jmdat/getseed'
+        response = self.client.get(target)
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(Mnemonic('english').check(response.json()['seedphrase']))
+        self.client.headers['Authorization'] = 'Bearer invalid-fixture'
+        self.assertEqual(self.client.get(target).status_code, 401)
+        self.backend.broadcast_transaction.assert_not_awaited()
+
     def test_host_delegation_is_scoped_and_independent_of_short_jwt_expiry(self):
         import jwt
         target = self.base.replace('/payments', '/pairing-session')
@@ -100,6 +152,8 @@ class RuntimeTest(unittest.TestCase):
                 ('POST', self.base + '/' + 'a' * 64 + '/commit'),
                 ('POST', self.base + '/' + 'a' * 64 + '/cancel'),
                 ('GET', '/api/v1/wallet/fixture.jmdat/seed'),
+                ('GET', '/api/v1/wallet/fixture.jmdat/getseed'),
+                ('POST', '/api/v1/wallet/create'),
                 ('POST', '/api/v1/wallet/fixture.jmdat/unlock'),
                 ('GET', '/api/v1/wallet/all'), ('GET', '/api/v1/wallet/other.jmdat/utxos')]:
             self.assertEqual(self.client.request(method, path).status_code, 401, path)

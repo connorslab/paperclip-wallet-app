@@ -1,7 +1,7 @@
 # Paperclip's bundled Jam runtime
 
 This companion extends Kilombino's JoinBlaket runtime. It is not yet a release
-package. Host wiring, mobile pairing, client payment flows, CoinJoin payments,
+package. Installed host wiring, mobile pairing acceptance, client payment flows, CoinJoin payments,
 backup/restore and installed-package acceptance remain release blockers.
 
 The base is `ghcr.io/kilombino/jam-xbt:0.43.0-xbt7`, pinned in `Dockerfile` to its
@@ -20,12 +20,13 @@ backups must include it, including `paperclip/payments.sqlite`.
 
 The Umbrel generator accepts `--jam-image` with an independently tested immutable
 companion image. It creates separate `jam`, `jam-rpc` and `jam-public` volumes.
-Only the RPC filter receives the selected node's credentials. Paperclip shares
-Jam's network namespace for verified loopback HTTPS, and reads only its exported
+Only the RPC filter receives the selected node's credentials. Jam shares
+Paperclip's network namespace for verified loopback HTTPS; the wallet reads only its exported
 public certificate. Neither Jam keys nor the TLS private key are mounted into
 Paperclip. All four persistent directories must be backed up together. The
 companion refuses a second API process because the upstream maker state is
-process-local. StartOS 0.4 wrapper integration remains open.
+process-local. Native StartOS 0.4 wrapper wiring is implemented in the test branch;
+installed-package lifecycle and full backup/restore acceptance remain open.
 
 ## Payment contract
 
@@ -56,8 +57,16 @@ The native clients and desktop proxy now expose read-only saved-payment history
 and exact-transaction status checks. Their recovery views retain unknown outcomes
 on failure and never present node acceptance as confirmation. They cannot prepare,
 commit or cancel a payment. Direct/CoinJoin review, bond funding/withdrawal and
-scoped mobile pairing remain unfinished; these API foundations and recovery views
+payment-capable mobile pairing remain unfinished; these API foundations and recovery views
 do not constitute a completed bond or payment UI.
+
+The shared owner UI now creates separate Jam wallets and guides password-verified
+recovery-word backup. Creation responses expose only wallet authorization, not
+recovery words or refresh tokens. An interrupted creation is checked by filename
+before a manually reviewed retry, and the pinned daemon refuses overwrites.
+Read-only backup remains available during a pending payment. Restricted phone
+grants cannot create/unlock wallets or export recovery words; their delegation
+guard runs before the upstream route, including `/getseed`.
 
 ## Validation and distribution
 

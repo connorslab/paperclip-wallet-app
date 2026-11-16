@@ -10,6 +10,116 @@
     if (!token || token !== identity || ticket !== generation) throw new Error('Wallet session ended.');
     return result;
   }
+  // Only the filename survives reloads. Passwords, tokens and recovery words
+  // remain in memory; sensitive results arriving after hiding are discarded.
+  let pendingSetup = sessionRead('paperclip.jars.setup') || '', backupWallet = '', backupWords = [], backupTicket = 0, creationRetry = false;
+  const backupDialog = $('jam-backup-dialog');
+  function clearBackup() {
+    backupTicket++; backupWords = [];
+    $('jam-backup-password').value = ''; $('jam-backup-passphrase').value = '';
+    $('jam-backup-words').replaceChildren(); $('jam-backup-challenges').replaceChildren();
+    $('jam-backup-words-step').hidden = true; $('jam-backup-verify-step').hidden = true;
+    $('jam-backup-auth').hidden = false; $('jam-backup-status').textContent = '';
+    $('jam-backup-finish').disabled = true;
+  }
+  function closeBackup() { clearBackup(); backupDialog.close(); }
+  function openBackup(wallet) {
+    if (!wallet) throw new Error('Select the Jam wallet to back up.');
+    clearBackup(); backupWallet = wallet;
+    $('jam-backup-wallet').textContent = 'Jars wallet: ' + wallet;
+    backupDialog.showModal(); $('jam-backup-password').focus();
+  }
+  function pendingWallet(wallet) {
+    pendingSetup = wallet; creationRetry = false; sessionWrite('paperclip.jars.setup', wallet || null);
+    $('jam-setup-pending').hidden = !wallet;
+    $('jam-setup-pending-detail').textContent = wallet ? 'Finish backing up ' + wallet + ' before adding funds.' : '';
+  }
+  pendingWallet(pendingSetup);
+  $('jam-create').onclick = () => work(async () => {
+    if (pendingSetup && !creationRetry) throw new Error('Finish the existing Jars wallet backup first.');
+    const name = $('jam-create-name').value.trim(), password = $('jam-create-password').value;
+    if (!/^[A-Za-z0-9_-]{1,48}$/.test(name)) throw new Error('Use 1 to 48 letters, numbers, hyphens or underscores for the wallet name.');
+    if ([...password].length < 12 || !password.trim() || password !== $('jam-create-confirm').value) throw new Error('Use at least 12 characters and matching passwords.');
+    const wallet = name + '.jmdat';
+    if (pendingSetup && wallet !== pendingSetup) throw new Error('Check the same wallet after an interrupted creation.');
+    const ticket = backupTicket;
+    const config = await api('joinblaket/connection');
+    if (!config.configured) throw new Error('Enable the bundled JoinBlaket service in your Paperclip host settings first.');
+    if (ticket !== backupTicket || document.hidden || panel.hidden) return;
+    if (!await PaperclipReview.ask('Create ' + wallet + ' on your connected JoinBlaket server? It has separate keys and five jars. Back up its recovery words before adding funds. No funds will move.')) return;
+    if (ticket !== backupTicket || document.hidden || panel.hidden) return;
+    $('jam-create-password').value = ''; $('jam-create-confirm').value = '';
+    pendingWallet(wallet); // Set before submission, including lost responses.
+    try {
+      const result = await call('create_wallet', {wallet,password});
+      if (ticket !== backupTicket || document.hidden || panel.hidden) return;
+      if (result.walletname !== wallet || typeof result.token !== 'string' || !result.token) throw new Error('Invalid Jam creation response.');
+      authorization = {wallet,token:result.token}; $('jam-create-panel').open = false;
+      openBackup(wallet);
+    } catch (error) {
+      throw new Error('Creation may have finished. Find and unlock ' + wallet + ', or resume its backup. Check that same wallet before retrying.');
+    }
+  });
+  $('jam-setup-check').onclick = () => work(async () => {
+    const wallet = pendingSetup;
+    if (!wallet) return;
+    const result = await call('wallets');
+    if (!Array.isArray(result.wallets) || result.wallets.some(name => typeof name !== 'string')) throw new Error('Could not check Jam wallets.');
+    if (pendingSetup !== wallet) return;
+    if (result.wallets.includes(wallet)) { openBackup(wallet); return; }
+    creationRetry = true;
+    $('jam-create-name').value = wallet.replace(/\.jmdat$/, ''); $('jam-create-panel').open = true;
+    $('jam-setup-pending-detail').textContent = wallet + ' is not listed. You may review a retry with the same name. An existing wallet will never be overwritten.';
+  });
+  $('jam-setup-resume').onclick = () => { if (!busy) openBackup(pendingSetup); };
+  $('jam-backup-open').onclick = () => { if (!busy) openBackup(authorization?.wallet); };
+  $('jam-backup-close').onclick = closeBackup;
+  backupDialog.addEventListener('cancel', event => { event.preventDefault(); closeBackup(); });
+  backupDialog.addEventListener('close', () => { if (!backupDialog.open) clearBackup(); });
+  $('jam-backup-reveal').onclick = async () => {
+    if (busy) return;
+    const wallet = backupWallet, password = $('jam-backup-password').value, bip39_passphrase = $('jam-backup-passphrase').value;
+    const ticket = backupTicket;
+    $('jam-backup-password').value = ''; $('jam-backup-passphrase').value = '';
+    if (!password) { $('jam-backup-status').textContent = 'Enter this Jam wallet’s password.'; return; }
+    busy = true; render(); $('jam-backup-status').textContent = 'Verifying wallet…';
+    try {
+      const result = await call('backup_wallet', {wallet,password,bip39_passphrase});
+      if (ticket !== backupTicket || !backupDialog.open || document.hidden || panel.hidden) return;
+      const words = typeof result.seedphrase === 'string' ? result.seedphrase.trim().split(/\s+/) : [];
+      if (result.walletname !== wallet || typeof result.token !== 'string' || !result.token || ![12,15,18,21,24].includes(words.length) || words.some(word => !/^[a-z]+$/.test(word))) throw new Error('Could not validate the Jam backup.');
+      authorization = {wallet,token:result.token}; backupWords = words;
+      $('jam-backup-auth').hidden = true; $('jam-backup-words-step').hidden = false;
+      for (const word of words) { const item = document.createElement('li'); item.textContent = word; $('jam-backup-words').append(item); }
+      $('jam-backup-status').textContent = '';
+    } catch (error) {
+      if (ticket === backupTicket && backupDialog.open) $('jam-backup-status').textContent = 'Could not read the backup. Check the Jam wallet password, passphrase and server connection.';
+    } finally { busy = false; render(); }
+  };
+  $('jam-backup-next').onclick = () => {
+    if (!backupWords.length) return;
+    $('jam-backup-words').replaceChildren(); $('jam-backup-words-step').hidden = true;
+    $('jam-backup-verify-step').hidden = false;
+    const positions = [0, Math.floor(backupWords.length / 2), backupWords.length - 1];
+    for (const index of positions) {
+      const label = document.createElement('label'), input = document.createElement('input');
+      label.textContent = 'Word ' + (index + 1); input.type = 'password'; input.autocomplete = 'off'; input.spellcheck = false;
+      input.setAttribute('autocapitalize','none'); input.dataset.position = String(index);
+      label.append(input); $('jam-backup-challenges').append(label);
+      input.oninput = () => { $('jam-backup-finish').disabled = busy || [...$('jam-backup-challenges').querySelectorAll('input')].some(field => field.value.trim().toLowerCase() !== backupWords[Number(field.dataset.position)]); };
+    }
+    $('jam-backup-challenges').querySelector('input')?.focus();
+  };
+  $('jam-backup-finish').onclick = () => work(async () => {
+    const fields = [...$('jam-backup-challenges').querySelectorAll('input')];
+    if (!backupWords.length || fields.length !== 3 || fields.some(field => field.value.trim().toLowerCase() !== backupWords[Number(field.dataset.position)])) throw new Error('Check the words in your written backup.');
+    if (pendingSetup === backupWallet) pendingWallet('');
+    closeBackup(); await refresh();
+  });
+  function hideSetupSecrets() { closeBackup(); $('jam-create-password').value = ''; $('jam-create-confirm').value = ''; }
+  document.addEventListener('visibilitychange', () => { if (document.hidden) hideSetupSecrets(); });
+  window.addEventListener('pagehide', hideSetupSecrets);
+  new MutationObserver(() => { if (panel.hidden) hideSetupSecrets(); }).observe(panel, {attributes:true, attributeFilter:['hidden']});
   let pairingCode = '', pairingQR = null;
   function clearPairingCode() {
     pairingCode = ''; $('jam-pairing-code').hidden = true; $('jam-pairing-qr').removeAttribute('src');
@@ -185,6 +295,10 @@
     $('jam-maker-readiness').textContent = needsRefresh ? 'Refresh maker status before another action.' : running ? '' : readiness.canStart
       ? 'Review your terms. Your server checks final eligibility; earnings are not guaranteed.' : 'Complete the remaining setup steps. Bond coins stay locked until the date you choose and remain separate from your maker offer.';
     panel.querySelectorAll('button, input, select').forEach(control => { control.disabled = busy; });
+    $('jam-backup-close').disabled = false;
+    $('jam-create').disabled = busy || (!!pendingSetup && !creationRetry);
+    $('jam-create-name').disabled = busy || !!pendingSetup;
+    $('jam-backup-finish').disabled = busy || !backupWords.length || [...$('jam-backup-challenges').querySelectorAll('input')].length !== 3 || [...$('jam-backup-challenges').querySelectorAll('input')].some(field => field.value.trim().toLowerCase() !== backupWords[Number(field.dataset.position)]);
     $('jam-maker').disabled = busy || needsRefresh || (!running && !readiness.canStart);
   }
   async function work(action) {
@@ -220,14 +334,15 @@
     $('jam-wallet').replaceChildren();
     for (const name of result.wallets) { const option = document.createElement('option'); option.value = name; option.textContent = name; $('jam-wallet').append(option); }
     $('jam-unlock-fields').hidden = result.wallets.length === 0;
-    $('jam-connection-state').textContent = result.wallets.length ? 'Select your separate Jam wallet.' : 'Create a separate wallet in Jam, then refresh this connection.';
+    $('jam-connection-state').textContent = result.wallets.length ? 'Select your separate Jam wallet.' : 'Create your Jars wallet here to get started.';
   });
   $('jam-unlock').onclick = () => work(async () => {
     const wallet = $('jam-wallet').value, password = $('jam-password').value, bip39_passphrase = $('jam-passphrase').value;
     $('jam-password').value = ''; $('jam-passphrase').value = '';
     const result = await call('unlock', {wallet, password, bip39_passphrase});
     if (result.walletname !== wallet || typeof result.token !== 'string' || !result.token) throw new Error('Jam did not unlock the selected wallet.');
-    authorization = {wallet, token: result.token}; await refresh();
+    authorization = {wallet, token: result.token};
+    if (wallet === pendingSetup) openBackup(wallet); else await refresh();
   });
   $('jam-payments-load').onclick = () => work(async () => {
     const result = await call('payments');
@@ -271,6 +386,7 @@
   });
   new MutationObserver(() => {
     if (!$('wallet').hidden) return;
+    closeBackup(); $('jam-create-password').value = ''; $('jam-create-confirm').value = '';
     clearPairingCode(); $('jam-pairing-list').replaceChildren(); $('jam-pairing-panel').open = false;
     generation++; payments = null; renderPayments(); $('jam-payments-panel').open = false; authorization = null; jars = []; session = null; selected = 0;
     $('jam-open').hidden = true; $('jam-open').removeAttribute('href');

@@ -1417,3 +1417,37 @@ and browser CI passed at source `c70ab3061cf1d64ee6fe894489a897062f0a72f2`.
 The StartOS test wrapper `09b86708f2caa412f40a024d4536c270035db4ef` pins that
 source as candidate `0.10.0:3`. Its package workflow and installed-host acceptance
 are not covered by the container-suite result.
+
+## Bundled Jars first-run setup: 2026-11-16
+
+The shared owner UI can create a separate Jam wallet, then guide password-verified
+recovery-word backup and confirmation. No creation or backup action sends funds.
+Normal creation/unlock replies strip recovery words and refresh tokens. The
+explicit backup operation checks the Jam password again and projects only the
+selected wallet's validated phrase and authorization. Responses are not cached.
+Phone grants continue to deny creation, unlock and backup; no new mobile privilege
+was silently added.
+
+After interrupted creation, the browser retains only the filename, checks whether
+that wallet exists, and requires a fresh review with the same filename before
+retrying. The pinned daemon refuses overwrites. Recovery words stay in memory and
+are removed on close, navigation, tab hiding and lock; late hidden-page responses
+are discarded. The pending filename is a session reminder, not a server-side
+backup record. Full-volume backup/restore and installed-host acceptance remain
+required. Sending from paired Jars and CoinJoin payment reviews remain open.
+
+The real pinned-runtime suite passes 34 cases locally with one Linux-only case
+skipped, including encrypted creation, 0600 wallet files, password checks, backup
+during a pending payment, denied delegated `/getseed` and preservation of existing
+wallet files. No live wallets or payments were used. Browser fixtures pass at
+390/1280px for interrupted creation, same-name retry, backup verification and
+secret clearing. Existing Jars and CLN/LND browser cases also pass. The broader
+web suite covers navigation, hardware wallets, payment review, RBF, Bridge and
+uncertain-send recovery. Swift's 12 Jars adapter tests and Kotlin adapter tests pass.
+
+The complete REST suite passes 77 cases with one live case ignored. Its first run
+exposed a wall-clock-sensitive Bridge-expiry fixture; a test-only thread-local
+clock now expires the quote during the actual TLS preflight. The test asserts both
+preflights occurred and no payment intent/send was created. Production clock and
+expiry behavior are unchanged. Container CI and installed-platform acceptance
+must still verify this source revision before release.

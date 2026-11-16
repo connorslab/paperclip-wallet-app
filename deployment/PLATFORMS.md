@@ -75,6 +75,27 @@ for the shared source freeze, remaining feature gaps and publication sequence.
 
 ## Package development
 
+### Create and back up a Jars wallet
+
+With bundled JoinBlaket enabled in the host settings, open **Jars → Create a
+Jars wallet**. Choose a name and a separate Jam password of at least 12 characters,
+review creation, then back up the recovery words. No funds move during setup.
+Paperclip verifies the Jam password again before displaying the words. Write them
+down privately and confirm the requested words; do not use a mobile or QR signer
+seed. These Jars have their own keys.
+
+If creation is interrupted, use **Check creation status** or find and unlock the
+same named wallet. A retry requires a fresh review with the same filename; the
+daemon refuses to overwrite an existing wallet. The browser keeps only the pending
+filename in session storage. This reminder is not a server backup or a durable
+cross-browser setup record. **Back up Jars wallet** remains available after unlock.
+
+Recovery words require owner authentication and a fresh Jam password check. They
+are cleared when their dialog closes, the page changes, the tab is hidden or the
+wallet locks. Phone pairings cannot create wallets or view recovery words. Also
+back up the complete host volumes: recovery words alone do not preserve all
+wallet history, payment recovery records, pairing records or configuration.
+
 ### JoinBlaket connection in the next candidate
 
 The new CoinJoin screen connects to a separate Kilombino JoinBlaket/Jam wallet.
