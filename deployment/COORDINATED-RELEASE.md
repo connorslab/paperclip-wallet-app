@@ -102,14 +102,32 @@ Play-signed download option in its
 - Current Android and native iOS simulator adapters passed authenticated CLN/LND
   identity, three balance reads, deliberate wrong-pin rejection and reconnection
   against StartOS LAN endpoints. Credentials remained private; no payments or
-  service changes were made. The iOS UI test runner crashed while preparing tests
-  (`XCTWaiter` stalled); the successful in-app read probe does not replace UI acceptance.
+  service changes were made. The iOS UI test runner initially crashed while
+  preparing tests (`XCTWaiter` stalled). A subsequent native Xcode run passed the
+  actual connection screens for both nodes: verify, connected indicator and
+  balance refresh. The original runner stall remains unexplained; no UI assertion
+  or timeout was weakened.
 - The current Rust server adapter also passed fresh authenticated CLN/LND LAN
   identity, repeated balances, wrong-pin rejection and reconnection. A separate
   native iOS embedded-Tor probe returned promptly after cancellation, authenticated
   its control connection and reached 30% bootstrap, then failed before contacting
   LND. An independent local controller timed out; the Tor thread remained in its
-  event loop. The precise failure and retry behavior remain under investigation.
+  event loop. The precise failure remains under investigation. Subsequent cached
+  and fresh-cache native simulator runs passed authenticated LND onion identity,
+  three balance reads, wrong-pin rejection and reconnection. First reads took
+  21 and 107 seconds respectively. A separate injected startup failure recovered
+  in the same process and verified HTTPS traffic through Tor; that does not
+  reproduce or resolve the original spontaneous timeout.
+- Android's native API 36 emulator also passed three authenticated LND onion
+  reads, balances, wrong-pin rejection and recovery through embedded Tor. Startup
+  took about 7 seconds and the first node read about 8 seconds. This read-only
+  opt-in test never opened a wallet session or created an invoice. It does not
+  establish physical-device, funded-payment or package acceptance.
+- Both CLN and LND passed the Android emulator's LAN adapter checks with a
+  test-only DNS address supplied for `start.local`, preserving the HTTPS authority
+  and verified certificate pins. Automatic resolution failed with UnknownHost;
+  a bare-IP endpoint failed the TLS handshake. Those failures remain recorded.
+  The passing fixture is not evidence of automatic LAN discovery on Android.
 - All 33 deployment Python unit tests passed using Python 3.13. The separate Linux
   daemon smoke script requires its built container and was not accepted on macOS.
 - Manual desktop balance refresh now reports partial failures instead of claiming

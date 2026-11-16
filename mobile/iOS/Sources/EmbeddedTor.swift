@@ -164,6 +164,7 @@ import Network
                     status = "Tor is starting · waiting for its local controller…"
                 }
                 if (authenticationPending || infoPending), clock.now - requestBegan > replyTimeout {
+                    diagnostic("control reply timed out; request=\(infoPending ? "status" : "authentication")")
                     throw WalletFailure(message: (infoPending ? TorStartupStage.statusReply : .authentication).timeoutMessage)
                 }
                 if [.controlFile, .controlConnection, .cookie, .socks].contains(stage), clock.now - phaseBegan > .seconds(15) {
@@ -283,7 +284,16 @@ enum NodeReadProbe {
                 record(label, "start", "running")
                 do {
                     if connection.useTor {
-                        connection.torProxy = try await EmbeddedTor.shared.proxy(for: connection.torProxy)
+                        do { connection.torProxy = try await EmbeddedTor.shared.proxy(for: connection.torProxy) }
+                        catch {
+                            // This status contains only local stages and fixed error messages.
+                            record(label, "embedded-tor-attempt-1", EmbeddedTor.shared.status)
+                            guard ProcessInfo.processInfo.arguments.contains("-node-read-probe-retry") else { throw error }
+                            // One explicit read-only retry, using the same running Tor instance.
+                            // Retain the failed attempt in the report even if the retry succeeds.
+                            record(label, "embedded-tor-retry", "requested")
+                            connection.torProxy = try await EmbeddedTor.shared.proxy(for: connection.torProxy)
+                        }
                         record(label, "embedded-tor", "ready")
                     }
                     let node = try LightningNode(connection: connection, diagnostics: { event in
@@ -310,6 +320,7 @@ enum NodeReadProbe {
                     _ = try await node.info()
                     record(label, "after-pin-failure", "reconnected")
                 } catch {
+                    if connection.useTor { record(label, "embedded-tor-status", EmbeddedTor.shared.status) }
                     record(label, "failure", "\(String(describing: type(of: error))) code=\((error as NSError).code)")
                 }
             }

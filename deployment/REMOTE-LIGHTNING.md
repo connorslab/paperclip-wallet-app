@@ -104,15 +104,45 @@ On November 16, the current Android adapter and native iOS simulator read probe
 repeated the authenticated CLN and LND LAN checks successfully: trusted public
 identity and network, three balance reads, rejection of an incorrect certificate
 pin, and reconnection afterward. No invoice or payment was created. The separate
-iOS live UI test runner stalled before executing its checks; this remains a UI
-acceptance gap. The installed StartOS `0.10.0:0` package still has the older Ark-only
+iOS live UI test runner initially stalled before executing its checks. A subsequent
+native Xcode run passed both real connection screens, including verification,
+the connected indicator and balance refresh. The earlier runner failure remains
+unexplained; assertions and timeouts were not relaxed. The installed StartOS
+`0.10.0:0` package still has the older Ark-only
 Lightning page and an unavailable XBT node check, so these adapter results do not
 establish package upgrade or live-payment acceptance.
 
 The Rust server adapter passed the same live LAN checks on November 16. A new
 native embedded-Tor probe failed after controller authentication and 30% bootstrap,
 before contacting LND. Cancellation returned within the probe's 300 ms window,
-but Tor readiness and post-failure retry remain open acceptance gates.
+and the cause of that spontaneous control timeout remains unconfirmed. Subsequent
+cached and fresh-cache native simulator runs passed three authenticated LND onion
+reads, balance decoding, wrong-pin rejection and reconnection. The first read took
+21 seconds with the cache and 107 seconds from fresh Tor state. An explicitly
+injected startup failure also recovered in the same process and verified an HTTPS
+request through Tor. That controlled retry does not prove the original failure is
+fixed. The original simulator cache and private inputs were restored afterward.
+
+Android's `NodeLiveDeviceTest` is an explicit opt-in instrumentation check of the
+embedded service and real node transport. On an unfunded QA emulator, provision
+`cache/node-live-read.json` through `adb run-as` standard input using the existing
+`cases` schema, independently verified pins and expected public identities. Every
+case must use HTTPS; onion endpoints must use embedded Tor. Run the test class
+with instrumentation argument `liveNodes=true`. It only reads identity/network
+and balances, rejects a deliberate wrong pin, and checks recovery. It never opens the wallet engine or
+creates an invoice. Reports contain fixed stages and timings; exception messages
+and node responses are omitted. Restore any previous fixture or remove the
+temporary input immediately afterward. A skipped/default test is not acceptance.
+
+The opt-in Android check passed on the isolated API 36 emulator for LND over
+embedded Tor, and for both CLN and LND over LAN. The emulator failed to resolve
+`start.local`; replacing the HTTPS hostname with the server IP then failed the
+TLS handshake. The passing LAN run used an explicit `resolvedAddress` test fixture
+with the Mac-resolved IPv4 address while retaining `start.local` as the HTTPS
+authority, the independently verified pins and the expected identities. This
+fixture is refused for Tor routes. It verifies the adapter with that DNS input,
+not automatic mDNS discovery or physical-device acceptance. No production DNS or
+TLS policy changed. The private fixture was removed afterward.
 
 ## Browser Bridge node funding
 
