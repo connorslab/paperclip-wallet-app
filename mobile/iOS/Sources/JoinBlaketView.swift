@@ -385,22 +385,14 @@ private struct JoinBlaketRecoveryView: View {
                                     .foregroundStyle(payment.needsCheck ? PaperclipTheme.orange : PaperclipTheme.muted)
                                     .padding(.horizontal, 12).padding(.vertical, 7)
                                     .background((payment.needsCheck ? PaperclipTheme.orange : PaperclipTheme.muted).opacity(0.10), in: Capsule())
-                                Spacer()
-                                Image(systemName: "arrow.up.right").font(.headline)
-                                    .foregroundStyle(PaperclipTheme.orange).frame(width: 36, height: 36)
-                                    .background(PaperclipTheme.orange.opacity(0.08), in: Circle()).accessibilityHidden(true)
                             }
                             if let quote = payment.quote {
-                                VStack(spacing: 6) {
-                                    Text(unit.display(quote.amount_sat)).font(.largeTitle.weight(.semibold)).monospacedDigit()
-                                        .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
-                                    Text("Jar \(Int(quote.jar) + 1) · " + (quote.purpose == "send" ? "Send" : quote.purpose == "fund_bond" ? "Bond funding" : "Bond withdrawal"))
-                                        .font(.subheadline).foregroundStyle(PaperclipTheme.muted)
-                                }.frame(maxWidth: .infinity).padding(.vertical, 12)
-                                HStack(spacing: 12) {
-                                    paymentCost("Mining fee", amount: quote.fee_sat)
-                                    paymentCost("Total debit", amount: quote.total_sat)
-                                }
+                                PaymentReviewHero(amount: unit.display(quote.amount_sat),
+                                    source: "Jar \(Int(quote.jar) + 1)",
+                                    caption: quote.purpose == "send" ? "Payment amount" : quote.purpose == "fund_bond" ? "Bond funding" : "Bond withdrawal")
+                                Divider()
+                                WalletReviewDetail(title: "Mining fee", value: unit.display(quote.fee_sat))
+                                WalletReviewDetail(title: "Total debit", value: unit.display(quote.total_sat), emphasized: true)
                                 DisclosureGroup("Payment details") {
                                     VStack(alignment: .leading, spacing: 12) {
                                         paymentReference("Destination", value: quote.destination)
@@ -438,13 +430,6 @@ private struct JoinBlaketRecoveryView: View {
                 }
                 .task { refresh() }
         }
-    }
-    private func paymentCost(_ label: String, amount: UInt64) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(label).font(.caption).foregroundStyle(PaperclipTheme.muted)
-            Text(unit.display(amount)).font(.subheadline.weight(.semibold)).monospacedDigit()
-        }.frame(maxWidth: .infinity, alignment: .leading).padding(12)
-            .background(PaperclipTheme.muted.opacity(0.06), in: RoundedRectangle(cornerRadius: 14))
     }
     private func paymentReference(_ label: String, value: String) -> some View {
         VStack(alignment: .leading, spacing: 5) {

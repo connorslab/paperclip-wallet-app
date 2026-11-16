@@ -37,12 +37,15 @@
         submitted:'Submitted',cancelled:'Cancelled'}[payment.state];
       const top = document.createElement('div'); top.className = 'jam-payment-top';
       const icon = document.createElement('span'); icon.className = 'jam-payment-icon'; icon.textContent = '↗'; icon.setAttribute('aria-hidden','true');
-      top.append(heading,icon); card.append(top);
+      top.append(heading); card.append(top);
       if (payment.quote) {
         const q = payment.quote, summary = document.createElement('p'); summary.className = 'jam-payment-amount';
         summary.textContent = amount(q.amount_sat);
+        const hero = document.createElement('div'); hero.className = 'payment-hero';
+        const caption = document.createElement('p'); caption.textContent = {send:'Payment amount',fund_bond:'Bond funding',withdraw_bond:'Bond withdrawal'}[q.purpose];
         const subtitle = document.createElement('p'); subtitle.className = 'jam-payment-subtitle';
-        subtitle.textContent = 'Jar ' + (q.jar + 1) + ' · ' + {send:'Send',fund_bond:'Bond funding',withdraw_bond:'Bond withdrawal'}[q.purpose];
+        subtitle.textContent = 'From Jar ' + (q.jar + 1);
+        hero.append(icon, caption, summary, subtitle);
         const costs = document.createElement('dl'); costs.className = 'jam-payment-costs';
         for (const [label,value] of [['Mining fee',q.fee_sat],['Total debit',q.total_sat]]) {
           const cell = document.createElement('div'), term = document.createElement('dt'), total = document.createElement('dd');
@@ -52,7 +55,7 @@
         for (const text of ['Destination: '+q.destination,'Transaction ID: '+q.txid]) {
           const line = document.createElement('p'); line.textContent = text; line.style.overflowWrap = 'anywhere'; details.append(line);
         }
-        card.append(summary, subtitle, costs, details);
+        card.append(hero, costs, details);
       }
       if (['submitting','unknown'].includes(payment.state)) {
         const warning = document.createElement('p'); warning.textContent = 'This payment may have reached the network. Do not send it again.';

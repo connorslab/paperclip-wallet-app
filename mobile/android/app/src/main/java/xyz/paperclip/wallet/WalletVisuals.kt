@@ -27,7 +27,7 @@ import androidx.compose.ui.unit.dp
 @Composable
 internal fun Modifier.walletEdgeGlow(
 	color: Color = MaterialTheme.colorScheme.primary,
-	radius: Dp = 26.dp,
+	radius: Dp = 22.dp,
 	enabled: Boolean = true,
 ): Modifier {
 	if (!enabled) return this
@@ -61,9 +61,9 @@ internal fun walletSurfaceBorder(): BorderStroke {
 
 @Composable
 internal fun WalletSurface(modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
-	Card(modifier.fillMaxWidth().walletEdgeGlow(), shape = RoundedCornerShape(26.dp), border = walletSurfaceBorder(),
+	Card(modifier.fillMaxWidth().walletEdgeGlow(), shape = RoundedCornerShape(22.dp), border = walletSurfaceBorder(),
 		colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-		elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)) {
+		elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
 		Column(Modifier.fillMaxWidth().background(walletSurfaceBrush()), content = content)
 	}
 }

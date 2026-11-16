@@ -406,13 +406,15 @@ internal fun NodeReceiveCode(value: String) {
 internal fun NodePaymentReview(review: NodeInvoiceReview, unit: BitcoinUnit, busy: Boolean, onConfirm: () -> Unit, onEdit: () -> Unit) {
 	Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(20.dp)) {
 		ReviewAmountHero(unit.displayMsat(review.msat), "Lightning node")
-		ReviewDetailRow("Maximum routing fee", unit.display(review.feeSat))
-		var showInvoice by remember(review.hash) { mutableStateOf(false) }
-		TextButton(onClick = { showInvoice = !showInvoice }) { Text(if (showInvoice) "Hide invoice" else "View full invoice") }
-		if (showInvoice) SelectionContainer { Text(review.invoice, style = MaterialTheme.typography.bodySmall) }
+		CardBlock("Payment details") {
+			ReviewDetailRow("Maximum routing fee", unit.display(review.feeSat))
+			var showInvoice by remember(review.hash) { mutableStateOf(false) }
+			TextButton(onClick = { showInvoice = !showInvoice }, modifier = Modifier.fillMaxWidth()) { Text(if (showInvoice) "Hide invoice" else "View full invoice") }
+			if (showInvoice) SelectionContainer { Text(review.invoice, style = MaterialTheme.typography.bodySmall) }
+		}
 		Text("Confirm only if this invoice and amount are correct.", style = MaterialTheme.typography.bodySmall,
 			color = MaterialTheme.colorScheme.onSurfaceVariant)
 		WalletPrimaryButton(onClick = onConfirm, enabled = !busy && review.valid(), modifier = Modifier.fillMaxWidth()) { Text("Confirm and pay") }
-		TextButton(onClick = onEdit, enabled = !busy) { Text("Edit invoice or fee") }
+		TextButton(onClick = onEdit, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text("Edit invoice or fee") }
 	}
 }

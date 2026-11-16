@@ -31,6 +31,13 @@ struct Build61Preview: View {
                 SendView.arkAmountIssuePreview()
             } else if ProcessInfo.processInfo.arguments.contains("-ark-fee-preview") {
                 SendView.arkFeePreview(sendMax: ProcessInfo.processInfo.arguments.contains("-send-max-preview"))
+            } else if ProcessInfo.processInfo.arguments.contains("-receive-code-preview") {
+                ScrollView {
+                    WalletSection("Ready to receive") {
+                        ReceiveCode(value: "paperclip-ui-preview-not-a-payment-request")
+                        Text("Synthetic preview · no live funds").font(.caption).foregroundStyle(PaperclipTheme.muted)
+                    }.walletPageContent()
+                }.walletPageBackground().navigationTitle("Receive").navigationBarTitleDisplayMode(.inline)
             } else if ProcessInfo.processInfo.arguments.contains("-receipt-preview") {
                 PaymentReceiptView(receipt: PaymentReceipt(state: ProcessInfo.processInfo.arguments.contains("-completed-receipt-preview") ? "completed" : "pending", transactionID: String(repeating: "a1", count: 32), boarding: !ProcessInfo.processInfo.arguments.contains("-completed-receipt-preview")), amount: 48000, mainnet: false) {}
             } else if ProcessInfo.processInfo.arguments.contains("-boarding-preview") {

@@ -113,12 +113,10 @@ struct SendView: View {
                                     Text(target).font(.callout.monospaced()).lineLimit(4).textSelection(.enabled)
                                 }.padding(.bottom, 8)
                                 Divider()
-                                LabeledContent(onchain ? "Network fee" : "Fee / recovery funding") {
-                                    Text(unit.display(fee)).foregroundStyle(.primary).monospacedDigit()
-                                }.padding(.vertical, 8).accessibilityIdentifier("payment-recovery-funding")
-                                LabeledContent("Total debit") {
-                                    Text(unit.display(total)).foregroundStyle(.primary).monospacedDigit()
-                                }.font(.headline).accessibilityIdentifier("payment-total-debit")
+                                WalletReviewDetail(title: onchain ? "Network fee" : "Fee / recovery funding", value: unit.display(fee))
+                                    .accessibilityIdentifier("payment-recovery-funding")
+                                WalletReviewDetail(title: "Total debit", value: unit.display(total), emphasized: true)
+                                    .accessibilityIdentifier("payment-total-debit")
                             }
                             VStack(spacing: 16) {
                                 Text("Review is valid for 60 seconds. If costs change, review again.")
@@ -395,6 +393,7 @@ struct ReceiveView: View {
 struct ReceiveCode: View {
     let value: String
     var imageAsset: String? = nil
+    @Environment(\.dynamicTypeSize) private var textSize
     @State private var copied = false
     var body: some View {
         VStack(spacing: 20) {
@@ -406,9 +405,15 @@ struct ReceiveCode: View {
                 Text(value).font(.caption.monospaced()).textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }.font(.caption).tint(PaperclipTheme.muted)
-            HStack {
-                Button(copied ? "Copied" : "Copy", systemImage: copied ? "checkmark" : "doc.on.doc") { copied = true; UIPasteboard.general.setItems([[UIPasteboard.typeAutomatic: value]], options: [.localOnly: true, .expirationDate: Date().addingTimeInterval(120)]) }
-                ShareLink(item: value)
+            let actions = textSize.isAccessibilitySize ? AnyLayout(VStackLayout(spacing: 12)) : AnyLayout(HStackLayout(spacing: 12))
+            actions {
+                Button {
+                    copied = true
+                    UIPasteboard.general.setItems([[UIPasteboard.typeAutomatic: value]], options: [.localOnly: true, .expirationDate: Date().addingTimeInterval(120)])
+                } label: {
+                    Label(copied ? "Copied" : "Copy", systemImage: copied ? "checkmark" : "doc.on.doc").frame(maxWidth: .infinity)
+                }
+                ShareLink(item: value) { Label("Share", systemImage: "square.and.arrow.up").frame(maxWidth: .infinity) }
             }.buttonStyle(.bordered).controlSize(.large)
         }.onChange(of: value) { _, _ in copied = false }
     }

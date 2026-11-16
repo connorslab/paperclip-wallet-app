@@ -49,7 +49,7 @@ internal fun PaymentStage(steps: List<String>, current: Int, content: @Composabl
 
 /** The arrow animates once when reviewing; completion uses a separate receipt. */
 @Composable
-internal fun ReviewAmountHero(amount: String, source: String) {
+internal fun ReviewAmountHero(amount: String, source: String, caption: String = "Recipient receives") {
 	val entrance = remember { Animatable(0f) }
 	LaunchedEffect(Unit) { entrance.animateTo(1f, spring(dampingRatio = .7f, stiffness = 500f)) }
 	Column(Modifier.fillMaxWidth().padding(vertical = 24.dp), horizontalAlignment = Alignment.CenterHorizontally,
@@ -59,7 +59,7 @@ internal fun ReviewAmountHero(amount: String, source: String) {
 			scaleX = .8f + .2f * entrance.value; scaleY = scaleX
 		}.size(60.dp).background(MaterialTheme.colorScheme.primary.copy(alpha = .12f), CircleShape).padding(16.dp),
 			tint = MaterialTheme.colorScheme.primary)
-		Text("Recipient receives", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+		Text(caption, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
 		Text(amount, style = MaterialTheme.typography.headlineLarge, textAlign = TextAlign.Center)
 		Text("From $source", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
 	}

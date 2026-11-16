@@ -2,7 +2,6 @@ package xyz.paperclip.wallet
 
 import androidx.compose.animation.animateContentSize
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowOutward
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.WifiOff
@@ -338,7 +337,7 @@ internal fun JoinBlaketPage(state: JoinBlaketUiState) {
 			items(payments.size, key = { payments[it].id }) { index ->
 				val payment = payments[index]
 				WalletSurface {
-					Column(Modifier.padding(20.dp).animateContentSize(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+					Column(Modifier.padding(18.dp).animateContentSize(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
 						Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
 							Surface(color = MaterialTheme.colorScheme.primary.copy(alpha = .10f), shape = androidx.compose.foundation.shape.CircleShape) {
 								Row(Modifier.padding(horizontal = 12.dp, vertical = 7.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
@@ -346,25 +345,14 @@ internal fun JoinBlaketPage(state: JoinBlaketUiState) {
 									Text(payment.label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
 								}
 							}
-							Surface(color = MaterialTheme.colorScheme.primary.copy(alpha = .08f), shape = androidx.compose.foundation.shape.CircleShape) {
-								Icon(Icons.Default.ArrowOutward, null, Modifier.padding(9.dp).size(18.dp), tint = MaterialTheme.colorScheme.primary)
-							}
+
 						}
 						payment.quote?.let { quote ->
-							Column(Modifier.fillMaxWidth().padding(vertical = 12.dp), horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
-								Text(unit.display(quote.amountSat), style = MaterialTheme.typography.headlineLarge)
-								Text("Jar "+(quote.jar + 1)+" · "+when (quote.purpose) { "send" -> "Send"; "fund_bond" -> "Bond funding"; else -> "Bond withdrawal" }, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-							}
-							Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-								for ((title, value) in listOf("Mining fee" to quote.feeSat, "Total debit" to quote.totalSat)) {
-									Surface(Modifier.weight(1f), color = MaterialTheme.colorScheme.onSurface.copy(alpha = .04f), shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp)) {
-										Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-											Text(title, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-											Text(unit.display(value), style = MaterialTheme.typography.titleSmall)
-										}
-									}
-								}
-							}
+							ReviewAmountHero(unit.display(quote.amountSat), "Jar ${quote.jar + 1}",
+								when (quote.purpose) { "send" -> "Payment amount"; "fund_bond" -> "Bond funding"; else -> "Bond withdrawal" })
+							HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+							ReviewDetailRow("Mining fee", unit.display(quote.feeSat))
+							ReviewDetailRow("Total debit", unit.display(quote.totalSat), emphasized = true)
 							var details by remember(payment.id) { mutableStateOf(false) }
 							TextButton(onClick = { details = !details }, modifier = Modifier.fillMaxWidth()) { Text(if (details) "Hide details" else "Payment details") }
 							if (details) {

@@ -128,7 +128,7 @@ internal fun PaperclipApp(
 	}
 	val colors = paperclipColors(dark)
 	CompositionLocalProvider(LocalBitcoinUnit provides displayUnit) {
-		MaterialTheme(colorScheme = colors, shapes = Shapes(extraSmall = RoundedCornerShape(12.dp), small = RoundedCornerShape(16.dp), medium = RoundedCornerShape(20.dp), large = RoundedCornerShape(26.dp), extraLarge = RoundedCornerShape(30.dp))) {
+		MaterialTheme(colorScheme = colors, shapes = Shapes(extraSmall = RoundedCornerShape(12.dp), small = RoundedCornerShape(16.dp), medium = RoundedCornerShape(20.dp), large = RoundedCornerShape(22.dp), extraLarge = RoundedCornerShape(30.dp))) {
 			if (!unlocked) {
 				Surface(Modifier.fillMaxSize(), color = colors.background) {
 					Column(
@@ -463,7 +463,7 @@ private fun Brand() {
 @Composable
 internal fun CardBlock(title: String, content: @Composable ColumnScope.() -> Unit) {
 	WalletSurface {
-		Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+		Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
 			Row(
 				verticalAlignment = Alignment.CenterVertically,
 				horizontalArrangement = Arrangement.spacedBy(9.dp),
@@ -508,13 +508,13 @@ private fun NavCard(
 	Card(
 		onClick = action,
 		modifier = Modifier.fillMaxWidth().walletEdgeGlow(),
-		shape = RoundedCornerShape(26.dp),
+		shape = RoundedCornerShape(22.dp),
 		border = walletSurfaceBorder(),
-		elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+		elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
 		colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
 	) {
 		Row(
-			Modifier.fillMaxWidth().background(walletSurfaceBrush()).padding(20.dp),
+			Modifier.fillMaxWidth().background(walletSurfaceBrush()).padding(18.dp),
 			horizontalArrangement = Arrangement.spacedBy(14.dp),
 			verticalAlignment = Alignment.CenterVertically,
 		) {
@@ -1014,11 +1014,9 @@ internal fun Send(s: WalletState, model: WalletModel) {
 				SelectionContainer {
 					Text(quote.destination, style = MaterialTheme.typography.bodyMedium, fontFamily = FontFamily.Monospace)
 				}
-				Spacer(Modifier.height(8.dp))
 				HorizontalDivider()
-				Spacer(Modifier.height(8.dp))
-				BalanceRow(if (quote.onchain) "Network fee" else "Fee / recovery funding", sats(quote.fee))
-				BalanceRow("Total debit", sats(quote.total))
+				ReviewDetailRow(if (quote.onchain) "Network fee" else "Fee / recovery funding", sats(quote.fee))
+				ReviewDetailRow("Total debit", sats(quote.total), emphasized = true)
 			}
 			Column(Modifier.fillMaxWidth().padding(top = 12.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
 				Text("Quotes expire after 60 seconds. Confirm only if these details are correct.",
@@ -1210,7 +1208,7 @@ internal fun Receive(s: WalletState, model: WalletModel, initialMethod: String) 
 				}) { Text("Share") }
 				}
 				if (kind == "On-chain") Text("Only send XBT to this address. BTC uses a different network.", style = MaterialTheme.typography.bodySmall)
-				TextButton(onClick = model::clearReceive, enabled = !s.busy) { Text("Create another request") }
+				TextButton(onClick = model::clearReceive, enabled = !s.busy, modifier = Modifier.fillMaxWidth()) { Text("Create another request") }
 			}
 		}
 	}

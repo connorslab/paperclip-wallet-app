@@ -1255,3 +1255,37 @@ the normal `lintRelease` command then passed too. The lint report has zero error
 Logs: `/tmp/storage-delete-lint.log`, `/tmp/storage-delete-lint-full-compile.log`
 and `/tmp/storage-delete-lint-recheck.log`. Build settings were not changed to
 permanently disable incremental compilation.
+
+
+## Shared payment and page styling: 2026-11-16
+
+Jars recovery now reuses the native payment amount headers and fee rows already
+used for hot-wallet, Lightning and QR-signer reviews. Its caption is “Payment
+amount”, not a claim that the recipient received funds. Unknown and submitted
+states retain their recovery warnings and never display a confirmed receipt.
+The shared server UI uses the same visual hierarchy and review/receipt surfaces.
+
+Common cards use consistent corners, lighter shadows and tighter insets across
+iOS, Android and the shared StartOS/Umbrel frontend. iOS primary buttons use a
+deeper orange behind white labels. Desktop grid children no longer add their own
+vertical margins on top of the grid gap. Existing native text scaling, touch
+targets, keyboard navigation and reduced-motion behavior are preserved.
+
+This is presentation work, not acceptance of bundled hosting, payments or signed
+release packages. The release blockers above remain open. Runtime evidence and
+synthetic preview provenance are recorded with the working-state artifacts.
+
+The follow-up alignment pass also uses the shared wrapping fee rows for main
+wallet sends, groups Android Lightning review details consistently, centers its
+edit action, and gives iOS receive Copy/Share equal-width actions that stack at
+accessibility text sizes. The receive preview is simulator-only and synthetic.
+
+Validation: 14 Android UI cases passed, followed by all three payment-flow cases
+after the final review alignment. iOS initially passed 14 cases and skipped the
+opt-in live-node case; two onboarding cases could not find the creation page on
+the retained QA simulator. Both onboarding cases passed on a fresh simulator,
+along with three review/recovery cases. The final two review cases passed again
+after fee alignment. Receive actions were visually checked at standard and
+accessibility XXXL sizes. Browser navigation, Jars, CLN/LND, Bridge receive and
+between-wallet transfer fixture suites passed; `just checks` passed. This is
+simulator/emulator/browser evidence, not physical-device or live-node acceptance.

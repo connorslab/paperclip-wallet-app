@@ -13,6 +13,8 @@ enum PaperclipTheme {
     static let navy = adaptive(light: 0xF2F5FA, dark: 0x111C2E)
     static let panel = adaptive(light: 0xFFFFFF, dark: 0x1A293E)
     static let orange = adaptive(light: 0xB93C0C, dark: 0xF56835)
+    // A deeper fill keeps white primary-action labels readable in both appearances.
+    static let action = adaptive(light: 0xB93C0C, dark: 0xC24A20)
     static let muted = adaptive(light: 0x4B5C73, dark: 0xAFBDD1)
 }
 
@@ -33,7 +35,8 @@ struct WalletPrimaryButtonStyle: ButtonStyle {
         configuration.label.font(.headline).multilineTextAlignment(.center)
             .frame(maxWidth: .infinity).padding(.horizontal, 18).padding(.vertical, 14)
             .foregroundStyle(.white)
-            .background((enabled ? PaperclipTheme.orange : Color.gray).gradient, in: Capsule())
+            .background(LinearGradient(colors: [enabled ? PaperclipTheme.action : Color.gray,
+                (enabled ? PaperclipTheme.action : Color.gray).opacity(0.94)], startPoint: .top, endPoint: .bottom), in: Capsule())
             .opacity(configuration.isPressed ? 0.82 : 1)
             .shadow(color: PaperclipTheme.orange.opacity(enabled ? 0.15 : 0), radius: 10, y: 4)
             .scaleEffect(configuration.isPressed && !reduceMotion ? 0.96 : 1)
@@ -55,15 +58,15 @@ struct WalletNavigationButtonStyle: ButtonStyle {
 struct WalletCard<Content: View>: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var appeared = false
-    var inset: CGFloat = 20
-    var spacing: CGFloat = 14
+    var inset: CGFloat = 18
+    var spacing: CGFloat = 12
     @ViewBuilder var content: Content
     var body: some View {
         VStack(alignment: .leading, spacing: spacing) { content }
             .frame(maxWidth: .infinity, alignment: .leading).padding(inset)
             .modifier(GlassCardSurface())
             .overlay {
-                RoundedRectangle(cornerRadius: 26).stroke(
+                RoundedRectangle(cornerRadius: 22).stroke(
                     LinearGradient(colors: [PaperclipTheme.orange.opacity(0.18), .primary.opacity(0.05), .clear], startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 1)
                     .allowsHitTesting(false)
             }
@@ -131,15 +134,15 @@ private struct GlassCardSurface: ViewModifier {
     @ViewBuilder func body(content: Content) -> some View {
         #if compiler(>=6.2)
         if #available(iOS 26, *) {
-            content.glassEffect(.regular.tint(PaperclipTheme.panel.opacity(0.7)), in: RoundedRectangle(cornerRadius: 26))
+            content.glassEffect(.regular.tint(PaperclipTheme.panel.opacity(0.7)), in: RoundedRectangle(cornerRadius: 22))
         } else { fallback(content) }
         #else
         fallback(content)
         #endif
     }
     private func fallback(_ content: Content) -> some View {
-        content.background(PaperclipTheme.panel.gradient, in: RoundedRectangle(cornerRadius: 26))
-            .overlay(RoundedRectangle(cornerRadius: 26).stroke(.primary.opacity(0.09)))
+        content.background(PaperclipTheme.panel.gradient, in: RoundedRectangle(cornerRadius: 22))
+            .overlay(RoundedRectangle(cornerRadius: 22).stroke(.primary.opacity(0.09)))
     }
 }
 
@@ -150,10 +153,10 @@ struct WalletNavigationRow: View {
     let icon: String
     init(_ title: String, subtitle: String, icon: String) { self.title = title; self.subtitle = subtitle; self.icon = icon }
     var body: some View {
-        HStack(spacing: 14) {
+        HStack(spacing: 12) {
             if !textSize.isAccessibilitySize {
             Image(systemName: icon).font(.title3).foregroundStyle(PaperclipTheme.orange)
-                .frame(width: 40, height: 40).background(PaperclipTheme.orange.opacity(0.09), in: RoundedRectangle(cornerRadius: 12)).accessibilityHidden(true)
+                .frame(width: 36, height: 36).background(PaperclipTheme.orange.opacity(0.09), in: RoundedRectangle(cornerRadius: 12)).accessibilityHidden(true)
             }
             VStack(alignment: .leading, spacing: 4) {
                 Text(title).fontWeight(.medium).foregroundStyle(.primary).fixedSize(horizontal: false, vertical: true)
@@ -218,7 +221,7 @@ struct WalletBalanceNumber: View {
 // Limit the whole content column, never individual cards inside a row.
 extension View {
     func walletPageContent(maxWidth: CGFloat = 760) -> some View {
-        self.frame(maxWidth: maxWidth).padding(.horizontal, 22).padding(.top, 12)
+        self.frame(maxWidth: maxWidth).padding(.horizontal, 20).padding(.top, 12)
             .padding(.bottom, 22).frame(maxWidth: .infinity)
     }
     func walletPageBackground() -> some View {
@@ -303,6 +306,7 @@ struct WalletFlowProgress: View {
 struct PaymentReviewHero: View {
     let amount: String
     let source: String
+    var caption = "Recipient receives"
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var appeared = false
     var body: some View {
@@ -315,9 +319,10 @@ struct PaymentReviewHero: View {
                 .rotationEffect(.degrees(appeared || reduceMotion ? 0 : -12))
                 .scaleEffect(appeared || reduceMotion ? 1 : 0.8)
                 .accessibilityHidden(true)
-            Text("Recipient receives").font(.subheadline).foregroundStyle(PaperclipTheme.muted)
+            Text(caption).font(.subheadline).foregroundStyle(PaperclipTheme.muted)
             Text(amount).font(.largeTitle.bold()).monospacedDigit()
-                .multilineTextAlignment(.center).accessibilityIdentifier("payment-recipient-amount")
+                .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("payment-recipient-amount")
             Text("From \(source)").font(.subheadline).foregroundStyle(PaperclipTheme.muted)
         }.frame(maxWidth: .infinity).padding(.vertical, 24)
             .onAppear {
