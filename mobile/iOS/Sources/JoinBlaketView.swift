@@ -34,6 +34,7 @@ import PaperclipMobile
     }
     func refresh() async throws {
         guard let client, let authorization else { return }
+        needsRefresh = true
         let current = try await client.status(authorization)
         let normalized = try await NativeWallet.shared.joinBlaketJars(client.coins(authorization))
         struct Response: Decodable { let jars: [JoinBlaketJar] }
@@ -141,17 +142,16 @@ struct JoinBlaketView: View {
                                 TextField("Minimum CoinJoin (sats)", text: $minimum).keyboardType(.numberPad)
                                 TextField("Your fee per CoinJoin (sats)", text: $makerFee).keyboardType(.numberPad)
                                 Text("Mining fee contribution: 0 sats. Earnings depend on being selected.").font(.caption).foregroundStyle(PaperclipTheme.muted)
-                                if !model.jars.contains(where: { $0.bond_sat > 0 }) {
-                                    Text("Set up a fidelity bond in Jam. Bond funds stay locked until the date you choose; they are separate from the coins your maker offers.").font(.subheadline)
+                                makerChecklist
+                                if !makerReadiness.bond {
+                                    Text("Bond coins stay locked until the date you choose and remain separate from your maker offer.").font(.caption).foregroundStyle(PaperclipTheme.muted)
                                     jamHandoff
                                 }
-                                if !model.jars.contains(where: { $0.confirmed_sat >= (UInt64(minimum) ?? UInt64.max) }) {
-                                    Text("Add funds to a jar and wait for confirmation. One jar needs enough available coins for your minimum CoinJoin.").font(.subheadline)
-                                }
+                                Text("Your server checks final eligibility; earnings are not guaranteed.").font(.caption).foregroundStyle(PaperclipTheme.muted)
                             }
                             if model.needsRefresh { Text("Refresh maker status before another action.").font(.subheadline) }
                             Button(model.session?.maker_running == true ? "Stop maker" : "Review maker setup") { confirmMaker = true }
-                            .disabled(model.previewOnly || model.needsRefresh || (model.session?.maker_running != true && !makerReady))
+                            .disabled(model.previewOnly || model.needsRefresh || (model.session?.maker_running != true && !makerReadiness.canStart))
                         }
                     }
                 }
@@ -176,11 +176,23 @@ struct JoinBlaketView: View {
                 Text(model.session?.maker_running == true ? "Existing CoinJoins may need to finish before the maker stops." : "Minimum CoinJoin: \(minimum) sats. Your fee: \(makerFee) sats per CoinJoin. Mining fee contribution: 0 sats. The maker uses eligible Jam jars and keeps running when Paperclip closes.")
             }
     }
-    private var makerReady: Bool {
-        guard let minimum = UInt64(minimum), let fee = UInt64(makerFee), minimum >= 27_300,
-              minimum <= 2_100_000_000_000_000, fee < minimum,
-              model.session?.rescanning == false, model.session?.coinjoin_in_process == false else { return false }
-        return model.jars.contains { $0.confirmed_sat >= minimum } && model.jars.contains { $0.bond_sat > 0 }
+    private var makerReadiness: JoinBlaketMakerReadiness {
+        JoinBlaketMakerReadiness(minimum: minimum, fee: makerFee, jars: model.jars, session: model.session, needsRefresh: model.needsRefresh)
+    }
+    private var makerChecklist: some View {
+        let ready = makerReadiness
+        return VStack(alignment: .leading, spacing: 12) {
+            makerStep(ready.terms, "Amount and fee valid", "Review the minimum amount and fee")
+            makerStep(ready.funds, "One jar covers the minimum", "Fund one jar and wait for confirmation")
+            makerStep(ready.bond, "Bond funds detected", "Set up a JoinBlaket fidelity bond in Jam")
+            makerStep(ready.server, "Jam is idle", "Wait for Jam to finish syncing or its current operation")
+            makerStep(ready.fresh, "Status refreshed", "Refresh wallet status before continuing")
+        }.padding(.vertical, 8).accessibilityElement(children: .contain).accessibilityLabel("Maker setup")
+    }
+    private func makerStep(_ complete: Bool, _ ready: String, _ needed: String) -> some View {
+        Label(complete ? ready : needed, systemImage: complete ? "checkmark.circle.fill" : "circle")
+            .font(.subheadline).foregroundStyle(complete ? PaperclipTheme.muted : PaperclipTheme.orange)
+            .accessibilityLabel((complete ? "Ready: " : "Needed: ") + (complete ? ready : needed))
     }
     private var connection: some View {
         WalletSection("Connect to Jam") {

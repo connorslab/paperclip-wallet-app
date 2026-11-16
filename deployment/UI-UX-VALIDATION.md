@@ -196,3 +196,29 @@ and narrow-screen spacing corrected. All nine browser scripts and `just checks`
 passed locally. The preceding security/backend CI run `43776856932` also passed.
 No native adapters changed; these UI changes close a shared browser parity gap.
 Deployment, physical accessibility and live settlement tests remain outstanding.
+
+## Maker setup and wallet inspiration — 2026-11-15
+
+The iOS, Android and shared browser CoinJoin screens now show the same five maker
+setup checks. They distinguish valid terms, sufficient confirmed coins in one
+jar, detected bond coins, an idle server and fresh status. Review remains required
+before start. The checklist does not claim that detected bond coins prove an
+active bond or guarantee earnings. The daemon performs final eligibility checks.
+Kilombino's bonded-maker requirement remains in place.
+
+A failed refresh now invalidates previous maker readiness on every platform.
+The shared browser regression checks failure after an eligible snapshot, disables
+maker action, then confirms that a successful refresh restores eligibility. It
+also retains the uncertain-mutation guard with no automatic retry.
+
+Validation passed: 17 shared eligibility cases in Swift, Kotlin and JavaScript;
+six Swift JoinBlaket tests; six Android JoinBlaket tests; all nine browser scripts;
+the native iOS simulator build; `just checks`; and shared-source checksums. Phone
+and desktop browser screenshots were inspected. The Android test build compiled
+the changed Compose screen. Native physical layout and live maker eligibility
+were not tested. No production operation, payment, device install or release
+publication occurred in this pass.
+
+`WALLET-INSPIRATION.md` records the primary sources, implemented checklist and
+remaining priorities from Bark, Zeus, Jam and Sparrow. These priorities do not
+claim complete feature parity or close the release gaps.

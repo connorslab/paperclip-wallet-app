@@ -52,6 +52,29 @@ public struct JoinBlaketJar: Decodable, Identifiable, Sendable {
     public let bond_sat: UInt64
 }
 
+/// Setup guidance, not a guarantee of market selection or an active bond proof.
+public struct JoinBlaketMakerReadiness: Sendable {
+    public let terms: Bool
+    public let funds: Bool
+    public let bond: Bool
+    public let server: Bool
+    public let fresh: Bool
+    public var canStart: Bool { terms && funds && bond && server && fresh }
+    public init(minimum: String, fee: String, jars: [JoinBlaketJar], session: JoinBlaketSession?, needsRefresh: Bool) {
+        func sats(_ value: String) -> UInt64? {
+            guard !value.isEmpty, value.utf8.allSatisfy({ (48...57).contains($0) }) else { return nil }
+            return UInt64(value)
+        }
+        let minimum = sats(minimum) ?? 0, fee = sats(fee)
+        let validMinimum = (27_300...2_100_000_000_000_000).contains(minimum)
+        terms = validMinimum && (fee.map { $0 < minimum } ?? false)
+        funds = validMinimum && jars.contains { $0.confirmed_sat >= minimum }
+        bond = jars.contains { $0.bond_sat > 0 }
+        server = session?.session == true && session?.maker_running == false && session?.rescanning == false && session?.coinjoin_in_process == false
+        fresh = session != nil && !needsRefresh
+    }
+}
+
 /// Deliberately excludes passwords and bearer tokens from Codable/debug output.
 public struct JoinBlaketAuthorization: Sendable, CustomStringConvertible {
     public let wallet: String

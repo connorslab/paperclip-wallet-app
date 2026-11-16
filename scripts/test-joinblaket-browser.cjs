@@ -1,5 +1,13 @@
 const {chromium}=require(process.env.PLAYWRIGHT_MODULE || 'playwright');
-const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict');
+const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict'),vm=require('node:vm');
+const policy = vm.createContext({});
+vm.runInContext(fs.readFileSync(path.join(__dirname, '../web/joinblaket-readiness.js'), 'utf8'), policy);
+const cases = JSON.parse(fs.readFileSync(path.join(__dirname, '../mobile/Tests/PaperclipMobileTests/Fixtures/maker-readiness.json')));
+for (const item of cases) {
+ policy.item = item;
+ const value = vm.runInContext('PaperclipMakerReadiness.evaluate(item.minimum,item.fee,item.jars,item.session,item.needsRefresh)', policy);
+ assert.deepEqual(JSON.parse(JSON.stringify(value)), item.expected, item.name);
+}
 (async()=>{
  const browser=await chromium.launch({headless:true,...(process.env.BROWSER_CHANNEL?{channel:process.env.BROWSER_CHANNEL}:{})});
  try {
@@ -7,6 +15,7 @@ const fs=require('node:fs'),path=require('node:path'),assert=require('node:asser
    const page=await browser.newPage({viewport:{width,height:1000}}),errors=[],actions=[];
    page.setDefaultTimeout(15000);
    page.on('pageerror',error=>errors.push(error.message));
+   let failStatus=false;
    const jars=['Apricot','Blueberry','Cherry','Date','Elderberry'].map((name,id)=>({id,name,total_sat:id===0?200000:0,confirmed_sat:id===0?200000:0,pending_sat:0,frozen_sat:0,bond_sat:0}));
    await page.route('http://wallet.test/**',async route=>{
     const url=new URL(route.request().url()),p=url.pathname.replace('/api/v1/','');
@@ -21,6 +30,7 @@ const fs=require('node:fs'),path=require('node:path'),assert=require('node:asser
      if(p==='joinblaket/request') {
       const body=route.request().postDataJSON(); actions.push(body.operation);
       assert.equal(route.request().method(),'POST');
+      if(body.operation==='status'&&failStatus)return route.fulfill({status:503,json:{message:'Synthetic stale status'}});
       if(body.operation==='start_maker') return route.fulfill({status:503,json:{message:'Synthetic unknown maker outcome'}});
       if(body.operation==='wallets') value={wallets:['fixture.jmdat']};
       else if(body.operation==='unlock') { assert.equal(body.bip39_passphrase,'fixture-passphrase'); value={walletname:'fixture.jmdat',token:'fixture-token'}; }
@@ -55,6 +65,8 @@ const fs=require('node:fs'),path=require('node:path'),assert=require('node:asser
    await page.locator('#jam-receive').click();
    await page.waitForFunction(()=>document.querySelector('#jam-address').textContent.includes('bc1qsynthetic'));
    assert(await page.locator('#jam-maker').isDisabled(),'No bond must not be presented as maker ready');
+   assert.equal(await page.locator('#jam-maker-checklist li').count(),5);
+   assert.match(await page.locator('#jam-maker-checklist').textContent(),/Needed: Set up a JoinBlaket fidelity bond/);
    assert(!actions.includes('start_maker'),'Opening jars must not start a maker');
    assert(!(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth)),'No horizontal overflow');
    assert.deepEqual(errors,[]);
@@ -66,6 +78,11 @@ const fs=require('node:fs'),path=require('node:path'),assert=require('node:asser
    jars[0].bond_sat=100000; jars[0].total_sat=300000;
    await page.locator('#jam-refresh').click();
    await page.waitForFunction(()=>!document.querySelector('#jam-maker').disabled);
+   failStatus=true;await page.locator('#jam-refresh').click();
+   await page.waitForFunction(()=>document.querySelector('#jam-status').textContent.includes('stale'));
+   assert(await page.locator('#jam-maker').isDisabled(),'Failed refresh invalidates earlier readiness');
+   assert.match(await page.locator('#jam-maker-checklist').textContent(),/Needed: Refresh wallet status/);
+   failStatus=false;await page.locator('#jam-refresh').click();await page.waitForFunction(()=>!document.querySelector('#jam-maker').disabled);
    await page.locator('#jam-maker').click();
    await page.getByRole('button',{name:'Confirm',exact:true}).click();
    await page.waitForFunction(()=>document.querySelector('#jam-status').textContent.includes('Synthetic'));

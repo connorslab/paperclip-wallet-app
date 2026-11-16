@@ -33,6 +33,20 @@ private final class JamStub: URLProtocol {
 }
 
 final class JoinBlaketTests: XCTestCase {
+    func testMakerReadinessMatchesSharedCases() throws {
+        struct Case: Decodable {
+            let name: String, minimum: String, fee: String
+            let jars: [JoinBlaketJar]
+            let session: JoinBlaketSession?
+            let needsRefresh: Bool
+            let expected: [String: Bool]
+        }
+        let url = Bundle.module.url(forResource: "maker-readiness", withExtension: "json", subdirectory: "Fixtures")!
+        for item in try JSONDecoder().decode([Case].self, from: Data(contentsOf: url)) {
+            let value = JoinBlaketMakerReadiness(minimum: item.minimum, fee: item.fee, jars: item.jars, session: item.session, needsRefresh: item.needsRefresh)
+            XCTAssertEqual(["terms": value.terms, "funds": value.funds, "bond": value.bond, "server": value.server, "fresh": value.fresh, "canStart": value.canStart], item.expected, item.name)
+        }
+    }
     override func setUp() { JamStub.reply = "{}"; JamStub.status = 200; JamStub.failure = nil; JamStub.requests = []; JamStub.bodies = [] }
     private func client() throws -> JoinBlaketClient {
         var connection = JoinBlaketConnection(); connection.endpoint = "https://jam.example.invalid"

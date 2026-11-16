@@ -59,6 +59,7 @@ internal fun JoinBlaketPage(onLegacy: () -> Unit) {
 		}
 	}
 	suspend fun refresh(c: JoinBlaketClient, auth: JoinBlaketAuthorization) {
+		needsRefresh = true
 		val current = c.status(auth)
 		val response = WalletEngine.shared(context).joinBlaketJars(c.coins(auth)).getJSONArray("jars")
 		jars = (0 until response.length()).map { response.getJSONObject(it) }
@@ -130,18 +131,15 @@ internal fun JoinBlaketPage(onLegacy: () -> Unit) {
 		Text(if (session?.getBoolean("maker_running") == true) "Maker running on your server" else "Maker not running", style = MaterialTheme.typography.titleMedium)
 		Text("Your server can keep making while Paperclip is closed.", color = MaterialTheme.colorScheme.onSurfaceVariant)
 		val running = session?.getBoolean("maker_running") == true
-		val hasBond = jars.any { it.getLong("bond_sat") > 0 }
+		val readiness = JoinBlaketMakerReadiness.evaluate(minimum, makerFee, jars, session, needsRefresh)
 		val minimumValue = minimum.toLongOrNull()
 		val feeValue = makerFee.toLongOrNull()
-		val ready = minimumValue != null && minimumValue in 27_300..2_100_000_000_000_000L &&
-			feeValue != null && feeValue in 0 until minimumValue && hasBond &&
-			jars.any { it.getLong("confirmed_sat") >= minimumValue } &&
-			session?.getBoolean("rescanning") == false && session?.getBoolean("coinjoin_in_process") == false
+
 		if (!running) {
 			OutlinedTextField(minimum, { minimum = it }, label = { Text("Minimum CoinJoin (sats)") }, enabled = !busy, modifier = Modifier.fillMaxWidth())
 			OutlinedTextField(makerFee, { makerFee = it }, label = { Text("Your fee per CoinJoin (sats)") }, enabled = !busy, modifier = Modifier.fillMaxWidth())
 			Text("Mining fee contribution: 0 sats. Earnings depend on being selected.")
-			if (!hasBond) {
+			if (!readiness.bond) {
 				Text("Set up a fidelity bond in Jam. Bond funds stay locked until the date you choose; they are separate from the coins your maker offers.")
 				val server = runCatching { java.net.URI(endpoint.trim()) }.getOrNull()
 				if (server?.scheme == "https" && server.host?.endsWith(".onion") == false) {
@@ -151,12 +149,20 @@ internal fun JoinBlaketPage(onLegacy: () -> Unit) {
 					SelectionContainer { Text(endpoint) }
 				}
 			}
-			if (minimumValue == null || jars.none { it.getLong("confirmed_sat") >= minimumValue }) {
-				Text("Add funds to a jar and wait for confirmation. One jar needs enough available coins for your minimum CoinJoin.")
+			for ((complete, ready, needed) in listOf(
+				Triple(readiness.terms, "Amount and fee valid", "Review the minimum amount and fee"),
+				Triple(readiness.funds, "One jar covers the minimum", "Fund one jar and wait for confirmation"),
+				Triple(readiness.bond, "Bond funds detected", "Set up a JoinBlaket fidelity bond in Jam"),
+				Triple(readiness.server, "Jam is idle", "Wait for Jam to finish syncing or its current operation"),
+				Triple(readiness.fresh, "Status refreshed", "Refresh wallet status before continuing"),
+			)) {
+				Text((if (complete) "Ready: " else "Needed: ") + if (complete) ready else needed,
+					color = if (complete) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.primary)
 			}
+			Text("Your server checks final eligibility; earnings are not guaranteed.", style = MaterialTheme.typography.bodySmall)
 		}
 		if (needsRefresh) Text("Refresh maker status before another action.")
-		Button(enabled = !busy && !needsRefresh && (running || ready), onClick = { confirmMaker = true }) { Text(if (running) "Stop maker" else "Review maker setup") }
+		Button(enabled = !busy && !needsRefresh && (running || readiness.canStart), onClick = { confirmMaker = true }) { Text(if (running) "Stop maker" else "Review maker setup") }
 		if (confirmMaker) AlertDialog(onDismissRequest = { confirmMaker = false },
 			title = { Text(if (running) "Stop your server’s maker?" else "Start making on your Jam server?") },
 			text = { Text(if (running) "Existing CoinJoins may need to finish before the maker stops." else "Minimum CoinJoin: $minimum sats. Your fee: $makerFee sats per CoinJoin. Mining fee contribution: 0 sats. The maker uses eligible Jam jars and keeps running when Paperclip closes.") },

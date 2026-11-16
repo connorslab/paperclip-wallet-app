@@ -41,16 +41,25 @@
         $('jam-amounts').append(dt, dd);
       }
     }
-    const running = session?.maker_running === true, values = terms();
+    const running = session?.maker_running === true;
     $('jam-maker-status').textContent = running ? 'Running on your server' : 'Not running';
     $('jam-maker-fields').hidden = running; $('jam-maker').textContent = running ? 'Stop maker' : 'Review maker setup';
-    const ready = values && jars.some(jar => jar.confirmed_sat >= values.minimum_sat) && jars.some(jar => jar.bond_sat > 0) &&
-      session?.rescanning === false && session?.coinjoin_in_process === false;
-    $('jam-maker-readiness').textContent = needsRefresh ? 'Refresh maker status before another action.' : running ? '' : !jars.some(jar => jar.bond_sat > 0)
-      ? 'Set up a fidelity bond in Jam. Bond funds stay locked until the date you choose; they are separate from the coins your maker offers.'
-      : !ready ? 'Check your terms, confirmed jar funds, and Jam sync status.' : 'Review your terms before starting.';
+    const readiness=PaperclipMakerReadiness.evaluate($('jam-minimum').value,$('jam-fee').value,jars,session,needsRefresh);
+    const checklist=$('jam-maker-checklist');checklist.replaceChildren();checklist.hidden=running;
+    for(const [key,complete,needed] of [
+      ['terms','Amount and fee valid','Review the minimum amount and fee'],
+      ['funds','One jar covers the minimum','Fund one jar and wait for confirmation'],
+      ['bond','Bond funds detected','Set up a JoinBlaket fidelity bond in Jam'],
+      ['server','Jam is idle','Wait for Jam to finish syncing or its current operation'],
+      ['fresh','Status refreshed','Refresh wallet status before continuing']
+    ]) {
+      const item=document.createElement('li');item.dataset.ready=String(readiness[key]);
+      item.textContent=(readiness[key]?'Ready: ':'Needed: ')+(readiness[key]?complete:needed);checklist.append(item);
+    }
+    $('jam-maker-readiness').textContent = needsRefresh ? 'Refresh maker status before another action.' : running ? '' : readiness.canStart
+      ? 'Review your terms. Your server checks final eligibility; earnings are not guaranteed.' : 'Complete the remaining setup steps. Bond coins stay locked until the date you choose and remain separate from your maker offer.';
     panel.querySelectorAll('button, input, select').forEach(control => { control.disabled = busy; });
-    $('jam-maker').disabled = busy || needsRefresh || (!running && !ready);
+    $('jam-maker').disabled = busy || needsRefresh || (!running && !readiness.canStart);
   }
   async function work(action) {
     if (busy) return;
@@ -60,6 +69,7 @@
     finally { busy = false; render(); }
   }
   async function refresh() {
+    needsRefresh = true;
     const current = await call('status'), result = await call('coins');
     if (!Array.isArray(result.jars) || result.jars.length !== 5 || result.jars.some((jar, id) =>
       jar.id !== id || typeof jar.name !== 'string' || ['total_sat','confirmed_sat','pending_sat','frozen_sat','bond_sat'].some(field => !Number.isSafeInteger(jar[field]) || jar[field] < 0))) {

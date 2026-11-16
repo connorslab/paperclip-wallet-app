@@ -10,6 +10,18 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class JoinBlaketTest {
+	@Test fun makerReadinessMatchesSharedCases() {
+		val text = checkNotNull(javaClass.getResourceAsStream("/maker-readiness.json")).bufferedReader().use { it.readText() }
+		val cases = org.json.JSONArray(text)
+		for (index in 0 until cases.length()) {
+			val item = cases.getJSONObject(index); val jars = item.getJSONArray("jars")
+			val result = JoinBlaketMakerReadiness.evaluate(item.getString("minimum"), item.getString("fee"),
+				(0 until jars.length()).map { jars.getJSONObject(it) }, item.optJSONObject("session"), item.getBoolean("needsRefresh"))
+			val actual = mapOf("terms" to result.terms, "funds" to result.funds, "bond" to result.bond, "server" to result.server, "fresh" to result.fresh, "canStart" to result.canStart)
+			for ((key, value) in actual) assertEquals(item.getString("name") + ": " + key, item.getJSONObject("expected").getBoolean(key), value)
+		}
+	}
+
 	@Test fun unlockPassphraseIsExplicitAndNeverPutInUrl() = runBlocking {
 		val bodies = mutableListOf<org.json.JSONObject>()
 		val http = OkHttpClient.Builder().addInterceptor {

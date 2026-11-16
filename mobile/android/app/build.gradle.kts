@@ -3,6 +3,7 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 android {
+	sourceSets.getByName("test").resources.srcDir("../../Tests/PaperclipMobileTests/Fixtures")
     namespace = "xyz.paperclip.wallet"
     compileSdk { version = release(37) { minorApiLevel = 1 } }
     ndkVersion = "28.0.13004108"

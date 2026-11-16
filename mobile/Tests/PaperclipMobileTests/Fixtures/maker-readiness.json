@@ -1,0 +1,549 @@
+[
+  {
+    "minimum": "100000",
+    "fee": "100",
+    "jars": [
+      {
+        "id": 0,
+        "name": "Apricot",
+        "total_sat": 300000,
+        "confirmed_sat": 200000,
+        "pending_sat": 0,
+        "frozen_sat": 0,
+        "bond_sat": 100000
+      }
+    ],
+    "session": {
+      "session": true,
+      "maker_running": false,
+      "coinjoin_in_process": false,
+      "rescanning": false,
+      "wallet_name": "fixture"
+    },
+    "needsRefresh": false,
+    "name": "ready",
+    "expected": {
+      "terms": true,
+      "funds": true,
+      "bond": true,
+      "server": true,
+      "fresh": true,
+      "canStart": true
+    }
+  },
+  {
+    "minimum": "100000",
+    "fee": "100",
+    "jars": [
+      {
+        "id": 0,
+        "name": "Apricot",
+        "total_sat": 300000,
+        "confirmed_sat": 200000,
+        "pending_sat": 0,
+        "frozen_sat": 0,
+        "bond_sat": 0
+      }
+    ],
+    "session": {
+      "session": true,
+      "maker_running": false,
+      "coinjoin_in_process": false,
+      "rescanning": false,
+      "wallet_name": "fixture"
+    },
+    "needsRefresh": false,
+    "name": "bond required",
+    "expected": {
+      "terms": true,
+      "funds": true,
+      "bond": false,
+      "server": true,
+      "fresh": true,
+      "canStart": false
+    }
+  },
+  {
+    "minimum": "100000",
+    "fee": "100",
+    "jars": [
+      {
+        "id": 0,
+        "name": "Apricot",
+        "total_sat": 300000,
+        "confirmed_sat": 0,
+        "pending_sat": 200000,
+        "frozen_sat": 0,
+        "bond_sat": 100000
+      }
+    ],
+    "session": {
+      "session": true,
+      "maker_running": false,
+      "coinjoin_in_process": false,
+      "rescanning": false,
+      "wallet_name": "fixture"
+    },
+    "needsRefresh": false,
+    "name": "pending coins excluded",
+    "expected": {
+      "terms": true,
+      "funds": false,
+      "bond": true,
+      "server": true,
+      "fresh": true,
+      "canStart": false
+    }
+  },
+  {
+    "minimum": "100000",
+    "fee": "100",
+    "jars": [
+      {
+        "id": 0,
+        "name": "Apricot",
+        "total_sat": 300000,
+        "confirmed_sat": 0,
+        "pending_sat": 0,
+        "frozen_sat": 200000,
+        "bond_sat": 100000
+      }
+    ],
+    "session": {
+      "session": true,
+      "maker_running": false,
+      "coinjoin_in_process": false,
+      "rescanning": false,
+      "wallet_name": "fixture"
+    },
+    "needsRefresh": false,
+    "name": "frozen coins excluded",
+    "expected": {
+      "terms": true,
+      "funds": false,
+      "bond": true,
+      "server": true,
+      "fresh": true,
+      "canStart": false
+    }
+  },
+  {
+    "minimum": "100000",
+    "fee": "100",
+    "jars": [
+      {
+        "id": 0,
+        "name": "Apricot",
+        "total_sat": 300000,
+        "confirmed_sat": 60000,
+        "pending_sat": 0,
+        "frozen_sat": 0,
+        "bond_sat": 100000
+      },
+      {
+        "id": 1,
+        "name": "Blueberry",
+        "total_sat": 300000,
+        "confirmed_sat": 60000,
+        "pending_sat": 0,
+        "frozen_sat": 0,
+        "bond_sat": 0
+      }
+    ],
+    "session": {
+      "session": true,
+      "maker_running": false,
+      "coinjoin_in_process": false,
+      "rescanning": false,
+      "wallet_name": "fixture"
+    },
+    "needsRefresh": false,
+    "name": "jars cannot be combined",
+    "expected": {
+      "terms": true,
+      "funds": false,
+      "bond": true,
+      "server": true,
+      "fresh": true,
+      "canStart": false
+    }
+  },
+  {
+    "minimum": "27299",
+    "fee": "100",
+    "jars": [
+      {
+        "id": 0,
+        "name": "Apricot",
+        "total_sat": 300000,
+        "confirmed_sat": 200000,
+        "pending_sat": 0,
+        "frozen_sat": 0,
+        "bond_sat": 100000
+      }
+    ],
+    "session": {
+      "session": true,
+      "maker_running": false,
+      "coinjoin_in_process": false,
+      "rescanning": false,
+      "wallet_name": "fixture"
+    },
+    "needsRefresh": false,
+    "name": "minimum too small",
+    "expected": {
+      "terms": false,
+      "funds": false,
+      "bond": true,
+      "server": true,
+      "fresh": true,
+      "canStart": false
+    }
+  },
+  {
+    "minimum": "100000",
+    "fee": "100000",
+    "jars": [
+      {
+        "id": 0,
+        "name": "Apricot",
+        "total_sat": 300000,
+        "confirmed_sat": 200000,
+        "pending_sat": 0,
+        "frozen_sat": 0,
+        "bond_sat": 100000
+      }
+    ],
+    "session": {
+      "session": true,
+      "maker_running": false,
+      "coinjoin_in_process": false,
+      "rescanning": false,
+      "wallet_name": "fixture"
+    },
+    "needsRefresh": false,
+    "name": "fee reaches minimum",
+    "expected": {
+      "terms": false,
+      "funds": true,
+      "bond": true,
+      "server": true,
+      "fresh": true,
+      "canStart": false
+    }
+  },
+  {
+    "minimum": "100000",
+    "fee": "-1",
+    "jars": [
+      {
+        "id": 0,
+        "name": "Apricot",
+        "total_sat": 300000,
+        "confirmed_sat": 200000,
+        "pending_sat": 0,
+        "frozen_sat": 0,
+        "bond_sat": 100000
+      }
+    ],
+    "session": {
+      "session": true,
+      "maker_running": false,
+      "coinjoin_in_process": false,
+      "rescanning": false,
+      "wallet_name": "fixture"
+    },
+    "needsRefresh": false,
+    "name": "negative fee",
+    "expected": {
+      "terms": false,
+      "funds": true,
+      "bond": true,
+      "server": true,
+      "fresh": true,
+      "canStart": false
+    }
+  },
+  {
+    "minimum": " 100000",
+    "fee": "100",
+    "jars": [
+      {
+        "id": 0,
+        "name": "Apricot",
+        "total_sat": 300000,
+        "confirmed_sat": 200000,
+        "pending_sat": 0,
+        "frozen_sat": 0,
+        "bond_sat": 100000
+      }
+    ],
+    "session": {
+      "session": true,
+      "maker_running": false,
+      "coinjoin_in_process": false,
+      "rescanning": false,
+      "wallet_name": "fixture"
+    },
+    "needsRefresh": false,
+    "name": "whitespace rejected",
+    "expected": {
+      "terms": false,
+      "funds": false,
+      "bond": true,
+      "server": true,
+      "fresh": true,
+      "canStart": false
+    }
+  },
+  {
+    "minimum": "+100000",
+    "fee": "100",
+    "jars": [
+      {
+        "id": 0,
+        "name": "Apricot",
+        "total_sat": 300000,
+        "confirmed_sat": 200000,
+        "pending_sat": 0,
+        "frozen_sat": 0,
+        "bond_sat": 100000
+      }
+    ],
+    "session": {
+      "session": true,
+      "maker_running": false,
+      "coinjoin_in_process": false,
+      "rescanning": false,
+      "wallet_name": "fixture"
+    },
+    "needsRefresh": false,
+    "name": "plus rejected",
+    "expected": {
+      "terms": false,
+      "funds": false,
+      "bond": true,
+      "server": true,
+      "fresh": true,
+      "canStart": false
+    }
+  },
+  {
+    "minimum": "18446744073709551616",
+    "fee": "100",
+    "jars": [
+      {
+        "id": 0,
+        "name": "Apricot",
+        "total_sat": 300000,
+        "confirmed_sat": 200000,
+        "pending_sat": 0,
+        "frozen_sat": 0,
+        "bond_sat": 100000
+      }
+    ],
+    "session": {
+      "session": true,
+      "maker_running": false,
+      "coinjoin_in_process": false,
+      "rescanning": false,
+      "wallet_name": "fixture"
+    },
+    "needsRefresh": false,
+    "name": "overflow rejected",
+    "expected": {
+      "terms": false,
+      "funds": false,
+      "bond": true,
+      "server": true,
+      "fresh": true,
+      "canStart": false
+    }
+  },
+  {
+    "minimum": "100000",
+    "fee": "100",
+    "jars": [
+      {
+        "id": 0,
+        "name": "Apricot",
+        "total_sat": 300000,
+        "confirmed_sat": 200000,
+        "pending_sat": 0,
+        "frozen_sat": 0,
+        "bond_sat": 100000
+      }
+    ],
+    "session": {
+      "session": true,
+      "maker_running": false,
+      "coinjoin_in_process": false,
+      "rescanning": false,
+      "wallet_name": "fixture"
+    },
+    "needsRefresh": true,
+    "name": "refresh required",
+    "expected": {
+      "terms": true,
+      "funds": true,
+      "bond": true,
+      "server": true,
+      "fresh": false,
+      "canStart": false
+    }
+  },
+  {
+    "minimum": "100000",
+    "fee": "100",
+    "jars": [
+      {
+        "id": 0,
+        "name": "Apricot",
+        "total_sat": 300000,
+        "confirmed_sat": 200000,
+        "pending_sat": 0,
+        "frozen_sat": 0,
+        "bond_sat": 100000
+      }
+    ],
+    "session": null,
+    "needsRefresh": false,
+    "name": "session unavailable",
+    "expected": {
+      "terms": true,
+      "funds": true,
+      "bond": true,
+      "server": false,
+      "fresh": false,
+      "canStart": false
+    }
+  },
+  {
+    "minimum": "100000",
+    "fee": "100",
+    "jars": [
+      {
+        "id": 0,
+        "name": "Apricot",
+        "total_sat": 300000,
+        "confirmed_sat": 200000,
+        "pending_sat": 0,
+        "frozen_sat": 0,
+        "bond_sat": 100000
+      }
+    ],
+    "session": {
+      "session": true,
+      "maker_running": true,
+      "coinjoin_in_process": false,
+      "rescanning": false,
+      "wallet_name": "fixture"
+    },
+    "needsRefresh": false,
+    "name": "maker already running",
+    "expected": {
+      "terms": true,
+      "funds": true,
+      "bond": true,
+      "server": false,
+      "fresh": true,
+      "canStart": false
+    }
+  },
+  {
+    "minimum": "100000",
+    "fee": "100",
+    "jars": [
+      {
+        "id": 0,
+        "name": "Apricot",
+        "total_sat": 300000,
+        "confirmed_sat": 200000,
+        "pending_sat": 0,
+        "frozen_sat": 0,
+        "bond_sat": 100000
+      }
+    ],
+    "session": {
+      "session": true,
+      "maker_running": false,
+      "coinjoin_in_process": false,
+      "rescanning": true,
+      "wallet_name": "fixture"
+    },
+    "needsRefresh": false,
+    "name": "rescan in progress",
+    "expected": {
+      "terms": true,
+      "funds": true,
+      "bond": true,
+      "server": false,
+      "fresh": true,
+      "canStart": false
+    }
+  },
+  {
+    "minimum": "100000",
+    "fee": "100",
+    "jars": [
+      {
+        "id": 0,
+        "name": "Apricot",
+        "total_sat": 300000,
+        "confirmed_sat": 200000,
+        "pending_sat": 0,
+        "frozen_sat": 0,
+        "bond_sat": 100000
+      }
+    ],
+    "session": {
+      "session": true,
+      "maker_running": false,
+      "coinjoin_in_process": true,
+      "rescanning": false,
+      "wallet_name": "fixture"
+    },
+    "needsRefresh": false,
+    "name": "coinjoin in progress",
+    "expected": {
+      "terms": true,
+      "funds": true,
+      "bond": true,
+      "server": false,
+      "fresh": true,
+      "canStart": false
+    }
+  },
+  {
+    "minimum": "100000",
+    "fee": "100",
+    "jars": [
+      {
+        "id": 0,
+        "name": "Apricot",
+        "total_sat": 300000,
+        "confirmed_sat": 200000,
+        "pending_sat": 0,
+        "frozen_sat": 0,
+        "bond_sat": 100000
+      }
+    ],
+    "session": {
+      "session": false,
+      "maker_running": false,
+      "coinjoin_in_process": false,
+      "rescanning": false,
+      "wallet_name": "fixture"
+    },
+    "needsRefresh": false,
+    "name": "session expired",
+    "expected": {
+      "terms": true,
+      "funds": true,
+      "bond": true,
+      "server": false,
+      "fresh": true,
+      "canStart": false
+    }
+  }
+]

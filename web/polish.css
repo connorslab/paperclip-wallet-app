@@ -165,3 +165,4 @@ textarea:focus-visible{outline:2px solid var(--focus);outline-offset:4px}
   .activity-facts{grid-template-columns:1fr}.activity-facts dd{text-align:left}.activity-heading{gap:12px}
 }
 .activity-paging{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:18px 0}.activity-paging[hidden]{display:none}
+.maker-checklist{list-style:none;padding:0;margin:20px 0;display:grid;gap:10px}.maker-checklist[hidden]{display:none}.maker-checklist li{padding:12px 14px;border:1px solid var(--stroke);border-radius:14px;font-size:13px;line-height:1.5;color:#ffad83}.maker-checklist li[data-ready=true]{color:#a0dfbd;background:#65bc8c08}
