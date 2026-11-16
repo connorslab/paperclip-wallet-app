@@ -672,3 +672,32 @@ This covers a synchronous registration-write failure. It does not prove process-
 death atomicity, cleanup when storage remains unreadable, iOS orphan cleanup, or
 funded restore acceptance. Portable app payment/Bridge recovery records remain
 missing from archives. No live funds or physical device was used.
+
+
+## Backup preparation lifetime: 2026-11-16
+
+Android now discards an export that finishes after lock, wallet change or backup
+page cancellation. Discarded encrypted bytes are cleared; a late result cannot
+restore its recovery key into UI state. Explicit navigation away from Save clears
+the prepared export. A completed encrypted export still survives lock for Android's
+document picker, while its displayed key is cleared. iOS now also checks an export
+session token, so backgrounding and returning before an export finishes cannot
+revive an invalidated key. Stale failures cannot clear a later preparation.
+
+The delayed-export regression fails without Android's session check, then passes
+for lock, cancellation, a fresh retry and the document-picker retention policy.
+It uses an unfunded local profile and an injected exporter, with no payment or
+file sharing. All four backup/assistance instrumentation cases and the Settings
+navigation test pass on the unfunded API 35 emulator. Android unit tests, APK/test
+APK assembly, the native iOS simulator build/bundle verification and `just checks`
+pass. The Swift lifecycle race itself has not been driven through a UI test or a
+physical device; native compilation is not evidence of that acceptance.
+
+Android CI `43846778476` at `5d838fc` passes both native builds and API 35, but API
+36 again fails the first onboarding capture. The new diagnostic reports active
+accessibility package `android`, identifying a system window instead of a missing
+root. It does not yet identify the dialog or its cause. Capture diagnostics now
+classify known system dialogs and report only process-exit reason codes; no dialog
+text, wallet content or traces are logged. The same assertion and timeout remain.
+This failure remains unresolved. iOS CI `43846799937` is still running its native
+build prerequisites; the older compiler follow-up is not yet verified.

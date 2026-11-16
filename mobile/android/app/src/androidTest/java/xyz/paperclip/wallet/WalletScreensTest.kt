@@ -30,9 +30,21 @@ class WalletScreensTest {
 				observedPackage == instrumentation.targetContext.packageName
 			}
 		} catch (error: ComposeTimeoutException) {
-			// Package names diagnose a missing accessibility root or system
-			// overlay without dumping wallet text or recovery words into logs.
-			throw AssertionError("Cannot capture $name: active accessibility package was ${observedPackage ?: "unavailable"}; expected ${instrumentation.targetContext.packageName}", error)
+			// Classify known system dialogs without logging their text, wallet
+			// content, traces or recovery words. Keep the original assertion.
+			val root = instrumentation.uiAutomation.rootInActiveWindow
+			val dialog = if (root == null || root.packageName?.toString() != "android") "none" else when {
+				listOf("isn't responding", "isn’t responding", "not responding").any { root.findAccessibilityNodeInfosByText(it).isNotEmpty() } -> "not-responding"
+				listOf("keeps stopping", "has stopped").any { root.findAccessibilityNodeInfosByText(it).isNotEmpty() } -> "crash"
+				root.findAccessibilityNodeInfosByText("older version").isNotEmpty() -> "compatibility"
+				else -> "unclassified-system-dialog"
+			}
+			val exits = if (android.os.Build.VERSION.SDK_INT >= 30) runCatching {
+				instrumentation.targetContext.getSystemService(android.app.ActivityManager::class.java)
+					.getHistoricalProcessExitReasons(instrumentation.targetContext.packageName, 0, 3)
+					.filter { it.processName == instrumentation.targetContext.packageName }.map { it.reason }
+			}.getOrDefault(emptyList()) else emptyList()
+			throw AssertionError("Cannot capture $name: active accessibility package was ${observedPackage ?: "unavailable"}; expected ${instrumentation.targetContext.packageName}; dialog=$dialog; recent exit reason codes=$exits", error)
 		}
 		val image = checkNotNull(instrumentation.uiAutomation.takeScreenshot())
 		// Public test images survive the test runner's automatic APK uninstall.
