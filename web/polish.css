@@ -176,3 +176,6 @@ textarea:focus-visible{outline:2px solid var(--focus);outline-offset:4px}
 @media(max-width:560px){.bridge-amounts{grid-template-columns:1fr;gap:10px}.bridge-amounts>div{padding:14px}.bridge-amounts strong{margin-top:6px}}
 
 #bridge-pay-check{margin-top:.75rem}#bridge-pay-approve input{max-width:24rem}
+
+.bridge-choices{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.bridge-choices .menu-row{flex-wrap:wrap;gap:12px;min-width:0}.bridge-choices .menu-row>span:first-child{min-width:0}
+@media(max-width:740px){.bridge-choices{grid-template-columns:1fr}}

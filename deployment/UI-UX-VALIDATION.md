@@ -393,3 +393,22 @@ not live swaps or physical-device accessibility acceptance.
 Inspected screenshots: `/tmp/bridge-outgoing-screens/bridge-send-startos-390.png`
 and `/tmp/bridge-outgoing-screens/bridge-send-umbrel-1280.png`. Full test output is
 in `/tmp/bridge-outgoing-web-suite.log`. Browser Ark funding remains a parity gap.
+
+
+## Browser Ark Bridge source selection: 2026-11-16
+
+Outgoing conversion review now has an explicit Ark/node selector. Ark hides the
+node routing-fee field and reviews funding plus fees/recovery reserves with an
+enforced maximum total. It can be used without a configured node. Saved history
+restores the funding source and never interprets funding success as BTC settlement.
+The Bridge entry presents pay and receive as two choices, stacked on narrow screens
+and side by side on wide screens, with an independent status badge on each.
+
+The complete 19-script browser suite passed. The outgoing test covers CLN/LND node
+funding at 390, 840 and 1280 pixels and Ark funding at 390 and 1280 pixels, including
+the no-node case. Synthetic requests verify exact total arithmetic, expiration,
+cancel, lost response/reload, stale preparation and clearing private UI on lock.
+Inspected screenshots are under `/tmp/bridge-ark-screens/`, including
+`bridge-send-ark-startos-390.png` and `bridge-send-ark-umbrel-1280.png`.
+This is browser fixture acceptance; live swaps and physical accessibility tests
+remain separate release gates.

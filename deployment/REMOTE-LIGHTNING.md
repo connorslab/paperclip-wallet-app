@@ -104,8 +104,8 @@ response payloads. It requires both CLN and LND cases and does not run onion cas
 
 The browser candidate can quote a fixed-amount BTC BOLT11 invoice and fund the
 conversion from its saved XBT CLN or LND node. Incoming conversions remain bound
-to an exact node receive request. Ark funding is not yet implemented in the
-browser; this does not close the complete Bridge parity or live-payment gates.
+to an exact node receive request. Ark funding is now also implemented in the browser candidate, as described below.
+These implementations do not close the live-payment or platform acceptance gates.
 
 Outgoing review shows the BTC recipient amount, XBT funding amount, maximum
 routing fee and maximum total. The server binds the review to the original saved
@@ -130,3 +130,23 @@ Internal authenticated, unlocked-wallet routes, with `Cache-Control: no-store`:
 
 These are internal `web-ui` routes, outside the default public OpenAPI schema.
 No credential, private Bridge token or settlement preimage is returned to the UI.
+
+### Ark funding and recovery
+
+`POST /api/v1/bridge/prepare-ark-funding` takes a saved outgoing hash and returns
+an exact cost review. `POST /api/v1/bridge/fund-ark` requires that hash, request ID
+and maximum total. The server binds approval to the wallet, signed funding invoice,
+payment hash, total and quote deadline, and checks it at the shared engine's final
+submission callback. The reviewed total includes recovery reserves and is enforced
+inside the engine. The callback must write the submission receipt before the engine
+persists or drives its payment checkpoint.
+
+Bridge Ark funding uses the normal browser submission journal. Status checks never
+send or resume a payment. A missing submission ID is closed durably before it can
+be reported unsubmitted. Once initiated, an unknown engine state stays unknown,
+even if an earlier failed payment may have completed recovery. A matching paid
+proof establishes Ark funding, while BTC settlement still needs Bridge proof.
+Unresolved results block another submission and remain available in recovery.
+Conclusive no-submission or paid checks acknowledge their journal warning without
+claiming BTC settlement. The existing failed-payment recovery acceptance gate
+remains open; no live conversion was made for this implementation.

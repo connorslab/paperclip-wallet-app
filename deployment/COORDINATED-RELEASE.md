@@ -54,7 +54,7 @@ does not establish parity. Native UI and background scheduling can differ.
 | Lightning through Ark | Shared BOLT11/BOLT12 engine and enforced reviewed debit | Same engine, fixed-amount review and debit capability | Verify live against corrected service; keep unknown outcomes from being resent |
 | Remote CLN and XBT LND | Both adapters, Tor, TLS, BOLT12, balances and status | Direct-node adapters, private credential storage, reviewed sends and durable status implemented | Live node, container Tor and platform package acceptance pending; see REMOTE-LIGHTNING.md |
 | Multiple / hardware / watch-only wallets | Implemented in mobile candidate, visible wallet switcher | Hot/public-account switcher, QR and watch-only pairing, public export/removal, verified signing and durable broadcast journal | Physical Krux round trips, desktop multiple hot profiles, QR-funded Ark boarding and full recovery |
-| Paperclip Bridge | Both mobile directions implemented, with separate availability and payment status | Both node-funded directions, quote review, history and exact receipt/settlement checks implemented | Outgoing browser Ark funding and live swap acceptance remain |
+| Paperclip Bridge | Both mobile directions implemented, with separate availability and payment status | Outgoing Ark/CLN/LND funding, incoming node receipt, quote review and recovery history implemented | Live swaps and funded recovery/upgrade acceptance remain |
 | JoinBlaket / Jam | Five jars, remote session, receive, reviewed maker controls | Same tasks through authenticated fixed-upstream proxy | Actual Kilombino XBT Jam endpoint, live validation, bond setup and taker flows |
 | Existing Kilojoin funds | Recovery UI retained; new rounds rejected before database access | No new Kilojoin entry point | Verify existing-round completion and withdrawal on upgraded wallets |
 | Backups / upgrades | Encrypted full backups and scoped mobile wallet state | Complete volume backups | Restore tests, update migrations and desktop backup UX |
@@ -462,3 +462,49 @@ gates remain unfinished. No live funds were used for this change.
 Android CI run `43829075539` passed both native architectures and API 35/36 at
 `47ec7dc`. This verifies the preceding mobile review-lifetime/navigation revision,
 not a physical-device upgrade or the newer browser Bridge changes.
+
+
+## Browser Bridge Ark funding: 2026-11-16
+
+The shared browser/server candidate now funds outgoing BTC conversions from Ark,
+as well as the existing CLN/LND node sources. Users choose the source explicitly.
+Ark works without a saved node when the server supports Lightning and enforced
+debit limits. Review includes whole-satoshi funding, fees and recovery reserves,
+and the maximum total debit. Both conversion directions are presented as separate
+choices with direction-specific availability indicators.
+
+The server retains the quote and a single-use, wallet-bound review. It checks
+expiry before dispatch and again in the shared engine's final submission callback,
+after asynchronous input and fee preflight. The engine enforces the reviewed debit
+cap. The existing wallet submission journal prevents duplicate dispatch and blocks
+another wallet action while a result is uncertain. A status check closes an unseen
+submission ID before reporting it unsubmitted, so a delayed request cannot spend
+later. An initiated payment with no current engine checkpoint remains unknown;
+it is never treated as safe to repeat. Recovery phases stay visible, and Ark
+funding proof remains separate from verified BTC settlement.
+
+Local validation passed: 70 REST unit tests (one live opt-in test skipped), 27
+wallet Lightning tests, 27 mobile-engine tests (one opt-in test skipped), and all
+19 browser regression scripts. `just checks` also passed. The outgoing
+browser tests cover both funding sources, both platform skins, phone/desktop
+widths, Ark without a saved node, changed totals, expiration, cancellation, lost
+responses, reload recovery and session/navigation changes. The compact and wide
+screenshots were inspected. Public API/client regeneration was completed; these
+Bridge routes remain internal web-ui routes. No live funds were used.
+
+This closes the browser Ark-funding implementation gap, not live swap acceptance.
+Funded failure recovery, both-direction live settlement, actual package upgrades,
+physical device/signer tests, full backups, the remaining wallet/Jam tasks and
+release identity/signing gates are still open. Previous revision `26ce04d` passed
+browser CI `43832426585` and Lightning regression `43832426691`. Its Linux build-only
+run `43832451307` passed AMD64 and ARM64, with manifest publication skipped.
+
+
+The shared engine also now compares the signed invoice and any explicitly supplied
+amount against an existing Lightning checkpoint before a caller can resume it.
+The regression uses a different signed invoice with the same payment hash, then a
+changed amount. Both are rejected before the submission callback or drive; the
+original checkpoint and locked funds remain available for recovery. This shared
+Rust guard applies to mobile and server builds without changing the FFI contract.
+New mobile artifacts must include it before release; existing installed builds
+have not been changed.

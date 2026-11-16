@@ -1,5 +1,7 @@
 //! Browser submission receipts belong to the wallet, not a tab. An interrupted
 //! operation is never executed again merely because the HTTP response was lost.
+pub(super) mod bridge;
+
 use std::{future::Future, io::Write, path::{Path, PathBuf}, sync::Arc, time::Duration};
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;

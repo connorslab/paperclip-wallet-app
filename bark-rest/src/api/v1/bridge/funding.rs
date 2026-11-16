@@ -14,10 +14,10 @@ pub(super) struct Request {
 	maximum_fee_sat: u64,
 	#[serde(default)] request_id: String,
 }
-fn fundable(record: &Record, at: u64) -> anyhow::Result<Invoice> {
+pub(super) fn fundable(record: &Record, at: u64) -> anyhow::Result<Invoice> {
 	ensure!(record.direction == Direction::PayBtc && !settled(record) && matches!(record.state.as_str(),"quoted" | "offered"),
 		"This conversion is not available to fund. Check its saved status");
-	ensure!(record.funding.as_ref().is_none_or(|v|v.state == "not_submitted"),
+	ensure!(record.funding.as_ref().is_none_or(|v|v.state == "not_submitted") && record.ark_funding.as_ref().is_none_or(|v|v.state == "not_submitted"),
 		"This conversion already has a funding request. Check its status; it will not be sent again");
 	record.quote.validate(&Invoice::parse(&record.target)?,record.direction,Some(at))
 }
@@ -48,6 +48,7 @@ pub(super) async fn fund(State(state): State<Arc<ServerState>>, Json(input): Jso
 		// exact review are checked again after the node identity preflight.
 		ensure!(client()?.availability(Direction::PayBtc).await?.open, "The Bridge is paused. Nothing was submitted");
 		let result = remote_node::bridge::fund(&state,&hold.text,record.quote.expires_at,&input.hash,input.maximum_fee_sat,&input.request_id,|node_id| {
+			record.ark_funding = None;
 			record.funding = Some(Funding {node_id:node_id.into(),maximum_fee_sat:input.maximum_fee_sat,state:"unknown".into()});
 			save(&root,&record)
 		}).await?;

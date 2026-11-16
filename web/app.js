@@ -23,7 +23,7 @@ async function api(path, body, method, signal) {
   const mutation = (body !== undefined || (method && method !== 'GET')) && !(path === 'hardware/request' && body?.operation === 'refresh');
   if (mutation) { walletMutations++; globalThis.PaperclipAccounts?.busyChanged(); }
   try {
-    const result = await PaperclipTransport.request(path, {body, method, token, signal, ...(path === 'submissions' && body !== undefined ? {timeoutMs:190000} : path === 'hardware/request' ? {timeoutMs:150000} : (path.startsWith('remote-node/') || ['bridge/quotes','bridge/prepare-funding','bridge/fund'].includes(path)) ? {timeoutMs:190000} : path === 'bridge/check' ? {timeoutMs:60000} : {})});
+    const result = await PaperclipTransport.request(path, {body, method, token, signal, ...(path === 'submissions' && body !== undefined ? {timeoutMs:190000} : path === 'hardware/request' ? {timeoutMs:150000} : (path.startsWith('remote-node/') || ['bridge/quotes','bridge/prepare-funding','bridge/fund','bridge/prepare-ark-funding','bridge/fund-ark'].includes(path)) ? {timeoutMs:190000} : path === 'bridge/check' ? {timeoutMs:60000} : {})});
     if (generation !== (globalThis.PaperclipAccounts?.generation ?? 0)) throw new Error('Wallet changed. Refresh the selected wallet.');
     return result;
   }
