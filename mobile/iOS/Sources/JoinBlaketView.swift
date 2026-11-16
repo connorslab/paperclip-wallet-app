@@ -119,22 +119,24 @@ struct JoinBlaketView: View {
                         Spacer()
                         Button { model.perform { try await model.refresh() } } label: { Image(systemName: "arrow.clockwise") }.accessibilityLabel("Refresh jars")
                     }
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 12) {
-                            ForEach(model.jars) { jar in
-                                Button { selectedJar = jar.id; model.address = nil } label: {
-                                    VStack(alignment: .leading, spacing: 6) {
-                                        JarIllustration(color: colors[Int(jar.id)], funded: jar.total_sat > 0).scaleEffect(0.7).frame(height: 48)
-                                        Text(jar.name).font(.headline)
-                                        Text(unit.display(jar.total_sat)).font(.subheadline.monospacedDigit())
-                                        Text(jar.pending_sat > 0 ? "Incoming pending" : (selectedJar == jar.id ? "Selected" : "Tap to select")).font(.caption).foregroundStyle(PaperclipTheme.muted)
-                                    }.frame(width: 136, alignment: .leading).padding(14)
-                                        .background(colors[Int(jar.id)].opacity(0.10), in: RoundedRectangle(cornerRadius: 22))
-                                        .overlay(RoundedRectangle(cornerRadius: 22).stroke(selectedJar == jar.id ? colors[Int(jar.id)] : Color.clear, lineWidth: 2))
-                                }.buttonStyle(.plain).accessibilityIdentifier("jar-\(jar.id)").accessibilityAddTraits(selectedJar == jar.id ? .isSelected : [])
-                            }
-                        }.padding(2)
-                    }.accessibilityIdentifier("jar-picker")
+                    JarGridLayout {
+                        ForEach(model.jars) { jar in
+                            Button { selectedJar = jar.id; model.address = nil } label: {
+                                VStack(alignment: .leading, spacing: 6) {
+                                    HStack(spacing: 8) {
+                                        JarIllustration(color: colors[Int(jar.id)], funded: jar.total_sat > 0)
+                                            .scaleEffect(0.45).frame(width: 28, height: 32)
+                                        Text(jar.name).font(.subheadline.weight(.semibold)).fixedSize(horizontal: false, vertical: true)
+                                    }
+                                    Text(unit.display(jar.total_sat)).font(.subheadline.monospacedDigit()).foregroundStyle(.primary)
+                                    Text(jar.pending_sat > 0 ? "Incoming pending" : (selectedJar == jar.id ? "Selected" : "Jar \(Int(jar.id) + 1)"))
+                                        .font(.caption).foregroundStyle(PaperclipTheme.muted)
+                                }.frame(maxWidth: .infinity, minHeight: 78, alignment: .leading).padding(12)
+                                    .background(colors[Int(jar.id)].opacity(selectedJar == jar.id ? 0.18 : 0.08), in: RoundedRectangle(cornerRadius: 20))
+                                    .overlay(RoundedRectangle(cornerRadius: 20).stroke(selectedJar == jar.id ? colors[Int(jar.id)] : Color.clear, lineWidth: 2))
+                            }.buttonStyle(WalletNavigationButtonStyle()).accessibilityIdentifier("jar-\(jar.id)").accessibilityAddTraits(selectedJar == jar.id ? .isSelected : [])
+                        }
+                    }.padding(2).accessibilityElement(children: .contain).accessibilityIdentifier("jar-picker")
                     WalletColumns {
                         if let jar = model.jars.first(where: { $0.id == selectedJar }) {
                             WalletSection(jar.name) {
@@ -288,5 +290,37 @@ private struct JarIllustration: View {
             RoundedRectangle(cornerRadius: 14).stroke(color.opacity(0.65), lineWidth: 2)
             Capsule().fill(color).frame(height: 7).offset(y: -64)
         }.frame(width: 56, height: 62).frame(maxWidth: .infinity).accessibilityHidden(true)
+    }
+}
+
+/// Two equal columns with an odd final jar centered. Heights grow with larger text.
+private struct JarGridLayout: Layout {
+    private let gap: CGFloat = 12
+    private func rowHeights(_ width: CGFloat, _ views: Subviews) -> [CGFloat] {
+        let cellWidth = max(0, (width - gap) / 2)
+        return stride(from: 0, to: views.count, by: 2).map { start in
+            (start..<min(start + 2, views.count)).map {
+                views[$0].sizeThatFits(.init(width: cellWidth, height: nil)).height
+            }.max() ?? 0
+        }
+    }
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let width = proposal.width ?? 320
+        let heights = rowHeights(width, subviews)
+        return CGSize(width: width, height: heights.reduce(0, +) + gap * CGFloat(max(0, heights.count - 1)))
+    }
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let width = max(0, (bounds.width - gap) / 2)
+        var y = bounds.minY
+        for (row, height) in rowHeights(bounds.width, subviews).enumerated() {
+            let start = row * 2
+            let count = min(2, subviews.count - start)
+            let x = count == 1 ? bounds.midX - width / 2 : bounds.minX
+            for column in 0..<count {
+                subviews[start + column].place(at: .init(x: x + CGFloat(column) * (width + gap), y: y), anchor: .topLeading,
+                    proposal: .init(width: width, height: height))
+            }
+            y += height + gap
+        }
     }
 }

@@ -1,8 +1,6 @@
 package xyz.paperclip.wallet
 
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.platform.testTag
@@ -134,19 +132,28 @@ internal fun JoinBlaketPage(state: JoinBlaketUiState) {
 			}
 			TextButton(enabled = !busy, onClick = { run { refresh(checkNotNull(client), checkNotNull(authorization)) } }) { Text("Refresh") }
 		}
-		Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(2.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-			jars.forEach { jar ->
-				val id = jar.getInt("id")
-				val color = colors[id]
-				OutlinedCard(onClick = { selected = id; address = null }, enabled = !busy,
-					modifier = Modifier.width(164.dp).testTag("jar-$id").semantics { this.selected = selected == id },
-					border = BorderStroke(if (selected == id) 2.dp else 1.dp, if (selected == id) color else MaterialTheme.colorScheme.outlineVariant),
-					colors = CardDefaults.outlinedCardColors(containerColor = color.copy(alpha = if (selected == id) .20f else .07f))) {
-					Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-						JamJarArt(color, jar.getLong("total_sat") > 0)
-						Text(jar.getString("name"), style = MaterialTheme.typography.titleMedium)
-						Text(unit.display(jar.getLong("total_sat")), style = MaterialTheme.typography.bodyMedium)
-						Text(if (jar.getLong("pending_sat") > 0) "Incoming pending" else if (selected == id) "Selected" else "Tap to select", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+		BoxWithConstraints(Modifier.fillMaxWidth().padding(2.dp).testTag("jar-picker")) {
+			val cardWidth = (maxWidth - 12.dp) / 2
+			Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+				jars.chunked(2).forEach { row ->
+					Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp, androidx.compose.ui.Alignment.CenterHorizontally)) {
+						row.forEach { jar ->
+							val id = jar.getInt("id")
+							val color = colors[id]
+							OutlinedCard(onClick = { selected = id; address = null }, enabled = !busy,
+								modifier = Modifier.width(cardWidth).testTag("jar-$id").semantics { this.selected = selected == id },
+								border = BorderStroke(if (selected == id) 2.dp else 1.dp, if (selected == id) color else MaterialTheme.colorScheme.outlineVariant),
+								colors = CardDefaults.outlinedCardColors(containerColor = color.copy(alpha = if (selected == id) .20f else .07f))) {
+								Column(Modifier.padding(12.dp).heightIn(min = 78.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+									Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+										JamJarArt(color, jar.getLong("total_sat") > 0)
+										Text(jar.getString("name"), style = MaterialTheme.typography.titleSmall)
+									}
+									Text(unit.display(jar.getLong("total_sat")), style = MaterialTheme.typography.bodyMedium)
+									Text(if (jar.getLong("pending_sat") > 0) "Incoming pending" else if (selected == id) "Selected" else "Jar ${id + 1}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+								}
+							}
+						}
 					}
 				}
 			}
@@ -266,12 +273,12 @@ internal fun JoinBlaketPage(state: JoinBlaketUiState) {
 }
 
 @Composable private fun JamJarArt(color: Color, funded: Boolean) {
-	Canvas(Modifier.fillMaxWidth().height(48.dp)) {
-		val width = 38.dp.toPx(); val height = 42.dp.toPx(); val x = (size.width - width) / 2
-		drawRoundRect(color.copy(alpha = .08f), Offset(x, 6.dp.toPx()), Size(width, height), CornerRadius(14.dp.toPx()))
-		val fill = if (funded) 22.dp.toPx() else 4.dp.toPx()
-		drawRoundRect(color.copy(alpha = .35f), Offset(x + 5.dp.toPx(), height - fill), Size(width - 10.dp.toPx(), fill), CornerRadius(8.dp.toPx()))
-		drawRoundRect(color.copy(alpha = .65f), Offset(x, 6.dp.toPx()), Size(width, height), CornerRadius(14.dp.toPx()), style = Stroke(2.dp.toPx()))
-		drawRoundRect(color, Offset(x, 0f), Size(width, 7.dp.toPx()), CornerRadius(4.dp.toPx()))
+	Canvas(Modifier.size(28.dp, 32.dp)) {
+		val width = size.width * .9f; val height = size.height * .875f; val x = (size.width - width) / 2
+		drawRoundRect(color.copy(alpha = .08f), Offset(x, 4.dp.toPx()), Size(width, height), CornerRadius(7.dp.toPx()))
+		val fill = if (funded) 14.dp.toPx() else 3.dp.toPx()
+		drawRoundRect(color.copy(alpha = .35f), Offset(x + 3.dp.toPx(), height - fill), Size(width - 6.dp.toPx(), fill), CornerRadius(4.dp.toPx()))
+		drawRoundRect(color.copy(alpha = .65f), Offset(x, 4.dp.toPx()), Size(width, height), CornerRadius(7.dp.toPx()), style = Stroke(1.5.dp.toPx()))
+		drawRoundRect(color, Offset(x, 0f), Size(width, 4.dp.toPx()), CornerRadius(4.dp.toPx()))
 	}
 }

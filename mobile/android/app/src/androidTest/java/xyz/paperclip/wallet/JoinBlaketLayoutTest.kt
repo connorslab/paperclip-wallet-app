@@ -42,7 +42,13 @@ class JoinBlaketLayoutTest {
 			}
 		} } }
 		compose.onNodeWithTag("jar-0").assertIsSelected()
-		compose.onNodeWithText("Receive into Apricot").assertIsDisplayed()
+		for (id in 0..4) compose.onNodeWithTag("jar-$id").assertIsDisplayed()
+		val first = compose.onNodeWithTag("jar-0").fetchSemanticsNode().boundsInRoot
+		val second = compose.onNodeWithTag("jar-1").fetchSemanticsNode().boundsInRoot
+		val last = compose.onNodeWithTag("jar-4").fetchSemanticsNode().boundsInRoot
+		assertEquals(first.top, second.top, 2f)
+		assertEquals((first.left + second.right) / 2, last.center.x, 2f)
+		assertEquals(first.width, last.width, 2f)
 		compose.waitForIdle()
 		val instrumentation = InstrumentationRegistry.getInstrumentation()
 		instrumentation.waitForIdleSync()
@@ -50,7 +56,7 @@ class JoinBlaketLayoutTest {
 		File(instrumentation.targetContext.getExternalFilesDir(null), "android-jars.png").outputStream().use {
 			image.compress(Bitmap.CompressFormat.PNG, 100, it)
 		}
-		compose.onNodeWithTag("jar-4").performScrollTo().performClick().assertIsSelected()
+		compose.onNodeWithTag("jar-4").performClick().assertIsSelected()
 		compose.onNodeWithText("Receive into Elderberry").assertExists()
 		compose.runOnIdle { assertEquals(4, state.selected.intValue); assertNull(state.client.value) }
 	}

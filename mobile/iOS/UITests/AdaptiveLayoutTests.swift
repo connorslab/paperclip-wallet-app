@@ -50,11 +50,13 @@ final class AdaptiveLayoutTests: XCTestCase {
 		let first = app.buttons["jar-0"]
 		XCTAssertTrue(first.waitForExistence(timeout: 15))
 		XCTAssertTrue(first.isSelected)
-		XCTAssertTrue(app.buttons["Receive into Apricot"].isHittable, "Jar actions should fit without scrolling through five cards")
-		capture(app, "iOS Jars compact")
+		for id in 0..<5 { XCTAssertTrue(app.buttons["jar-\(id)"].isHittable, "Every jar should be visible without scrolling") }
+		let second = app.buttons["jar-1"]
 		let last = app.buttons["jar-4"]
-		for _ in 0..<5 { if last.isHittable { break }; app.scrollViews["jar-picker"].swipeLeft() }
-		XCTAssertTrue(last.isHittable)
+		XCTAssertEqual(first.frame.minY, second.frame.minY, accuracy: 2)
+		XCTAssertEqual(last.frame.midX, (first.frame.minX + second.frame.maxX) / 2, accuracy: 2)
+		XCTAssertEqual(last.frame.width, first.frame.width, accuracy: 2)
+		capture(app, "iOS Jars grid")
 		last.tap()
 		XCTAssertTrue(last.isSelected)
 		XCTAssertTrue(app.buttons["Receive into Elderberry"].exists)
