@@ -21,7 +21,7 @@ Method | HTTP request | Description
 > models::ArkSendEstimateResponse ark_send_fee(ark_send_estimate_request)
 Estimate the full Ark-send cost without sending
 
-Read-only preview. Does not lock inputs, allocate keys, sign or send. Recovery reserves reduce spendable funds and are not separately refundable deposits. Insufficient funds, dust and refresh requirements return an error, never a zero-cost quote. Send total_debit_sat as max_total_sat to wallet/send to cap the approved debit. Estimates do not reserve funds.
+Read-only preview. Set send_max to true and omit amount_sat to estimate the maximum Ark address transfer after recovery reserves. Use the returned recipient_amount_sat as the exact payment amount. Does not lock inputs, allocate keys, sign or send. Recovery reserves reduce spendable funds and are not separately refundable deposits. Insufficient funds, dust and refresh requirements return an error, never a zero-cost quote. Send total_debit_sat as max_total_sat to wallet/send to cap the approved debit. Estimates do not reserve funds.
 
 ### Parameters
 

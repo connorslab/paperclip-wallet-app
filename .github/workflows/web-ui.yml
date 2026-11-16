@@ -32,6 +32,7 @@ jobs:
           node scripts/test-activity-browser.cjs
           node scripts/test-board-review-browser.cjs
           node scripts/test-send-max-browser.cjs
+          node scripts/test-ark-max-browser.cjs
           node scripts/test-fee-replacement-browser.cjs
           node scripts/test-wallet-transfers-browser.cjs
           node scripts/test-wallet-health-browser.cjs

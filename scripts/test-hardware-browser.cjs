@@ -5,9 +5,10 @@ const urFixtures=JSON.parse(fs.readFileSync(path.join(__dirname,'../mobile/Tests
 (async()=>{
  const browser=await chromium.launch({headless:true,...(process.env.BROWSER_CHANNEL?{channel:process.env.BROWSER_CHANNEL}:{})});
  try{
-  for(const width of [390,1280]){
+  for(const width of [390,840,1280]){
    const page=await browser.newPage({viewport:{width,height:1000},reducedMotion:'reduce'}),errors=[],calls=[],receipts={};
    const accounts=[{id:'a'.repeat(64),label:'Travel Krux',kind:'hardware'},{id:'b'.repeat(64),label:'Savings Krux',kind:'hardware'}];
+   let quoteOverride={},quoteWait=null,quoteArrived,releaseQuote;
    page.on('pageerror',error=>errors.push(error.message));
    await page.route('http://wallet.test/**',async route=>{
     const url=new URL(route.request().url()),name=url.pathname.replace('/api/v1/','');
@@ -20,7 +21,7 @@ const urFixtures=JSON.parse(fs.readFileSync(path.join(__dirname,'../mobile/Tests
      if(name==='hardware/request'){
       if(body.operation==='refresh')value={confirmed_sat:body.account===accounts[0].id?11111:22222,pending_sat:0,transactions:[],last_broadcast:receipts[body.account]||null};
       if(body.operation==='address')value={address:fixtures[0].receive_address};
-      if(body.operation==='prepare')value={account:body.account,request_id:'c'.repeat(64),destination:body.destination,amount_sat:70000,fee_sat:1000,total_sat:71000,psbt:fixtures[0].original};
+      if(body.operation==='prepare'){if(quoteWait){quoteArrived();await quoteWait;}value={account:body.account,request_id:'c'.repeat(64),destination:body.destination,amount_sat:70000,fee_sat:1000,total_sat:71000,send_max:!!body.send_max,psbt:fixtures[0].original,...quoteOverride};}
       if(body.operation==='verify')value={verified:true,fee_sat:1000,txid:'d'.repeat(64)};
       if(body.operation==='broadcast'){value={state:'pending_broadcast',txid:body.txid};receipts[body.account]=value;}
       if(body.operation==='rename'){const account=accounts.find(item=>item.id===body.account);account.label=body.label;value={id:account.id,label:account.label};}
@@ -59,6 +60,28 @@ const urFixtures=JSON.parse(fs.readFileSync(path.join(__dirname,'../mobile/Tests
    await page.locator('.view-nav [data-view="lightning"]').click();await page.getByRole('heading',{name:'Your keys stay offline'}).waitFor();assert.equal(await page.locator('#ln-pay').isVisible(),false);
    await page.locator('.view-nav [data-view="overview"]').click();await page.getByRole('button',{name:'↗ Send',exact:true}).click();
    async function prepare(){await page.locator('#cold-destination').fill(fixtures[0].receive_address);await page.locator('#cold-amount').fill('70000');await page.getByRole('button',{name:'Review signing request',exact:true}).click();await page.getByRole('button',{name:'Confirm',exact:true}).click();await page.locator('#signing-request').waitFor({state:'visible'});}
+   // Exact amount, recipient and mode are bound to the requested review.
+   for(const override of [{destination:'another-recipient'},{amount_sat:70001,total_sat:71001},{fee_sat:-1,total_sat:69999},{request_id:'invalid'}]){
+    quoteOverride=override;await page.locator('#cold-destination').fill(fixtures[0].receive_address);await page.locator('#cold-amount').fill('70000');
+    await page.getByRole('button',{name:'Review signing request',exact:true}).click();await page.locator('#signing-status').filter({hasText:'Invalid signing review'}).waitFor();
+    assert.equal(await page.locator('#signing-request').isVisible(),false);
+   }
+   quoteOverride={send_max:false};await page.locator('#cold-max').check();assert.equal(await page.locator('#cold-amount').isEnabled(),false);
+   await page.getByRole('button',{name:'Review signing request',exact:true}).click();await page.locator('#signing-status').filter({hasText:'Invalid signing review'}).waitFor();
+   quoteOverride={};await page.getByRole('button',{name:'Review signing request',exact:true}).click();await page.getByRole('button',{name:'Confirm',exact:true}).waitFor();
+   assert.match(await page.locator('.review-content').textContent(),/Send Max/);
+   await page.evaluate(()=>document.querySelector('#cold-destination').value='edited-recipient');await page.getByRole('button',{name:'Confirm',exact:true}).click();
+   await page.locator('#signing-status').filter({hasText:'Payment changed'}).waitFor();assert.equal(await page.locator('#signing-request').isVisible(),false);
+   await page.locator('#cold-destination').fill(fixtures[0].receive_address);
+   const arrived=new Promise(resolve=>quoteArrived=resolve);quoteWait=new Promise(resolve=>releaseQuote=resolve);
+   await page.getByRole('button',{name:'Review signing request',exact:true}).click();await arrived;
+   await page.evaluate(()=>document.querySelector('#cold-max').checked=false);releaseQuote();quoteWait=null;
+   await page.locator('#signing-status').filter({hasText:'Payment changed'}).waitFor();assert.equal(await page.locator('#signing-request').isVisible(),false);
+   await page.locator('#cold-max').check();await page.getByRole('button',{name:'Review signing request',exact:true}).click();await page.getByRole('button',{name:'Confirm',exact:true}).click();
+   await page.locator('#signing-request').waitFor({state:'visible'});assert.match(await page.locator('#signing-review').textContent(),/Send Max/);
+   const maxCall=calls.filter(c=>c.body?.operation==='prepare').at(-1);assert.equal(maxCall.body.send_max,true);assert.equal(maxCall.body.amount_sat,undefined);
+   await page.locator('#signing-cancel').click();assert.equal(await page.locator('#cold-max').isChecked(),false);assert.equal(await page.locator('#cold-amount').isEnabled(),true);
+   assert(!calls.some(c=>c.body?.operation==='broadcast'));
    await prepare();assert.match(await page.locator('#signing-review').textContent(),/71,000 sats/);assert.equal(await page.locator('#signing-pause').textContent(),'Play QR');
    const decoded=await page.evaluate(async()=>{
     const source=document.querySelector('#signing-qr svg').outerHTML,url=URL.createObjectURL(new Blob([source],{type:'image/svg+xml'}));
@@ -140,6 +163,6 @@ const urFixtures=JSON.parse(fs.readFileSync(path.join(__dirname,'../mobile/Tests
    await page.locator('#lock').click();await page.goBack();assert.equal(await page.locator('#wallet').isVisible(),false);assert.equal(await page.locator('#pair-key').inputValue(),'');assert.deepEqual(errors,[]);
    assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));await page.close();
   }
-  console.log('PASS: QR/watch-only pairing, public export, guarded removal, Krux/UR codecs, wallet isolation, verified signing, uncertain broadcast, and lock cleanup at phone/desktop widths');
+  console.log('PASS: QR/watch-only pairing, public export, guarded removal, Krux/UR codecs, wallet isolation, exact/Send Max review, verified signing, uncertain broadcast, and lock cleanup at phone/foldable/desktop widths');
  }finally{await browser.close();}
 })().catch(error=>{console.error(error);process.exitCode=1;});

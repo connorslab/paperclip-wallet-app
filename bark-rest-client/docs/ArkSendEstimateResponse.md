@@ -8,6 +8,7 @@ Name | Type | Description | Notes
 **recipient_amount_sat** | **i64** |  |
 **recovery_reserve_sat** | **i64** |  |
 **remaining_spendable_sat** | **i64** | Snapshot only. Concurrent wallet activity can change this balance. |
+**send_max** | Option<**bool**> |  | [optional]
 **service_fee_sat** | **i64** |  |
 **total_debit_sat** | **i64** |  |
 **vtxos_spent** | **Vec<String>** |  |

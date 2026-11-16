@@ -10,4 +10,4 @@ pub use bark_json::web::*;
 pub use bark_rest::error::*;
 pub use bark_rest::api::v1::notifications::*;
 pub use bark_rest::api::v1::boards::BoardApproval;
-pub use bark_rest::api::v1::onchain::{SendApproval, ReplacementRequest, ReplacementApproval};
+pub use bark_rest::api::v1::onchain::{SendReviewRequest, SendApproval, ReplacementRequest, ReplacementApproval};

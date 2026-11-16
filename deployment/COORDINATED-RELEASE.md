@@ -221,14 +221,23 @@ drain to an external account, shows the exact recipient amount after miner fees,
 and uses the existing retained-transaction approval and durable submission journal.
 An amount cannot be combined with Send Max; older servers that do not confirm that
 mode are refused. Editing the destination or mode invalidates review, and locking
-or switching accounts clears the mode. Ark and public-wallet Send Max remain
-separate browser parity work; this change does not add those routes.
+or switching accounts clears the mode. QR signing wallets use the same unsigned
+transaction preparation, with signature
+verification and the saved broadcast journal still required. Watch-only accounts
+remain unable to prepare or send. Ark Send Max uses the shared mobile engine's
+eligible-input calculation, displays recovery reserves and the remaining balance,
+and submits the exact reviewed recipient amount with a maximum debit. Changes in
+available inputs or cost require a new review; newly arrived funds are not silently
+included. Synthetic server tests verify a public-wallet drain creates no signature
+or spend, while browser tests cover exact amounts, old-server refusal, altered
+quotes, edited forms and cleanup at phone, foldable and desktop widths.
 
 Current native read-only acceptance covers CLN and LND with the Android Kotlin
 adapter, the shared server adapter, and the newly built iOS simulator app. Each
 passed repeated identity/balance reads, deliberate wrong-pin rejection and recovery.
 The iOS connection UI also passed its live CLN/LND verify-and-refresh test after an
-initial test-runner crash before execution. No payment was made. The Linux image
+initial test-runner crash before execution. No payment was made. Android CI passed
+both native architectures and API 35/36 emulator checks. The Linux image
 workflow now defaults to build-only validation; publishing beta images requires
 its explicit `publish` option.
 

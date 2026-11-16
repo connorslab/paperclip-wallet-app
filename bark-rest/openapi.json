@@ -1026,7 +1026,7 @@
           "fees"
         ],
         "summary": "Estimate the full Ark-send cost without sending",
-        "description": "Read-only preview. Does not lock inputs, allocate keys, sign or send. Recovery reserves reduce spendable funds and are not separately refundable deposits. Insufficient funds, dust and refresh requirements return an error, never a zero-cost quote. Send total_debit_sat as max_total_sat to wallet/send to cap the approved debit. Estimates do not reserve funds.",
+        "description": "Read-only preview. Set send_max to true and omit amount_sat to estimate the maximum Ark address transfer after recovery reserves. Use the returned recipient_amount_sat as the exact payment amount. Does not lock inputs, allocate keys, sign or send. Recovery reserves reduce spendable funds and are not separately refundable deposits. Insufficient funds, dust and refresh requirements return an error, never a zero-cost quote. Send total_debit_sat as max_total_sat to wallet/send to cap the approved debit. Estimates do not reserve funds.",
         "operationId": "ark_send_fee",
         "requestBody": {
           "content": {
@@ -4119,19 +4119,26 @@
         "type": "object",
         "description": "Read-only Ark-send estimate. Amounts are sats; no funds or keys are reserved.",
         "required": [
-          "destination",
-          "amount_sat"
+          "destination"
         ],
         "properties": {
           "amount_sat": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int64",
             "minimum": 0
           },
           "destination": {
             "type": "string"
+          },
+          "send_max": {
+            "type": "boolean",
+            "description": "Estimate the maximum transferable amount after recovery reserves. Omit amount_sat."
           }
-        }
+        },
+        "additionalProperties": false
       },
       "ArkSendEstimateResponse": {
         "type": "object",
@@ -4164,6 +4171,9 @@
             "format": "int64",
             "description": "Snapshot only. Concurrent wallet activity can change this balance.",
             "minimum": 0
+          },
+          "send_max": {
+            "type": "boolean"
           },
           "service_fee_sat": {
             "type": "integer",

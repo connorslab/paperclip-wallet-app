@@ -177,24 +177,27 @@ $('setup-lock').onclick = () => {
 $('lock').onclick = () => { token = ''; network = null; $('network').textContent = 'NETWORK UNVERIFIED'; $('deposit-address').textContent = ''; $('exits').textContent = '';  $('wallet').hidden = true; $('login').hidden = false; $('vtxos').textContent = ''; $('address').textContent = ''; $('destination').value = ''; status('Wallet locked.'); };
 $('reload').onclick = event => run(event.target, async () => { await update(); status('Balances updated.'); });
 $('receive').onclick = event => run(event.target, async () => { const receiveSession = token; const result = await api('wallet/addresses/next', {}); if (!token || token !== receiveSession || $('wallet').hidden) return; $('address').textContent = result.address; PaperclipReceive.show('address', result.address, 'Receive on Ark'); status('New Ark receive address.'); });
+$('ark-max').onchange=()=>{$('amount').disabled=$('ark-max').checked;$('amount').required=!$('ark-max').checked;$('ark-estimate').hidden=true;};
 $('send').addEventListener('submit', event => { event.preventDefault(); run(event.submitter, async () => {
-  const destination = $('destination').value.trim(), amount = Number($('amount').value);
-  if (!Number.isSafeInteger(amount) || amount <= 0) throw new Error('Enter a positive whole number of sats.');
+  const destination = $('destination').value.trim(), maximum=$('ark-max').checked,entered=maximum?null:Number($('amount').value);
+  if (!maximum&&(!Number.isSafeInteger(entered) || entered <= 0)) throw new Error('Enter a positive whole number of sats.');
   if (!network) throw new Error('Unlock and verify the wallet network first.');
   if (uncertainMutation) throw new Error('Check the previous submission in Activity before another payment.');
-  const sessionToken = token;
+  const context=walletContext();
+  const unchanged=()=>currentWallet(context)&&token&&network&&$('destination').value.trim()===destination&&$('ark-max').checked===maximum&&(maximum||Number($('amount').value)===entered);
   $('ark-estimate').hidden = true;
   status('Estimating the recipient amount and recovery reserve. No payment has been sent.');
-  const quote = await api('fees/ark/send', {destination, amount_sat: amount});
-  if (token !== sessionToken || !network || $('destination').value.trim() !== destination || Number($('amount').value) !== amount) {
+  const quote = await api('fees/ark/send', maximum?{destination,send_max:true}:{destination,amount_sat:entered});
+  if (!unchanged()) {
     throw new Error('Wallet or payment details changed. Review the transfer again.');
   }
+  const amount=quote.recipient_amount_sat;
   const fields = ['recipient_amount_sat', 'recovery_reserve_sat', 'service_fee_sat', 'total_debit_sat', 'remaining_spendable_sat', 'input_count'];
   if (fields.some(key => !Number.isSafeInteger(quote[key]) || quote[key] < 0) || quote.input_count < 1 ||
-      quote.recipient_amount_sat !== amount || quote.total_debit_sat !== amount + quote.recovery_reserve_sat + quote.service_fee_sat) {
+      amount<=0 || (!maximum&&amount!==entered) || (maximum&&quote.send_max!==true) || quote.total_debit_sat !== amount + quote.recovery_reserve_sat + quote.service_fee_sat) {
     throw new Error('Invalid cost estimate. No payment was sent.');
   }
-  const review = 'Recipient receives: ' + amount.toLocaleString() + ' sats\n' +
+  const review = (maximum?'Send Max\n':'')+'Recipient receives: ' + amount.toLocaleString() + ' sats\n' +
     'Recovery reserve: ' + quote.recovery_reserve_sat.toLocaleString() + ' sats\n' +
     'Service fee: ' + quote.service_fee_sat.toLocaleString() + ' sats\n' +
     'Total balance reduction: ' + quote.total_debit_sat.toLocaleString() + ' sats\n' +
@@ -204,10 +207,11 @@ $('send').addEventListener('submit', event => { event.preventDefault(); run(even
   if (!await PaperclipReview.ask(review + '\n\nRecovery allocations are not separately refundable. They are not miner fees unless recovery transactions confirm. Refresh does not refund prior allocations.\n\nSend to:\n' + destination + '?')) {
     status('Estimate ready. No payment was sent.'); return;
   }
-  if (token !== sessionToken || !network || $('destination').value.trim() !== destination || Number($('amount').value) !== amount) throw new Error('Payment details changed. Review again.');
+  if (!unchanged()) throw new Error('Payment details changed. Review again.');
   status('Submitting once. If the connection fails, check history before trying again.');
   const result = await mutate('wallet/send', {destination, amount_sat: amount, max_total_sat: quote.total_debit_sat});
-  $('destination').value = ''; $('amount').value = ''; $('ark-estimate').hidden = true;
+  if(!currentWallet(context))return;
+  $('destination').value = ''; $('amount').value = ''; $('ark-max').checked=false;$('ark-max').onchange();
   if (result?.state === 'successful') transactionResult('success', 'Transfer completed', 'Your Ark transfer is recorded as successful.');
   else transactionResult(result?.state === 'failed' || result?.state === 'canceled' ? 'failed' : 'pending', 'Check transfer status', 'The wallet recorded your request. Open Activity for its current outcome.', String(result?.movement_id ?? ''));
   void update().catch(() => {});
@@ -421,6 +425,7 @@ $('lock').onclick = () => {
   for (const id of ['ln-offer-output', 'ln-invoice', 'ln-result', 'chain-result', 'history', 'ark-balance', 'chain-balance']) $(id).textContent = '';
   for (const id of ['offer-description', 'offer-amount', 'ln-destination', 'ln-amount', 'ln-receive-amount', 'ln-description', 'ln-identifier', 'chain-destination', 'chain-amount']) $(id).value = '';
   $('chain-max').checked=false;$('chain-max').onchange();
+  $('ark-max').checked=false;$('ark-max').onchange();
 };
 $('deposit').onclick = event => run(event.target, async () => {
   const receiveSession = token;

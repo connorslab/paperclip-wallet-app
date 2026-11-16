@@ -71,21 +71,12 @@ async fn send_prepare(State(state): State<Arc<ServerState>>, Json(body): Json<Se
 	let wallet = state.require_wallet()?;
 	let onchain = state.require_onchain()?;
 	let address = body.destination.parse::<bitcoin::Address<_>>().badarg("Invalid destination")?.require_network(wallet.network().await?).badarg("Wrong network")?;
-	let requested = send_review_amount(&body)?;
+	let requested = send_review_amount(body.amount_sat, body.send_max)?;
 	wallet.chain().update_fee_rates(wallet.config().fallback_fee_rate).await?;
 	let mut guard = onchain.write().await;
 	guard.sync(wallet.chain()).await?;
 	let rate = wallet.chain().fee_rates().await.regular;
-	let (psbt, amount) = if let Some(amount) = requested {
-		(guard.prepare_tx(&[(address.clone(), amount)], rate).await?, amount)
-	} else {
-		if cast_bdk(&*guard)?.inner.is_mine(address.script_pubkey()) { return Err(anyhow::anyhow!("Send Max needs a destination outside this account").into()); }
-		let psbt = guard.prepare_drain_tx(address.clone(), rate).await?;
-		if psbt.unsigned_tx.output.len() != 1 || psbt.unsigned_tx.output[0].script_pubkey != address.script_pubkey() { return Err(anyhow::anyhow!("Unexpected Send Max outputs").into()); }
-		let amount = psbt.unsigned_tx.output[0].value;
-		if amount == Amount::ZERO { return Err(anyhow::anyhow!("Balance is too small after fees").into()); }
-		(psbt, amount)
-	};
+	let (psbt, amount) = prepare_reviewed_send(&mut *guard, address.clone(), requested, rate).await?;
 	let fee = psbt.fee().context("Unable to calculate payment fee")?.to_sat();
 	let total = amount.to_sat().checked_add(fee).context("Payment total overflow")?;
 	let result = serde_json::json!({"request_id": psbt.unsigned_tx.compute_txid(), "destination": address.to_string(), "amount_sat": amount.to_sat(), "fee_sat": fee, "total_sat": total,"send_max":body.send_max});
@@ -93,14 +84,30 @@ async fn send_prepare(State(state): State<Arc<ServerState>>, Json(body): Json<Se
 	Ok(Json(result))
 }
 
-fn send_review_amount(body: &SendReviewRequest) -> anyhow::Result<Option<Amount>> {
-	if body.send_max {
-		anyhow::ensure!(body.amount_sat.is_none(), "Send Max cannot include a separate amount");
+pub(super) fn send_review_amount(amount_sat: Option<u64>, send_max: bool) -> anyhow::Result<Option<Amount>> {
+	if send_max {
+		anyhow::ensure!(amount_sat.is_none(), "Send Max cannot include a separate amount");
 		Ok(None)
 	} else {
-		let amount = body.amount_sat.context("Enter a positive amount")?;
+		let amount = amount_sat.context("Enter a positive amount")?;
 		anyhow::ensure!(amount > 0 && amount <= Amount::MAX_MONEY.to_sat(), "Enter a valid positive amount");
 		Ok(Some(Amount::from_sat(amount)))
+	}
+}
+
+/// Retain the same unsigned transaction for hot and external-signer reviews.
+pub(super) async fn prepare_reviewed_send(
+	wallet: &mut dyn OnchainWalletTrait, address: bitcoin::Address, requested: Option<Amount>, rate: bitcoin::FeeRate,
+) -> anyhow::Result<(bitcoin::Psbt, Amount)> {
+	if let Some(amount) = requested {
+		Ok((wallet.prepare_tx(&[(address.clone(), amount)], rate).await?, amount))
+	} else {
+		if cast_bdk(wallet)?.inner.is_mine(address.script_pubkey()) { return Err(anyhow::anyhow!("Send Max needs a destination outside this account").into()); }
+		let psbt = wallet.prepare_drain_tx(address.clone(), rate).await?;
+		if psbt.unsigned_tx.output.len() != 1 || psbt.unsigned_tx.output[0].script_pubkey != address.script_pubkey() { return Err(anyhow::anyhow!("Unexpected Send Max outputs").into()); }
+		let amount = psbt.unsigned_tx.output[0].value;
+		if amount == Amount::ZERO { return Err(anyhow::anyhow!("Balance is too small after fees").into()); }
+		Ok((psbt, amount))
 	}
 }
 
@@ -538,11 +545,11 @@ mod assistance_tests {
 	#[test]
 	fn send_max_requires_an_unambiguous_amount_and_preserves_old_requests() {
 		let request: SendReviewRequest = serde_json::from_value(serde_json::json!({"destination":"test","amount_sat":1000})).unwrap();
-		assert_eq!(send_review_amount(&request).unwrap(),Some(Amount::from_sat(1000)));
+		assert_eq!(send_review_amount(request.amount_sat, request.send_max).unwrap(),Some(Amount::from_sat(1000)));
 		let maximum: SendReviewRequest = serde_json::from_value(serde_json::json!({"destination":"test","send_max":true})).unwrap();
-		assert_eq!(send_review_amount(&maximum).unwrap(),None);
+		assert_eq!(send_review_amount(maximum.amount_sat, maximum.send_max).unwrap(),None);
 		for (amount,send_max) in [(Some(1000),true),(None,false),(Some(0),false),(Some(u64::MAX),false)] {
-			assert!(send_review_amount(&SendReviewRequest { destination:"test".into(),amount_sat:amount,send_max }).is_err());
+			assert!(send_review_amount(amount,send_max).is_err());
 		}
 		assert!(serde_json::from_value::<SendReviewRequest>(serde_json::json!({"destination":"test","send_max":true,"amount":1000})).is_err());
 	}

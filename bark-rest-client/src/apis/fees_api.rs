@@ -97,7 +97,7 @@ pub enum SendOnchainFeeError {
 }
 
 
-/// Read-only preview. Does not lock inputs, allocate keys, sign or send. Recovery reserves reduce spendable funds and are not separately refundable deposits. Insufficient funds, dust and refresh requirements return an error, never a zero-cost quote. Send total_debit_sat as max_total_sat to wallet/send to cap the approved debit. Estimates do not reserve funds.
+/// Read-only preview. Set send_max to true and omit amount_sat to estimate the maximum Ark address transfer after recovery reserves. Use the returned recipient_amount_sat as the exact payment amount. Does not lock inputs, allocate keys, sign or send. Recovery reserves reduce spendable funds and are not separately refundable deposits. Insufficient funds, dust and refresh requirements return an error, never a zero-cost quote. Send total_debit_sat as max_total_sat to wallet/send to cap the approved debit. Estimates do not reserve funds.
 pub async fn ark_send_fee(configuration: &configuration::Configuration, ark_send_estimate_request: models::ArkSendEstimateRequest) -> Result<models::ArkSendEstimateResponse, Error<ArkSendFeeError>> {
     // add a prefix to parameters to efficiently prevent name collisions
     let p_body_ark_send_estimate_request = ark_send_estimate_request;

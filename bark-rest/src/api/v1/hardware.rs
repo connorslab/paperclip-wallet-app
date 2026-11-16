@@ -37,6 +37,7 @@ struct Request {
 	#[serde(default)] origin: String,
 	#[serde(default)] destination: String,
 	amount_sat: Option<u64>,
+	#[serde(default)] send_max: bool,
 	#[serde(default)] request_id: String,
 	#[serde(default)] signed: String,
 	#[serde(default)] txid: String,
@@ -255,13 +256,13 @@ async fn request(State(state): State<Arc<ServerState>>, Json(request): Json<Requ
 			Operation::Prepare => {
 				accounts.pending.remove(&directory);
 				ensure!(!relay(&relay_file)?.is_some_and(|r| r.state == "pending_broadcast"), "A previous broadcast is uncertain. Reconcile that transaction before preparing another payment");
-				let amount = request.amount_sat.context("Enter an amount in sats")?;
-				ensure!(amount > 0 && amount <= Amount::MAX_MONEY.to_sat(), "Invalid amount");
+				let amount = super::onchain::send_review_amount(request.amount_sat, request.send_max)?;
 				let address = request.destination.parse::<bitcoin::Address<_>>()?.require_network(network)?;
 				tokio::time::timeout(Duration::from_secs(90), wallet.sync(main.chain())).await.context("Refresh timed out. No signing request was created")??;
 				tokio::time::timeout(Duration::from_secs(15), main.chain().update_fee_rates(main.config().fallback_fee_rate)).await.context("Fee lookup timed out. No signing request was created")??;
 				let fee_rate = main.chain().fee_rates().await.regular;
-				let mut psbt = wallet.prepare_tx(&[(address, Amount::from_sat(amount))], fee_rate).await?;
+				let (mut psbt, amount) = super::onchain::prepare_reviewed_send(&mut wallet, address, amount, fee_rate).await?;
+				let amount = amount.to_sat();
 				qr::prepare(&mut psbt)?;
 				ensure!(psbt.serialize().len() <= qr::MAX_TRANSFER, "Transaction is too large for QR signing");
 				// A prepared request reveals change to the signer. Preserve that address
@@ -269,7 +270,7 @@ async fn request(State(state): State<Arc<ServerState>>, Json(request): Json<Requ
 				wallet.persist().await?;
 				let fee = psbt.fee()?.to_sat();
 				let result = json!({"request_id": psbt.unsigned_tx.compute_txid().to_string(), "account": account.id, "destination": request.destination,
-					"amount_sat": amount, "fee_sat": fee, "total_sat": amount.checked_add(fee).context("Amount overflow")?, "psbt": STANDARD.encode(psbt.serialize())});
+					"amount_sat": amount, "fee_sat": fee, "total_sat": amount.checked_add(fee).context("Amount overflow")?, "send_max": request.send_max, "psbt": STANDARD.encode(psbt.serialize())});
 				accounts.pending.insert(directory, Pending { psbt, signed: None, created: Instant::now() });
 				Ok(result)
 			},
@@ -308,6 +309,31 @@ mod tests {
 
 	fn fixtures() -> Vec<Value> {
 		serde_json::from_str(include_str!("../../../../mobile/Tests/PaperclipMobileTests/Fixtures/krux.json")).unwrap()
+	}
+	#[tokio::test]
+	async fn public_send_max_retains_the_exact_net_amount_without_signing() {
+		let root = tempfile::tempdir().unwrap();
+		let fixture = &fixtures()[0];
+		let (receive, change) = qr::descriptors(fixture["public_key"].as_str().unwrap(), fixture["script"].as_str().unwrap(), "", Network::Bitcoin, true).unwrap();
+		let account = Account { id: account_id(&receive,Network::Bitcoin),label:"Synthetic signer".into(),receive,change,network:Network::Bitcoin,kind:AccountKind::Hardware,archived:false };
+		private_dir(&account_dir(root.path(), &account.id).unwrap()).unwrap();
+		let mut wallet = open(root.path(), &account).await.unwrap();
+		let own = wallet.address().await.unwrap();
+		let funding = Transaction { version: bitcoin::transaction::Version::TWO, lock_time: bitcoin::absolute::LockTime::ZERO,
+			input: vec![bitcoin::TxIn { previous_output: bitcoin::OutPoint::new(bitcoin::Txid::from_byte_array([11;32]), 0), ..Default::default() }],
+			output: vec![bitcoin::TxOut { value: Amount::from_sat(100_000), script_pubkey: own.script_pubkey() }] };
+		wallet.inner.apply_unconfirmed_txs([(funding.clone(), 1)]);
+		let recipient = fixtures()[1]["receive_address"].as_str().unwrap().parse::<bitcoin::Address<_>>().unwrap().require_network(Network::Bitcoin).unwrap();
+		let rate = bitcoin::FeeRate::from_sat_per_vb(2).unwrap();
+		assert!(super::super::onchain::prepare_reviewed_send(&mut wallet, own, None, rate).await.is_err());
+		let (mut psbt, amount) = super::super::onchain::prepare_reviewed_send(&mut wallet, recipient.clone(), None, rate).await.unwrap();
+		qr::prepare(&mut psbt).unwrap();
+		assert_eq!(psbt.unsigned_tx.output, vec![bitcoin::TxOut { value: amount, script_pubkey: recipient.script_pubkey() }]);
+		assert_eq!(amount + psbt.fee().unwrap(), Amount::from_sat(100_000));
+		assert!(psbt.fee().unwrap() > Amount::ZERO);
+		assert!(qr::signed_transaction(&psbt, &psbt.serialize()).is_err(), "Preparing Send Max must not supply a signature");
+		assert_eq!(wallet.list_transactions().len(), 1, "Review must not register or broadcast a spend");
+		assert_eq!(wallet.list_unspent()[0].outpoint.txid, funding.compute_txid());
 	}
 	#[tokio::test]
 	async fn paired_accounts_keep_separate_addresses_and_survive_reopen() {

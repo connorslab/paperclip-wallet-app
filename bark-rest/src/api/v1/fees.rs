@@ -308,7 +308,7 @@ pub async fn lightning_receive_fee(
 		(status = 400, description = "Invalid destination or amount", body = error::BadRequestError),
 		(status = 500, description = "Cannot construct payment; inspect error details", body = error::InternalServerError)
 	),
-	description = "Read-only preview. Does not lock inputs, allocate keys, sign or send. Recovery reserves reduce spendable funds and are not separately refundable deposits. Insufficient funds, dust and refresh requirements return an error, never a zero-cost quote. Send total_debit_sat as max_total_sat to wallet/send to cap the approved debit. Estimates do not reserve funds.",
+	description = "Read-only preview. Set send_max to true and omit amount_sat to estimate the maximum Ark address transfer after recovery reserves. Use the returned recipient_amount_sat as the exact payment amount. Does not lock inputs, allocate keys, sign or send. Recovery reserves reduce spendable funds and are not separately refundable deposits. Insufficient funds, dust and refresh requirements return an error, never a zero-cost quote. Send total_debit_sat as max_total_sat to wallet/send to cap the approved debit. Estimates do not reserve funds.",
 	tag = "fees"
 )]
 #[debug_handler]
@@ -317,14 +317,18 @@ pub async fn ark_send_fee(
 	Json(body): Json<bark_json::web::ArkSendEstimateRequest>,
 ) -> HandlerResult<Json<bark_json::web::ArkSendEstimateResponse>> {
 	let wallet = state.require_wallet()?;
-	if body.amount_sat == 0 { badarg!("amount must be positive"); }
+	let amount = super::onchain::send_review_amount(body.amount_sat, body.send_max).badarg("invalid Ark amount")?;
 	let destination = ark::Address::from_str(&body.destination).badarg("invalid Ark address")?;
 	wallet.validate_arkoor_address(&destination).await.badarg("invalid Ark destination")?;
-	let estimate = wallet.estimate_arkoor_send(&destination, Amount::from_sat(body.amount_sat)).await
-		.context("Cannot estimate Ark send")?;
+	let estimate = if let Some(amount) = amount {
+		wallet.estimate_arkoor_send(&destination, amount).await
+	} else {
+		wallet.estimate_max_address_payment(&bark::movement::PaymentMethod::Ark(destination)).await
+	}.context("Cannot estimate Ark send")?;
 	let remaining = wallet.balance().await?.spendable.checked_sub(estimate.gross_amount)
 		.context("wallet balance changed; request a new estimate")?;
 	Ok(Json(bark_json::web::ArkSendEstimateResponse {
+		send_max: body.send_max,
 		recipient_amount_sat: estimate.net_amount.to_sat(),
 		recovery_reserve_sat: estimate.fee.to_sat(),
 		service_fee_sat: 0,

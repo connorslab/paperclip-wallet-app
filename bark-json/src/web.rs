@@ -147,14 +147,20 @@ impl From<bark::FeeEstimate> for FeeEstimateResponse {
 /// Read-only Ark-send estimate. Amounts are sats; no funds or keys are reserved.
 #[derive(Serialize, Deserialize)]
 #[cfg_attr(feature = "utoipa", derive(ToSchema))]
+#[serde(deny_unknown_fields)]
 pub struct ArkSendEstimateRequest {
 	pub destination: String,
-	pub amount_sat: u64,
+	pub amount_sat: Option<u64>,
+	/// Estimate the maximum transferable amount after recovery reserves. Omit amount_sat.
+	#[serde(default)]
+	pub send_max: bool,
 }
 
 #[derive(Serialize, Deserialize)]
 #[cfg_attr(feature = "utoipa", derive(ToSchema))]
 pub struct ArkSendEstimateResponse {
+	#[serde(default)]
+	pub send_max: bool,
 	pub recipient_amount_sat: u64,
 	pub recovery_reserve_sat: u64,
 	pub service_fee_sat: u64,

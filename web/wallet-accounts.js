@@ -8,6 +8,7 @@
     $('wallet-select').disabled=busy||walletMutations>0;
     document.querySelectorAll('#paired-wallets button, [data-hot-wallet]').forEach(button=>button.disabled=busy||walletMutations>0);
     for(const id of ['pair-form','cold-send','wallet-rename-form','wallet-remove-form']) $(id).querySelectorAll('button,input,textarea,select').forEach(control=>control.disabled=busy);
+    $('cold-amount').disabled=busy||$('cold-max').checked;$('cold-amount').required=!$('cold-max').checked;
     $('signed-broadcast').disabled=busy||!signed;
     $('cold-send').hidden=!!pending||selected?.kind==='watch';
     document.querySelectorAll('[data-wallet="hardware"] [data-view="signing"]').forEach(button=>button.hidden=selected?.kind==='watch');
@@ -39,6 +40,7 @@
     for(const id of ['cold-address','cold-relay','cold-history','cold-history-status','activity-list','history','ln-result','ln-invoice','ln-offer-output','address','deposit-address']) $(id)?.replaceChildren();
     for(const id of ['destination','amount','ln-destination','ln-amount','chain-destination','chain-amount','ln-identifier']) if($(id))$(id).value='';
     $('chain-max').checked=false;$('chain-max').onchange();
+    $('ark-max').checked=false;$('ark-max').onchange();
     $('cold-balance').textContent='Loading…';$('cold-pending').textContent='Loading…';history=[];lastRelay=null;
   }
   async function choose(id) {
@@ -167,13 +169,21 @@
   $('pair-use').onclick=()=>{if(paired){$('pair-confirmation').hidden=true;void choose(paired);}};
   $('cold-history-refresh').onclick=()=>void work('cold-history-status',refresh);
   $('cold-receive').onclick=()=>void work('cold-relay',async()=>{const result=await call('address');$('cold-address').textContent=result.address;PaperclipReceive.show('cold-address',result.address,'Receive to '+selected.label);});
+  $('cold-max').onchange=controls;
   $('cold-send').onsubmit=event=>{event.preventDefault();void work('signing-status',async()=>{
     if(!selected||selected.kind!=='hardware')throw new Error('Select a QR signing wallet first.');
-    const amount=$('cold-amount').value;if(!/^[1-9][0-9]*$/.test(amount)||!Number.isSafeInteger(Number(amount)))throw new Error('Enter a whole number of sats.');
-    const result=await call('prepare',{destination:$('cold-destination').value.trim(),amount_sat:Number(amount)});
-    if(result.account!==selected.id||![result.amount_sat,result.fee_sat,result.total_sat].every(Number.isSafeInteger)||result.total_sat!==result.amount_sat+result.fee_sat)throw new Error('Invalid signing review. Refresh and try again.');
-    const summary=selected.label+'\n\nRecipient: '+result.destination+'\nAmount: '+sats(result.amount_sat)+'\nNetwork fee: '+sats(result.fee_sat)+'\nTotal debit: '+sats(result.total_sat);
-    if(!await PaperclipReview.ask(summary+'\n\nCreate the QR request for your signer?')){await call('cancel');return;}
+    const context=walletContext(),destination=$('cold-destination').value.trim(),maximum=$('cold-max').checked,amount=$('cold-amount').value;
+    if(!destination)throw new Error('Enter a recipient address.');
+    if(!maximum&&(!/^[1-9][0-9]*$/.test(amount)||!Number.isSafeInteger(Number(amount))))throw new Error('Enter a whole number of sats.');
+    const unchanged=()=>currentWallet(context)&&token&&$('cold-destination').value.trim()===destination&&$('cold-max').checked===maximum&&(maximum||$('cold-amount').value===amount);
+    const result=await call('prepare',maximum?{destination,send_max:true}:{destination,amount_sat:Number(amount)});
+    if(!unchanged())throw new Error('Payment changed. Review again.');
+    if(result.account!==selected.id||result.destination!==destination||!maximum&&result.amount_sat!==Number(amount)||maximum&&result.send_max!==true||
+      !/^[0-9a-f]{64}$/.test(result.request_id)||![result.amount_sat,result.fee_sat,result.total_sat].every(Number.isSafeInteger)||result.amount_sat<=0||result.fee_sat<0||
+      result.total_sat!==result.amount_sat+result.fee_sat)throw new Error('Invalid signing review. Refresh and try again.');
+    const summary=selected.label+(maximum?' \u00b7 Send Max':'')+'\n\nRecipient: '+result.destination+'\nAmount: '+sats(result.amount_sat)+'\nNetwork fee: '+sats(result.fee_sat)+'\nTotal debit: '+sats(result.total_sat);
+    if(!await PaperclipReview.ask(summary+'\n\nCreate the QR request for your signer?')){if(currentWallet(context)&&token)await call('cancel');return;}
+    if(!unchanged())throw new Error('Payment changed. Review again.');
     pending=result;signed=null;collector=new PaperclipSigningQR.Collector();qrFrames=PaperclipSigningQR.frames(PaperclipSigningQR.binary(result.psbt));frame=0;
     paused=matchMedia('(prefers-reduced-motion: reduce)').matches;$('signing-pause').textContent=paused?'Play QR':'Pause QR';$('signing-review').textContent=summary;showFrame();
   });};
