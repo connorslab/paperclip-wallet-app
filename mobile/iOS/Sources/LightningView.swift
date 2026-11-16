@@ -48,11 +48,7 @@ struct LightningView: View {
     private var pending: PendingNodePayment? { payments.pending }
     @State private var status = ""
     private let configAccount = "lightning-connection-v1"
-    var body: some View {
-        ScrollView {
-          VStack(spacing: 14) {
-            if !connection.endpoint.isEmpty && (connecting || !connectionError.isEmpty) { connectionSummary }
-            WalletColumns {
+    @ViewBuilder private var nodeDashboard: some View {
             if client != nil || balance != nil {
                 WalletSection {
                     HStack {
@@ -96,7 +92,8 @@ struct LightningView: View {
                     if !connectionError.isEmpty { Text(connectionError).font(.caption).foregroundStyle(PaperclipTheme.muted) }
                 }
             }
-            } secondary: {
+    }
+    @ViewBuilder private var nodeActions: some View {
             WalletSection {
                 Button { page = .connection } label: {
                     WalletNavigationRow(nodeName.isEmpty ? "Node connection" : nodeName,
@@ -117,6 +114,15 @@ struct LightningView: View {
             }
 
             if busy { ProgressView(operation) }
+    }
+    var body: some View {
+        ScrollView {
+          VStack(spacing: 14) {
+            if !connection.endpoint.isEmpty && (connecting || !connectionError.isEmpty) { connectionSummary }
+            WalletColumns {
+                nodeDashboard
+            } secondary: {
+                nodeActions
             }
           }.walletPageContent(maxWidth: 1120).textFieldStyle(WalletInputStyle())
         }.navigationTitle("Lightning").walletPageBackground()

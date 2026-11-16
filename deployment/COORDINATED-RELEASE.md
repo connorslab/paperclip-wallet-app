@@ -595,3 +595,10 @@ publishing job was skipped. iOS CI `43837081855` failed in the Lightning screen'
 SwiftUI type checking during the unsigned device build. Its Rust device/simulator
 and Swift unit-test jobs passed. The compiler failure remains a release gate until
 the smaller-view follow-up passes that CI toolchain.
+
+The Lightning dashboard and action sections are now separate SwiftUI view
+properties, reducing the expression the compiler must infer. The native local
+simulator build and bundle verification pass. Both the Lightning layout test and
+Bridge entry/send/receive status-navigation test pass on the unfunded iPhone
+simulator. The older CI compiler still needs to validate this follow-up; local
+Xcode success alone does not close that failure.
