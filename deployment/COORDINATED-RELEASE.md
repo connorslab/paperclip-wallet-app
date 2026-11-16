@@ -49,13 +49,15 @@ Play-signed download option in its
   including the selection-metadata and profile-removal regressions. The preceding
   `4882d13` and `768a98e` runs also passed. The earlier intermittent system ANR did not
   recur; its cause remains unconfirmed.
-- iOS CI [43858316127](https://github.com/connorslab/paperclip-wallet-app/actions/runs/43858316127)
-  at `768a98e` passed Swift/native tests, device and simulator builds, bundle checks
-  and UI tests. This verifies the older-runtime Back selector and native test-host
-  setup. The later wallet-switch adapter change at `2c75741` has local native test
-  evidence; its separate CI run is still in progress.
-- The Android storage-commit follow-up below has local native/model/UI test
-  evidence. It is newer than those completed runs and needs its own CI result.
+- iOS CI [43859699438](https://github.com/connorslab/paperclip-wallet-app/actions/runs/43859699438)
+  at `2c75741` passed Swift/native tests, device and simulator builds, bundle checks
+  and UI tests, including the wallet-switch regression.
+- Android CI [43868317424](https://github.com/connorslab/paperclip-wallet-app/actions/runs/43868317424)
+  at `657592f` passed native builds but failed the new replacement-failure fixture
+  on both API 35/36. The fixture created a blocker before provisioning a device
+  key, correctly triggering lost-key protection. It now performs a normal write
+  before injecting the fault. All four storage tests pass on a fresh local API 36
+  installation; the corrected fixture still needs CI confirmation.
   These passes do not close the live, physical-device or packaging gates below.
 
 ## Acceptance matrix
@@ -923,3 +925,10 @@ payment retry was added. iOS already checks Keychain return codes and does not u
 AtomicFile. The Android fix is mirrored to both development branches; encryption,
 key policy, native engine and backup formats are unchanged. Actual Android 9,
 process-death, storage exhaustion and funded-upgrade acceptance remain open.
+
+The clean-install storage regression uses a new isolated AVD with no existing app
+or device key. The corrected fixture provisions its key with a normal encrypted
+write before creating the replacement blocker. All four cases pass in 0.416s
+(`/tmp/clean-storage-runtime.log`). This changes test setup only; lost-key
+protection remains enforced. API 35 and 36 CI artifacts confirmed the same setup
+failure, rather than a sync/rename regression.

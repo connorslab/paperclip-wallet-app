@@ -50,6 +50,10 @@ class SecureStoreRecoveryTest {
         val value = "Non-secret replacement fixture".toByteArray()
         val blocker = File(base, "keep")
         try {
+            // Provision the device key through a normal write first. On a clean
+            // install, a pre-existing blocker correctly trips the lost-key guard.
+            store.write(name, value)
+            store.delete(name)
             // A nonempty destination directory allows the staging write but
             // prevents its final rename on current Android AtomicFile.
             check(base.mkdir())
