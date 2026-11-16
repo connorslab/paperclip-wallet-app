@@ -420,6 +420,11 @@ impl Wallet {
 			if let Some(observer) = &opts.before_submit { observer.0(payment_hash)?; }
 			checkpoint.create(self, start).await?;
 		} else if let Some(send) = checkpoint.get() {
+			// A payment hash alone does not bind the signed invoice or an
+			// explicitly entered amount. Preserve the original checkpoint when
+			// another caller races this send with changed payment terms.
+			ensure!(&send.invoice == invoice, "This payment hash already belongs to another invoice. Check its saved status");
+			ensure!(user_amount.is_none_or(|amount| amount == send.payment_amount), "This payment already has a different amount. Check its saved status");
 			// A lower limit does not cancel an already initiated payment. Leave
 			// its checkpoint intact for status checks and background recovery.
 			check_lightning_debit(send.payment_amount, send.fee, send.recovery_reserve, opts.max_total)?;
@@ -583,6 +588,32 @@ mod test {
 		// The guard released its lock and normal status/recovery remains possible.
 		finish(&wallet, &pending).await;
 		assert!(checkpoint(&wallet, &pending).await.is_none());
+	}
+
+	#[tokio::test]
+	async fn changed_invoice_or_amount_cannot_drive_an_existing_payment() {
+		let (wallet, _conn) = Wallet::offline_for_test().await;
+		let pending = pending_send(&wallet).await;
+		let before = checkpoint(&wallet, &pending).await;
+		let locked = vtxo_state(&wallet, pending.htlcs.vtxo_ids[0]).await;
+		let changed: Invoice = InvoiceBuilder::new(Currency::Regtest)
+			.description("different signed request".into())
+			.payment_hash(pending.hash().to_sha256_hash()).payment_secret(PaymentSecret([42;32]))
+			.duration_since_epoch(Duration::from_secs(1_700_000_000)).min_final_cltv_expiry_delta(144)
+			.amount_milli_satoshis(1_000_000)
+			.build_signed(|hash: &Message| Secp256k1::new().sign_ecdsa_recoverable(hash,&SecretKey::from_slice(&[2;32]).unwrap()))
+			.unwrap().into();
+		assert_eq!(changed.payment_hash(),pending.hash());
+		for (invoice, amount, message) in [(&changed,None,"another invoice"),(&pending.send.invoice,Some(Amount::from_sat(1001)),"different amount")] {
+			let options = LightningSendOptions::default().before_submit(|_|panic!("changed terms must not reach submission"));
+			let result = wallet.make_lightning_payment_with(invoice,pending.send.original_payment_method.clone(),amount,options).await;
+			assert!(result.unwrap_err().to_string().contains(message));
+			assert_eq!(checkpoint(&wallet,&pending).await,before);
+			assert_eq!(vtxo_state(&wallet,pending.htlcs.vtxo_ids[0]).await,locked);
+		}
+		// Rejection releases the action lock and does not remove recovery state.
+		finish(&wallet,&pending).await;
+		assert!(checkpoint(&wallet,&pending).await.is_none());
 	}
 
 	#[tokio::test]
