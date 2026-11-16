@@ -72,6 +72,9 @@ disabled generation without required input, and cancellation without creating se
 words. The test uses the sheet's own scroll view and scrolls toward each control.
 Initial harness attempts selected the underlying view on Duo or dismissed the
 compact sheet with a downward swipe; both test assumptions were corrected.
+The corrected regular-phone test passes. A final Duo harness rerun stalled before
+test execution during severe host CPU/memory pressure and was stopped. The earlier
+Duo pass remains the available evidence; the final rerun is not counted as a pass.
 
 Android CI at `7940fbd` passed API 35 but failed API 36 during the onboarding
 capture: the emulator showed a System UI not-responding dialog. The app main
