@@ -16,11 +16,33 @@ import PaperclipMobile
     @Published var needsRefresh = false
     private var client: JoinBlaketClient?
     private var authorization: JoinBlaketAuthorization?
+    @Published var paired = false
+    func pair(_ text: String, save: Bool = true) async throws {
+        let pairing = try JoinBlaketPairing(text: text)
+        var resolved = pairing.connection
+        if resolved.useTor { resolved.torProxy = try await EmbeddedTor.shared.proxy(for: resolved.torProxy) }
+        let candidate = try JoinBlaketClient(connection: resolved, pairing: pairing)
+        let auth = try pairing.authorization()
+        let current = try await candidate.status(auth)
+        let normalized = try await NativeWallet.shared.joinBlaketJars(candidate.coins(auth))
+        struct Response: Decodable { let jars: [JoinBlaketJar] }
+        let rows = try JSONDecoder().decode(Response.self, from: JSONSerialization.data(withJSONObject: normalized)).jars
+        if save { try WalletKeychain.save(Data(text.utf8), account: "jars-pairing-v1") }
+        client = candidate; authorization = auth; selectedWallet = pairing.wallet
+        session = current; jars = rows; paired = true; needsRefresh = false
+        address = nil; bondAddress = nil; bondMonth = ""
+    }
+    func forgetPairing() throws {
+        try WalletKeychain.delete("jars-pairing-v1")
+        client = nil; authorization = nil; session = nil; jars = []; paired = false
+        selectedWallet = ""; wallets = []; address = nil; bondAddress = nil; bondMonth = ""
+    }
     func perform(_ action: @escaping @MainActor () async throws -> Void) {
         guard !busy else { return }; busy = true; message = nil
         Task { defer { busy = false }; do { try await action() } catch { message = error.localizedDescription } }
     }
     func connect() async throws {
+        paired = false
         session = nil; authorization = nil; jars = []; address = nil; wallets = []; bondAddress = nil; bondMonth = ""
         var resolved = connection
         if resolved.useTor { resolved.torProxy = try await EmbeddedTor.shared.proxy(for: resolved.torProxy) }
@@ -118,6 +140,9 @@ struct JoinBlaketView: View {
     @State private var bondNumber = 0
     @State private var reviewedBondMonth = ""
     @State private var confirmBond = false
+    @State private var pairingText = ""
+    @State private var pairingReview: JoinBlaketPairing?
+    @State private var scanningPairing = false
     @AppStorage("displayUnit") private var unit: BitcoinUnit = .sats
     private let colors: [Color] = [.orange, .blue, .red, .brown, .purple]
     var body: some View {
@@ -126,11 +151,10 @@ struct JoinBlaketView: View {
                 if model.session == nil {
                     WalletSection {
                         Label("JoinBlaket", systemImage: "shuffle").font(.headline)
-                        Text("Your CoinJoin wallet").font(.title.bold())
-                        Text("Connect your Jam server to manage five separate jars and run a maker.").foregroundStyle(PaperclipTheme.muted)
-                        Link("Set up Kilombino JoinBlaket", destination: URL(string: "https://kilombino.com/joinblaket/")!)
+                        Text("Pair with Paperclip on your server to manage five jars and earn as a maker.").foregroundStyle(PaperclipTheme.muted)
                     }
-                    connection
+                    pairingSetup
+                    DisclosureGroup("Connect to a separate Jam server") { connection }
                 } else {
                     WalletSection {
                         HStack {
@@ -140,6 +164,10 @@ struct JoinBlaketView: View {
                         }
                         Text(unit.display(model.jars.reduce(UInt64(0)) { $0 + $1.total_sat })).font(.largeTitle.bold()).monospacedDigit()
                         Text(model.selectedWallet).font(.subheadline).foregroundStyle(PaperclipTheme.muted)
+                        if model.paired {
+                            Text("Paired with your Paperclip host").font(.caption).foregroundStyle(PaperclipTheme.muted)
+                            Button("Forget this connection", role: .destructive) { model.perform { try model.forgetPairing() } }
+                        }
                     }
                     HStack {
                         Text("Your jars").font(.title2.bold())
@@ -216,6 +244,12 @@ struct JoinBlaketView: View {
             .sheet(isPresented: $showPayments) {
                 JoinBlaketRecoveryView(load: model.payments, check: model.checkPayment)
             }
+            .fullScreenCover(isPresented: $scanningPairing) {
+                QRScannerView { value in
+                    do { pairingReview = try JoinBlaketPairing(text: value); pairingText = value }
+                    catch { model.message = "Scan a current Paperclip Jars pairing code." }
+                }
+            }
 #if DEBUG
             .task {
                 if ProcessInfo.processInfo.arguments.contains("-joinblaket-preview") {
@@ -239,6 +273,36 @@ struct JoinBlaketView: View {
             } message: {
                 Text("Wallet: \(model.selectedWallet). Coins sent here will be locked until \(reviewedBondMonth)-01 at 00:00 UTC. Creating the address sends no funds. Review the amount and mining fee separately when funding. Earnings are not guaranteed.")
             }
+    }
+    private var pairingSetup: some View {
+        WalletSection("Pair with your server") {
+            if let review = pairingReview {
+                Text("Server").font(.caption).foregroundStyle(PaperclipTheme.muted)
+                Text(review.endpoint).font(.subheadline).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+                WalletReviewDetail(title: "Jars wallet", value: review.wallet)
+                Text("Allows balances, receive addresses, maker controls and payment status for up to 30 days. Sending, key export and your main wallet are not included.").font(.subheadline).foregroundStyle(PaperclipTheme.muted)
+                Button("Verify and save connection") {
+                    let text = pairingText
+                    model.perform { try await model.pair(text); pairingText = ""; pairingReview = nil }
+                }.buttonStyle(WalletPrimaryButtonStyle())
+                Button("Cancel") { pairingText = ""; pairingReview = nil }.frame(maxWidth: .infinity)
+            } else {
+                Text("On your host, open Jars → Pair a phone. Scan its private code here.").font(.subheadline).foregroundStyle(PaperclipTheme.muted)
+                Button("Scan pairing code") { scanningPairing = true }.buttonStyle(WalletPrimaryButtonStyle())
+                SecureField("Paste pairing code", text: $pairingText).textInputAutocapitalization(.never).autocorrectionDisabled()
+                Button("Review connection") {
+                    do { pairingText = pairingText.trimmingCharacters(in: .whitespacesAndNewlines); pairingReview = try JoinBlaketPairing(text: pairingText) }
+                    catch { model.message = "Pairing is invalid or expired. Create a new code on your host." }
+                }.disabled(pairingText.isEmpty)
+                Button("Reconnect saved host") {
+                    model.perform {
+                        guard let data = try WalletKeychain.read("jars-pairing-v1"), let text = String(data: data, encoding: .utf8) else { throw WalletFailure(message: "No saved Jars pairing on this device.") }
+                        try await model.pair(text, save: false)
+                    }
+                }
+                Text("Revoke access from your host’s paired-device list. If Jam locks or restarts, unlock it on the host and create a new pairing.").font(.caption).foregroundStyle(PaperclipTheme.muted)
+            }
+        }
     }
     private var makerReadiness: JoinBlaketMakerReadiness {
         JoinBlaketMakerReadiness(minimum: minimum, fee: makerFee, jars: model.jars, session: model.session, needsRefresh: model.needsRefresh)

@@ -1,7 +1,7 @@
 # Coordinated Paperclip release
 
-The next major release includes iOS, Android, Umbrel and StartOS from one reviewed
-source revision. Android distribution includes **Google Play and a signed APK
+The next major release includes iOS, Android, Umbrel, StartOS and signed Linux,
+macOS and Windows desktop packages from one reviewed source revision. Android distribution includes **Google Play and a signed APK
 download**. Prepare candidates independently, then publish in one coordinated
 release window after every platform meets the acceptance criteria below. Store
 review and propagation can finish at different times; do not promise simultaneous
@@ -13,6 +13,36 @@ not a completed unified release. Do not reuse an uploaded build number, rewrite 
 existing release tag, or replace a published binary in place.
 
 ## Source and artifacts
+
+### Native desktop distribution gate: 2026-11-16
+
+The owner added signed Linux/macOS/Windows releases to the coordinated release.
+Reuse the shared StartOS/Umbrel frontend and wallet backend, including Jars,
+CLN/LND, Bridge, recovery and QR signing. Do not introduce a reduced desktop fork.
+Packaging must preserve private data and expose the local service only on loopback;
+local authentication, browser-origin protections and secure launcher handoff remain
+required. Bundled Jam must have an explicitly supported lifecycle on each OS;
+a Docker prerequisite alone is not accepted as equivalent native packaging.
+
+Required before release:
+- Define and build the supported OS/architecture matrix from the frozen revision.
+- macOS: Developer ID signed and notarized app/installer, stapled ticket, Gatekeeper
+  acceptance on a clean supported Mac and verified in-place upgrades.
+- Windows: signed executable and installer using the release publisher identity,
+  signature-chain/timestamp verification, clean installation and in-place upgrades.
+- Linux: distributable packages for the documented supported systems, release-key
+  signatures over artifacts/checksums, and clean-install/upgrade validation.
+- Verify daemon startup/shutdown, private file permissions, Tor/TLS, bundled Jam,
+  full backup/restore and offline recovery on each OS. Never leave a second maker
+  running after an upgrade, restore or launcher restart.
+- Verify that uninstall/update preserves wallet data by default, existing keys and
+  connection settings are retained, and failed updates can recover safely.
+- Include immutable downloads, checksums, source/license notices and signing
+  provenance alongside mobile and host-package artifacts. Do not publish until
+  these gates and the existing payment/security gates pass.
+
+Signing identities and actual supported OS versions remain to be verified. No
+native desktop candidate has been accepted merely because the shared UI builds.
 
 ### Current release blockers and Jars scope: 2026-11-16
 
@@ -1333,3 +1363,50 @@ uid/capability isolation and child shutdown. A first test run failed because it
 tried to read the protected child environment; the corrected test requires that
 access to be denied. No runtime security restriction was relaxed. Installed
 StartOS/Umbrel acceptance and the other release gates remain open.
+
+
+## Scoped Jars phone pairing: 2026-11-16
+
+The shared desktop UI can issue, list and revoke wallet-bound phone pairings.
+iOS and Android review the server, wallet and scope before verifying and storing
+the private code in Keychain/device-bound encrypted storage. QR codes stay local,
+are hidden on navigation/background/lock, and are never put into a URL. The
+separate Jam-server connection remains available. Restoring onto another phone
+requires a new pairing; these grants are deliberately not portable seed backups.
+
+The host stores only hashes of phone bearer tokens plus its private upstream
+credential in a 0600 file. Each grant binds the configured upstream and the Jam
+wallet's full public-key/chain-code commitment, expires within 30 days, and is
+checked on every dispatch. Revocation prevents new requests; it cannot undo an
+action already accepted upstream. A phone grant is not a main-wallet credential.
+
+The first draft reused Jam's ordinary access JWT. Inspection of the pinned runtime
+showed a 30-minute expiry, so it was replaced before committing. The companion
+now issues a separate memory-only host delegation with an explicit route allowlist.
+It mints an ordinary short JWT only inside an allowed request; original JWT
+lifetimes stay unchanged. Wallet lock, generation/key change, daemon restart and
+expiry invalidate delegation. The opaque host credential never reaches a phone.
+
+This scope permits balances, receiving, bond-address registration, reviewed maker
+controls and saved-payment observation. It cannot create/unlock/export wallets,
+prepare/commit/cancel payments, or acquire another delegation. Paired payments
+and bond funding/withdrawal still require their own reviewed integration before
+release. Bundled first-run wallet creation and installed-host pairing/Tor/TLS,
+revocation, restart and backup/restore acceptance remain open.
+
+Umbrel keeps app login enabled and exempts only `/api/v1/paired-jars/request`
+from its additional browser-cookie login; that route enforces the scoped bearer
+itself. The setting was checked against the official
+[app gateway source](https://github.com/getumbrel/umbrel/blob/master/packages/umbreld/source/modules/app-gateway/app-gateway.ts).
+Owner APIs and raw Jam endpoints are not exempted. Actual Umbrel proxy acceptance
+remains required. Native StartOS exposes no new Jam interface.
+
+Validation so far: the complete shared REST suite passed 76 cases with one live
+case ignored. Swift passed 12 Jam adapter cases; Kotlin adapter tests and APK
+builds passed. Four Android Jars UI cases and native iOS pairing review/cancel
+and recovery cases passed. Browser fixtures passed at 390/1280/1440px, including
+HTTP rejection, private QR hiding and grant revocation. The pinned runtime suite
+passed 32 cases locally with one Linux-only case skipped; it covers delegation
+expiry/lock, denied export/unlock/send routes and independent ordinary JWT expiry.
+Three package-generator cases passed. Container CI and installed-host acceptance
+are separate checks, not implied by these results.

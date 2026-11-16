@@ -21,7 +21,7 @@ struct Build61Preview: View {
                 ArkActivityDetailView(item: ActivityItem(id: "ark-synthetic", title: "Send", status: "Pending", amountSat: -12000, detail: "Synthetic activity · no live funds", date: Date()))
             } else if ProcessInfo.processInfo.arguments.contains("-own-transfer-preview") {
                 SendView()
-            } else if ProcessInfo.processInfo.arguments.contains("-joinblaket-preview") {
+            } else if ProcessInfo.processInfo.arguments.contains("-joinblaket-preview") || ProcessInfo.processInfo.arguments.contains("-joinblaket-setup-preview") {
                 JoinBlaketView()
             } else if ProcessInfo.processInfo.arguments.contains("-node-review-preview") {
                 LightningView.reviewPreview()

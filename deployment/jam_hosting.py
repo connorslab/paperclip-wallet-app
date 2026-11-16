@@ -10,6 +10,9 @@ def add_bundled_jam(directory, image, app):
     directory = Path(directory)
     compose = json.loads((directory / 'docker-compose.yml').read_text())
     services = compose['services']
+    # Native phones present a scoped Jars bearer, not an Umbrel browser cookie.
+    # Only this exact authenticated endpoint bypasses the additional app login.
+    services['app_proxy']['environment']['PROXY_AUTH_WHITELIST'] = '/api/v1/paired-jars/request'
     common = {'image': image, 'user': '1000:1000', 'restart': 'unless-stopped',
         'stop_grace_period': '2m', 'security_opt': ['no-new-privileges:true'], 'cap_drop': ['ALL']}
     node_environment = {'PYTHONUNBUFFERED': '1'}

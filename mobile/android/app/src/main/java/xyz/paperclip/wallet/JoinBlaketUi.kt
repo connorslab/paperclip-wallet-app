@@ -12,6 +12,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -23,6 +24,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
@@ -46,6 +48,7 @@ internal class JoinBlaketUiState {
 	val makerFee = mutableStateOf("100")
 	val bondMonth = mutableStateOf("")
 	val bondAddress = mutableStateOf<String?>(null)
+	val paired = mutableStateOf(false)
 }
 
 /** The Jam daemon owns these accounts; no local seed or Kilojoin namespace is migrated. */
@@ -81,6 +84,11 @@ internal fun JoinBlaketPage(state: JoinBlaketUiState) {
 	var bondAddress by state.bondAddress
 	var showBond by remember { mutableStateOf(false) }
 	var reviewedBondMonth by remember { mutableStateOf<String?>(null) }
+	var pairingText by remember { mutableStateOf("") }
+	var pairingReview by remember { mutableStateOf<JoinBlaketPairing?>(null) }
+	var scanningPairing by remember { mutableStateOf(false) }
+	var separateJam by remember { mutableStateOf(false) }
+	var paired by state.paired
 	DisposableEffect(state) {
 		onDispose { if (state.authorization.value != null) state.needsRefresh.value = true }
 	}
@@ -102,15 +110,55 @@ internal fun JoinBlaketPage(state: JoinBlaketUiState) {
 		jars = (0 until response.length()).map { response.getJSONObject(it) }
 		session = current; needsRefresh = false
 	}
+	suspend fun pair(text: String, save: Boolean = true) {
+		val value = JoinBlaketPairing.parse(text)
+		val c = JoinBlaketClient.open(context, value.connection, value); val auth = value.authorization()
+		val current = c.status(auth)
+		val rows = WalletEngine.shared(context).joinBlaketJars(c.coins(auth)).getJSONArray("jars")
+		if (save) SecureStore(context).write("jars-pairing", text.toByteArray())
+		client = c; authorization = auth; wallet = value.wallet; session = current
+		jars = (0 until rows.length()).map { rows.getJSONObject(it) }; paired = true; needsRefresh = false
+		address = null; bondAddress = null; bondMonth = ""; pairingText = ""; pairingReview = null
+	}
+	if (scanningPairing) QrScanner(onClose = { scanningPairing = false }) { value ->
+		try { pairingReview = JoinBlaketPairing.parse(value); pairingText = value; true }
+		catch (_: Exception) { message = "Scan a current Paperclip Jars pairing code."; false }
+	}
 	if (session == null) {
 		Text("JoinBlaket", style = MaterialTheme.typography.headlineMedium)
-		Text("Connect your Jam server to manage five separate jars and run a maker.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+		Text("Pair with Paperclip on your server to manage five jars and earn as a maker.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+		CardBlock("Pair with your server") {
+			val review = pairingReview
+			if (review != null) {
+				Text("Server", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+				SelectionContainer { Text(review.endpoint, style = MaterialTheme.typography.bodyMedium) }
+				ReviewDetailRow("Jars wallet", review.wallet)
+				Text("Allows balances, receive addresses, maker controls and payment status for up to 30 days. Sending, key export and your main wallet are not included.", style = MaterialTheme.typography.bodySmall)
+				WalletPrimaryButton(enabled = !busy, modifier = Modifier.fillMaxWidth(), onClick = { run { pair(pairingText) } }) { Text("Verify and save connection") }
+				TextButton(enabled = !busy, modifier = Modifier.fillMaxWidth(), onClick = { pairingReview = null; pairingText = "" }) { Text("Cancel") }
+			} else {
+				Text("On your host, open Jars → Pair a phone. Scan its private code here.", style = MaterialTheme.typography.bodyMedium)
+				WalletPrimaryButton(enabled = !busy, modifier = Modifier.fillMaxWidth(), onClick = { scanningPairing = true }) { Text("Scan pairing code") }
+				OutlinedTextField(pairingText, { pairingText = it }, label = { Text("Paste pairing code") }, visualTransformation = PasswordVisualTransformation(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, autoCorrectEnabled = false), enabled = !busy, modifier = Modifier.fillMaxWidth())
+				TextButton(enabled = !busy && pairingText.isNotBlank(), onClick = {
+					try { pairingText = pairingText.trim(); pairingReview = JoinBlaketPairing.parse(pairingText) }
+					catch (_: Exception) { message = "Pairing is invalid or expired. Create a new code on your host." }
+				}) { Text("Review connection") }
+				TextButton(enabled = !busy, onClick = { run {
+					val text = SecureStore(context).read("jars-pairing")?.toString(Charsets.UTF_8) ?: error("No saved Jars pairing on this device.")
+					pair(text, save = false)
+				} }) { Text("Reconnect saved host") }
+				Text("Revoke access from your host’s paired-device list. If Jam locks or restarts, unlock it on the host and create a new pairing.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+			}
+		}
+		TextButton(enabled = !busy, onClick = { separateJam = !separateJam }) { Text("Connect to a separate Jam server") }
+		if (separateJam) {
 		TextButton(onClick = { uriHandler.openUri("https://kilombino.com/joinblaket/") }) { Text("Set up Kilombino JoinBlaket") }
 		OutlinedTextField(endpoint, { endpoint = it }, label = { Text("HTTPS or onion address") }, enabled = !busy, modifier = Modifier.fillMaxWidth())
 		OutlinedTextField(pin, { pin = it }, label = { Text("Certificate SHA256 (optional)") }, enabled = !busy, modifier = Modifier.fillMaxWidth())
 		Row { Text("Use Tor", Modifier.weight(1f)); Switch(tor, { tor = it }, enabled = !busy) }
 		WalletPrimaryButton(enabled = !busy, onClick = { run {
-			authorization = null; jars = emptyList(); address = null; wallets = emptyList(); bondAddress = null; bondMonth = ""
+			authorization = null; jars = emptyList(); address = null; wallets = emptyList(); bondAddress = null; bondMonth = ""; paired = false
 			val c = JoinBlaketClient.open(context, JoinBlaketConnection(endpoint.trim(), pin.trim(), if (tor) "builtin" else ""))
 			wallets = c.wallets(); wallet = wallets.firstOrNull().orEmpty(); client = c
 			if (wallets.isEmpty()) message = "Create a separate wallet in Jam, then refresh this connection."
@@ -119,13 +167,14 @@ internal fun JoinBlaketPage(state: JoinBlaketUiState) {
 			FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
 				wallets.forEach { name -> FilterChip(selected = wallet == name, onClick = { wallet = name }, label = { Text(name) }, enabled = !busy) }
 			}
-			OutlinedTextField(password, { password = it }, label = { Text("Jam wallet password") }, visualTransformation = PasswordVisualTransformation(), enabled = !busy, modifier = Modifier.fillMaxWidth())
+			OutlinedTextField(password, { password = it }, label = { Text("Jam wallet password") }, visualTransformation = PasswordVisualTransformation(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, autoCorrectEnabled = false), enabled = !busy, modifier = Modifier.fillMaxWidth())
 			TextButton(onClick = { showPassphrase = !showPassphrase }, enabled = !busy) { Text("Wallet passphrase") }
-			if (showPassphrase) OutlinedTextField(passphrase, { passphrase = it }, label = { Text("BIP39 passphrase, if used") }, visualTransformation = PasswordVisualTransformation(), enabled = !busy, modifier = Modifier.fillMaxWidth())
+			if (showPassphrase) OutlinedTextField(passphrase, { passphrase = it }, label = { Text("BIP39 passphrase, if used") }, visualTransformation = PasswordVisualTransformation(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, autoCorrectEnabled = false), enabled = !busy, modifier = Modifier.fillMaxWidth())
 			WalletPrimaryButton(enabled = !busy, onClick = {
 				val entered = password; val enteredPassphrase = passphrase; password = ""; passphrase = ""
 				run { val c = checkNotNull(client); val auth = c.unlock(wallet, entered, enteredPassphrase); authorization = auth; refresh(c, auth) }
 			}) { Text("Unlock and view jars") }
+		}
 		}
 	} else {
 		WalletSurface {
@@ -133,6 +182,14 @@ internal fun JoinBlaketPage(state: JoinBlaketUiState) {
 				Text("CoinJoin balance", color = MaterialTheme.colorScheme.onSurfaceVariant)
 				Text(unit.display(jars.sumOf { it.getLong("total_sat") }), style = MaterialTheme.typography.headlineLarge)
 				Text(wallet, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+				if (paired) {
+					Text("Paired with your Paperclip host", style = MaterialTheme.typography.bodySmall)
+					TextButton(enabled = !busy, onClick = { run {
+						SecureStore(context).delete("jars-pairing")
+						client = null; authorization = null; session = null; jars = emptyList(); paired = false
+						wallet = ""; wallets = emptyList(); address = null; bondAddress = null; bondMonth = ""
+					} }) { Text("Forget this connection") }
+				}
 			}
 		}
 		Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {

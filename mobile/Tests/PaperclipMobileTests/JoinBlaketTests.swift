@@ -35,6 +35,41 @@ private final class JamStub: URLProtocol {
 }
 
 final class JoinBlaketTests: XCTestCase {
+    private func pairingText(_ changes: [String: Any] = [:]) throws -> String {
+        var value: [String: Any] = ["kind":"paperclip-jars-v1", "scope":"jars_manage_v1", "endpoint":"https://host.example.invalid", "wallet":"fixture.jmdat",
+                                  "token":"pj1_" + String(repeating: "a", count: 64), "expires":4_000_000_000, "certificate_sha256":""]
+        value.merge(changes) { _, new in new }
+        return "paperclip-jars:" + (try JSONSerialization.data(withJSONObject: value)).base64EncodedString().replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "=", with: "")
+    }
+    func testPairingRejectsUnsafeEndpointsScopeAndExpiry() throws {
+        for changes: [String: Any] in [["endpoint":"http://host.local"], ["endpoint":"https://user:secret@host.local"], ["scope":"all"], ["expires":1], ["wallet":"../other"], ["token":"main-wallet-token"], ["certificate_sha256":"invalid"]] {
+            XCTAssertThrowsError(try JoinBlaketPairing(text: pairingText(changes)))
+        }
+        let pair = try JoinBlaketPairing(text: pairingText())
+        XCTAssertEqual(pair.description, "Jars pairing (redacted)")
+        XCTAssertFalse(String(reflecting: pair).contains(String(repeating: "a", count: 64)))
+    }
+    func testPairedTransportUsesOnlyScopedProxyAndNeverReplays() async throws {
+        let pair = try JoinBlaketPairing(text: pairingText())
+        let configuration = URLSessionConfiguration.ephemeral; configuration.protocolClasses = [JamStub.self]
+        let c = try JoinBlaketClient(connection: pair.connection, configuration: configuration, pairing: pair)
+        JamStub.reply = "{\"session\":true,\"wallet_name\":\"fixture.jmdat\",\"maker_running\":false,\"coinjoin_in_process\":false,\"rescanning\":false}"
+        _ = try await c.status(pair.authorization())
+        XCTAssertEqual(JamStub.requests.count, 1)
+        XCTAssertEqual(JamStub.requests[0].url?.path, "/api/v1/paired-jars/request")
+        XCTAssertEqual(JamStub.requests[0].httpMethod, "POST")
+        let fields = try JSONSerialization.jsonObject(with: JamStub.bodies[0]) as! [String: Any]
+        XCTAssertEqual(fields["operation"] as? String, "status")
+        XCTAssertEqual(fields["wallet"] as? String, "fixture.jmdat")
+        XCTAssertNil(fields["token"]); XCTAssertNil(fields["password"])
+        JamStub.requests = []; JamStub.failure = .timedOut
+        do { _ = try await c.status(pair.authorization()); XCTFail("Must surface timeout") } catch {}
+        XCTAssertEqual(JamStub.requests.count, 1)
+        JamStub.requests = []
+        do { _ = try await c.unlock(wallet: pair.wallet, password: "synthetic"); XCTFail("No paired unlock") } catch {}
+        do { _ = try await c.status(JoinBlaketAuthorization(wallet: "other.jmdat", token: "synthetic")); XCTFail("No other wallet") } catch {}
+        XCTAssertTrue(JamStub.requests.isEmpty)
+    }
     func testRecoveryMatchesSharedCases() throws {
         let url = Bundle.module.url(forResource: "jam-recovery", withExtension: "json", subdirectory: "Fixtures")!
         let cases = try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as! [[String: Any]]

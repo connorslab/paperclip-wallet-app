@@ -72,6 +72,55 @@ class RuntimeTest(unittest.TestCase):
         self.assertEqual(response.status_code, 200, response.text)
         return response.json()
 
+    def test_pairing_identity_is_authenticated_and_survives_pending_review(self):
+        target = self.base.replace('/payments', '/identity')
+        expected = {'wallet': 'fixture.jmdat', 'identity': JamAdapter(self.state, self.token, 'fixture.jmdat').identity}
+        self.assertEqual(self.client.get(target).json(), expected)
+        self.prepare()
+        self.assertEqual(self.client.get(target).json(), expected)
+        self.assertNotEqual(self.client.get(target.replace('fixture.jmdat', 'other.jmdat')).status_code, 200)
+        self.client.headers['Authorization'] = 'Bearer invalid-fixture'
+        self.assertEqual(self.client.get(target).status_code, 401)
+        self.backend.broadcast_transaction.assert_not_awaited()
+
+    def test_host_delegation_is_scoped_and_independent_of_short_jwt_expiry(self):
+        import jwt
+        target = self.base.replace('/payments', '/pairing-session')
+        result = self.client.post(target, json={})
+        self.assertEqual(result.status_code, 200)
+        delegation = result.json()['token']
+        self.assertTrue(delegation.startswith('pjh1_'))
+        expired = jwt.encode({'exp': 1, 'scope': self.state.token_authority.scope}, self.state.token_authority._access_key, algorithm='HS256')
+        self.client.headers['Authorization'] = 'Bearer ' + expired
+        self.assertEqual(self.client.get('/api/v1/session').status_code, 401)
+        self.client.headers['Authorization'] = 'Bearer ' + delegation
+        self.assertEqual(self.client.get(self.base.replace('/payments', '/identity')).status_code, 200)
+        self.assertEqual(self.client.get(self.base).status_code, 200)
+        for method, path in [('POST', target), ('POST', self.base),
+                ('POST', self.base + '/' + 'a' * 64 + '/commit'),
+                ('POST', self.base + '/' + 'a' * 64 + '/cancel'),
+                ('GET', '/api/v1/wallet/fixture.jmdat/seed'),
+                ('POST', '/api/v1/wallet/fixture.jmdat/unlock'),
+                ('GET', '/api/v1/wallet/all'), ('GET', '/api/v1/wallet/other.jmdat/utxos')]:
+            self.assertEqual(self.client.request(method, path).status_code, 401, path)
+        self.app.state.paperclip_delegations.record['expires'] = 1
+        self.assertEqual(self.client.get(self.base).status_code, 401)
+        self.backend.broadcast_transaction.assert_not_awaited()
+
+    def test_host_delegation_is_invalidated_by_wallet_lock_and_session_change(self):
+        target = self.base.replace('/payments', '/pairing-session')
+        delegation = self.client.post(target, json={}).json()['token']
+        self.client.headers['Authorization'] = 'Bearer ' + delegation
+        self.state._invalidate_ws_clients()
+        self.assertEqual(self.client.get(self.base).status_code, 401)
+        self.client.headers['Authorization'] = 'Bearer ' + self.token
+        delegation = self.client.post(target, json={}).json()['token']
+        self.client.headers['Authorization'] = 'Bearer ' + delegation
+        self.assertEqual(self.client.get(self.base).status_code, 200)
+        self.state.token_authority.reset()
+        self.assertEqual(self.client.get(self.base).status_code, 401)
+        self.backend.broadcast_transaction.assert_not_awaited()
+
     def test_real_signing_review_and_once_only_commit(self):
         review = self.prepare()
         self.assertEqual(review['state'], 'prepared')

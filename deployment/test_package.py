@@ -63,6 +63,8 @@ class PackageTest(unittest.TestCase):
                 self.assertEqual(service['cap_drop'], ['ALL'])
                 self.assertEqual(service['user'], '1000:1000')
             self.assertEqual(services['app_proxy']['environment']['APP_HOST'], 'paperclip-wallet_wallet_1')
+            self.assertEqual(services['app_proxy']['environment']['PROXY_AUTH_WHITELIST'], '/api/v1/paired-jars/request')
+            self.assertNotIn('PROXY_AUTH_ADD', services['app_proxy']['environment'])
             self.assertEqual(json.loads((out / 'umbrel-app.yml').read_text())['dependencies'], ['bitcoin'])
             for volume in ('data', 'jam', 'jam-rpc', 'jam-public'):
                 self.assertTrue((out / volume).is_dir())

@@ -181,6 +181,8 @@ impl std::ops::Deref for ServerWallet {
 /// The handlers share the state as an [Arc], so the fields themselves don't
 /// need to be individually shareable.
 pub struct ServerState {
+	#[cfg(feature = "web-ui")]
+	pub(crate) jam_pairings: tokio::sync::Mutex<()>,
 	pub(crate) board_review: tokio::sync::Mutex<Option<api::v1::boards::PreparedBoard>>,
 	pub(crate) send_review: tokio::sync::Mutex<Option<api::v1::onchain::PreparedSend>>,
 	pub(crate) replacement: tokio::sync::Mutex<Option<(Arc<tokio::sync::RwLock<dyn OnchainWalletTrait>>, bark::onchain::replacement::PreparedReplacement)>>,
@@ -293,6 +295,8 @@ impl ServerStateBuilder {
 			None => None,
 		};
 		ServerState {
+			#[cfg(feature = "web-ui")]
+			jam_pairings: tokio::sync::Mutex::new(()),
 			replacement: tokio::sync::Mutex::new(None),
 			board_review: tokio::sync::Mutex::new(None),
 			send_review: tokio::sync::Mutex::new(None),

@@ -12,6 +12,7 @@ from .adapter import JamAdapter
 from .journal import Journal, PaymentConflict
 from .payments import Payments
 from .hosting import install_hosting
+from .pairing import Delegations, DelegationGuard
 
 
 Identifier = Annotated[str, Field(pattern=r'^[0-9a-f]{64}$')]
@@ -69,7 +70,7 @@ class MutationGuard:
         if scope['type'] != 'http':
             return await self.app(scope, receive, send)
         path, method = scope['path'], scope['method']
-        if re.fullmatch(r'/api/v1/wallet/[^/]+/paperclip/payments(?:/[0-9a-f]{64}(?:/(?:commit|cancel))?)?', path) or path == '/api/v1/paperclip/capabilities':
+        if re.fullmatch(r'/api/v1/wallet/[^/]+/paperclip/payments(?:/[0-9a-f]{64}(?:/(?:commit|cancel))?)?', path) or path == '/api/v1/paperclip/capabilities' or (method == 'POST' and re.fullmatch(r'/api/v1/wallet/[^/]+/paperclip/pairing-session', path)):
             return await self.app(scope, receive, send)
         # Lock may revoke an in-flight request immediately. Unlock is needed to
         # recover a persisted intent after a daemon restart.
@@ -77,7 +78,7 @@ class MutationGuard:
         wallet_route = len(parts) == 6 and parts[:4] == ['', 'api', 'v1', 'wallet']
         if wallet_route and parts[-1] in ('lock', 'unlock'):
             return await self.app(scope, receive, send)
-        read_only = method == 'GET' and (path in ('/api/v1/session', '/api/v1/wallet/all') or
+        read_only = method == 'GET' and (re.fullmatch(r'/api/v1/wallet/[^/]+/paperclip/identity', path) or path in ('/api/v1/session', '/api/v1/wallet/all') or
             (wallet_route and parts[-1] in ('display', 'utxos', 'history')))
         if not path.startswith('/api/') or read_only or method == 'OPTIONS':
             return await self.app(scope, receive, send)
@@ -94,6 +95,9 @@ def install(app, state):
     app.state.paperclip_payments = service
     install_hosting(app, state.data_dir)
     app.add_middleware(MutationGuard, service=service)
+    delegations = Delegations(state)
+    app.state.paperclip_delegations = delegations
+    app.add_middleware(DelegationGuard, delegations=delegations)
     router = APIRouter(prefix='/api/v1')
 
     @app.exception_handler(PaymentConflict)
@@ -121,6 +125,16 @@ def install(app, state):
 
     def adapter(request, walletname):
         return JamAdapter(state, get_optional_token(request), walletname)
+
+    @router.get('/wallet/{walletname}/paperclip/identity')
+    async def identity(request: Request, walletname: str):
+        current = adapter(request, walletname)
+        current.authorize()
+        return {'wallet': walletname, 'identity': current.identity}
+
+    @router.post('/wallet/{walletname}/paperclip/pairing-session')
+    async def pairing_session(request: Request, walletname: str):
+        return delegations.issue(adapter(request, walletname))
 
     @router.get('/wallet/{walletname}/paperclip/payments')
     async def history(request: Request, walletname: str):

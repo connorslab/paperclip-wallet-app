@@ -10,13 +10,17 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use crate::ServerState;
+mod pairing;
+pub use pairing::paired_router;
 
 pub fn router() -> Router<Arc<ServerState>> {
-	Router::new().route("/connection", get(connection)).route("/request", post(request))
+	Router::new().route("/connection", get(connection)).route("/request", post(request)).merge(pairing::owner_router())
+		.layer(axum::extract::DefaultBodyLimit::max(64 * 1024))
 }
 
 // Secrets intentionally have no Debug/Serialize implementation.
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Request {
 	operation: Operation,
 	#[serde(default)] wallet: String,
@@ -32,7 +36,7 @@ pub struct Request {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "snake_case")]
-enum Operation { Wallets, Unlock, Status, Coins, Address, BondAddress, StartMaker, StopMaker, Payments, CheckPayment }
+enum Operation { Wallets, Unlock, Status, Identity, Coins, Address, BondAddress, StartMaker, StopMaker, Payments, CheckPayment, #[serde(skip)] PairingSession }
 
 fn bond_month(value: &str, now: chrono::DateTime<chrono::Utc>) -> anyhow::Result<()> {
 	ensure!(value.len() == 7 && value.as_bytes()[4] == b'-'
@@ -85,6 +89,10 @@ async fn upstream(client: &Client, base: &Url, segments: &[&str], token: &str, b
 }
 
 async fn execute(input: Request) -> anyhow::Result<Value> {
+	execute_bound(input, None).await
+}
+
+async fn execute_bound(input: Request, expected_identity: Option<&str>) -> anyhow::Result<Value> {
 	let address = std::env::var("BARKD_JOINBLAKET_URL").context("Connect your JoinBlaket service in the wallet server settings")?;
 	let proxy = std::env::var("BARKD_JOINBLAKET_TOR_PROXY").ok();
 	let base = endpoint(&address, proxy.as_deref())?;
@@ -116,8 +124,26 @@ async fn execute(input: Request) -> anyhow::Result<Value> {
 	ensure!(!input.token.is_empty() && input.token.len() < 16_384 && input.token.bytes().all(|b| (33..=126).contains(&b)), "Unlock your Jam wallet first");
 	let session = upstream(&client, &base, &["session"], &input.token, None).await?;
 	ensure!(session["session"] == true && session["wallet_name"] == input.wallet, "The active Jam wallet changed; reconnect");
+	if expected_identity.is_some() || matches!(input.operation, Operation::Identity | Operation::PairingSession) {
+		let identity = upstream(&client, &base, &["wallet", &input.wallet, "paperclip", "identity"], &input.token, None).await?;
+		ensure!(identity["wallet"] == input.wallet, "Jam wallet identity changed; pair again");
+		let id = identity["identity"].as_str().context("Jam wallet identity unavailable")?;
+		ensure!(pairing::valid_identity(id) && expected_identity.is_none_or(|expected| expected == id), "Jam wallet identity changed; pair again");
+		if matches!(input.operation, Operation::Identity) { return Ok(json!({"wallet": input.wallet, "identity": id})); }
+		if matches!(input.operation, Operation::PairingSession) {
+			let delegated = upstream(&client, &base, &["wallet", &input.wallet, "paperclip", "pairing-session"], &input.token, Some(json!({}))).await?;
+			ensure!(delegated["identity"] == id && delegated["wallet"] == input.wallet, "Jam pairing identity changed");
+			let token = delegated["token"].as_str().context("Jam pairing session unavailable")?;
+			ensure!(token.strip_prefix("pjh1_").is_some_and(payment_identifier), "Invalid Jam pairing session");
+			let expires = delegated["expires"].as_i64().context("Invalid Jam pairing expiry")?;
+			let now = chrono::Utc::now().timestamp();
+			ensure!(expires > now && expires <= now + 30 * 86400 + 10, "Jam pairing session expired");
+			return Ok(json!({"token":token,"identity":id,"expires":expires}));
+		}
+	}
 	match input.operation {
-		Operation::Status => Ok(session),
+		Operation::Status => Ok(json!({"session":true,"wallet_name":input.wallet,
+			"maker_running":session["maker_running"],"coinjoin_in_process":session["coinjoin_in_process"],"rescanning":session["rescanning"]})),
 		Operation::Payments => {
 			let result = upstream(&client, &base, &["wallet", &input.wallet, "paperclip", "payments"], &input.token, None).await?;
 			let rows = result["payments"].as_array().context("Invalid Jam payment history")?;
@@ -137,12 +163,15 @@ async fn execute(input: Request) -> anyhow::Result<Value> {
 		Operation::Coins => {
 			let result = upstream(&client, &base, &["wallet", &input.wallet, "utxos"], &input.token, None).await?;
 			let coins: Vec<bark::joinblaket::JarCoin> = serde_json::from_value(result["utxos"].clone()).context("Invalid Jam coins")?;
-			Ok(json!({"jars": bark::joinblaket::jar_balances(&coins)?}))
+			Ok(json!({"jars": bark::joinblaket::jar_balances(&coins)?, "utxos": coins.iter().map(|coin| json!({
+				"utxo":coin.utxo,"value":coin.value,"mixdepth":coin.mixdepth,"confirmations":coin.confirmations,
+				"frozen":coin.frozen,"locktime":coin.locktime})).collect::<Vec<_>>()}))
 		},
 		Operation::Address => {
 			let jar = input.jar.context("Select a jar")?;
 			bark::joinblaket::JarId::try_from(jar)?;
-			upstream(&client, &base, &["wallet", &input.wallet, "address", "new", &jar.to_string()], &input.token, None).await
+			let result = upstream(&client, &base, &["wallet", &input.wallet, "address", "new", &jar.to_string()], &input.token, None).await?;
+			Ok(json!({"address":result["address"]}))
 		},
 		Operation::BondAddress => {
 			let month = input.lock_month.context("Choose an unlock month")?;
@@ -161,10 +190,14 @@ async fn execute(input: Request) -> anyhow::Result<Value> {
 			ensure!(session["maker_running"] == false && session["coinjoin_in_process"] == false && session["rescanning"] == false, "Wait for the current Jam operation to finish");
 			upstream(&client, &base, &["wallet", &input.wallet, "maker", "start"], &input.token, Some(json!({
 				"txfee": "0", "cjfee_a": fee.to_string(), "cjfee_r": "0", "ordertype": "sw0absoffer", "minsize": minimum.to_string(),
-			}))).await
+			}))).await?;
+			Ok(json!({"requested":true}))
 		},
-		Operation::StopMaker => upstream(&client, &base, &["wallet", &input.wallet, "maker", "stop"], &input.token, None).await,
-		Operation::Wallets | Operation::Unlock => unreachable!("handled above"),
+		Operation::StopMaker => {
+			upstream(&client, &base, &["wallet", &input.wallet, "maker", "stop"], &input.token, None).await?;
+			Ok(json!({"requested":true}))
+		},
+		Operation::Wallets | Operation::Unlock | Operation::Identity | Operation::PairingSession => unreachable!("handled above"),
 	}
 }
 

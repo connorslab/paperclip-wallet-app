@@ -19,7 +19,7 @@ for (const item of cases) {
    const recoveryCases=JSON.parse(fs.readFileSync(path.join(__dirname,'../mobile/Tests/PaperclipMobileTests/Fixtures/jam-recovery.json')));
    let recovery=structuredClone(recoveryCases[3].payment); recovery.quote.wallet='Sample Jars.jmdat';
    const accounts=[{id:'a'.repeat(64),label:'Krux savings',kind:'hardware'},{id:'b'.repeat(64),label:'Watch savings',kind:'watch'}];
-   const received=[];
+   const received=[]; let pairings=[], pairingCreates=0, pairingRevokes=0;
    const jars=['Apricot','Blueberry','Cherry','Date','Elderberry'].map((name,id)=>({id,name,total_sat:id===0?200000:0,confirmed_sat:id===0?200000:0,pending_sat:0,frozen_sat:0,bond_sat:0}));
    await page.route('http://wallet.test/**',async route=>{
     const url=new URL(route.request().url()),p=url.pathname.replace('/api/v1/','');
@@ -36,6 +36,14 @@ for (const item of cases) {
       value={confirmed_sat:50000,pending_sat:0,transactions:[],last_broadcast:null};
      }
      if(p==='joinblaket/connection') value={configured:true,ui_url:'https://jam.example.test/'};
+     if(p==='joinblaket/pairings') {
+      if(route.request().method()==='POST') {
+       const body=route.request().postDataJSON(); assert.equal(body.wallet,'Sample Jars.jmdat'); assert.equal(body.token,'fixture-token');
+       pairingCreates++; const row={id:'c'.repeat(64),label:body.label,wallet:body.wallet,scope:'jars_manage_v1',expires:Math.floor(Date.now()/1000)+2592000};
+       pairings=[row]; value={...row,token:'pj1_'+'d'.repeat(64)};
+      } else value={pairings};
+     }
+     if(p==='joinblaket/pairings/revoke') { assert.equal(route.request().postDataJSON().id,'c'.repeat(64)); pairingRevokes++;pairings=[];value={revoked:true}; }
      if(p==='joinblaket/request') {
       const body=route.request().postDataJSON(); actions.push(body.operation);
       assert.equal(route.request().method(),'POST');
@@ -83,6 +91,25 @@ for (const item of cases) {
    assert.equal(await page.locator('#jam-password').inputValue(),'');
    assert.equal(await page.locator('#jam-passphrase').inputValue(),'');
    assert.equal(await page.locator('.jam-jar').count(),5);
+   await page.locator('#jam-pairing-panel summary').click();
+   await page.locator('#jam-pairing-label').fill('Fixture phone');
+   await page.locator('#jam-pairing-create').click();
+   await page.waitForFunction(()=>document.querySelector('#jam-status').textContent.includes('HTTPS'));
+   assert.equal(pairingCreates,0,'Plain LAN HTTP must not issue a pairing');
+   await page.locator('#jam-pairing-endpoint').fill('https://host.example.invalid/');
+   await page.locator('#jam-pairing-create').click();
+   await page.getByRole('button',{name:'Confirm',exact:true}).click();
+   await page.locator('#jam-pairing-code').waitFor({state:'visible'});
+   assert.equal(pairingCreates,1);
+   assert.equal(await page.locator('#jam-pairing-code input, #jam-pairing-code textarea').count(),0,'Bearer is not shown as plaintext');
+   await page.locator('#jam-pairing-hide').click();
+   assert(await page.locator('#jam-pairing-code').isHidden());
+   assert.equal(await page.locator('#jam-pairing-qr').getAttribute('src'),null);
+   await page.getByRole('button',{name:'Revoke access',exact:true}).click();
+   await page.getByRole('button',{name:'Confirm',exact:true}).click();
+   await page.getByText('No paired devices.',{exact:true}).waitFor();
+   assert.equal(pairingRevokes,1);
+   await page.locator('#jam-pairing-panel summary').click();
    await page.locator('#jam-payments-panel summary').first().click();
    await page.locator('#jam-payments-load').click();
    await page.getByRole('heading',{name:'Status unknown'}).waitFor();

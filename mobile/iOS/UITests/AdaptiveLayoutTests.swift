@@ -2,6 +2,27 @@ import XCTest
 
 /// Synthetic fixtures only: no wallet credentials, synchronization or payments.
 final class AdaptiveLayoutTests: XCTestCase {
+	func testPairingReviewShowsScopeAndCancelReturnsToSetup() throws {
+		let app = XCUIApplication()
+		app.launchArguments = ["-build61-preview", "-joinblaket-setup-preview", "-appearance", "dark"]
+		app.launch()
+		let field = app.secureTextFields["Paste pairing code"]
+		XCTAssertTrue(field.waitForExistence(timeout: 15))
+		let payload: [String: Any] = ["kind":"paperclip-jars-v1","scope":"jars_manage_v1","endpoint":"https://host.example.invalid", "wallet":"fixture.jmdat",
+			"token":"pj1_" + String(repeating:"a",count:64),"expires":4_000_000_000,"certificate_sha256":""]
+		let code = "paperclip-jars:" + (try JSONSerialization.data(withJSONObject: payload)).base64EncodedString().replacingOccurrences(of:"+",with:"-").replacingOccurrences(of:"/",with:"_").replacingOccurrences(of:"=",with:"")
+		field.tap(); field.typeText(code)
+		app.buttons["Review connection"].tap()
+		XCTAssertTrue(app.staticTexts["https://host.example.invalid"].exists)
+		XCTAssertTrue(app.staticTexts["fixture.jmdat"].exists)
+		let verify = app.buttons["Verify and save connection"]
+		if !verify.isHittable { app.swipeUp() }
+		XCTAssertTrue(verify.isHittable)
+		capture(app, "Jars pairing review")
+		app.buttons["Cancel"].tap()
+		XCTAssertTrue(app.buttons["Scan pairing code"].exists)
+		XCTAssertFalse(verify.exists)
+	}
 	func testSendReviewIsOneStepAndEditingPreservesRecipient() {
 		continueAfterFailure = false
 		let app = XCUIApplication()

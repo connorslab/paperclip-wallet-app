@@ -8,8 +8,42 @@ import okhttp3.Response
 import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.Assert.*
 import org.junit.Test
+import org.json.JSONObject
 
 class JoinBlaketTest {
+	private fun pairingText(changes: Map<String, Any> = emptyMap()): String {
+		val value = JSONObject().put("kind", "paperclip-jars-v1").put("scope", "jars_manage_v1").put("endpoint", "https://host.example.invalid")
+			.put("wallet", "fixture.jmdat").put("token", "pj1_" + "a".repeat(64)).put("expires", 4_000_000_000L).put("certificate_sha256", "")
+		changes.forEach { (key, value_) -> value.put(key, value_) }
+		return "paperclip-jars:" + java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(value.toString().toByteArray())
+	}
+	@Test fun pairingRejectsUnsafeEndpointsScopeAndExpiry() {
+		for (change in listOf(mapOf("endpoint" to "http://host.local"), mapOf("endpoint" to "https://user:secret@host.local"), mapOf("scope" to "all"),
+			mapOf("expires" to 1), mapOf("wallet" to "../other"), mapOf("token" to "main-wallet-token"), mapOf("certificate_sha256" to "invalid"))) {
+			assertThrows(IllegalArgumentException::class.java) { JoinBlaketPairing.parse(pairingText(change)) }
+		}
+		assertEquals("Jars pairing (redacted)", JoinBlaketPairing.parse(pairingText()).toString())
+	}
+	@Test fun pairedTransportUsesOnlyScopedProxyAndNeverReplays() = runBlocking {
+		val pair = JoinBlaketPairing.parse(pairingText()); var calls = 0; var timeout = false
+		val http = OkHttpClient.Builder().retryOnConnectionFailure(false).addInterceptor {
+			calls++; assertEquals("/api/v1/paired-jars/request", it.request().url.encodedPath); assertEquals("POST", it.request().method)
+			val buffer = okio.Buffer(); it.request().body!!.writeTo(buffer); val body = JSONObject(buffer.readUtf8())
+			assertEquals("status", body.getString("operation")); assertEquals(pair.wallet, body.getString("wallet"))
+			assertFalse(body.has("token")); assertFalse(body.has("password")); assertNull(it.request().url.query)
+			if (timeout) throw SocketTimeoutException("synthetic timeout")
+			Response.Builder().request(it.request()).protocol(Protocol.HTTP_1_1).code(200).message("OK")
+				.body("""{"session":true,"wallet_name":"fixture.jmdat","maker_running":false,"coinjoin_in_process":false,"rescanning":false}""".toResponseBody()).build()
+		}.build()
+		val client = JoinBlaketClient(pair.connection, http, pair)
+		client.status(pair.authorization()); assertEquals(1, calls)
+		timeout = true
+		try { client.status(pair.authorization()); fail() } catch (_: SocketTimeoutException) {}
+		assertEquals(2, calls)
+		try { client.unlock(pair.wallet, "synthetic"); fail() } catch (_: IllegalArgumentException) {}
+		try { client.status(JoinBlaketAuthorization("other.jmdat", "synthetic")); fail() } catch (_: IllegalArgumentException) {}
+		assertEquals(2, calls)
+	}
 	private fun recoveryCases() = org.json.JSONArray(checkNotNull(javaClass.getResourceAsStream("/jam-recovery.json")).bufferedReader().use { it.readText() })
 	@Test fun recoveryMatchesSharedCases() {
 		val cases = recoveryCases()

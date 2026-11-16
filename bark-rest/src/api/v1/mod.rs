@@ -41,6 +41,8 @@ pub fn router(state: &Arc<ServerState>) -> Router<Arc<ServerState>> {
 	#[cfg(feature = "web-ui")]
 	let router = router.nest("/joinblaket", authed_router(state, joinblaket::router()));
 	#[cfg(feature = "web-ui")]
+	let router = router.nest("/paired-jars", joinblaket::paired_router());
+	#[cfg(feature = "web-ui")]
 	let router = router.nest("/hardware", authed_router(state, hardware::router()));
 	#[cfg(feature = "web-ui")]
 	let router = router.nest("/remote-node", authed_router(state, remote_node::router()));

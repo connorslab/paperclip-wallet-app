@@ -21,7 +21,7 @@ async function api(path, body, method, signal) {
   const account = globalThis.PaperclipAccounts?.selectedId || '', generation = globalThis.PaperclipAccounts?.generation ?? 0;
   // Jam has its own wallet authorization. Selecting a public account must not
   // hide that independent wallet or grant access to any hot-wallet operation.
-  const separateWallet = path === 'joinblaket/connection' || path === 'joinblaket/request';
+  const separateWallet = ['joinblaket/connection','joinblaket/request','joinblaket/pairings','joinblaket/pairings/revoke'].includes(path);
   if (account && !path.startsWith('hardware/') && !separateWallet) throw new Error('This action belongs to the hot wallet. Switch wallets first.');
   const mutation = (body !== undefined || (method && method !== 'GET')) && !(path === 'hardware/request' && body?.operation === 'refresh');
   if (mutation) { walletMutations++; globalThis.PaperclipAccounts?.busyChanged(); }

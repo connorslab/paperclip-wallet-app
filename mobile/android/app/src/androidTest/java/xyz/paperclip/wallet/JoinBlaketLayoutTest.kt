@@ -23,6 +23,27 @@ import org.junit.Test
 
 /** Synthetic session only: no transport, wallet keys or funds. */
 class JoinBlaketLayoutTest {
+	@Test fun pairingReviewShowsScopeAndCancelDoesNotConnect() {
+		val state = JoinBlaketUiState()
+		compose.setContent { MaterialTheme(colorScheme = paperclipColors(true)) { Surface {
+			Column(Modifier.fillMaxSize().safeDrawingPadding().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+				JoinBlaketPage(state)
+			}
+		} } }
+		val payload = JSONObject().put("kind", "paperclip-jars-v1").put("scope", "jars_manage_v1")
+			.put("endpoint", "https://host.example.invalid").put("wallet", "fixture.jmdat").put("token", "pj1_" + "a".repeat(64))
+			.put("expires", 4_000_000_000L).put("certificate_sha256", "")
+		val code = "paperclip-jars:" + java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(payload.toString().toByteArray())
+		compose.onNodeWithText("Paste pairing code").performScrollTo().performTextInput(code)
+		compose.onNodeWithText("Review connection").performScrollTo().performClick()
+		compose.onNodeWithText("https://host.example.invalid").assertExists()
+		compose.onNodeWithText("fixture.jmdat").assertExists()
+		compose.onNodeWithText("Verify and save connection").performScrollTo().assertIsDisplayed()
+		capture("android-pairing-review")
+		compose.onNodeWithText("Cancel").performScrollTo().performClick()
+		compose.onNodeWithText("Scan pairing code").assertExists()
+		compose.runOnIdle { assertNull(state.client.value); assertNull(state.authorization.value); assertNull(state.session.value) }
+	}
 	@get:Rule val compose = createComposeRule()
 	@Test fun recoveryPreservesUnknownOnTimeoutAndOnlyObserves() {
 		val paths = java.util.Collections.synchronizedList(mutableListOf<String>())

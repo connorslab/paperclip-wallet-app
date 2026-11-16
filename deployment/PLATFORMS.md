@@ -116,3 +116,23 @@ Build and unit-test results do not establish device installation, complete backu
 restoration, or successful financial settlement. Release notes describe the
 checks actually completed. This is beta software and has not been independently
 audited.
+
+
+## Pairing mobile Jars with a Paperclip host
+
+The candidate's Jars page has **Pair a phone** after unlocking the separate Jam
+wallet. Enter the Paperclip host's HTTPS or onion address and a verified certificate
+fingerprint if its HTTPS certificate is not otherwise trusted. The private QR
+grants balances, receive addresses, maker controls and payment-status access to
+that Jam wallet for up to 30 days. It does not grant the main wallet, key export,
+unlock, payments or delegation management. Scan it from mobile Jars, review the
+server/wallet/scope, then verify and save. Never send pairing codes to support.
+
+The host can revoke individual devices. A Jam lock/restart invalidates its
+memory-only delegation; unlock Jam on the host and create a new phone pairing.
+Forgetting the connection on a phone removes only its local encrypted copy;
+revoke on the host to invalidate any other copy. The host's `jam-pairings`
+directory is private and included in the main-volume backup, but restoring it
+does not restore a restarted Jam daemon's delegation. Installed-host and full
+restore tests remain required. The current candidate's paired send/bond-funding
+flows are not complete and must not be advertised as release-ready.

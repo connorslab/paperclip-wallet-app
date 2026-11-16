@@ -1,6 +1,55 @@
 import Foundation
 import Network
 
+/// A scoped host grant, not a main-wallet or Jam password. Store only in Keychain.
+public struct JoinBlaketPairing: Decodable, Sendable, CustomStringConvertible, CustomDebugStringConvertible {
+    let kind: String
+    let scope: String
+    public let endpoint: String
+    public let wallet: String
+    fileprivate let token: String
+    let expires: Int64
+    let certificate_sha256: String
+    public var description: String { "Jars pairing (redacted)" }
+    public var debugDescription: String { description }
+    public init(text: String, now: Date = Date()) throws {
+        guard text.utf8.count <= 4096, text.hasPrefix("paperclip-jars:") else { throw ConnectionError.invalidCredential }
+        var encoded = String(text.dropFirst("paperclip-jars:".count)).replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
+        encoded += String(repeating: "=", count: (4 - encoded.count % 4) % 4)
+        guard let data = Data(base64Encoded: encoded) else { throw ConnectionError.invalidCredential }
+        self = try JSONDecoder().decode(Self.self, from: data)
+        guard kind == "paperclip-jars-v1", scope == "jars_manage_v1", expires > Int64(now.timeIntervalSince1970),
+              token.hasPrefix("pj1_"), JoinBlaketPayment.validID(String(token.dropFirst(4))),
+              !wallet.isEmpty, wallet.utf8.count <= 256, !wallet.contains("/"), !wallet.contains("\\"), wallet != ".", wallet != ".." else { throw ConnectionError.invalidCredential }
+        try connection.validate()
+    }
+    public var connection: JoinBlaketConnection {
+        var value = JoinBlaketConnection(); value.endpoint = endpoint; value.certificateSHA256 = certificate_sha256
+        value.useTor = URL(string: endpoint)?.host?.lowercased().hasSuffix(".onion") == true
+        return value
+    }
+    public func authorization() throws -> JoinBlaketAuthorization { try .init(wallet: wallet, token: token) }
+    fileprivate func request(_ components: [String], body: [String: String]?) throws -> [String: Any] {
+        guard expires > Int64(Date().timeIntervalSince1970) else { throw JoinBlaketError.sessionExpired }
+        var fields: [String: Any] = ["wallet": wallet]
+        let path = components.joined(separator: "/"), prefix = "wallet/\(wallet)/"
+        if path == "session" && body == nil { fields["operation"] = "status" }
+        else if path == prefix + "utxos" && body == nil { fields["operation"] = "coins" }
+        else if components.count == 5 && components.prefix(4).elementsEqual(["wallet", wallet, "address", "new"]), body == nil, let jar = UInt8(components[4]), jar < 5 {
+            fields["operation"] = "address"; fields["jar"] = jar
+        } else if components.count == 6 && components.prefix(5).elementsEqual(["wallet", wallet, "address", "timelock", "new"]), body == nil {
+            try JoinBlaketBond.validate(month: components[5]); fields["operation"] = "bond_address"; fields["lock_month"] = components[5]
+        } else if path == prefix + "maker/start", let body, let minimum = UInt64(body["minsize"] ?? ""), let fee = UInt64(body["cjfee_a"] ?? ""), body["txfee"] == "0", body["cjfee_r"] == "0", body["ordertype"] == "sw0absoffer" {
+            fields["operation"] = "start_maker"; fields["minimum_sat"] = minimum; fields["fee_sat"] = fee
+        } else if path == prefix + "maker/stop" && body == nil { fields["operation"] = "stop_maker" }
+        else if path == prefix + "paperclip/payments" && body == nil { fields["operation"] = "payments" }
+        else if components.count == 5 && components.prefix(4).elementsEqual(["wallet", wallet, "paperclip", "payments"]), body == nil, JoinBlaketPayment.validID(components[4]) {
+            fields["operation"] = "check_payment"; fields["payment_id"] = components[4]
+        } else { throw JoinBlaketError.invalidResponse }
+        return fields
+    }
+}
+
 /// A separate remote Jam wallet. Paperclip never sends its own seed to Jam.
 public struct JoinBlaketConnection: Codable, Equatable, Sendable {
     public var endpoint = ""
@@ -23,10 +72,11 @@ public struct JoinBlaketConnection: Codable, Equatable, Sendable {
 }
 
 public enum JoinBlaketError: LocalizedError {
-    case sessionExpired, invalidResponse, wrongWallet, invalidBondMonth, requestFailed(Int)
+    case sessionExpired, pairingUnavailable, invalidResponse, wrongWallet, invalidBondMonth, requestFailed(Int)
     public var errorDescription: String? {
         switch self {
         case .sessionExpired: return "Unlock your JoinBlaket wallet again to continue."
+        case .pairingUnavailable: return "Check Jars on your Paperclip host. If Jam locked or restarted, unlock it there and create a new pairing. Check status before retrying an action."
         case .invalidResponse: return "JoinBlaket returned an unreadable response. Refresh before continuing."
         case .wrongWallet: return "The active JoinBlaket wallet changed. Reconnect before continuing."
         case .invalidBondMonth: return "Choose a future month in YYYY-MM format, before 2100. Bonds unlock on its first day at 00:00 UTC."
@@ -155,12 +205,18 @@ public actor JoinBlaketClient {
     private let connection: JoinBlaketConnection
     private let session: URLSession
     private let delegate: NodeSessionDelegate
+    private let pairing: JoinBlaketPairing?
 
-    public init(connection: JoinBlaketConnection) throws {
-        try self.init(connection: connection, configuration: .ephemeral)
+    public init(connection: JoinBlaketConnection, pairing: JoinBlaketPairing? = nil) throws {
+        try self.init(connection: connection, configuration: .ephemeral, pairing: pairing)
     }
-    init(connection: JoinBlaketConnection, configuration: URLSessionConfiguration) throws {
+    init(connection: JoinBlaketConnection, configuration: URLSessionConfiguration, pairing: JoinBlaketPairing? = nil) throws {
         try connection.validate()
+        if let pairing {
+            guard pairing.endpoint == connection.endpoint, pairing.connection.certificateSHA256 == connection.certificateSHA256,
+                  pairing.connection.useTor == connection.useTor else { throw ConnectionError.invalidCredential }
+        }
+        self.pairing = pairing
         self.connection = connection
         configuration.httpCookieStorage = nil
         configuration.urlCache = nil
@@ -183,7 +239,8 @@ public actor JoinBlaketClient {
     private func request(_ components: [String], authorization: JoinBlaketAuthorization? = nil,
                          body: [String: String]? = nil) async throws -> Data {
         var url = try EndpointPolicy.validate(connection.endpoint, tor: connection.useTor, credentials: true)
-        for component in ["api", "v1"] + components {
+        let route = pairing == nil ? ["api", "v1"] + components : ["api", "v1", "paired-jars", "request"]
+        for component in route {
             // URL path components must not be able to replace the origin or escape the wallet.
             guard !component.isEmpty, !component.contains("/"), !component.contains("\\"),
                   component != ".", component != ".." else { throw JoinBlaketError.invalidResponse }
@@ -191,8 +248,14 @@ public actor JoinBlaketClient {
         }
         var request = URLRequest(url: url)
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        if let authorization { request.setValue("Bearer " + authorization.token, forHTTPHeaderField: "Authorization") }
-        if let body {
+        if let pairing {
+            guard authorization?.wallet == pairing.wallet, authorization?.token == pairing.token else { throw JoinBlaketError.wrongWallet }
+            request.setValue("Bearer " + pairing.token, forHTTPHeaderField: "Authorization")
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.httpBody = try JSONSerialization.data(withJSONObject: pairing.request(components, body: body))
+        } else if let authorization { request.setValue("Bearer " + authorization.token, forHTTPHeaderField: "Authorization") }
+        if pairing == nil, let body {
             request.httpMethod = "POST"
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             request.httpBody = try JSONSerialization.data(withJSONObject: body)
@@ -200,6 +263,7 @@ public actor JoinBlaketClient {
         do {
             let (bytes, response) = try await session.bytes(for: request)
             guard let http = response as? HTTPURLResponse else { throw JoinBlaketError.invalidResponse }
+            if pairing != nil && !(200..<300).contains(http.statusCode) { throw JoinBlaketError.pairingUnavailable }
             guard http.statusCode != 401 else { throw JoinBlaketError.sessionExpired }
             guard (200..<300).contains(http.statusCode) else { throw JoinBlaketError.requestFailed(http.statusCode) }
             var data = Data()

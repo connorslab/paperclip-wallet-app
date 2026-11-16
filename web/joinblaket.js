@@ -10,6 +10,57 @@
     if (!token || token !== identity || ticket !== generation) throw new Error('Wallet session ended.');
     return result;
   }
+  let pairingCode = '', pairingQR = null;
+  function clearPairingCode() {
+    pairingCode = ''; $('jam-pairing-code').hidden = true; $('jam-pairing-qr').removeAttribute('src');
+    if (pairingQR) URL.revokeObjectURL(pairingQR); pairingQR = null;
+  }
+  async function pairingCall(path, body) {
+    const identity = token, ticket = generation, wallet = authorization?.wallet;
+    const value = await api(path, body);
+    if (!token || token !== identity || ticket !== generation || wallet !== authorization?.wallet) throw new Error('Jars session changed.');
+    return value;
+  }
+  async function loadPairings() {
+    const value = await pairingCall('joinblaket/pairings'), root = $('jam-pairing-list');
+    if (!Array.isArray(value.pairings) || value.pairings.length > 16) throw new Error('Could not read paired devices.');
+    root.replaceChildren();
+    if (!value.pairings.length) { root.textContent = 'No paired devices.'; return; }
+    for (const row of value.pairings) {
+      if (typeof row.id !== 'string' || !/^[0-9a-f]{64}$/.test(row.id) || typeof row.label !== 'string' || typeof row.wallet !== 'string' || !Number.isSafeInteger(row.expires)) throw new Error('Invalid paired-device record.');
+      const card = document.createElement('div'); card.className = 'action-card';
+      const label = document.createElement('strong'); label.textContent = row.label;
+      const detail = document.createElement('p'); detail.className = 'hint'; detail.textContent = row.wallet + ' · Expires ' + new Date(row.expires*1000).toLocaleDateString();
+      const revoke = document.createElement('button'); revoke.className = 'secondary'; revoke.textContent = 'Revoke access';
+      revoke.onclick = () => work(async () => {
+        if (!await window.PaperclipReview.ask('Revoke Jars access for '+row.label+'? This stops new requests from that pairing.')) return;
+        await pairingCall('joinblaket/pairings/revoke', {id:row.id}); clearPairingCode(); await loadPairings();
+      });
+      card.append(label,detail,revoke); root.append(card);
+    }
+  }
+  $('jam-pairing-endpoint').value = location.origin;
+  $('jam-pairing-create').onclick = () => work(async () => {
+    clearPairingCode();
+    const endpoint = new URL($('jam-pairing-endpoint').value.trim()), pin = $('jam-pairing-pin').value.trim().toLowerCase(), label = $('jam-pairing-label').value.trim();
+    if (!label || [...label].length > 48 || /[\x00-\x1f\x7f]/.test(label)) throw new Error('Name this device using 1 to 48 characters.');
+    if (!(endpoint.protocol === 'https:' || (endpoint.protocol === 'http:' && endpoint.hostname.endsWith('.onion'))) || endpoint.username || endpoint.password || endpoint.search || endpoint.hash || (pin && (!/^[0-9a-f]{64}$/.test(pin) || endpoint.protocol !== 'https:'))) throw new Error('Use the Paperclip HTTPS address or its onion address, with a verified certificate fingerprint if needed.');
+    if (!await window.PaperclipReview.ask('Pair a phone with '+authorization.wallet+' through '+endpoint.href+'? The code grants Jars receiving, maker controls and status access for up to 30 days. Keep it private.')) return;
+    const wallet = authorization.wallet;
+    const value = await pairingCall('joinblaket/pairings', {label,wallet,token:authorization.token});
+    if (value.wallet !== wallet || value.scope !== 'jars_manage_v1' || typeof value.token !== 'string' || !/^pj1_[0-9a-f]{64}$/.test(value.token) || !Number.isSafeInteger(value.expires) || value.expires*1000 <= Date.now()) throw new Error('Invalid pairing response. Check paired devices before creating another.');
+    const payload = JSON.stringify({kind:'paperclip-jars-v1',scope:value.scope,endpoint:endpoint.href,wallet,token:value.token,expires:value.expires,certificate_sha256:pin});
+    pairingCode = 'paperclip-jars:'+btoa(String.fromCharCode(...new TextEncoder().encode(payload))).replaceAll('+','-').replaceAll('/','_').replace(/=+$/,'');
+    pairingQR = URL.createObjectURL(new Blob([PaperclipReceive.encode(pairingCode)], {type:'image/svg+xml'}));
+    $('jam-pairing-qr').src = pairingQR; $('jam-pairing-code').hidden = false;
+    await loadPairings();
+  });
+  $('jam-pairing-copy').onclick = () => work(async () => { if (pairingCode) { await PaperclipReceive.copy(pairingCode); $('jam-status').textContent = 'Private pairing code copied.'; } });
+  $('jam-pairing-hide').onclick = clearPairingCode;
+  $('jam-pairing-load').onclick = () => work(loadPairings);
+  $('jam-pairing-panel').addEventListener('toggle', () => { if (!$('jam-pairing-panel').open) clearPairingCode(); });
+  document.addEventListener('visibilitychange', () => { if (document.hidden) clearPairingCode(); });
+  new MutationObserver(() => { if (panel.hidden) clearPairingCode(); }).observe(panel, {attributes:true, attributeFilter:['hidden']});
   let payments = null;
   function paymentRecord(value, expectedID) {
     const hex = value => typeof value === 'string' && /^[0-9a-f]{64}$/.test(value);
@@ -220,6 +271,7 @@
   });
   new MutationObserver(() => {
     if (!$('wallet').hidden) return;
+    clearPairingCode(); $('jam-pairing-list').replaceChildren(); $('jam-pairing-panel').open = false;
     generation++; payments = null; renderPayments(); $('jam-payments-panel').open = false; authorization = null; jars = []; session = null; selected = 0;
     $('jam-open').hidden = true; $('jam-open').removeAttribute('href');
     $('jam-password').value = ''; $('jam-passphrase').value = ''; needsRefresh = false; $('jam-wallet').replaceChildren(); $('jam-unlock-fields').hidden = true;

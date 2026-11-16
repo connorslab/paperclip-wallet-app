@@ -19,6 +19,54 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import org.json.JSONObject
 
+/** Scoped host grant. Persist only through SecureStore; never log the payload. */
+internal class JoinBlaketPairing private constructor(val endpoint: String, val wallet: String,
+	internal val token: String, private val expires: Long, private val pin: String) {
+	val connection: JoinBlaketConnection get() = JoinBlaketConnection(endpoint, pin, if (URI(endpoint).host.lowercase().endsWith(".onion")) "builtin" else "")
+	fun authorization() = JoinBlaketAuthorization(wallet, token)
+	override fun toString() = "Jars pairing (redacted)"
+	companion object {
+		fun parse(text: String, now: Long = Instant.now().epochSecond): JoinBlaketPairing {
+			require(text.length <= 4096 && text.startsWith("paperclip-jars:")) { "Scan a Paperclip Jars pairing code" }
+			val value = JSONObject(String(java.util.Base64.getUrlDecoder().decode(text.removePrefix("paperclip-jars:")), Charsets.UTF_8))
+			val expiry = value.get("expires")
+			require(expiry is Int || expiry is Long) { "Invalid pairing expiry" }
+			val pair = JoinBlaketPairing(value.getString("endpoint"), value.getString("wallet"), value.getString("token"), (expiry as Number).toLong(), value.getString("certificate_sha256"))
+			require(value.getString("kind") == "paperclip-jars-v1" && value.getString("scope") == "jars_manage_v1" && pair.expires > now &&
+				pair.token.matches(Regex("pj1_[0-9a-f]{64}")) && pair.wallet.isNotEmpty() && pair.wallet.toByteArray().size <= 256 &&
+				'/' !in pair.wallet && '\\' !in pair.wallet && pair.wallet !in setOf(".", "..")) { "Pairing is invalid or expired. Create a new code on your host." }
+			pair.connection.validate()
+			return pair
+		}
+	}
+	fun request(parts: List<String>, body: JSONObject?): JSONObject {
+		require(expires > Instant.now().epochSecond) { "Pairing expired. Create a new code on your host." }
+		val fields = JSONObject().put("wallet", wallet)
+		val path = parts.joinToString("/"); val prefix = "wallet/$wallet/"
+		when {
+			path == "session" && body == null -> fields.put("operation", "status")
+			path == prefix + "utxos" && body == null -> fields.put("operation", "coins")
+			parts.size == 5 && parts.take(4) == listOf("wallet", wallet, "address", "new") && body == null -> {
+				val jar = parts[4].toIntOrNull(); require(jar != null && jar in 0..4)
+				fields.put("operation", "address").put("jar", jar)
+			}
+			parts.size == 6 && parts.take(5) == listOf("wallet", wallet, "address", "timelock", "new") && body == null -> {
+				JoinBlaketBond.validate(parts[5]); fields.put("operation", "bond_address").put("lock_month", parts[5])
+			}
+			path == prefix + "maker/start" && body != null -> {
+				require(body.getString("txfee") == "0" && body.getString("cjfee_r") == "0" && body.getString("ordertype") == "sw0absoffer")
+				fields.put("operation", "start_maker").put("minimum_sat", body.getString("minsize").toLong()).put("fee_sat", body.getString("cjfee_a").toLong())
+			}
+			path == prefix + "maker/stop" && body == null -> fields.put("operation", "stop_maker")
+			path == prefix + "paperclip/payments" && body == null -> fields.put("operation", "payments")
+			parts.size == 5 && parts.take(4) == listOf("wallet", wallet, "paperclip", "payments") && body == null && JoinBlaketPayment.validId(parts[4]) ->
+				fields.put("operation", "check_payment").put("payment_id", parts[4])
+			else -> error("This pairing does not permit that operation")
+		}
+		return fields
+	}
+}
+
 internal object JoinBlaketBond {
 	fun validate(month: String, now: Instant = Instant.now()) {
 		require(month.matches(Regex("[0-9]{4}-[0-9]{2}"))) { "Choose an unlock month in YYYY-MM format" }
@@ -107,12 +155,14 @@ internal class JoinBlaketAuthorization(val wallet: String, internal val token: S
 internal class JoinBlaketClient internal constructor(
 	private val connection: JoinBlaketConnection,
 	private val client: OkHttpClient,
+	private val pairing: JoinBlaketPairing? = null,
 ) {
 	companion object {
-		suspend fun open(context: Context, connection: JoinBlaketConnection): JoinBlaketClient {
+		suspend fun open(context: Context, connection: JoinBlaketConnection, pairing: JoinBlaketPairing? = null): JoinBlaketClient {
 			connection.validate()
+			require(pairing == null || pairing.connection == connection) { "Pairing connection changed" }
 			val route = if (connection.proxy == "builtin") EmbeddedTor.proxy(context) else connection.proxy
-			return JoinBlaketClient(connection, NodeHTTPTransport.create(connection.endpoint, connection.pin, route))
+			return JoinBlaketClient(connection, NodeHTTPTransport.create(connection.endpoint, connection.pin, route), pairing)
 		}
 	}
 
@@ -121,13 +171,19 @@ internal class JoinBlaketClient internal constructor(
 	): JSONObject {
 		connection.validate()
 		val url = connection.endpoint.toHttpUrl().newBuilder()
-		for (part in listOf("api", "v1") + components) {
+		for (part in if (pairing == null) listOf("api", "v1") + components else listOf("api", "v1", "paired-jars", "request")) {
 			require(part.isNotEmpty() && '/' !in part && '\\' !in part && part !in setOf(".", "..")) { "Invalid Jam wallet path" }
 			url.addPathSegment(part)
 		}
 		val request = Request.Builder().url(url.build()).header("Accept", "application/json")
-		authorization?.let { request.header("Authorization", "Bearer " + it.token) }
-		body?.let { request.post(it.toString().toRequestBody("application/json".toMediaType())) }
+		if (pairing != null) {
+			require(authorization?.wallet == pairing.wallet && authorization.token == pairing.token && connection == pairing.connection) { "Pairing wallet or connection changed" }
+			request.header("Authorization", "Bearer " + pairing.token)
+			request.post(pairing.request(components, body).toString().toRequestBody("application/json".toMediaType()))
+		} else {
+			authorization?.let { request.header("Authorization", "Bearer " + it.token) }
+			body?.let { request.post(it.toString().toRequestBody("application/json".toMediaType())) }
+		}
 		val call = client.newCall(request.build())
 		return suspendCancellableCoroutine { continuation ->
 			continuation.invokeOnCancellation { call.cancel() }
@@ -136,6 +192,7 @@ internal class JoinBlaketClient internal constructor(
 				override fun onResponse(call: Call, response: Response) {
 					try {
 						val result = response.use {
+							require(pairing == null || it.isSuccessful) { "Check Jars on your Paperclip host. If Jam locked or restarted, unlock it there and create a new pairing. Check status before retrying an action." }
 							require(it.code != 401) { "Unlock your JoinBlaket wallet again to continue" }
 							require(it.isSuccessful) { "JoinBlaket request failed (HTTP ${it.code}). Check its current status before retrying an action." }
 							val source = it.body?.source() ?: error("Empty JoinBlaket response")
