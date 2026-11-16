@@ -13,6 +13,12 @@ invalid dates; Android layout instrumentation compiled but runtime is pending.
 No physical-device install or live bond creation/funding is represented by these
 checks. Full funding and maker acceptance remain release gates.
 
+Browser CI 43913365228 exposed a recovery-test timing assumption: the result
+dialog appears before its server acknowledgement completes, while the send guard
+correctly remains active. The test now holds that acknowledgement, verifies that
+another send is blocked, releases it and waits for the warning to clear. The
+controlled-delay recovery test passes locally; no production guard was weakened.
+
 ## Independent desktop Jars: 2026-11-16
 
 The shared desktop/StartOS/Umbrel UI shows Jars for hot, QR and watch-only account
