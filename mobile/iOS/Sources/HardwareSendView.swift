@@ -24,11 +24,13 @@ struct HardwareSendView: View {
         ScrollView { VStack(spacing: 20) {
             WalletSection {
                 Label(store.selectedProfile?.name ?? "Hardware wallet", systemImage: "qrcode").font(.headline)
+                if prepared == nil {
                 Text("Your keys stay on your hardware wallet. Paperclip prepares the payment, then checks its signature before broadcast.")
                     .font(.subheadline).foregroundStyle(PaperclipTheme.muted)
                 LabeledContent("Balance", value: unit.display(store.onchain)).font(.headline)
                     USDValue(sats: store.onchain, mainnet: store.network == "xbt-mainnet")
                 Label("Unified sighash required · 0x21", systemImage: "checkmark.shield").font(.caption).foregroundStyle(PaperclipTheme.orange)
+                }
             }
             if prepared == nil {
                 WalletSection("1 · Prepare payment") {
@@ -53,11 +55,13 @@ struct HardwareSendView: View {
                     }.buttonStyle(WalletPrimaryButtonStyle()).disabled(store.busy || destination.isEmpty)
                 }.disabled(store.busy)
             } else {
-                WalletSection("Review payment") {
-                    Text(destination).font(.caption.monospaced()).textSelection(.enabled)
-                    LabeledContent("Recipient receives", value: unit.display((prepared?["amount_sat"] as? NSNumber)?.uint64Value))
-                    LabeledContent("Network fee", value: unit.display((prepared?["fee_sat"] as? NSNumber)?.uint64Value))
-                    LabeledContent("Total debit", value: unit.display((prepared?["total_sat"] as? NSNumber)?.uint64Value)).font(.headline)
+                PaymentReviewHero(amount: unit.display((prepared?["amount_sat"] as? NSNumber)?.uint64Value), source: store.selectedProfile?.name ?? "QR wallet")
+                WalletSection("Payment details") {
+                    Text("Recipient").font(.caption).foregroundStyle(PaperclipTheme.muted)
+                    Text(destination).font(.callout.monospaced()).textSelection(.enabled)
+                    Divider()
+                    WalletReviewDetail(title: "Network fee", value: unit.display((prepared?["fee_sat"] as? NSNumber)?.uint64Value))
+                    WalletReviewDetail(title: "Total debit", value: unit.display((prepared?["total_sat"] as? NSNumber)?.uint64Value), emphasized: true)
                 }
                 if verifiedID.isEmpty && !submitted {
                     WalletSection("2 · Sign on your device") {

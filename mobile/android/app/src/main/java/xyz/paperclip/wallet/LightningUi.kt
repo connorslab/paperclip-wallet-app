@@ -291,26 +291,9 @@ internal fun NodeLightning(model: LightningModel, initialPage: String = "balance
 							Text("Review payment")
 						}
 					} else {
-						Text("Review payment", style = MaterialTheme.typography.titleLarge)
-						Text("Amount: ${unit.displayMsat(review.msat)}")
-						Text("Maximum fee: ${unit.display(review.feeSat)}")
-						var showInvoice by remember(review.hash) { mutableStateOf(false) }
-						TextButton(onClick = { showInvoice = !showInvoice }) { Text(if (showInvoice) "Hide invoice" else "View full invoice") }
-						if (showInvoice) SelectionContainer { Text(review.invoice, style = MaterialTheme.typography.bodySmall) }
-						Text("Confirm only if this invoice and amount are correct.")
-						Button(
-							onClick = {
-								model.send()
-								page = "status"
-								onPageChanged("status")
-							},
-							enabled = !s.busy && review.valid(),
-						) {
-							Text("Confirm and pay")
-						}
-						TextButton(onClick = model::clearReview, enabled = !s.busy) {
-							Text("Cancel")
-						}
+						NodePaymentReview(review, unit, s.busy,
+							onConfirm = { model.send(); page = "status"; onPageChanged("status") },
+							onEdit = model::clearReview)
 					}
 				}
 				"details" -> {
@@ -420,11 +403,27 @@ internal fun NodeReceiveCode(value: String) {
 			}
 				.getOrNull()
 		}
-	if (qr != null)
-		androidx.compose.foundation.Image(
-			qr.asImageBitmap(),
-			"Receive QR code",
-			Modifier.fillMaxWidth().aspectRatio(1f),
-		)
-	else Text("This request is too long for a single QR code. Copy the text instead.")
+	if (qr != null) {
+		Box(Modifier.fillMaxWidth(), contentAlignment = androidx.compose.ui.Alignment.Center) {
+			androidx.compose.foundation.Image(
+				qr.asImageBitmap(), "Receive QR code",
+				Modifier.widthIn(max = 320.dp).fillMaxWidth().aspectRatio(1f),
+			)
+		}
+	} else Text("This request is too long for a single QR code. Copy the text instead.")
+}
+
+@Composable
+internal fun NodePaymentReview(review: NodeInvoiceReview, unit: BitcoinUnit, busy: Boolean, onConfirm: () -> Unit, onEdit: () -> Unit) {
+	Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(20.dp)) {
+		ReviewAmountHero(unit.displayMsat(review.msat), "Lightning node")
+		ReviewDetailRow("Maximum routing fee", unit.display(review.feeSat))
+		var showInvoice by remember(review.hash) { mutableStateOf(false) }
+		TextButton(onClick = { showInvoice = !showInvoice }) { Text(if (showInvoice) "Hide invoice" else "View full invoice") }
+		if (showInvoice) SelectionContainer { Text(review.invoice, style = MaterialTheme.typography.bodySmall) }
+		Text("Confirm only if this invoice and amount are correct.", style = MaterialTheme.typography.bodySmall,
+			color = MaterialTheme.colorScheme.onSurfaceVariant)
+		Button(onClick = onConfirm, enabled = !busy && review.valid(), modifier = Modifier.fillMaxWidth()) { Text("Confirm and pay") }
+		TextButton(onClick = onEdit, enabled = !busy) { Text("Edit invoice or fee") }
+	}
 }

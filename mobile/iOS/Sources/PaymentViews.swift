@@ -249,32 +249,6 @@ struct SendView: View {
     }
 }
 
-private struct PaymentReviewHero: View {
-    let amount: String
-    let source: String
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var appeared = false
-    var body: some View {
-        VStack(spacing: 14) {
-            Image(systemName: "arrow.up.right")
-                .font(.system(size: 27, weight: .semibold))
-                .foregroundStyle(PaperclipTheme.orange)
-                .frame(width: 60, height: 60)
-                .background(PaperclipTheme.orange.opacity(0.12), in: Circle())
-                .rotationEffect(.degrees(appeared || reduceMotion ? 0 : -12))
-                .scaleEffect(appeared || reduceMotion ? 1 : 0.8)
-                .accessibilityHidden(true)
-            Text("Recipient receives").font(.subheadline).foregroundStyle(PaperclipTheme.muted)
-            Text(amount).font(.largeTitle.bold()).monospacedDigit()
-                .multilineTextAlignment(.center).accessibilityIdentifier("payment-recipient-amount")
-            Text("From \(source)").font(.subheadline).foregroundStyle(PaperclipTheme.muted)
-        }.frame(maxWidth: .infinity).padding(.vertical, 24)
-            .onAppear {
-                withAnimation(reduceMotion ? nil : .spring(duration: 0.36, bounce: 0.22)) { appeared = true }
-            }
-    }
-}
-
 struct ReceiveView: View {
     @AppStorage("displayUnit") private var unit: BitcoinUnit = .sats
     @EnvironmentObject var store: WalletStore
@@ -433,7 +407,7 @@ struct ReceiveCode: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }.font(.caption).tint(PaperclipTheme.muted)
             HStack {
-                Button(copied ? "Copied" : "Copy") { copied = true; UIPasteboard.general.setItems([[UIPasteboard.typeAutomatic: value]], options: [.localOnly: true, .expirationDate: Date().addingTimeInterval(120)]) }
+                Button(copied ? "Copied" : "Copy", systemImage: copied ? "checkmark" : "doc.on.doc") { copied = true; UIPasteboard.general.setItems([[UIPasteboard.typeAutomatic: value]], options: [.localOnly: true, .expirationDate: Date().addingTimeInterval(120)]) }
                 ShareLink(item: value)
             }.buttonStyle(.bordered).controlSize(.large)
         }.onChange(of: value) { _, _ in copied = false }

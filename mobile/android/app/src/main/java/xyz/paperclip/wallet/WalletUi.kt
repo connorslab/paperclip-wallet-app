@@ -14,6 +14,11 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.ScrollState
@@ -461,7 +466,7 @@ internal fun CardBlock(title: String, content: @Composable ColumnScope.() -> Uni
 		shape = RoundedCornerShape(26.dp),
 		colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
 	) {
-		Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+		Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
 			Row(
 				verticalAlignment = Alignment.CenterVertically,
 				horizontalArrangement = Arrangement.spacedBy(9.dp),
@@ -469,6 +474,7 @@ internal fun CardBlock(title: String, content: @Composable ColumnScope.() -> Uni
 				Box(Modifier.width(3.dp).height(15.dp).background(Orange, RoundedCornerShape(2.dp)))
 				Text(
 					title,
+					style = MaterialTheme.typography.titleSmall,
 					color = MaterialTheme.colorScheme.onSurfaceVariant,
 					fontWeight = FontWeight.SemiBold,
 				)
@@ -480,7 +486,11 @@ internal fun CardBlock(title: String, content: @Composable ColumnScope.() -> Uni
 
 @Composable
 private fun SettingsLink(title: String, subtitle: String, icon: androidx.compose.ui.graphics.vector.ImageVector, action: () -> Unit) {
-	TextButton(onClick = action, modifier = Modifier.fillMaxWidth().heightIn(min = 64.dp)) {
+	val interaction = remember { MutableInteractionSource() }
+	val pressed by interaction.collectIsPressedAsState()
+	val scale by animateFloatAsState(if (pressed) .985f else 1f, spring(dampingRatio = .8f, stiffness = 700f), label = "menu-press")
+	TextButton(onClick = action, interactionSource = interaction,
+		modifier = Modifier.fillMaxWidth().heightIn(min = 64.dp).graphicsLayer { scaleX = scale; scaleY = scale }) {
 		Icon(icon, null, Modifier.size(24.dp))
 		Column(Modifier.weight(1f).padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
 			Text(title, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Medium)

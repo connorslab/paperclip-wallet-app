@@ -216,3 +216,38 @@ textarea:focus-visible{outline:2px solid var(--focus);outline-offset:4px}
 .review-content {line-height:1.8;padding-block:8px 16px}
 .review-actions {margin-top:28px;padding-top:20px;border-top:1px solid var(--stroke)}
 @media(max-width:640px) {.review-sheet {padding:24px}.review-actions {margin-top:20px}}
+
+/* Shared rhythm for settings, node tools, Jars and recovery on both server hosts. */
+.wallet-content section > h2:first-child,
+.wallet-content section > h3:first-child {margin-top:0}
+.wallet-content section > :last-child {margin-bottom:0}
+.settings-grid section {padding:20px}
+.menu-row {padding:16px 18px;min-height:64px;align-items:center}
+.menu-row strong {line-height:1.35}
+.menu-row small {margin-top:4px}
+.menu-row > span[aria-hidden="true"] {flex-shrink:0;transition:transform .18s ease}
+.menu-row:active:not(:disabled) > span[aria-hidden="true"] {transform:translateX(3px)}
+input,select,textarea {transition:border-color .16s ease,box-shadow .16s ease}
+input:focus-visible,select:focus-visible,textarea:focus-visible {box-shadow:0 0 0 5px #ff783e12}
+.wallet-content details {border-radius:14px}
+.wallet-content summary {line-height:1.5;cursor:pointer}
+.wallet-content details[open] > summary {margin-bottom:12px}
+.actions {align-items:center}
+.transaction-result h2 {margin-block:12px 20px}
+.transaction-result p {line-height:1.65;color:var(--muted)}
+.transaction-result[open] .result-mark {animation:wallet-status-in .28s cubic-bezier(.2,.8,.3,1) both}
+@keyframes wallet-status-in {from {transform:scale(.84)}to {transform:scale(1)}}
+@media(max-width:640px) {
+  .settings-grid section {padding:18px}
+  .menu-row {padding:14px 12px}
+}
+@media(prefers-reduced-motion:reduce) {
+  .menu-row > span[aria-hidden="true"] {transition:none;transform:none!important}
+  .transaction-result[open] .result-mark {animation:none}
+}
+
+/* Independent columns avoid empty grid rows beside connection details. */
+.settings-menu,.settings-connections {display:grid;gap:16px;min-width:0}
+.menu-row small.cold-wallet-tool {display:none}
+.qr-account-active .menu-row small.cold-wallet-tool {display:block}
+.qr-account-active .menu-row small.hot-wallet-tool {display:none}

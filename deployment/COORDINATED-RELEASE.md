@@ -139,6 +139,15 @@ Play-signed download option in its
 
 ## Latest verification: 2026-11-16
 
+The shared UI pass extends the amount-first review to mobile Lightning and QR
+signer payments, preserves invoice/fee drafts when editing, and keeps confirmation
+guards intact. Android receive/signing QR display is capped on wide screens.
+Shared card spacing, menu feedback, and server Settings columns are consistent;
+server recovery guidance now follows the selected hot or QR account correctly.
+Native simulator/emulator checks and mocked browser workflows passed. These are
+presentation checks, not installed-host, physical-signer or live-payment acceptance.
+
+
 - Android CI [43864731284](https://github.com/connorslab/paperclip-wallet-app/actions/runs/43864731284)
   at `76abe02` passed both native architectures and API 35/36 emulator jobs,
   including the selection-metadata and profile-removal regressions. The preceding

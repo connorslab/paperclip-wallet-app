@@ -32,6 +32,28 @@ class PaymentFlowLayoutTest {
 		compose.onNodeWithText("Address, invoice or offer").assertTextContains("sample-recipient")
 		compose.onNodeWithText("Confirm and send").assertDoesNotExist()
 	}
+	@Test fun nodeReviewKeepsInvoicePrivateUntilExpandedAndGuardsConfirmation() {
+		var review by mutableStateOf(NodeInvoiceReview("synthetic-invoice", "fixture", 10_000_000, Long.MAX_VALUE, 100))
+		var busy by mutableStateOf(true)
+		var confirmations = 0
+		var edits = 0
+		compose.setContent { MaterialTheme(colorScheme = paperclipColors(true)) { Surface {
+			Column(Modifier.fillMaxSize().safeDrawingPadding().verticalScroll(rememberScrollState()).padding(20.dp)) {
+				NodePaymentReview(review, BitcoinUnit.SATS, busy, { confirmations++ }, { edits++ })
+			}
+		} } }
+		compose.onNodeWithText("Confirm and pay").assertIsDisplayed().assertIsNotEnabled()
+		compose.onNodeWithText("synthetic-invoice").assertDoesNotExist()
+		compose.onNodeWithText("View full invoice").performClick()
+		compose.onNodeWithText("synthetic-invoice").assertIsDisplayed()
+		compose.runOnIdle { busy = false; review = review.copy(expires = 0) }
+		compose.onNodeWithText("Confirm and pay").assertIsNotEnabled()
+		compose.runOnIdle { review = review.copy(expires = Long.MAX_VALUE) }
+		compose.onNodeWithText("Confirm and pay").assertIsEnabled().performClick()
+		compose.onNodeWithText("Edit invoice or fee").performClick()
+		compose.runOnIdle { org.junit.Assert.assertEquals(1, confirmations); org.junit.Assert.assertEquals(1, edits) }
+	}
+
 	@Test fun generatedRequestReplacesSetupWithoutIssuingAnother() {
 		val context = InstrumentationRegistry.getInstrumentation().targetContext
 		val model = WalletModel(context.applicationContext as Application)

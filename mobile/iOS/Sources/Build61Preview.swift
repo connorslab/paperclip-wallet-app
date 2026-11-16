@@ -21,6 +21,8 @@ struct Build61Preview: View {
                 SendView()
             } else if ProcessInfo.processInfo.arguments.contains("-joinblaket-preview") {
                 JoinBlaketView()
+            } else if ProcessInfo.processInfo.arguments.contains("-node-review-preview") {
+                LightningView.reviewPreview()
             } else if ProcessInfo.processInfo.arguments.contains("-node-connection-preview") {
                 LightningView.connectionPreview()
             } else if ProcessInfo.processInfo.arguments.contains("-lightning-balance-preview") {

@@ -54,6 +54,10 @@ const urFixtures=JSON.parse(fs.readFileSync(path.join(__dirname,'../mobile/Tests
    await page.locator('#token').fill('synthetic-token');await page.getByRole('button',{name:'Unlock wallet',exact:true}).click();await page.locator('#wallet').waitFor({state:'visible'});
    await page.waitForFunction(()=>document.querySelector('#wallet-select').options.length===3);
    await page.locator('#wallet-select').selectOption(accounts[0].id);await page.waitForFunction(()=>document.querySelector('#cold-balance').textContent==='11,111');
+   await page.locator('.view-nav [data-view="settings"]').click();
+   assert(await page.locator('.menu-row small.cold-wallet-tool').isVisible(),'Signer recovery guidance visible for QR wallet');
+   assert(!(await page.locator('.menu-row small.hot-wallet-tool').isVisible()),'Hot wallet recovery guidance hidden for QR wallet');
+   await page.locator('.view-nav [data-view="overview"]').click();
    assert.equal(await page.locator('#ark-balance').isVisible(),false);assert.equal(await page.locator('#wallet-kind').textContent(),'QR WALLET · KEYS OFFLINE');
    const rejected=await page.evaluate(async()=>{try{await api('wallet/send',{destination:'wrong-wallet',amount_sat:1});return false;}catch{return true;}});assert(rejected);assert(!calls.some(c=>c.name==='wallet/send'));
    await page.getByRole('button',{name:'↙ Receive',exact:true}).click();await page.locator('#cold-address').filter({hasText:fixtures[0].receive_address}).waitFor();
@@ -119,6 +123,10 @@ const urFixtures=JSON.parse(fs.readFileSync(path.join(__dirname,'../mobile/Tests
    // Account choice survives a page reload and lock without exposing hot actions.
    await page.reload();
    await page.waitForFunction(label=>document.querySelector('#cold-name').textContent===label&&!document.querySelector('#wallet').hidden,renamedLabel);
+   await page.locator('.view-nav [data-view="settings"]').click();
+   assert(await page.locator('.menu-row small.cold-wallet-tool').isVisible(),'Signer recovery guidance visible for QR wallet');
+   assert(!(await page.locator('.menu-row small.hot-wallet-tool').isVisible()),'Hot wallet recovery guidance hidden for QR wallet');
+   await page.locator('.view-nav [data-view="overview"]').click();
    assert.equal(await page.locator('#ark-balance').isVisible(),false);
    assert.equal(await page.locator('#wallet-select').inputValue(),'e'.repeat(64));
    await page.locator('.view-nav [data-view="overview"]').click();

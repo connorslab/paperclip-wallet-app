@@ -55,8 +55,8 @@ struct WalletNavigationButtonStyle: ButtonStyle {
 struct WalletCard<Content: View>: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var appeared = false
-    var inset: CGFloat = 22
-    var spacing: CGFloat = 16
+    var inset: CGFloat = 20
+    var spacing: CGFloat = 14
     @ViewBuilder var content: Content
     var body: some View {
         VStack(alignment: .leading, spacing: spacing) { content }
@@ -297,4 +297,56 @@ struct WalletFlowProgress: View {
 			.accessibilityLabel("Step \(current + 1) of \(steps.count): \(steps.indices.contains(current) ? steps[current] : "")")
 			.animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: current)
 	}
+}
+
+/// The same amount-first review across hot wallets, node payments and QR signers.
+struct PaymentReviewHero: View {
+    let amount: String
+    let source: String
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var appeared = false
+    var body: some View {
+        VStack(spacing: 14) {
+            Image(systemName: "arrow.up.right")
+                .font(.system(size: 27, weight: .semibold))
+                .foregroundStyle(PaperclipTheme.orange)
+                .frame(width: 60, height: 60)
+                .background(PaperclipTheme.orange.opacity(0.12), in: Circle())
+                .rotationEffect(.degrees(appeared || reduceMotion ? 0 : -12))
+                .scaleEffect(appeared || reduceMotion ? 1 : 0.8)
+                .accessibilityHidden(true)
+            Text("Recipient receives").font(.subheadline).foregroundStyle(PaperclipTheme.muted)
+            Text(amount).font(.largeTitle.bold()).monospacedDigit()
+                .multilineTextAlignment(.center).accessibilityIdentifier("payment-recipient-amount")
+            Text("From \(source)").font(.subheadline).foregroundStyle(PaperclipTheme.muted)
+        }.frame(maxWidth: .infinity).padding(.vertical, 24)
+            .onAppear {
+                withAnimation(reduceMotion ? nil : .spring(duration: 0.36, bounce: 0.22)) { appeared = true }
+            }
+    }
+}
+
+/// Amounts wrap below their labels at large text sizes or narrow widths.
+struct WalletReviewDetail: View {
+    let title: String
+    let value: String
+    var emphasized = false
+    @Environment(\.dynamicTypeSize) private var textSize
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            if !textSize.isAccessibilitySize {
+                HStack(alignment: .firstTextBaseline, spacing: 20) {
+                    Text(title).foregroundStyle(PaperclipTheme.muted).fixedSize()
+                    Spacer(minLength: 0)
+                    Text(value).monospacedDigit().fixedSize()
+                }
+            }
+            VStack(alignment: .leading, spacing: 6) {
+                Text(title).foregroundStyle(PaperclipTheme.muted)
+                Text(value).monospacedDigit().fixedSize(horizontal: false, vertical: true)
+            }.frame(maxWidth: .infinity, alignment: .leading)
+        }.font(emphasized ? .headline : .subheadline)
+            .foregroundStyle(.primary).padding(.vertical, 4)
+            .accessibilityElement(children: .combine)
+    }
 }

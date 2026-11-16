@@ -35,6 +35,10 @@ const fs = require('node:fs'), path = require('node:path'), assert = require('no
     assert(!(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth)),'No horizontal overflow');
     assert((await menu.boundingBox()).height>=44,'Navigation touch target');
     assert.equal(await page.locator('[data-screen]:visible').first().evaluate(el=>getComputedStyle(el).animationName),'none','Reduced motion');
+    if (view === 'settings') {
+      assert(await page.locator('.menu-row small.hot-wallet-tool').isVisible(),'Hot wallet recovery guidance visible');
+      assert(!(await page.locator('.menu-row small.cold-wallet-tool').isVisible()),'Signer recovery guidance hidden for hot wallets');
+    }
     if (process.env.SCREENSHOT_DIR && ['overview','coinjoin','settings'].includes(view)) {
       await page.locator('#network').evaluate(el=>el.textContent='UI FIXTURE · NO LIVE FUNDS');
       await page.screenshot({path:path.join(process.env.SCREENSHOT_DIR,`navigation-${view}-${width}.png`),fullPage:true});

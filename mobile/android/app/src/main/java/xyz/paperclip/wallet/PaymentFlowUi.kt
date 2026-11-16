@@ -8,6 +8,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.NorthEast
 import androidx.compose.material3.Icon
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.foundation.layout.*
@@ -60,5 +62,26 @@ internal fun ReviewAmountHero(amount: String, source: String) {
 		Text("Recipient receives", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
 		Text(amount, style = MaterialTheme.typography.headlineLarge, textAlign = TextAlign.Center)
 		Text("From $source", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+	}
+}
+
+/** Keep complete fee values readable on small screens and with larger text. */
+@Composable
+internal fun ReviewDetailRow(title: String, value: String, emphasized: Boolean = false) {
+	val textStyle = if (emphasized) MaterialTheme.typography.titleMedium else MaterialTheme.typography.bodyMedium
+	val fontScale = LocalDensity.current.fontScale
+	BoxWithConstraints(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+		if (maxWidth < 320.dp || fontScale > 1.3f) {
+			Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+				Text(title, style = textStyle, color = MaterialTheme.colorScheme.onSurfaceVariant)
+				Text(value, style = textStyle, fontWeight = if (emphasized) FontWeight.Bold else FontWeight.Medium)
+			}
+		} else {
+			Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(20.dp)) {
+				Text(title, Modifier.weight(1f), style = textStyle, color = MaterialTheme.colorScheme.onSurfaceVariant)
+				Text(value, Modifier.weight(1f), style = textStyle, textAlign = TextAlign.End,
+					fontWeight = if (emphasized) FontWeight.Bold else FontWeight.Medium)
+			}
+		}
 	}
 }

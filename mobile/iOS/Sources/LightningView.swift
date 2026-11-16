@@ -130,6 +130,7 @@ struct LightningView: View {
             .navigationDestination(item: $page) { selected in destination(selected) }
     }
     private func destination(_ selected: Page) -> some View {
+        ScrollViewReader { scroll in
         ScrollView {
             VStack(spacing: 20) {
                 switch selected {
@@ -141,7 +142,10 @@ struct LightningView: View {
                 case .status: statusCard.disabled(busy)
                 }
                 if busy || !message.isEmpty { WalletSection { if busy { ProgressView(operation) }; Text(message).font(.caption) } }
-            }.walletPageContent(maxWidth: selected == .connection ? 1120 : 680).textFieldStyle(WalletInputStyle())
+            }.id("node-page-top").walletPageContent(maxWidth: selected == .connection ? 1120 : 680).textFieldStyle(WalletInputStyle())
+        }.onChange(of: reviewedHash) { _, _ in
+            if selected == .pay { scroll.scrollTo("node-page-top", anchor: .top) }
+        }
         }.walletPageBackground().navigationTitle(selected.rawValue).navigationBarTitleDisplayMode(.inline)
             .sheet(item: $receipt) { receipt in
                 NavigationStack { PaymentReceiptView(receipt: receipt, amount: reviewedPayment.map { $0.millisatoshis / 1000 }, mainnet: nodeNetwork == .mainnet) { self.receipt = nil; page = nil } }
@@ -165,7 +169,7 @@ struct LightningView: View {
         dashboard
             .task(id: scene) {
                 #if DEBUG && targetEnvironment(simulator)
-                if ProcessInfo.processInfo.arguments.contains("-lightning-balance-preview") || ProcessInfo.processInfo.arguments.contains("-node-connection-preview") { return }
+                if ProcessInfo.processInfo.arguments.contains("-lightning-balance-preview") || ProcessInfo.processInfo.arguments.contains("-node-connection-preview") || ProcessInfo.processInfo.arguments.contains("-node-review-preview") { return }
                 #endif
                 guard scene == .active else { return }
                 if !loadedConfiguration { await load() }
@@ -314,7 +318,20 @@ struct LightningView: View {
                 }
     }
     private var payCard: some View {
-        WalletSection("Pay from your node") {
+        VStack(spacing: 24) {
+            if reviewedHash != nil {
+                PaymentReviewHero(amount: reviewAmount, source: "Lightning node")
+                WalletSection("Payment details") {
+                    if !reviewDescription.isEmpty { Text(reviewDescription).font(.subheadline).textSelection(.enabled) }
+                    WalletReviewDetail(title: "Maximum routing fee", value: "\(maximumFee) \(unit.title)")
+                    DisclosureGroup("View full invoice") {
+                        Text(resolvedInvoice ?? payInvoice).font(.caption.monospaced()).textSelection(.enabled)
+                    }
+                }
+                Button("Confirm Lightning payment") { confirming = true }.buttonStyle(WalletPrimaryButtonStyle()).disabled(pending != nil)
+                Button("Edit invoice or fee") { reviewedHash = nil; reviewedPayment = nil; resolvedInvoice = nil }.disabled(pending != nil)
+            } else {
+                WalletSection("Pay from your node") {
                     if pending != nil {
                         Text("A saved payment needs checking before another can be sent.").font(.headline)
                         Button("View payment status") { page = .status }.buttonStyle(.bordered)
@@ -324,7 +341,7 @@ struct LightningView: View {
                     }.pickerStyle(.segmented).disabled(pending != nil)
                     Button { scanning = true } label: { Label("Scan QR code", systemImage: "qrcode.viewfinder") }.disabled(pending != nil)
                     Text(payOffer ? "BOLT12 offer" : "Lightning invoice").font(.subheadline.weight(.semibold))
-                    TextField(payOffer ? "BOLT12 offer (lno1…)" : "Lightning invoice", text: $payInvoice, axis: .vertical).textInputAutocapitalization(.never).autocorrectionDisabled()
+                    TextField(payOffer ? "BOLT12 offer (lno1…)" : "Lightning invoice", text: $payInvoice, axis: .vertical).textInputAutocapitalization(.never).autocorrectionDisabled().accessibilityIdentifier("node-payment-invoice")
                     if payOffer {
                         Text("Review requests an invoice from the offer issuer. No payment is sent until you confirm.").font(.caption)
                         TextField(unit.amountPrompt + " (if needed)", text: $offerAmount)
@@ -334,15 +351,11 @@ struct LightningView: View {
                     Text("Maximum routing fee in \(unit.title)").font(.subheadline.weight(.semibold))
                     TextField("Maximum routing fee in \(unit.title)", text: $maximumFee).keyboardType(.decimalPad)
                     Button(payOffer ? "Request invoice & review" : "Review invoice") { review() }.buttonStyle(WalletPrimaryButtonStyle()).disabled(pending != nil || payInvoice.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    if reviewedHash != nil {
-                        if !reviewDescription.isEmpty { Text(reviewDescription).font(.subheadline).textSelection(.enabled) }
-                        LabeledContent("Amount", value: reviewAmount)
-                        LabeledContent("Maximum fee", value: "\(maximumFee) \(unit.title)")
-                        Button("Confirm Lightning payment") { confirming = true }.buttonStyle(WalletPrimaryButtonStyle()).disabled(pending != nil)
-                    }
                     if pending != nil { Text(payments.status).font(.caption).textSelection(.enabled) }
-                    if !status.isEmpty && pending == nil { Text(status).font(.caption).textSelection(.enabled) }
                 }
+            }
+            if !status.isEmpty && pending == nil { Text(status).font(.caption).textSelection(.enabled) }
+        }
     }
     private var statusCard: some View {
         WalletSection("Payment status") {
@@ -559,6 +572,17 @@ extension LightningView {
            let selected = input.cases.first(where: { $0.label == args[index + 1] }) {
             view._connection = State(initialValue: selected.connection)
         }
+        return view
+    }
+    static func reviewPreview() -> LightningView {
+        var view = LightningView()
+        view._page = State(initialValue: .pay)
+        view._payInvoice = State(initialValue: "Synthetic invoice · no payment")
+        view._resolvedInvoice = State(initialValue: "Synthetic invoice · no payment")
+        view._reviewedHash = State(initialValue: "synthetic")
+        view._reviewAmount = State(initialValue: "10,000 sats")
+        view._maximumFee = State(initialValue: "100")
+        view._reviewDescription = State(initialValue: "Coffee · preview only")
         return view
     }
     static func balancePreview() -> LightningView {

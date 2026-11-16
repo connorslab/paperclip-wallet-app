@@ -21,6 +21,26 @@ final class AdaptiveLayoutTests: XCTestCase {
 		XCTAssertEqual(recipient.value as? String, "Ark recipient · simulator preview")
 	}
 
+	func testNodeReviewSeparatesFormAndPreservesDraftOnEdit() {
+		continueAfterFailure = false
+		let app = XCUIApplication()
+		app.launchArguments = ["-build61-preview", "-node-review-preview", "-appearance", "dark"]
+		app.launch()
+		let confirm = app.buttons["Confirm Lightning payment"]
+		XCTAssertTrue(confirm.waitForExistence(timeout: 15))
+		XCTAssertTrue(confirm.isHittable)
+		XCTAssertFalse(app.buttons["Scan QR code"].exists)
+		XCTAssertTrue(app.staticTexts["10,000 sats"].exists)
+		capture(app, "Lightning review compact")
+		app.buttons["View full invoice"].tap()
+		XCTAssertTrue(app.staticTexts["Synthetic invoice · no payment"].exists)
+		app.buttons["Edit invoice or fee"].tap()
+		XCTAssertFalse(confirm.exists)
+		XCTAssertTrue(app.buttons["Scan QR code"].exists)
+		XCTAssertEqual(app.textFields["node-payment-invoice"].value as? String, "Synthetic invoice · no payment")
+		XCTAssertEqual(app.textFields["Maximum routing fee in sats"].value as? String, "100")
+	}
+
 	func testCompactJarSelectionKeepsAccountActionsNearby() {
 		continueAfterFailure = false
 		XCUIDevice.shared.orientation = .portrait

@@ -98,15 +98,21 @@ internal fun HardwarePayment(s: WalletState, model: WalletModel, boarding: Boole
 				}
 		} else {
 			val p = prepared!!
-			SelectionContainer { Text(if (boarding) p.getString("address") else destination) }
-			Text("Recipient receives: ${unit.display(p.getLong("amount_sat"))}")
-			Text(
-				"Network fee: ${unit.display(p.getLong(if(boarding)"network_fee_sat" else "fee_sat"))} · Total: ${unit.display(p.getLong("total_sat"))}",
-			)
-			if (boarding)
-				Text(
-					"Recovery funding deducted: ${unit.display(p.getLong("reserve_sat"))} · Spendable in Ark: ${unit.display(p.getLong("net_sat"))}",
-				)
+			ReviewAmountHero(unit.display(p.getLong("amount_sat")),
+				if (boarding) s.profiles.firstOrNull { it.id == sourceID }?.name ?: "QR wallet" else s.profiles.firstOrNull { it.id == s.activeID }?.name ?: "QR wallet")
+			CardBlock(if (boarding) "Transfer details" else "Payment details") {
+				Text("Recipient", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+				SelectionContainer { Text(if (boarding) p.getString("address") else destination) }
+				HorizontalDivider()
+				ReviewDetailRow("Network fee", unit.display(p.getLong(if (boarding) "network_fee_sat" else "fee_sat")))
+				ReviewDetailRow("Total debit", unit.display(p.getLong("total_sat")), emphasized = true)
+				if (boarding) {
+					HorizontalDivider()
+					ReviewDetailRow("Recovery funding deducted", unit.display(p.getLong("reserve_sat")))
+					ReviewDetailRow("Spendable in Ark", unit.display(p.getLong("net_sat")), emphasized = true)
+				}
+			}
+
 			if (verified.isEmpty()) {
 				Text(
 					"On XBT Krux, choose Sign PSBT. On XBT SeedSigner, choose Scan. Compare the recipient, amount, fee, and change on your signer before approving.",
