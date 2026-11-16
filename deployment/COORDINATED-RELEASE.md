@@ -216,6 +216,22 @@ broadcast blocking. Browser flows pass at 390 and 1280 pixels. The Android compa
 menu smoke test and separate settings test pass on an unfunded API 35 emulator;
 the CI test now follows the nested menu routes introduced by the compact layout.
 
+The hot on-chain browser send now offers Send Max. It prepares a single-recipient
+drain to an external account, shows the exact recipient amount after miner fees,
+and uses the existing retained-transaction approval and durable submission journal.
+An amount cannot be combined with Send Max; older servers that do not confirm that
+mode are refused. Editing the destination or mode invalidates review, and locking
+or switching accounts clears the mode. Ark and public-wallet Send Max remain
+separate browser parity work; this change does not add those routes.
+
+Current native read-only acceptance covers CLN and LND with the Android Kotlin
+adapter, the shared server adapter, and the newly built iOS simulator app. Each
+passed repeated identity/balance reads, deliberate wrong-pin rejection and recovery.
+The iOS connection UI also passed its live CLN/LND verify-and-refresh test after an
+initial test-runner crash before execution. No payment was made. The Linux image
+workflow now defaults to build-only validation; publishing beta images requires
+its explicit `publish` option.
+
 The broader gaps remain open: Bridge browser flows, full server wallet management and recovery,
 Jam service acceptance, payment requests, portable contacts/labels and restricted
 receive-only credentials. Public signing identities, coherent release versions,

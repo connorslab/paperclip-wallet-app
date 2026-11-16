@@ -394,17 +394,17 @@ Name | Type | Description  | Required | Notes
 
 ## send_prepare
 
-> serde_json::Value send_prepare(onchain_send_request)
+> serde_json::Value send_prepare(send_review_request)
 
 
-Prepare an exact 60-second on-chain review; returns request_id, destination, amount_sat, fee_sat and total_sat. Does not sign or broadcast.
+Prepare an exact 60-second on-chain review; returns request_id, destination, amount_sat, fee_sat and total_sat. For Send Max, set send_max to true and omit amount_sat. Send Max sends spendable on-chain funds after miner fees to an external account. Does not sign or broadcast.
 
 ### Parameters
 
 
 Name | Type | Description  | Required | Notes
 ------------- | ------------- | ------------- | ------------- | -------------
-**onchain_send_request** | [**OnchainSendRequest**](OnchainSendRequest.md) |  | [required] |
+**send_review_request** | [**SendReviewRequest**](SendReviewRequest.md) |  | [required] |
 
 ### Return type
 

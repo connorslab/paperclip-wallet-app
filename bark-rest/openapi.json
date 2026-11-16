@@ -2562,13 +2562,13 @@
         "tags": [
           "onchain"
         ],
-        "description": "Prepare an exact 60-second on-chain review; returns request_id, destination, amount_sat, fee_sat and total_sat. Does not sign or broadcast.",
+        "description": "Prepare an exact 60-second on-chain review; returns request_id, destination, amount_sat, fee_sat and total_sat. For Send Max, set send_max to true and omit amount_sat. Send Max sends spendable on-chain funds after miner fees to an external account. Does not sign or broadcast.",
         "operationId": "send_prepare",
         "requestBody": {
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/OnchainSendRequest"
+                "$ref": "#/components/schemas/SendReviewRequest"
               }
             }
           },
@@ -8225,6 +8225,29 @@
             "description": "The payment hash, when the destination resolved to a lightning\npayment. Can be used to poll the payment status."
           }
         }
+      },
+      "SendReviewRequest": {
+        "type": "object",
+        "required": [
+          "destination"
+        ],
+        "properties": {
+          "amount_sat": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "destination": {
+            "type": "string"
+          },
+          "send_max": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
       },
       "SignMessageRequest": {
         "type": "object",

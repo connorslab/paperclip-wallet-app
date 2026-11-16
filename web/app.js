@@ -324,21 +324,25 @@ function sats(id, optional = false) {
   }
   return Number(value);
 }
+$('chain-max').onchange = () => { $('chain-amount').disabled=$('chain-max').checked; $('chain-amount').required=!$('chain-max').checked; };
 $('chain-send').onsubmit = event => { event.preventDefault(); run(event.submitter, async () => {
-  const destination = $('chain-destination').value.trim(), amount = sats('chain-amount');
+  const destination = $('chain-destination').value.trim(), maximum=$('chain-max').checked, entered=maximum?null:sats('chain-amount');
   if (!destination) throw new Error('Enter an XBT address.');
   const context = walletContext();
-  const quote = await api('onchain/send/prepare', {destination, amount_sat: amount});
-  if (!currentWallet(context) || !token || $('chain-destination').value.trim() !== destination || sats('chain-amount') !== amount) throw new Error('Payment changed. Review again.');
-  if (quote.destination !== destination || quote.amount_sat !== amount || !/^[0-9a-f]{64}$/.test(quote.request_id) ||
+  const unchanged=()=>currentWallet(context)&&token&&$('chain-destination').value.trim()===destination&&$('chain-max').checked===maximum&&(maximum||sats('chain-amount')===entered);
+  const quote = await api('onchain/send/prepare', maximum?{destination,send_max:true}:{destination,amount_sat:entered});
+  if (!unchanged()) throw new Error('Payment changed. Review again.');
+  const amount=quote.amount_sat;
+  if (quote.destination !== destination || !Number.isSafeInteger(amount) || amount<=0 || (!maximum&&amount!==entered) || (maximum&&quote.send_max!==true) || !/^[0-9a-f]{64}$/.test(quote.request_id) ||
       !Number.isSafeInteger(quote.fee_sat) || quote.fee_sat < 0 || !Number.isSafeInteger(quote.total_sat) || quote.total_sat !== amount + quote.fee_sat) throw new Error('Could not verify the complete payment cost. No payment was sent.');
-  if (!await PaperclipReview.ask('Send ' + amount.toLocaleString() + ' sats on ' + network + ' to:\n' + destination +
+  if (!await PaperclipReview.ask((maximum?'Send Max \u00b7 ':'Send ') + amount.toLocaleString() + ' sats on ' + network + ' to:\n' + destination +
       '\n\nNetwork fee: ' + quote.fee_sat.toLocaleString() + ' sats\nTotal debit: ' + quote.total_sat.toLocaleString() + ' sats')) return;
-  if (!currentWallet(context) || !token || $('chain-destination').value.trim() !== destination || sats('chain-amount') !== amount) throw new Error('Payment changed. Review again.');
+  if (!unchanged()) throw new Error('Payment changed. Review again.');
   const result = await mutate('onchain/send/commit', {request_id: quote.request_id, total_sat: quote.total_sat});
   if (!currentWallet(context)) return;
   $('chain-result').textContent = result.txid;
   $('chain-destination').value = ''; $('chain-amount').value = '';
+  $('chain-max').checked=false;$('chain-max').onchange();
   const submitted = result.state === 'submitted';
   transactionResult('pending', submitted ? 'Transaction submitted' : 'Broadcast not confirmed', submitted ? 'Waiting for confirmation on the XBT network. Do not send it again.' : 'The signed transaction is saved. Check its status before another action.', result.txid);
   status(submitted ? 'Transaction submitted. Wait for confirmation; do not send again.' : 'Signed payment saved. Check broadcast status; do not send again.');
@@ -416,6 +420,7 @@ $('lock').onclick = () => {
   lightningEnabled = false; $('ln-controls').disabled = true;
   for (const id of ['ln-offer-output', 'ln-invoice', 'ln-result', 'chain-result', 'history', 'ark-balance', 'chain-balance']) $(id).textContent = '';
   for (const id of ['offer-description', 'offer-amount', 'ln-destination', 'ln-amount', 'ln-receive-amount', 'ln-description', 'ln-identifier', 'chain-destination', 'chain-amount']) $(id).value = '';
+  $('chain-max').checked=false;$('chain-max').onchange();
 };
 $('deposit').onclick = event => run(event.target, async () => {
   const receiveSession = token;

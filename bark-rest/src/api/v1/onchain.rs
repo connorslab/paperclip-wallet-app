@@ -54,26 +54,54 @@ pub(crate) struct PreparedSend {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
 pub struct SendApproval { #[schema(value_type = String)] pub request_id: bitcoin::Txid, pub total_sat: u64 }
 
-#[utoipa::path(post, path = "/send/prepare", tag = "onchain", request_body = bark_json::web::OnchainSendRequest,
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SendReviewRequest {
+	pub destination: String,
+	pub amount_sat: Option<u64>,
+	#[serde(default)] pub send_max: bool,
+}
+
+#[utoipa::path(post, path = "/send/prepare", tag = "onchain", request_body = SendReviewRequest,
 	responses((status = 200, description = "Review or submission result", body = serde_json::Value)),
-	description = "Prepare an exact 60-second on-chain review; returns request_id, destination, amount_sat, fee_sat and total_sat. Does not sign or broadcast.")]
-async fn send_prepare(State(state): State<Arc<ServerState>>, Json(body): Json<bark_json::web::OnchainSendRequest>) -> HandlerResult<Json<serde_json::Value>> {
+	description = "Prepare an exact 60-second on-chain review; returns request_id, destination, amount_sat, fee_sat and total_sat. For Send Max, set send_max to true and omit amount_sat. Send Max sends spendable on-chain funds after miner fees to an external account. Does not sign or broadcast.")]
+async fn send_prepare(State(state): State<Arc<ServerState>>, Json(body): Json<SendReviewRequest>) -> HandlerResult<Json<serde_json::Value>> {
 	let _lifecycle = state.wallet_lifecycle.lock().await;
 	let mut review = state.send_review.lock().await; *review = None;
 	let wallet = state.require_wallet()?;
 	let onchain = state.require_onchain()?;
 	let address = body.destination.parse::<bitcoin::Address<_>>().badarg("Invalid destination")?.require_network(wallet.network().await?).badarg("Wrong network")?;
-	if body.amount_sat == 0 { return Err(anyhow::anyhow!("Enter a positive amount").into()); }
+	let requested = send_review_amount(&body)?;
 	wallet.chain().update_fee_rates(wallet.config().fallback_fee_rate).await?;
 	let mut guard = onchain.write().await;
 	guard.sync(wallet.chain()).await?;
-	let amount = Amount::from_sat(body.amount_sat);
-	let psbt = guard.prepare_tx(&[(address.clone(), amount)], wallet.chain().fee_rates().await.regular).await?;
+	let rate = wallet.chain().fee_rates().await.regular;
+	let (psbt, amount) = if let Some(amount) = requested {
+		(guard.prepare_tx(&[(address.clone(), amount)], rate).await?, amount)
+	} else {
+		if cast_bdk(&*guard)?.inner.is_mine(address.script_pubkey()) { return Err(anyhow::anyhow!("Send Max needs a destination outside this account").into()); }
+		let psbt = guard.prepare_drain_tx(address.clone(), rate).await?;
+		if psbt.unsigned_tx.output.len() != 1 || psbt.unsigned_tx.output[0].script_pubkey != address.script_pubkey() { return Err(anyhow::anyhow!("Unexpected Send Max outputs").into()); }
+		let amount = psbt.unsigned_tx.output[0].value;
+		if amount == Amount::ZERO { return Err(anyhow::anyhow!("Balance is too small after fees").into()); }
+		(psbt, amount)
+	};
 	let fee = psbt.fee().context("Unable to calculate payment fee")?.to_sat();
-	let total = body.amount_sat.checked_add(fee).context("Payment total overflow")?;
-	let result = serde_json::json!({"request_id": psbt.unsigned_tx.compute_txid(), "destination": address.to_string(), "amount_sat": body.amount_sat, "fee_sat": fee, "total_sat": total});
+	let total = amount.to_sat().checked_add(fee).context("Payment total overflow")?;
+	let result = serde_json::json!({"request_id": psbt.unsigned_tx.compute_txid(), "destination": address.to_string(), "amount_sat": amount.to_sat(), "fee_sat": fee, "total_sat": total,"send_max":body.send_max});
 	*review = Some(PreparedSend { owner: onchain.clone(), psbt, destination: address, amount, created: std::time::Instant::now() });
 	Ok(Json(result))
+}
+
+fn send_review_amount(body: &SendReviewRequest) -> anyhow::Result<Option<Amount>> {
+	if body.send_max {
+		anyhow::ensure!(body.amount_sat.is_none(), "Send Max cannot include a separate amount");
+		Ok(None)
+	} else {
+		let amount = body.amount_sat.context("Enter a positive amount")?;
+		anyhow::ensure!(amount > 0 && amount <= Amount::MAX_MONEY.to_sat(), "Enter a valid positive amount");
+		Ok(Some(Amount::from_sat(amount)))
+	}
 }
 
 #[utoipa::path(post, path = "/send/commit", tag = "onchain", request_body = SendApproval,
@@ -506,6 +534,18 @@ mod assistance_tests {
 	use tower::ServiceExt;
 	use tokio_util::sync::CancellationToken;
 	use crate::auth::AuthToken;
+
+	#[test]
+	fn send_max_requires_an_unambiguous_amount_and_preserves_old_requests() {
+		let request: SendReviewRequest = serde_json::from_value(serde_json::json!({"destination":"test","amount_sat":1000})).unwrap();
+		assert_eq!(send_review_amount(&request).unwrap(),Some(Amount::from_sat(1000)));
+		let maximum: SendReviewRequest = serde_json::from_value(serde_json::json!({"destination":"test","send_max":true})).unwrap();
+		assert_eq!(send_review_amount(&maximum).unwrap(),None);
+		for (amount,send_max) in [(Some(1000),true),(None,false),(Some(0),false),(Some(u64::MAX),false)] {
+			assert!(send_review_amount(&SendReviewRequest { destination:"test".into(),amount_sat:amount,send_max }).is_err());
+		}
+		assert!(serde_json::from_value::<SendReviewRequest>(serde_json::json!({"destination":"test","send_max":true,"amount":1000})).is_err());
+	}
 
 	#[tokio::test]
 	async fn assistance_routes_require_authentication_and_reject_unprepared_commits() {

@@ -627,10 +627,10 @@ pub async fn send_commit(configuration: &configuration::Configuration, send_appr
     }
 }
 
-/// Prepare an exact 60-second on-chain review; returns request_id, destination, amount_sat, fee_sat and total_sat. Does not sign or broadcast.
-pub async fn send_prepare(configuration: &configuration::Configuration, onchain_send_request: models::OnchainSendRequest) -> Result<serde_json::Value, Error<SendPrepareError>> {
+/// Prepare an exact 60-second on-chain review; returns request_id, destination, amount_sat, fee_sat and total_sat. For Send Max, set send_max to true and omit amount_sat. Send Max sends spendable on-chain funds after miner fees to an external account. Does not sign or broadcast.
+pub async fn send_prepare(configuration: &configuration::Configuration, send_review_request: models::SendReviewRequest) -> Result<serde_json::Value, Error<SendPrepareError>> {
     // add a prefix to parameters to efficiently prevent name collisions
-    let p_body_onchain_send_request = onchain_send_request;
+    let p_body_send_review_request = send_review_request;
 
     let uri_str = format!("{}/api/v1/onchain/send/prepare", configuration.base_path);
     let mut req_builder = configuration.client.request(reqwest::Method::POST, &uri_str);
@@ -641,7 +641,7 @@ pub async fn send_prepare(configuration: &configuration::Configuration, onchain_
     if let Some(ref token) = configuration.bearer_access_token {
         req_builder = req_builder.bearer_auth(token.to_owned());
     };
-    req_builder = req_builder.json(&p_body_onchain_send_request);
+    req_builder = req_builder.json(&p_body_send_review_request);
 
     let req = req_builder.build()?;
     let resp = configuration.client.execute(req).await?;

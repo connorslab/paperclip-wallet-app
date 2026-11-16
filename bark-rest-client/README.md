@@ -319,6 +319,7 @@ Class | Method | HTTP request | Description
  - [SendOnchainRequest](docs/SendOnchainRequest.md)
  - [SendRequest](docs/SendRequest.md)
  - [SendResponse](docs/SendResponse.md)
+ - [SendReviewRequest](docs/SendReviewRequest.md)
  - [SignMessageRequest](docs/SignMessageRequest.md)
  - [SignedMessage](docs/SignedMessage.md)
  - [TipResponse](docs/TipResponse.md)

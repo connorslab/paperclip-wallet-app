@@ -38,6 +38,7 @@
     $('wallet-remove').close();removing=null;$('wallet-remove-form').reset();
     for(const id of ['cold-address','cold-relay','cold-history','cold-history-status','activity-list','history','ln-result','ln-invoice','ln-offer-output','address','deposit-address']) $(id)?.replaceChildren();
     for(const id of ['destination','amount','ln-destination','ln-amount','chain-destination','chain-amount','ln-identifier']) if($(id))$(id).value='';
+    $('chain-max').checked=false;$('chain-max').onchange();
     $('cold-balance').textContent='Loading…';$('cold-pending').textContent='Loading…';history=[];lastRelay=null;
   }
   async function choose(id) {

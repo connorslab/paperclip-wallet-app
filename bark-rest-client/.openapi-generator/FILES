@@ -208,6 +208,7 @@ docs/SendOnchainFeeEstimateQuery.md
 docs/SendOnchainRequest.md
 docs/SendRequest.md
 docs/SendResponse.md
+docs/SendReviewRequest.md
 docs/SignMessageRequest.md
 docs/SignedMessage.md
 docs/TipResponse.md
@@ -445,6 +446,7 @@ src/models/send_onchain_fee_estimate_query.rs
 src/models/send_onchain_request.rs
 src/models/send_request.rs
 src/models/send_response.rs
+src/models/send_review_request.rs
 src/models/sign_message_request.rs
 src/models/signed_message.rs
 src/models/tip_response.rs
