@@ -57,7 +57,7 @@ does not establish parity. Native UI and background scheduling can differ.
 | Paperclip Bridge | Both mobile directions implemented, with separate availability and payment status | Outgoing Ark/CLN/LND funding, incoming node receipt, quote review and recovery history implemented | Live swaps and funded recovery/upgrade acceptance remain |
 | JoinBlaket / Jam | Five jars, remote session, receive, reviewed maker controls | Same tasks through authenticated fixed-upstream proxy | Actual Kilombino XBT Jam endpoint, live validation, bond setup and taker flows |
 | Existing Kilojoin funds | Recovery UI retained; new rounds rejected before database access | No new Kilojoin entry point | Verify existing-round completion and withdrawal on upgraded wallets |
-| Backups / upgrades | Encrypted full backups and scoped mobile wallet state | Complete volume backups | Restore tests, update migrations and desktop backup UX |
+| Backups / upgrades | Encrypted seed/database backups and scoped mobile wallet state | Complete volume backups | Preserve separate mobile payment/Bridge recovery records, restore tests, update migrations and desktop backup UX |
 | UI and accessibility | Phone / Duo / foldable adaptive layout, nested tab histories | Four primary menus, browser history/focus, responsive account switcher | Physical-device and screen-reader checks; see UI-UX-VALIDATION.md for local simulator/emulator/browser evidence |
 | Distribution | Apple build 70 remains existing release; Android development builds | Existing packages predate current fixes | Signed candidates, store eligibility, clean-install and update tests |
 
@@ -553,3 +553,22 @@ tests passed (one live opt-in test skipped), and `just checks` passed.
 Android CI `43837023567` passed both native architectures and API 35/36 at
 `f8bcbb0`. This confirms the Ark Bridge/shared invoice guard revision, not the
 later restore/export changes or a physical-device upgrade.
+
+### Backup scope still needs completion
+
+The current mobile archive contains the seed, network and native SQLite snapshot.
+It does not include separate app recovery records. Android keeps its wallet-scoped
+pending-payment warning in `wallet-pending` in SecureStore; both mobile apps keep
+Bridge quote/history state outside the native database. The iOS archive exporter
+and Android exporter currently serialize only the native snapshot and seed data.
+A successful SQLite restore therefore does not establish complete recovery of an
+uncertain app submission or Bridge conversion.
+
+Before release, define and test a versioned, cross-platform recovery envelope for
+these records, bound to the restored wallet's identity. Preserve unknown outcomes
+and original payment references without turning saved reviews into new spending
+approval. Import must never automatically repeat a payment. Test old archives,
+wrong-wallet records, interrupted import and status recovery after restoration.
+Node credentials intentionally stored only on-device require a separate policy;
+do not silently add them to portable backups. This gap remains open alongside
+funded recovery and platform upgrade/restore acceptance.
