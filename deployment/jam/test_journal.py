@@ -1,6 +1,9 @@
 import json
 import os
 from pathlib import Path
+import shutil
+import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -96,6 +99,60 @@ class JournalTest(unittest.TestCase):
             self.assertIsNone(self.journal.claim(self.wallet, self.identifier, review['approval']))
         finally:
             other.close()
+
+    def crash_writer(self, operation):
+        # A new interpreter exits without closing SQLite or running finally
+        # blocks. No socket, wallet key, payment or external service is used.
+        program = '''
+import os
+import sys
+from paperclip_jam.journal import Journal
+journal = Journal(sys.argv[1], lambda: 1000)
+wallet, identifier = 'xbt:fixture-fingerprint', '1' * 64
+review = journal.status(wallet, identifier)
+if sys.argv[2] == 'claimed':
+    assert journal.claim(wallet, identifier, review['approval']) == 'aabb'
+else:
+    journal.db.execute('BEGIN IMMEDIATE')
+    journal.db.execute("UPDATE payment SET state='submitting' WHERE id=?", (identifier,))
+os._exit(23)
+'''
+        result = subprocess.run([sys.executable, '-c', program, str(self.directory), operation],
+                                capture_output=True, timeout=15)
+        self.assertEqual(result.returncode, 23, 'Crash fixture did not reach its exit boundary')
+        self.assertEqual(result.stdout, b'')
+        self.assertEqual(result.stderr, b'')
+
+    def test_abrupt_exit_after_claim_and_backup_restore_cannot_replay(self):
+        review = self.prepare()
+        self.crash_writer('claimed')
+        self.assertEqual(self.journal.status(self.wallet, self.identifier)['state'], 'submitting')
+        self.assertIsNone(self.journal.claim(self.wallet, self.identifier, review['approval']))
+        # This is a quiescent journal copy, not a full host-volume backup test.
+        restored_directory = self.directory.parent / 'restored'
+        shutil.copytree(self.directory, restored_directory)
+        restored = Journal(restored_directory, lambda: self.now)
+        try:
+            self.assertTrue(restored.pending())
+            self.assertIsNone(restored.claim(self.wallet, self.identifier, review['approval']))
+            with self.assertRaises(PaymentConflict):
+                restored.cancel(self.wallet, self.identifier)
+            with self.assertRaises(PaymentConflict):
+                restored.reserve(self.wallet, '3' * 64, self.request)
+            restored.finish(self.wallet, self.identifier, False)
+            self.assertEqual(restored.status(self.wallet, self.identifier)['state'], 'unknown')
+            restored.finish(self.wallet, self.identifier, True)
+            self.assertFalse(restored.pending())
+            self.assertIsNone(restored.claim(self.wallet, self.identifier, review['approval']))
+        finally:
+            restored.close()
+
+    def test_abrupt_exit_before_commit_rolls_back_submission_boundary(self):
+        review = self.prepare()
+        self.crash_writer('uncommitted')
+        self.assertEqual(self.journal.status(self.wallet, self.identifier)['state'], 'prepared')
+        self.assertEqual(self.journal.claim(self.wallet, self.identifier, review['approval']), 'aabb')
+        self.assertIsNone(self.journal.claim(self.wallet, self.identifier, review['approval']))
 
     def test_symlink_directory_is_rejected(self):
         link = Path(self.root.name).resolve() / 'link'
