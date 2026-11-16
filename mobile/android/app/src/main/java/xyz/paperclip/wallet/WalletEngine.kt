@@ -222,9 +222,6 @@ class WalletEngine private constructor(context: Context) {
 			) {
 				"This wallet is already imported"
 			}
-			if (opened) invoke("close")
-			opened = false
-			connected = false
 			val id = UUID.randomUUID().toString()
 			val next =
 				JSONObject()
@@ -235,9 +232,7 @@ class WalletEngine private constructor(context: Context) {
 					.put("name", name)
 					.put("kind", "hot")
 					.put("provisioning", true)
-			saveRecord(next)
-			record = next
-			openStored()
+			installProfile(next)
 		}
 
 	suspend fun importPublic(
@@ -267,9 +262,6 @@ class WalletEngine private constructor(context: Context) {
 		) {
 			"This public wallet is already imported"
 		}
-		if (opened) invoke("close")
-		opened = false
-		connected = false
 		val next =
 			JSONObject()
 				.put("id", UUID.randomUUID().toString())
@@ -278,9 +270,7 @@ class WalletEngine private constructor(context: Context) {
 				.put("descriptor", receive)
 				.put("name", name)
 				.put("provisioning", true)
-		saveRecord(next)
-		record = next
-		openStored()
+		installProfile(next)
 	}
 
 	suspend fun previewPublic(
@@ -311,7 +301,45 @@ class WalletEngine private constructor(context: Context) {
 			.put("descriptor", profile.getString("descriptor"))
 	}
 
-	private fun openStored() {
+	private fun installProfile(next: JSONObject) {
+		val previous = record ?: registry().selected()
+		val reopenPrevious = opened
+		val id = UUID.fromString(next.getString("id")).toString()
+		check(registry().entries().none { it.getString("id") == id }) { "Wallet is already registered" }
+		val destination = File(root, id)
+		check(!destination.exists()) { "Wallet data already exists; preserve it before retrying" }
+		if (opened) invoke("close")
+		opened = false
+		connected = false
+		try {
+			record = next
+			// Match iOS: finish native creation before committing keys/selection.
+			openStored(persistProvisioning = false)
+			saveRecord(next)
+		} catch (failure: Exception) {
+			val closed = runCatching { invoke("close") }.isSuccess
+			opened = false
+			connected = false
+			record = null
+			val unregistered = runCatching { registry().entries().none { it.getString("id") == id } }.getOrDefault(false)
+			if (!closed || !unregistered) {
+				throw IllegalStateException("Wallet setup could not finish. Data was preserved; restart Paperclip before retrying.", failure)
+			}
+			if (destination.exists() && !destination.deleteRecursively()) {
+				failure.addSuppressed(IllegalStateException("Unregistered wallet data could not be removed"))
+			}
+			record = previous
+			if (reopenPrevious && previous != null) {
+				try { openStored() } catch (reopenFailure: Exception) {
+					failure.addSuppressed(reopenFailure)
+					throw IllegalStateException("Setup failed and the previous wallet could not reopen. Its saved data was preserved.", failure)
+				}
+			}
+			throw failure
+		}
+	}
+
+	private fun openStored(persistProvisioning: Boolean = true) {
 		if (opened) return
 		if (record == null) {
 			record = registry().selected() ?: error("Create or restore a wallet first")
@@ -336,7 +364,7 @@ class WalletEngine private constructor(context: Context) {
 		)
 		if (r.optBoolean("provisioning")) {
 			r.put("provisioning", false)
-			saveRecord(r)
+			if (persistProvisioning) saveRecord(r)
 		}
 		opened = true
 	}
