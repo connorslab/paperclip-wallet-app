@@ -73,6 +73,7 @@ jobs:
           docker rm -f wallet-smoke
           docker run --rm --network none --entrypoint paperclip-wallet "$IMAGE" --version | grep -F '0.10.0'
           docker run --rm --network none -v "$PWD:/tests:ro" --entrypoint python3 "$IMAGE" /tests/deployment/test_daemon.py
+          docker run --rm --network none -v "$PWD:/tests:ro" --entrypoint python3 "$IMAGE" /tests/deployment/desktop/test_native_daemon.py --binary /usr/local/bin/paperclip-walletd
       - name: Publish tested architecture image
         if: inputs.publish
         env:

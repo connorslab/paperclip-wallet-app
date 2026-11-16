@@ -1451,3 +1451,21 @@ clock now expires the quote during the actual TLS preflight. The test asserts bo
 preflights occurred and no payment intent/send was created. Production clock and
 expiry behavior are unchanged. Container CI and installed-platform acceptance
 must still verify this source revision before release.
+
+## Native desktop prerequisites: 2026-11-16
+
+The shared daemon builds natively on this Apple Silicon Mac with the current web
+UI embedded. A fresh, unfunded native smoke test verifies owner authentication,
+denied unauthenticated access and cross-origin preflights, 0700/0600 files,
+graceful shutdown and authentication preservation across restart. It creates no
+wallet keys or payments. The reusable check is in
+`deployment/desktop/test_native_daemon.py` and is included in the Linux candidate
+image workflow with networking disabled. This is daemon evidence, not a signed
+macOS app, installer, launcher or upgrade/restore acceptance.
+
+Windows Jam portability remains an explicit blocker: the pinned runtime and
+companion use POSIX fcntl locks. Windows needs reviewed equivalent locking or a
+managed bundled runtime; removing locking is not an acceptable substitute.
+Linux/macOS/Windows signing, native packaging and the other desktop gates above
+remain open. A separate regression test also prevents the bundled host's loopback
+Jam API address from becoming a broken browser handoff link.
