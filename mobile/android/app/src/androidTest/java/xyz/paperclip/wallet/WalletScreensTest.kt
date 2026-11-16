@@ -58,6 +58,7 @@ class WalletScreensTest {
 	}
 
 	private fun click(text: String) {
+		waitFor(text)
 		compose.onNodeWithText(text).performScrollTo().performClick()
 	}
 
@@ -151,6 +152,7 @@ class WalletScreensTest {
 			compose.onNodeWithTag("tab-Lightning").performClick()
 			waitFor("Lightning through Ark")
 			capture("05-lightning")
+			click("Lightning through Ark")
 			click("Receive a Lightning payment")
 			waitFor("Create invoice")
 			compose.onNodeWithText("Amount in sats").assertExists()
@@ -163,6 +165,7 @@ class WalletScreensTest {
 			compose.onNodeWithTag("tab-Settings").performClick()
 			waitFor("Your wallet")
 			capture("07-settings-dark")
+			click("Wallet tools")
 			click("CoinJoin")
 			waitFor("JoinBlaket")
 			click("Previous Kilojoin funds and round recovery")
@@ -177,8 +180,10 @@ class WalletScreensTest {
 			back()
 			waitFor("JoinBlaket")
 			back()
+			waitFor("Wallet tools")
+			back()
 			waitFor("Your wallet")
-			click("Wallets")
+			click("Your wallets")
 			waitFor("Add a wallet")
 			capture("12-wallets")
 			click("Krux / QR signer")
@@ -187,11 +192,13 @@ class WalletScreensTest {
 			compose.onNodeWithText("legacy").performScrollTo().assertIsDisplayed()
 			capture("12-qr-wallet")
 			back()
+			click("Preferences")
 			click("Alerts and maintenance")
 			waitFor("Payment status notifications")
 			capture("13-alerts")
 			back()
-			click("Connection settings")
+			back()
+			click("Connections")
 			waitFor("Save and connect")
 			capture("08-connections")
 			compose
@@ -205,7 +212,9 @@ class WalletScreensTest {
 			compose.onNodeWithText("Unsaved changes").assertExists()
 			compose.onNodeWithTag("tab-Settings").assertIsSelected()
 			back()
+			click("Preferences")
 			click("Light")
+			back()
 			compose.onNodeWithText("Your wallet").performScrollTo()
 			capture("09-settings-light")
 			scenario.onActivity { activity ->
