@@ -602,3 +602,12 @@ simulator build and bundle verification pass. Both the Lightning layout test and
 Bridge entry/send/receive status-navigation test pass on the unfunded iPhone
 simulator. The older CI compiler still needs to validate this follow-up; local
 Xcode success alone does not close that failure.
+
+Android run `43837871210` at `a18742b` passed both native builds but failed the
+onboarding screenshot's active-window check on both API 35 and API 36. Compose
+found the onboarding control; the accessibility root did not match the app within
+ten seconds. The full wallet-navigation test passed locally on an unfunded API 35
+ARM64 emulator. This is not enough to dismiss the CI failures. One API 35 job rerun
+was requested, and capture failures now report only the observed package name,
+without logging wallet text. The same active-window assertion and timeout remain.
+CI emulator acceptance is still open; investigate repeated failures before release.

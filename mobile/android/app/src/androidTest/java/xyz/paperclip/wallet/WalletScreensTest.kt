@@ -23,9 +23,16 @@ class WalletScreensTest {
 		val instrumentation = InstrumentationRegistry.getInstrumentation()
 		// Accessibility attaches asynchronously on the first capture. Wait for a
 		// real wallet window; never accept a system error dialog as a UI preview.
-		compose.waitUntil(10_000) {
-			instrumentation.uiAutomation.rootInActiveWindow?.packageName?.toString() ==
-				instrumentation.targetContext.packageName
+		var observedPackage: String? = null
+		try {
+			compose.waitUntil(10_000) {
+				observedPackage = instrumentation.uiAutomation.rootInActiveWindow?.packageName?.toString()
+				observedPackage == instrumentation.targetContext.packageName
+			}
+		} catch (error: ComposeTimeoutException) {
+			// Package names diagnose a missing accessibility root or system
+			// overlay without dumping wallet text or recovery words into logs.
+			throw AssertionError("Cannot capture $name: active accessibility package was ${observedPackage ?: "unavailable"}; expected ${instrumentation.targetContext.packageName}", error)
 		}
 		val image = checkNotNull(instrumentation.uiAutomation.takeScreenshot())
 		// Public test images survive the test runner's automatic APK uninstall.
