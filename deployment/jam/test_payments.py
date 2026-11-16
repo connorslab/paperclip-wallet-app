@@ -2,6 +2,7 @@ import asyncio
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from paperclip_jam.journal import Journal, PaymentConflict
 from paperclip_jam.payments import Payments
@@ -102,6 +103,59 @@ class PaymentsTest(unittest.IsolatedAsyncioTestCase):
             await self.service.prepare(self.adapter, self.identifier, self.request)
         self.assertEqual(self.journal.status(self.adapter.identity, self.identifier)['state'], 'cancelled')
         self.assertEqual(self.adapter.send_count, 0)
+
+    async def test_cancellation_before_submission_keeps_review_unsubmitted(self):
+        review = await self.service.prepare(self.adapter, self.identifier, self.request)
+        entered = asyncio.Event()
+        async def paused_validation(quote):
+            entered.set()
+            await asyncio.Event().wait()
+        with patch.object(self.adapter, 'validate_inputs', paused_validation):
+            task = asyncio.create_task(self.service.commit(self.adapter, self.identifier, review['approval']))
+            await asyncio.wait_for(entered.wait(), 1)
+            task.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await task
+        self.assertEqual(self.journal.status(self.adapter.identity, self.identifier)['state'], 'prepared')
+        self.assertEqual(self.adapter.send_count, 0)
+        self.assertEqual((await self.service.cancel(self.adapter, self.identifier))['state'], 'cancelled')
+
+    async def test_cancellation_during_broadcast_stays_unknown_after_restart(self):
+        review = await self.service.prepare(self.adapter, self.identifier, self.request)
+        entered = asyncio.Event()
+        async def paused_broadcast(signed, quote):
+            self.adapter.send_count += 1
+            entered.set()
+            await asyncio.Event().wait()
+        with patch.object(self.adapter, 'broadcast', paused_broadcast):
+            task = asyncio.create_task(self.service.commit(self.adapter, self.identifier, review['approval']))
+            await asyncio.wait_for(entered.wait(), 1)
+            task.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await task
+        self.journal.close()
+        self.journal = Journal(Path(self.root.name).resolve() / 'private')
+        self.service = Payments(self.journal)
+        self.assertEqual((await self.service.commit(self.adapter, self.identifier, review['approval']))['state'], 'unknown')
+        self.assertEqual((await self.service.check(self.adapter, self.identifier))['state'], 'unknown')
+        with self.assertRaises(PaymentConflict):
+            await self.service.cancel(self.adapter, self.identifier)
+        self.adapter.observed = True
+        self.assertEqual((await self.service.check(self.adapter, self.identifier))['state'], 'submitted')
+        self.assertEqual(self.adapter.send_count, 1)
+
+    async def test_failed_status_persistence_after_broadcast_cannot_replay(self):
+        review = await self.service.prepare(self.adapter, self.identifier, self.request)
+        with patch.object(self.journal, 'finish', side_effect=OSError('Synthetic disk failure')):
+            with self.assertRaises(OSError):
+                await self.service.commit(self.adapter, self.identifier, review['approval'])
+        self.journal.close()
+        self.journal = Journal(Path(self.root.name).resolve() / 'private')
+        self.service = Payments(self.journal)
+        self.assertEqual((await self.service.commit(self.adapter, self.identifier, review['approval']))['state'], 'submitting')
+        self.adapter.observed = True
+        self.assertEqual((await self.service.check(self.adapter, self.identifier))['state'], 'submitted')
+        self.assertEqual(self.adapter.send_count, 1)
 
 
 if __name__ == '__main__':

@@ -1517,3 +1517,13 @@ keyboard, locking and live pending-payment transitions still require acceptance.
 Read-only reconciliation of the saved Ark attempt found a failed sender and an
 unavailable receiver record (HTTP 404). This does not establish settlement or
 fee recovery; the existing budget reservation remains unchanged.
+
+The pinned Jam runtime now has six real-signer bond cases: exact registered
+funding output, wrong date/destination and ordinary-send rejection, date expiry
+between review and commit, chain-time maturity, actual CLTV witness, and post-review
+maturity/freeze revalidation. Three additional recovery cases cover task
+cancellation on either side of submission and disk failure after broadcast,
+including reopen of the durable journal and proof of no second broadcast.
+The local companion suite passes 43 tests with one container-only test skipped.
+Both-architecture CI must separately pass these additions; live bonds, client
+payment flows and physical signer acceptance remain open.

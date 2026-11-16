@@ -4,6 +4,7 @@ Run in the pinned dependency environment after applying install.py. No node,
 production credentials or externally funded wallet is accessed by these tests.
 """
 import asyncio
+from datetime import datetime, timezone
 from pathlib import Path
 import tempfile
 import unittest
@@ -12,9 +13,11 @@ from unittest.mock import AsyncMock, patch
 from fastapi.testclient import TestClient
 from loguru import logger
 from mnemonic import Mnemonic
-from jmcore.bitcoin import get_txid
+from jmcore.bitcoin import get_txid, parse_transaction
+from jmcore.timenumber import timestamp_to_timenumber
 from jmwallet.backends.base import Transaction
-from jmwallet.wallet.address import pubkey_to_p2wpkh_script
+from jmwallet.wallet.address import pubkey_to_p2wpkh_script, script_to_p2wsh_scriptpubkey
+from jmwallet.wallet.bond_registry import BondRegistry, create_bond_info, save_registry
 from jmwallet.wallet.models import UTXOInfo
 from jmwallet.wallet.service import WalletService
 from jmwalletd.app import create_app
@@ -198,6 +201,117 @@ class RuntimeTest(unittest.TestCase):
         self.coin.frozen = True
         result = self.client.post(self.base + '/' + self.body['id'] + '/commit', json={'approval': review['approval']})
         self.assertEqual(result.status_code, 409)
+        self.backend.broadcast_transaction.assert_not_awaited()
+
+    def registered_bond(self):
+        locktime = int(datetime(2028, 1, 1, tzinfo=timezone.utc).timestamp())
+        index = timestamp_to_timenumber(locktime)
+        address = self.wallet.get_fidelity_bond_address(index, locktime)
+        script = self.wallet.get_fidelity_bond_script(index, locktime)
+        key = self.wallet.get_fidelity_bond_key(index, locktime)
+        path = f"{self.wallet.root_path}/0'/2/{index}"
+        bond = create_bond_info(address, locktime, index, path,
+            key.get_public_key_bytes().hex(), script, self.wallet.network)
+        registry = BondRegistry()
+        registry.add_bond(bond)
+        save_registry(registry, self.directory, self.wallet.wallet_fingerprint)
+        return bond, script
+
+    def bond_withdrawal(self):
+        bond, script = self.registered_bond()
+        self.coin = UTXOInfo(txid='3' * 64, vout=1, value=100_000,
+            address=bond.address, confirmations=10,
+            scriptpubkey=script_to_p2wsh_scriptpubkey(script).hex(),
+            path=bond.path, mixdepth=0, locktime=bond.locktime)
+        self.wallet.utxo_cache[0] = [self.coin]
+        self.backend.get_utxo.return_value = self.coin
+        self.body.update(purpose='withdraw_bond', bond_locktime=bond.locktime,
+            amount_sat=0, send_max=True, max_total_sat=self.coin.value,
+            input_utxos=[self.coin.outpoint])
+        return bond, script
+
+    def test_registered_bond_funding_signs_only_after_exact_date_review(self):
+        bond, script = self.registered_bond()
+        self.body.update(purpose='fund_bond', destination=bond.address,
+            bond_locktime=bond.locktime)
+        with patch('paperclip_jam.adapter.time.time', return_value=bond.locktime - 3600):
+            review = self.prepare()
+            self.assertEqual(review['quote']['bond_locktime'], bond.locktime)
+            self.backend.broadcast_transaction.assert_not_awaited()
+            result = self.client.post(self.base + '/' + self.body['id'] + '/commit',
+                json={'approval': review['approval']})
+        self.assertEqual(result.status_code, 200)
+        self.backend.broadcast_transaction.assert_awaited_once()
+        transaction = parse_transaction(self.backend.broadcast_transaction.await_args.args[0])
+        outputs = [output for output in transaction.outputs
+            if output.script == script_to_p2wsh_scriptpubkey(script)]
+        self.assertEqual(len(outputs), 1)
+        self.assertEqual(outputs[0].value, self.body['amount_sat'])
+
+    def test_bond_funding_rejects_wrong_date_and_ordinary_send_bypass(self):
+        bond, _ = self.registered_bond()
+        self.body.update(destination=bond.address)
+        for number, changes in enumerate([
+                {}, {'purpose':'fund_bond', 'bond_locktime':bond.locktime + 86400},
+                {'purpose':'fund_bond', 'bond_locktime':bond.locktime,
+                 'destination':self.wallet.get_receive_address(1, 0)}]):
+            with self.subTest(changes=number):
+                body = {**self.body, **changes, 'id': f'{number + 1:064x}'}
+                self.assertEqual(self.client.post(self.base, json=body).status_code, 409)
+        self.backend.broadcast_transaction.assert_not_awaited()
+
+    def test_bond_funding_cannot_commit_after_unlock_date(self):
+        bond, _ = self.registered_bond()
+        self.body.update(purpose='fund_bond', destination=bond.address,
+            bond_locktime=bond.locktime)
+        with patch('paperclip_jam.adapter.time.time', return_value=bond.locktime - 3600):
+            review = self.prepare()
+        with patch('paperclip_jam.adapter.time.time', return_value=bond.locktime):
+            result = self.client.post(self.base + '/' + self.body['id'] + '/commit',
+                json={'approval': review['approval']})
+        self.assertEqual(result.status_code, 409)
+        self.backend.broadcast_transaction.assert_not_awaited()
+
+    def test_bond_withdrawal_requires_chain_maturity_and_real_cltv_witness(self):
+        bond, script = self.bond_withdrawal()
+        self.backend.get_median_time_past.return_value = bond.locktime
+        self.assertEqual(self.client.post(self.base, json=self.body).status_code, 409)
+        self.backend.broadcast_transaction.assert_not_awaited()
+        # Failed preparation is terminal; explicitly create a different review.
+        self.body['id'] = 'b' * 64
+        self.backend.get_median_time_past.return_value = bond.locktime + 1
+        review = self.prepare()
+        self.assertEqual(review['quote']['amount_sat'] + review['quote']['fee_sat'], self.coin.value)
+        self.assertEqual(review['quote']['change_sat'], 0)
+        result = self.client.post(self.base + '/' + self.body['id'] + '/commit',
+            json={'approval': review['approval']})
+        self.assertEqual(result.status_code, 200)
+        self.backend.broadcast_transaction.assert_awaited_once()
+        transaction = parse_transaction(self.backend.broadcast_transaction.await_args.args[0])
+        self.assertEqual(transaction.locktime, bond.locktime)
+        self.assertEqual(len(transaction.inputs), 1)
+        self.assertLess(transaction.inputs[0].sequence, 0xffffffff)
+        self.assertEqual(transaction.witnesses[0][-1], script)
+
+    def test_bond_withdrawal_rechecks_chain_time_and_freeze_after_review(self):
+        bond, _ = self.bond_withdrawal()
+        self.backend.get_median_time_past.return_value = bond.locktime + 1
+        review = self.prepare()
+        target = self.base + '/' + self.body['id'] + '/commit'
+        self.backend.get_median_time_past.return_value = bond.locktime
+        self.assertEqual(self.client.post(target, json={'approval':review['approval']}).status_code, 409)
+        self.backend.get_median_time_past.return_value = bond.locktime + 1
+        self.coin.frozen = True
+        self.assertEqual(self.client.post(target, json={'approval':review['approval']}).status_code, 409)
+        self.backend.broadcast_transaction.assert_not_awaited()
+
+    def test_ordinary_send_never_spends_matured_bond_even_automatically(self):
+        bond, _ = self.bond_withdrawal()
+        self.backend.get_median_time_past.return_value = bond.locktime + 1
+        self.body.update(purpose='send', bond_locktime=None)
+        self.assertEqual(self.client.post(self.base, json=self.body).status_code, 409)
+        self.body.update(id='b' * 64, input_utxos=None)
+        self.assertEqual(self.client.post(self.base, json=self.body).status_code, 409)
         self.backend.broadcast_transaction.assert_not_awaited()
 
     def test_chain_spent_coin_cannot_be_sent_from_stale_cache(self):
