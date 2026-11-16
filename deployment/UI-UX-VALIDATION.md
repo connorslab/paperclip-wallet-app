@@ -467,3 +467,21 @@ an existing test wallet and timed out waiting for onboarding. That wallet remain
 intact. The test now rejects a nonempty QA app with a clear precondition error;
 assertions and timeouts remain unchanged. Evidence:
 `/tmp/android-create-fresh-ui.log`.
+
+
+## Wallet identity after selection: 2026-11-16
+
+Android now applies the selected wallet's balance, network, connection and saved
+payment warning together. Unreadable metadata prevents selection instead of leaving
+the previous wallet name above the newly active native wallet. A successful switch
+also clears the previous wallet's fee-review, exit and expiry display state.
+
+The model/storage regression verifies failure and retry without a payment. Both
+Settings UI cases pass on an isolated API 36/16 KB emulator (17.296 seconds),
+including source-to-target and target-to-source switching. Each switch returns to
+the correct dashboard; Send and Receive remain visible, and the native identity
+matches the displayed wallet. The light-theme screenshot
+`/tmp/selection-state-dashboard.png` was inspected. The wallet name, navigation and
+primary actions fit without clipping. The unsynced total remains unknown while
+the known local on-chain balance appears separately. These are unfunded emulator
+checks, not physical-device, screen-reader or live-node acceptance.

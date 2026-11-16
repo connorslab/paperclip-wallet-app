@@ -20,6 +20,14 @@ internal object NativeBridge {
 	external fun call(request: ByteArray, seed: ByteArray): ByteArray
 }
 
+/** UI state prepared before a wallet selection commits. Never includes wallet keys. */
+class WalletSelection internal constructor(
+	val balance: Long,
+	val network: String,
+	val connection: Connection,
+	val pending: JSONObject?,
+)
+
 class WalletEngine private constructor(context: Context) {
 	private val appContext = context.applicationContext
 
@@ -176,19 +184,27 @@ class WalletEngine private constructor(context: Context) {
 		val index = registry()
 		val previous = index.selected()
 		index.select(id)
-		if (previous?.getString("id") == id && opened) return@serial invoke("overview_onchain")
+		val target = checkNotNull(index.selected())
+		// Read all wallet-bound UI metadata before changing the native session or
+		// persistent selection. A later read failure must not leave the old UI
+		// controlling a newly selected wallet.
+		val pending = pendingFor(id)
+		val settings = connectionFor(target)
+		val network = target.getString("network")
+		fun snapshot(overview: JSONObject) = WalletSelection(overview.getLong("total_sat"), network, settings, pending)
+		if (previous?.getString("id") == id && opened) return@serial snapshot(invoke("overview_onchain"))
 		val reopenPrevious = opened
 		if (opened) invoke("close")
 		opened = false
 		connected = false
 		try {
-			record = checkNotNull(index.selected())
+			record = target
 			// Do not persist an unusable selection. Keep legacy provisioning
 			// completion in the same registry write as the successful switch.
 			openStored(persistProvisioning = false)
-			val overview = invoke("overview_onchain")
+			val selection = snapshot(invoke("overview_onchain"))
 			saveRegistry(index)
-			overview
+			selection
 		} catch (failure: Exception) {
 			val closed = runCatching { invoke("close") }.isSuccess
 			opened = false
@@ -401,11 +417,15 @@ class WalletEngine private constructor(context: Context) {
 		invoke("overview_onchain")
 	}
 
-	suspend fun connection(): Connection = serial {
-		registry().selected()?.optJSONObject("connection")?.let {
-			return@serial Connection.from(it)
+	suspend fun connection(): Connection = serial { connectionFor(registry().selected()) }
+
+	private fun connectionFor(profile: JSONObject?): Connection {
+		if (profile?.has("connection") == true) {
+			val saved = profile.get("connection")
+			check(saved is JSONObject) { "Saved wallet connection could not be read. Existing settings were preserved." }
+			return Connection.from(saved)
 		}
-		vault.read("connection")?.let { bytes ->
+		return vault.read("connection")?.let { bytes ->
 			try {
 				Connection.from(JSONObject(String(bytes, Charsets.UTF_8)))
 			} finally {
@@ -733,9 +753,17 @@ class WalletEngine private constructor(context: Context) {
 		vault.write("wallet-pending", all.toString().toByteArray())
 	}
 
+	private fun pendingFor(id: String): JSONObject? {
+		val all = pendingRecords()
+		if (!all.has(id)) return null
+		val saved = all.get(id)
+		check(saved is JSONObject) { "Saved payment status could not be read. Verify the payment outcome before trying again." }
+		return saved
+	}
+
 	suspend fun pending() = serial {
 		val id = registry().selected()?.getString("id") ?: return@serial null
-		pendingRecords().optJSONObject(id)
+		pendingFor(id)
 	}
 
 	suspend fun close() = serial {

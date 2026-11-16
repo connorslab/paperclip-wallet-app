@@ -150,4 +150,49 @@ class WalletSettingsScreensTest {
 			}
 		}
 	}
+
+	@Test
+	fun walletSwitchReturnsToTheSelectedDashboard() {
+		val context = InstrumentationRegistry.getInstrumentation().targetContext
+		val engine = WalletEngine.shared(context)
+		val original = runBlocking { engine.activeID() }
+		val created = mutableListOf<String>()
+		try {
+			val target = runBlocking {
+				engine.create(engine.phrase(), "xbt-regtest", "Switch UI target")
+				checkNotNull(engine.activeID()).also { created += it }
+			}
+			val source = runBlocking {
+				engine.create(engine.phrase(), "xbt-regtest", "Switch UI source")
+				checkNotNull(engine.activeID()).also { created += it }
+			}
+			ActivityScenario.launch<MainActivity>(Intent(context, MainActivity::class.java).putExtra("regtestScreenshots", true)).use {
+				fun dashboard(name: String) {
+					compose.waitUntil(30000) {
+						compose.onAllNodes(hasTestTag("wallet-switcher") and hasText(name) and isEnabled()).fetchSemanticsNodes().isNotEmpty()
+					}
+					compose.onNodeWithText("Total balance").assertIsDisplayed()
+				}
+				dashboard("Switch UI source")
+				for ((id, name) in listOf(target to "Switch UI target", source to "Switch UI source")) {
+					compose.onNodeWithTag("wallet-switcher").performClick()
+					compose.onNode(hasText(name) and hasClickAction()).performScrollTo().performClick()
+					dashboard(name)
+					org.junit.Assert.assertEquals(id, runBlocking { engine.activeID() })
+					compose.onNodeWithText("Send").assertIsDisplayed()
+					compose.onNodeWithText("Receive").assertIsDisplayed()
+				}
+				capture("wallet-switch-dashboard")
+			}
+		} finally {
+			runBlocking {
+				for (id in created) {
+					val profile = engine.profiles().firstOrNull { it.id == id } ?: continue
+					engine.removeWallet(id, profile.name, "REMOVE ${profile.name}", true)
+				}
+				if (original != null && engine.profiles().any { it.id == original }) engine.select(original)
+			}
+		}
+	}
+
 }

@@ -42,6 +42,21 @@ Google documents the distinction between upload and app-signing keys in
 Play-signed download option in its
 [App Bundle FAQ](https://developer.android.com/guide/app-bundle/faq).
 
+## Latest verification: 2026-11-16
+
+- Android CI [43860298279](https://github.com/connorslab/paperclip-wallet-app/actions/runs/43860298279)
+  at `4882d13` passed both native architectures and API 35/36 emulator jobs. The
+  preceding `768a98e` run also passed. The earlier intermittent system ANR did not
+  recur; its cause remains unconfirmed.
+- iOS CI [43858316127](https://github.com/connorslab/paperclip-wallet-app/actions/runs/43858316127)
+  at `768a98e` passed Swift/native tests, device and simulator builds, bundle checks
+  and UI tests. This verifies the older-runtime Back selector and native test-host
+  setup. The later wallet-switch adapter change at `2c75741` has local native test
+  evidence; its separate CI run is still in progress.
+- The Android selection-metadata follow-up below has local native/model/UI test
+  evidence. It is newer than those completed runs and needs its own CI result.
+  These passes do not close the live, physical-device or packaging gates below.
+
 ## Acceptance matrix
 
 A feature is complete only when users can perform the same task with equivalent
@@ -842,3 +857,38 @@ an Android 9 runtime or physical power-loss test. iOS uses Keychain for these ap
 records and does not use this Android wrapper. Both development branches receive
 the Android fix; no shared Rust/REST or iOS storage format changes are needed.
 The separate uncertain-commit, process-death and funded-upgrade gates remain open.
+
+
+## Wallet selection and saved payment status: 2026-11-16
+
+Android previously committed a wallet switch, then read its payment journal and
+connection settings through separate calls. A failed journal read could leave the
+screen on the previous wallet while the native session used the target wallet.
+Selection now prepares balance, network, connection and pending-payment state
+before commit and returns them together. The screen applies that snapshot in one
+state update. Invalid journal entries, including explicit nulls, are errors rather
+than evidence that no payment exists. Invalid connection record types also stop
+selection. Wallet-specific fee-review and recovery display state clears on a
+successful switch.
+
+The model regression reproduces the previous UI/native identity mismatch using
+only unfunded profiles and encrypted test metadata. After the fix, malformed JSON,
+invalid/null payment entries and an invalid connection record leave the original
+wallet selected in both layers. Restoring the fixture metadata permits retry and
+preserves the target wallet's unknown-payment warning. All 11 storage, native
+assistance, profile removal, public-wallet, selection and backup-lifecycle cases
+pass on the isolated ARM64 API 36/16 KB emulator. The existing interrupted-removal
+test and the new selection test are now in the CI class list.
+
+Both Settings UI tests pass, including switching between two owned fixtures and
+returning to the correct dashboard with Send and Receive visible. The captured
+screen was inspected. Android unit tests pass (81 run, three opt-in skipped), debug
+and test APK assembly passes, and `just checks` passes. Logs:
+`/tmp/selection-state-before-runtime.log`, `/tmp/selection-state-after-runtime.log`
+and `/tmp/selection-state-ui-runtime.log`.
+
+This change is specific to Android's combined screen/payment-journal loading path.
+iOS publishes the selected profile before loading its balance and does not use
+this Android journal. No shared Rust, JNI, REST or encrypted-record format changed.
+The fix is mirrored to both development branches. Portable payment/Bridge recovery
+archives and process-death/uncertain-commit acceptance remain separate open gates.

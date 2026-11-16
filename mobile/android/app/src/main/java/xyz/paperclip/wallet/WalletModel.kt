@@ -178,20 +178,20 @@ class WalletModel internal constructor(
 
 	fun selectWallet(id: String) = job {
 		clearBackup()
-		val overview = engine.select(id)
-		val pending = engine.pending()
-		val network = engine.network() ?: error("Missing wallet network")
-		val connection = engine.connection()
+		val selection = engine.select(id)
 		change {
 			it.copy(
 				activeID = id,
-				network = network,
-				chain = overview.getLong("total_sat"),
+				network = selection.network,
+				chain = selection.balance,
 				ark = null,
 				connected = false,
-				connection = connection,
+				connection = selection.connection,
 				review = null,
-				result = pending,
+				reviewIssue = null,
+				exitStatus = null,
+				expiryHeight = null,
+				result = selection.pending,
 				address = "",
 				activity = emptyList(),
 				activityRecords = emptyList(),
