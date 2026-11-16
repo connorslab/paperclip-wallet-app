@@ -1,5 +1,6 @@
 
 use std::env;
+use std::path::Path;
 use std::process::Command;
 
 
@@ -7,6 +8,22 @@ fn main() {
 	println!("cargo:rerun-if-changed=build.rs");
 	println!("cargo:rerun-if-env-changed=GIT_HASH");
 	println!("cargo:rerun-if-env-changed=BARK_VERSION");
+	if env::var("GIT_HASH").is_err() || env::var("BARK_VERSION").is_err() {
+		// HEAD alone does not change when committing on the same branch. Resolve
+		// the shared refs directory through Git so linked worktrees also rebuild
+		// their version metadata after a commit, checkout or tag change.
+		for name in ["HEAD", "refs", "packed-refs"] {
+			let output = Command::new("git").args(["rev-parse", "--git-path", name])
+				.output().expect("Failed to locate Git version metadata");
+			if output.status.success() {
+				let path = String::from_utf8_lossy(&output.stdout);
+				let path = path.trim();
+				if Path::new(path).exists() {
+					println!("cargo:rerun-if-changed={}", path);
+				}
+			}
+		}
+	}
 
 	if env::var("GIT_HASH").is_err() {
 		// Get the Git commit hash
