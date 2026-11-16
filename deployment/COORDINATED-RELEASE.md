@@ -1410,3 +1410,10 @@ passed 32 cases locally with one Linux-only case skipped; it covers delegation
 expiry/lock, denied export/unlock/send routes and independent ordinary JWT expiry.
 Three package-generator cases passed. Container CI and installed-host acceptance
 are separate checks, not implied by these results.
+
+The scoped pairing container suite subsequently passed all 33 cases on AMD64 and
+ARM64 ([run 43956779853](https://github.com/connorslab/paperclip-wallet-app/actions/runs/43956779853)),
+and browser CI passed at source `c70ab3061cf1d64ee6fe894489a897062f0a72f2`.
+The StartOS test wrapper `09b86708f2caa412f40a024d4536c270035db4ef` pins that
+source as candidate `0.10.0:3`. Its package workflow and installed-host acceptance
+are not covered by the container-suite result.

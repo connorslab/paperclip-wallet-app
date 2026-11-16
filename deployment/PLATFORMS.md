@@ -65,8 +65,12 @@ replacing the token. Do not downgrade a wallet with state newer binaries created
 
 ## Coordinated release
 
-The next major release targets iOS, Android (Google Play and signed APK), Umbrel
-and StartOS together. See [the release acceptance matrix](COORDINATED-RELEASE.md)
+The next major release targets iOS, Android (Google Play and signed APK), Umbrel,
+StartOS, and signed Linux, macOS and Windows desktop packages together. The
+desktop packages use the same frontend and wallet backend as the host packages,
+including bundled Jam and mobile pairing. Native installation, signing,
+data-preserving upgrades and recovery are required release gates; desktop
+packages are not available yet. See [the release acceptance matrix](COORDINATED-RELEASE.md)
 for the shared source freeze, remaining feature gaps and publication sequence.
 
 ## Package development
