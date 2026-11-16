@@ -209,9 +209,12 @@ final class AdaptiveLayoutTests: XCTestCase {
 		XCTAssertLessThan(Date().timeIntervalSince(openedAt), 30, "Bridge navigation must not stall the UI event loop")
 		XCTAssertTrue(badge.label.hasPrefix("Bridge service:"))
 		capture(app, "Bridge send status compact")
-		// Duo places the native back control in a separate toolbar.
-		let back = app.descendants(matching: .any).matching(identifier: "BackButton").firstMatch
+		// Duo places Back in a separate toolbar; older iOS exposes the
+		// navigation-bar button with the preceding page's accessibility label.
+		let toolbarBack = app.descendants(matching: .any).matching(identifier: "BackButton").firstMatch
+		let back = toolbarBack.exists ? toolbarBack : app.navigationBars["Pay Spamcoin (BTC)"].buttons["Paperclip Bridge"]
 		XCTAssertTrue(back.waitForExistence(timeout: 5))
+		XCTAssertTrue(back.isHittable)
 		back.tap()
 		XCTAssertTrue(app.buttons["bridge-open-receive"].waitForExistence(timeout: 10))
 		app.buttons["bridge-open-receive"].tap()

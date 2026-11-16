@@ -31,7 +31,7 @@ class WalletScreensTest {
 			}
 		} catch (error: ComposeTimeoutException) {
 			// Classify known system dialogs without logging their text, wallet
-			// content, traces or recovery words. Keep the original assertion.
+			// content or recovery words. Keep the original assertion.
 			val root = instrumentation.uiAutomation.rootInActiveWindow
 			val dialog = if (root == null || root.packageName?.toString() != "android") "none" else when {
 				listOf("isn't responding", "isn’t responding", "not responding").any { root.findAccessibilityNodeInfosByText(it).isNotEmpty() } -> "not-responding"
@@ -44,7 +44,13 @@ class WalletScreensTest {
 					.getHistoricalProcessExitReasons(instrumentation.targetContext.packageName, 0, 3)
 					.filter { it.processName == instrumentation.targetContext.packageName }.map { it.reason }
 			}.getOrDefault(emptyList()) else emptyList()
-			throw AssertionError("Cannot capture $name: active accessibility package was ${observedPackage ?: "unavailable"}; expected ${instrumentation.targetContext.packageName}; dialog=$dialog; recent exit reason codes=$exits", error)
+			val label = instrumentation.targetContext.applicationInfo.loadLabel(instrumentation.targetContext.packageManager).toString()
+			val mentionsApp = root?.findAccessibilityNodeInfosByText(label)?.isNotEmpty() == true
+			// Only code symbols and line numbers, never message text, arguments,
+			// local values or the system ANR trace (which can include private data).
+			val mainMethods = android.os.Looper.getMainLooper().thread.stackTrace.take(16)
+				.map { "${it.className}.${it.methodName}:${it.lineNumber}" }
+			throw AssertionError("Cannot capture $name: active accessibility package was ${observedPackage ?: "unavailable"}; expected ${instrumentation.targetContext.packageName}; dialog=$dialog; mentionsApp=$mentionsApp; recent exit reason codes=$exits; main methods=$mainMethods", error)
 		}
 		val image = checkNotNull(instrumentation.uiAutomation.takeScreenshot())
 		// Public test images survive the test runner's automatic APK uninstall.
