@@ -38,6 +38,32 @@ class PackageTest(unittest.TestCase):
             with self.assertRaises(ValueError):
                 packaging.package('umbrel', 'repo:latest', Path(directory) / 'new')
 
+    def test_bundled_jam_has_separate_data_filtered_rpc_and_verified_loopback_tls(self):
+        image = 'example.invalid/paperclip:test@sha256:' + 'a' * 64
+        jam = 'example.invalid/paperclip-jam:test@sha256:' + 'b' * 64
+        with tempfile.TemporaryDirectory() as directory:
+            out = Path(directory) / 'umbrel'
+            packaging.package('umbrel', image, out, jam_image=jam)
+            services = json.loads((out / 'docker-compose.yml').read_text())['services']
+            wallet, companion, rpc = (services[name] for name in ('wallet', 'jam', 'jam-rpc'))
+            self.assertEqual(companion['image'], jam)
+            self.assertEqual(rpc['image'], jam)
+            self.assertEqual(companion['environment']['JMWALLETD_HOST'], '127.0.0.1')
+            self.assertNotIn('JMWALLETD_NO_TLS', companion['environment'])
+            self.assertEqual(wallet['network_mode'], 'service:jam')
+            self.assertEqual(wallet['environment']['BARKD_JOINBLAKET_URL'], 'https://localhost:28183')
+            self.assertIn('${APP_DATA_DIR}/jam-public:/run/paperclip-jam-public:ro', wallet['volumes'])
+            self.assertFalse(any('/jam:' in volume or '/jam-rpc:' in volume for volume in wallet['volumes']))
+            self.assertFalse(any('NODE_' in key for key in companion['environment']))
+            for service in (wallet, companion, rpc):
+                self.assertNotIn('ports', service)
+                self.assertEqual(service['cap_drop'], ['ALL'])
+                self.assertEqual(service['user'], '1000:1000')
+            self.assertEqual(services['app_proxy']['environment']['APP_HOST'], 'paperclip-wallet_jam_1')
+            self.assertEqual(json.loads((out / 'umbrel-app.yml').read_text())['dependencies'], ['bitcoin'])
+            for volume in ('data', 'jam', 'jam-rpc', 'jam-public'):
+                self.assertTrue((out / volume).is_dir())
+
 
 if __name__ == '__main__':
     unittest.main()

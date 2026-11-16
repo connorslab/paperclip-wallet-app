@@ -11,6 +11,7 @@ from jmwalletd.deps import get_optional_token
 from .adapter import JamAdapter
 from .journal import Journal, PaymentConflict
 from .payments import Payments
+from .hosting import install_hosting
 
 
 Identifier = Annotated[str, Field(pattern=r'^[0-9a-f]{64}$')]
@@ -91,6 +92,7 @@ class MutationGuard:
 def install(app, state):
     service = Payments(Journal(state.data_dir / 'paperclip'))
     app.state.paperclip_payments = service
+    install_hosting(app, state.data_dir)
     app.add_middleware(MutationGuard, service=service)
     router = APIRouter(prefix='/api/v1')
 

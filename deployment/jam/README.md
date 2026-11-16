@@ -18,6 +18,15 @@ that hash. The original TLS, Tor and restricted RPC-filter entrypoint stays in u
 The companion must retain private `/data` separately from Paperclip wallet data;
 backups must include it, including `paperclip/payments.sqlite`.
 
+The Umbrel generator accepts `--jam-image` with an independently tested immutable
+companion image. It creates separate `jam`, `jam-rpc` and `jam-public` volumes.
+Only the RPC filter receives the selected node's credentials. Paperclip shares
+Jam's network namespace for verified loopback HTTPS, and reads only its exported
+public certificate. Neither Jam keys nor the TLS private key are mounted into
+Paperclip. All four persistent directories must be backed up together. The
+companion refuses a second API process because the upstream maker state is
+process-local. StartOS 0.4 wrapper integration remains open.
+
 ## Payment contract
 
 The versioned API prepares a signed transaction without broadcasting. It returns

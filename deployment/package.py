@@ -6,18 +6,22 @@ from pathlib import Path
 import re
 import shutil
 
+from jam_hosting import add_bundled_jam
+
 
 def write(path, value):
     path.write_text(json.dumps(value, indent=2) + '\n', encoding='utf-8')
 
 
-def package(platform, image, destination, app='paperclip-wallet'):
+def package(platform, image, destination, app='paperclip-wallet', jam_image=None):
     if not re.fullmatch(r'[a-z0-9][a-z0-9.:/_-]*:[A-Za-z0-9_.-]+@sha256:[0-9a-f]{64}', image):
         raise ValueError('Supply a tag and immutable multi-architecture image index digest')
     if not re.fullmatch(r'[a-z][a-z0-9]*(-[a-z0-9]+)+', app):
         raise ValueError('Invalid app ID')
     if platform == 'startos' and app != 'paperclip-wallet':
         raise ValueError('Custom app IDs currently apply to Umbrel only')
+    if jam_image is not None and platform != 'umbrel':
+        raise ValueError('Bundled Jam on StartOS requires its 0.4 wrapper, not this legacy generator')
     root = Path(__file__).resolve().parents[1]
     out = Path(destination)
     out.mkdir(parents=True, exist_ok=False)
@@ -45,6 +49,8 @@ def package(platform, image, destination, app='paperclip-wallet'):
         }})
         (out / 'data').mkdir()
         (out / 'data/.gitkeep').touch()
+        if jam_image is not None:
+            add_bundled_jam(out, jam_image, app)
     elif platform == 'startos':
         manifest = {
             'id': app, 'title': 'Paperclip Wallet Beta', 'version': '0.10.0.0', 'license': 'MIT',
@@ -116,5 +122,6 @@ if __name__ == '__main__':
     parser.add_argument('--image', required=True)
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--app-id', default='paperclip-wallet')
+    parser.add_argument('--jam-image', help='Tested bundled Jam companion tag and immutable index digest (Umbrel)')
     args = parser.parse_args()
-    package(args.platform, args.image, args.output, args.app_id)
+    package(args.platform, args.image, args.output, args.app_id, args.jam_image)
