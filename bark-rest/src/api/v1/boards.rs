@@ -166,7 +166,12 @@ async fn prepare_review(State(state): State<Arc<ServerState>>, Json(body): Json<
 #[utoipa::path(post, path = "/commit", tag = "boards", request_body = BoardApproval,
 	responses((status = 200, description = "Durably accepted board awaiting confirmations", body = serde_json::Value)),
 	description = "Consume the exact reviewed funding transaction once after checking wallet identity, expiry, recovery costs and unspent inputs. Pending does not mean spendable. Check status after an uncertain response; never automatically submit a new board.")]
-async fn commit_review(State(state): State<Arc<ServerState>>, Json(body): Json<BoardApproval>) -> HandlerResult<Json<serde_json::Value>> {
+pub(super) async fn commit_review(State(state): State<Arc<ServerState>>, Json(body): Json<BoardApproval>) -> HandlerResult<Json<serde_json::Value>> {
+	commit_review_tracked(state, body, || Ok(())).await
+}
+
+pub(super) async fn commit_review_tracked<F>(state: Arc<ServerState>, body: BoardApproval, before_submit: F) -> HandlerResult<Json<serde_json::Value>>
+where F: FnOnce() -> anyhow::Result<()> + Send {
 	let _lifecycle = state.wallet_lifecycle.lock().await;
 	let prepared = state.board_review.lock().await.take().badarg("Review boarding first")?;
 	let wallet = state.require_wallet()?; let onchain = state.require_onchain()?;
@@ -189,6 +194,7 @@ async fn commit_review(State(state): State<Arc<ServerState>>, Json(body): Json<B
 		guard.sign_psbt(prepared.psbt.clone()).await
 	}.await;
 	let signed = signed.badarg("Unable to approve boarding")?;
+	before_submit()?;
 	let board = wallet.board_psbt(signed, prepared.key, prepared.expiry).await?;
 	Ok(Json(serde_json::json!({"state": "pending", "amount_sat": board.amount.to_sat(), "txid": board.funding_tx.compute_txid()})))
 }

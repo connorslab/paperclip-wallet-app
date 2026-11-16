@@ -2,7 +2,7 @@
 // Observation requests only. Address generation, signing and mutations never retry.
 const PaperclipTransport = (() => {
   const reads = new Set(['wallet', 'wallet/identity', 'wallet/balance', 'wallet/vtxos',
-    'wallet/connected', 'wallet/next-round', 'wallet/platform-node', 'onchain/balance',
+    'submissions', 'wallet/connected', 'wallet/next-round', 'wallet/platform-node', 'onchain/balance',
     'onchain/transactions', 'bitcoin/tip', 'exits/status/all', 'history', 'lightning/receives', 'lightning/offers']);
   function canRetry(path, method) {
     return method === 'GET' && (reads.has(path) || /^lightning\/(sends|receives)\/[^/]+$/.test(path));

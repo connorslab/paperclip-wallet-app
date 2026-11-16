@@ -8,15 +8,20 @@ const cold='a'.repeat(64);
  async function scenario(name,test){
   const page=await browser.newPage({viewport:{width:1000,height:1000}}),calls=[],errors=[];
   page.setDefaultTimeout(10000);
-  let blocker=null;
+  let blocker=null;const receipts=new Map();
   const hold=match=>{let release,arrived;const wait=new Promise(r=>release=r),seen=new Promise(r=>arrived=r);blocker={match,wait,arrived};return{release,seen};};
   page.on('pageerror',error=>errors.push(error.message));
   await page.route('http://wallet.test/**',async route=>{
-   const url=new URL(route.request().url()),name=url.pathname.replace('/api/v1/','');
+   const url=new URL(route.request().url());let name=url.pathname.replace('/api/v1/','');
    if(url.pathname.startsWith('/api/')){
-    const body=route.request().postDataJSON();calls.push({name,body});
+    let body=route.request().postDataJSON(),envelope=null;
+    if(name==='submissions'&&!body)return route.fulfill({json:{version:1,pending:[...receipts.values()].filter(r=>r.state==='unconfirmed'),recent:[...receipts.values()]}});
+    if(name==='submissions/ack')return route.fulfill({json:{id:body.id,acknowledged:true}});
+    if(name==='submissions/check')return route.fulfill({json:receipts.get(body.id)||{id:body.id,state:'rejected'}});
+    if(name==='submissions'){envelope=body;name=body.operation;body=body.body;receipts.set(envelope.id,{id:envelope.id,operation:name,state:'unconfirmed'});}
+    calls.push({name,body});
     if(blocker?.match(name,body)){const blocked=blocker;blocker=null;blocked.arrived();await blocked.wait;}
-    const value=name==='wallet'?{fingerprint:'synthetic'}:name==='wallet/identity'?{network:'regtest',exit_profile:2,lightning_enabled:true,lightning_debit_limit:true}:
+    const value=name==='wallet'?{fingerprint:'synthetic'}:name==='wallet/identity'?{network:'regtest',exit_profile:2,submission_journal:1,lightning_enabled:true,lightning_debit_limit:true}:
      name==='hardware/accounts'?{accounts:[{id:cold,label:'Savings signer',kind:'hardware'}]}:
      name==='wallet/balance'?{spendable_sat:12345}:name==='onchain/balance'?{confirmed_sat:6789}:
      name==='onchain/send/prepare'?{...body,request_id:'d'.repeat(64),fee_sat:100,total_sat:body.amount_sat+100}:
@@ -27,6 +32,7 @@ const cold='a'.repeat(64);
       body.operation==='prepare'?{account:cold,request_id:'c'.repeat(64),destination:body.destination,amount_sat:70000,fee_sat:1000,total_sat:71000,psbt:signer.original}:
       body.operation==='verify'?{verified:true,fee_sat:1000,txid:'d'.repeat(64)}:
       body.operation==='broadcast'?{state:'submitted',txid:'d'.repeat(64)}:{}):[];
+    if(envelope){const receipt={id:envelope.id,operation:name,state:'received',result:value};receipts.set(envelope.id,receipt);return route.fulfill({json:receipt}).catch(()=>{});}
     return route.fulfill({json:value}).catch(()=>{});
    }
    const file=path.join(__dirname,'../web',url.pathname==='/'?'index.html':url.pathname.slice(1));

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import vm from 'node:vm';
+import {webcrypto} from 'node:crypto';
 
 const source = readFileSync(new URL('../web/activity.js', import.meta.url), 'utf8') + '\n' + readFileSync(new URL('../web/transport.js', import.meta.url), 'utf8') + '\n' + readFileSync(new URL('../web/app.js', import.meta.url), 'utf8');
 const html = readFileSync(new URL('../web/index.html', import.meta.url), 'utf8');
@@ -14,12 +15,16 @@ function fixture(network, lightningEnabled = true, empty = false) {
     return elements.get(id);
   };
   let failPath = null;
-  const context = vm.createContext({window: {addEventListener() {}}, PaperclipReview: {ask: async () => true, cancel() {}}, PaperclipReceive: {show() {}, clear() {}}, document: {getElementById: element, createElement: () => ({textContent:'',append() {}})}, confirm: () => true, URL, btoa, AbortController, setTimeout, clearTimeout, setInterval: () => {}, sessionStorage: { getItem: () => null, setItem() {}, removeItem() {} },
+  const context = vm.createContext({crypto:webcrypto, window: {addEventListener() {}}, PaperclipReview: {ask: async () => true, cancel() {}}, PaperclipReceive: {show() {}, clear() {}}, document: {getElementById: element, createElement: () => ({textContent:'',append() {}})}, confirm: () => true, URL, btoa, AbortController, setTimeout, clearTimeout, setInterval: () => {}, sessionStorage: { getItem: () => null, setItem() {}, removeItem() {} },
     fetch: async (path, options) => {
+      if(path.endsWith('/submissions/ack'))return {ok:true,status:200,json:async()=>({id:JSON.parse(options.body).id,acknowledged:true})};
+      if(path.endsWith('/submissions')&&options.method==='GET')return {ok:true,status:200,json:async()=>({version:1,pending:[],recent:[]})};
+      const envelope=path.endsWith('/submissions')?JSON.parse(options.body):null;
+      if(envelope){path='/api/v1/'+envelope.operation;options={...options,body:JSON.stringify(envelope.body)};}
       calls.push({path, options});
       if (failPath && path.endsWith(failPath)) throw Error('Transport interrupted');
       const result = path.endsWith('/wallet') ? {fingerprint: empty ? null : 'test-fingerprint'}
-        : path.endsWith('/wallet/identity') ? {network, exit_profile: 2, lightning_enabled: lightningEnabled, lightning_debit_limit: true}
+        : path.endsWith('/wallet/identity') ? {network, exit_profile: 2, submission_journal:1, lightning_enabled: lightningEnabled, lightning_debit_limit: true}
         : path.endsWith('/fees/ark/send') ? {recipient_amount_sat: JSON.parse(options.body).amount_sat, recovery_reserve_sat: 6000, service_fee_sat: 0, total_debit_sat: JSON.parse(options.body).amount_sat + 6000, remaining_spendable_sat: 92000, input_count: 1, vtxos_spent: ['test-vtxo']}
         : path.endsWith('/fees/lightning/review') ? {net_amount_sat: JSON.parse(options.body).amount_sat ?? 2000, fee_sat: 6000, gross_amount_sat: (JSON.parse(options.body).amount_sat ?? 2000) + 6000, vtxos_spent: ['test-vtxo']}
         : path.endsWith('/wallet/balance') ? {spendable_sat: 100000}
@@ -34,7 +39,7 @@ function fixture(network, lightningEnabled = true, empty = false) {
         : path.endsWith('/boards/commit') ? {state:'pending',txid:'b'.repeat(64)}
         : path.endsWith('/onchain/send/prepare') ? {...JSON.parse(options.body),request_id:'a'.repeat(64),fee_sat:100,total_sat:JSON.parse(options.body).amount_sat+100}
         : path.endsWith('/onchain/send/commit') ? {txid: 'test-txid',state:'submitted'} : [];
-      return {ok: true, status: 200, json: async () => result};
+      return {ok: true, status: 200, json: async () => envelope?{id:envelope.id,operation:envelope.operation,state:'received',result}:result};
     }});
   vm.runInContext(source, context);
   async function trigger(id, kind = 'onclick') {
@@ -376,7 +381,7 @@ for (const mode of ['fixed', 'old-server', 'changed-during-review']) {
   const f = fixture('bitcoin');
   const fetch = f.context.fetch;
   if (mode === 'old-server') f.context.fetch = async (path, options) => path.endsWith('/wallet/identity')
-    ? {ok: true, status: 200, json: async () => ({network: 'bitcoin', exit_profile: 2, lightning_enabled: true})}
+    ? {ok: true, status: 200, json: async () => ({network: 'bitcoin', exit_profile: 2, submission_journal:1, lightning_enabled: true})}
     : fetch(path, options);
   f.element('token').value = 'test-token'; await f.trigger('unlock', 'submit');
   f.element('ln-destination').value = 'ln-fixed-test-invoice';

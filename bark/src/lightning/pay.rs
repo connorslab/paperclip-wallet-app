@@ -1,4 +1,5 @@
 use std::fmt;
+use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Context;
@@ -23,10 +24,17 @@ use crate::actions::lightning::pay::{
 use crate::lightning::{lnaddr_invoice, lnurlp_invoice};
 use crate::movement::PaymentMethod;
 
+#[derive(Clone)]
+struct SubmissionObserver(Arc<dyn Fn(PaymentHash) -> anyhow::Result<()> + Send + Sync>);
+impl fmt::Debug for SubmissionObserver {
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { f.write_str("SubmissionObserver") }
+}
+
 /// Options for a lightning send, see [`Wallet::pay_lightning_invoice_with`].
 #[derive(Debug, Clone, Default)]
 #[non_exhaustive]
 pub struct LightningSendOptions {
+	before_submit: Option<SubmissionObserver>,
 	/// Keep the call open until the payment settles or fails, instead of
 	/// returning once it has been kicked off.
 	pub wait: bool,
@@ -39,6 +47,13 @@ pub struct LightningSendOptions {
 }
 
 impl LightningSendOptions {
+	/// Persist the exact hash before the first checkpoint or a resumed drive.
+	/// Failure prevents submission; callbacks must not submit a payment themselves.
+	pub fn before_submit(mut self, observer: impl Fn(PaymentHash) -> anyhow::Result<()> + Send + Sync + 'static) -> Self {
+		self.before_submit = Some(SubmissionObserver(Arc::new(observer)));
+		self
+	}
+
 	pub fn max_total(mut self, max_total: Option<Amount>) -> Self {
 		self.max_total = max_total;
 		self
@@ -402,11 +417,13 @@ impl Wallet {
 			let start = start_lightning_send(
 				self, invoice.clone(), user_amount, original_payment_method, opts.retry_for, opts.max_total,
 			).await?;
+			if let Some(observer) = &opts.before_submit { observer.0(payment_hash)?; }
 			checkpoint.create(self, start).await?;
 		} else if let Some(send) = checkpoint.get() {
 			// A lower limit does not cancel an already initiated payment. Leave
 			// its checkpoint intact for status checks and background recovery.
 			check_lightning_debit(send.payment_amount, send.fee, send.recovery_reserve, opts.max_total)?;
+			if let Some(observer) = &opts.before_submit { observer.0(payment_hash)?; }
 		}
 
 		self.drive_checkpoint(checkpoint, mode).await
@@ -566,6 +583,26 @@ mod test {
 		// The guard released its lock and normal status/recovery remains possible.
 		finish(&wallet, &pending).await;
 		assert!(checkpoint(&wallet, &pending).await.is_none());
+	}
+
+	#[tokio::test]
+	async fn receipt_failure_prevents_driving_existing_lightning_payment() {
+		let (wallet, _conn) = Wallet::offline_for_test().await;
+		let send = pending_send(&wallet).await;
+		let before = checkpoint(&wallet, &send).await;
+		let expected = send.hash();
+		let observed = Arc::new(std::sync::atomic::AtomicBool::new(false));
+		let marker = observed.clone();
+		let options = LightningSendOptions::default().before_submit(move |hash| {
+			assert_eq!(hash,expected);
+			marker.store(true,std::sync::atomic::Ordering::SeqCst);
+			anyhow::bail!("synthetic receipt storage failure")
+		});
+		let error = wallet.make_lightning_payment_with(&send.send.invoice,send.send.original_payment_method.clone(),None,options).await.unwrap_err();
+		assert!(error.to_string().contains("receipt storage failure"));
+		assert!(observed.load(std::sync::atomic::Ordering::SeqCst));
+		assert_eq!(checkpoint(&wallet,&send).await,before);
+		assert!(wallet.try_lock_action::<LightningSend>(&send.send.id()).await.unwrap().is_some());
 	}
 
 	/// The sync loop reads every pending send before it takes the lock of

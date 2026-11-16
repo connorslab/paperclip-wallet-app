@@ -76,11 +76,17 @@ impl Wallet {
 
 	/// Offboard all VTXOs to a given [bitcoin::Address].
 	pub async fn offboard_all(&self, address: bitcoin::Address) -> anyhow::Result<OffboardResult> {
+		self.offboard_all_tracked(address, |_| Ok(())).await
+	}
+
+	/// Persist a caller's receipt before the offboard checkpoint can commit funds.
+	pub async fn offboard_all_tracked<F>(&self, address: bitcoin::Address, before_submit: F) -> anyhow::Result<OffboardResult>
+	where F: FnOnce(&str) -> anyhow::Result<()> + Send {
 		let input_vtxos = self.spendable_vtxos().await?;
 		let action = start_offboard(
 			self, address, StartOffboardSpec::OffboardWhole { vtxos: input_vtxos },
 		).await?;
-		self.run_offboard(action).await
+		self.run_offboard_tracked(action, before_submit).await
 	}
 
 	/// Offboard the given VTXOs to a given [bitcoin::Address].
@@ -105,10 +111,16 @@ impl Wallet {
 	}
 
 	async fn run_offboard(&self, action: Offboard) -> anyhow::Result<OffboardResult> {
+		self.run_offboard_tracked(action, |_| Ok(())).await
+	}
+
+	async fn run_offboard_tracked<F>(&self, action: Offboard, before_submit: F) -> anyhow::Result<OffboardResult>
+	where F: FnOnce(&str) -> anyhow::Result<()> + Send {
 		let offboard_id = action.id();
 		let mut checkpoint = self.try_lock_action::<Offboard>(&offboard_id).await?
 			.context("offboard action already in progress")?;
 
+		before_submit(&offboard_id)?;
 		checkpoint.create(self, action).await
 			.context("failed to persist initial offboard checkpoint")?;
 

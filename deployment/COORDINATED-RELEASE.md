@@ -183,8 +183,13 @@ BOLT11/BOLT12, reviewed sends and durable unknown-payment reconciliation. Local
 synthetic-node tests cover both adapters; live node and installed-package acceptance
 remain pending. See REMOTE-LIGHTNING.md.
 
-The broader gaps remain open: durable uncertain-operation recovery for the other
-server hot-wallet paths, Bridge browser flows, full server wallet management and recovery,
+The server hot-wallet candidate now includes durable submission receipts and exact
+status recovery across browser restarts, including interrupted on-chain, Ark,
+Lightning, withdrawal and recovery operations. Older-server financial submission
+fails closed. See PAYMENT-ASSISTANCE.md for the remaining crash-window, archival
+and installed-package acceptance limits.
+
+The broader gaps remain open: Bridge browser flows, full server wallet management and recovery,
 Jam service acceptance, payment requests, portable contacts/labels and restricted
 receive-only credentials. Public signing identities, coherent release versions,
 physical signer tests, funded recovery and both host upgrade paths remain release

@@ -580,6 +580,12 @@ impl Exit {
 	/// It's recommended to sync the wallet, by using something like [Wallet::maintenance] being
 	/// doing this.
 	pub async fn start_exit_for_entire_wallet(&self) -> anyhow::Result<()> {
+		self.start_exit_for_entire_wallet_tracked(|_| Ok(())).await
+	}
+
+	/// Record the exact eligible VTXOs before any exit is started.
+	pub async fn start_exit_for_entire_wallet_tracked<F>(&self, before_submit: F) -> anyhow::Result<()>
+	where F: FnOnce(&[VtxoId]) -> anyhow::Result<()> + Send {
 		let mut guard = self.inner.write().await;
 		let all_vtxos = guard.persister.get_vtxos_by_state(&VtxoStateKind::UNSPENT_STATES).await?
 			.into_iter();
@@ -610,6 +616,7 @@ impl Exit {
 			return Ok(());
 		}
 
+		before_submit(&eligible.iter().map(|v| v.id()).collect::<Vec<_>>())?;
 		guard.start_exit_for_vtxos(&eligible, false).await
 	}
 

@@ -34,6 +34,55 @@ automatically. Browser regressions reject incomplete or changed quotes, changed
 amounts and stale sessions at phone, foldable and desktop widths. Live funded
 boarding acceptance remains required.
 
+## Durable server submission recovery
+
+The browser uses authenticated `GET /api/v1/submissions`, `POST /api/v1/submissions`,
+`POST /api/v1/submissions/check`, and `POST /api/v1/submissions/ack` when the wallet advertises
+`submission_journal: 1`. Financial actions fail closed against an older server.
+A random 256-bit submission ID binds the operation and complete reviewed body.
+Repeating an ID never repeats the operation, including after the original response
+was lost. A result remains discoverable and blocks a new submission until the
+client acknowledges delivery, so another tab recovers a lost success reply too.
+Acknowledging a result never changes its settlement state. Changed payloads are rejected. Checking an unseen ID closes it, so a
+late request cannot send after the UI reported that it was not submitted.
+
+Receipts are scoped to the hash of the wallet's network and full public mailbox identity.
+Files are atomically replaced and synced with mode 0600, in mode 0700 directories;
+a process lock and request mutex serialize dispatch. Request bodies, credentials,
+seeds and private keys are not stored in these receipts. Include the complete
+`submissions` directory in server volume backups. Wallet deletion refuses an
+unresolved receipt. Corrupt or unrecognized receipts fail closed.
+
+Ark, Lightning, offboarding, refresh, reviewed on-chain sends, replacements,
+boarding and exit claims record an exact engine reference before committing funds.
+Pre-submission rejection allows a newly reviewed request; an interrupted operation
+that crossed the submission boundary remains uncertain until its own action,
+movement, transaction or payment hash is found. Exit-start records its eligible
+VTXO IDs. Exit-progress recovery observes the existing recovery state machines;
+it does not assert that a particular CPFP transaction settled.
+
+The read-only status check never broadcasts, pays, retries a send or matches by
+amount and timestamp. `received` means an operation returned a result, and
+`recorded` means its engine record was found. Neither means final settlement.
+Ark success feedback uses the movement status, rather than an HTTP success code.
+A new tab loads unresolved receipts before it permits another financial action.
+A rejected request can be reviewed again; a pending payment must not be resent.
+
+Submission work has a 180-second deadline. A concurrent submission or check gets
+a busy response instead of waiting behind another payment. A crash between the
+receipt marker and engine persistence can remain uncertain; the UI does not infer
+failure from a missing engine record. Receipt archival after 10,000 entries is
+not automated, and full-volume restore and process-kill tests on the packaged
+Linux service remain required before release.
+
+Local regression coverage includes cancellation on either side of submission,
+lost replies, changed bodies, delayed requests after a status check, private file
+permissions, symlink rejection, authentication, reopening in another tab, pending
+versus successful feedback, older-server refusal, and wallet/session races.
+Shared-engine tests check that receipt-storage failure does not drive an existing
+Lightning payment or persist an RBF replacement. No live payment was made for
+these tests.
+
 ## RBF security review
 
 The review considered the October 2026

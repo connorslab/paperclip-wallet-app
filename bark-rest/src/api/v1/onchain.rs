@@ -79,7 +79,12 @@ async fn send_prepare(State(state): State<Arc<ServerState>>, Json(body): Json<ba
 #[utoipa::path(post, path = "/send/commit", tag = "onchain", request_body = SendApproval,
 	responses((status = 200, description = "Review or submission result", body = serde_json::Value)),
 	description = "Consume the prepared review once. Requires the same wallet, request ID, total cost and unspent inputs. Returns txid and submitted or pending_broadcast; neither means confirmed. Never retry an uncertain commit automatically.")]
-async fn send_commit(State(state): State<Arc<ServerState>>, Json(body): Json<SendApproval>) -> HandlerResult<Json<serde_json::Value>> {
+pub(super) async fn send_commit(State(state): State<Arc<ServerState>>, Json(body): Json<SendApproval>) -> HandlerResult<Json<serde_json::Value>> {
+	send_commit_tracked(state, body, || Ok(())).await
+}
+
+pub(super) async fn send_commit_tracked<F>(state: Arc<ServerState>, body: SendApproval, before_submit: F) -> HandlerResult<Json<serde_json::Value>>
+where F: FnOnce() -> anyhow::Result<()> + Send {
 	let _lifecycle = state.wallet_lifecycle.lock().await;
 	let reviewed = state.send_review.lock().await.take().badarg("Review an on-chain payment first")?;
 	let wallet = state.require_wallet()?; let onchain = state.require_onchain()?;
@@ -93,6 +98,7 @@ async fn send_commit(State(state): State<Arc<ServerState>>, Json(body): Json<Sen
 		let chain = cast_bdk_mut(&mut *guard)?;
 		let unspent: std::collections::HashSet<_> = chain.list_unspent().iter().map(|u| u.outpoint).collect();
 		anyhow::ensure!(reviewed.psbt.unsigned_tx.input.iter().all(|i| unspent.contains(&i.previous_output)), "Inputs changed; review again");
+		before_submit()?;
 		chain.finish_reviewed_send(reviewed.psbt, &[(reviewed.destination, reviewed.amount)]).await
 	}.await;
 	let tx = result.badarg("Unable to submit reviewed payment")?;
@@ -125,7 +131,12 @@ async fn replacement_prepare(State(state): State<Arc<ServerState>>, Json(body): 
 #[utoipa::path(post, path = "/replacement/commit", tag = "onchain", request_body = ReplacementApproval,
 	responses((status = 200, description = "Review or submission result", body = serde_json::Value)),
 	description = "Consume a 60-second fee review once after refreshing and verifying the original signatures. Returns txid and submitted or pending_broadcast. Check transaction status before any further action.")]
-async fn replacement_commit(State(state): State<Arc<ServerState>>, Json(body): Json<ReplacementApproval>) -> HandlerResult<Json<serde_json::Value>> {
+pub(super) async fn replacement_commit(State(state): State<Arc<ServerState>>, Json(body): Json<ReplacementApproval>) -> HandlerResult<Json<serde_json::Value>> {
+	replacement_commit_tracked(state, body, || Ok(())).await
+}
+
+pub(super) async fn replacement_commit_tracked<F>(state: Arc<ServerState>, body: ReplacementApproval, before_submit: F) -> HandlerResult<Json<serde_json::Value>>
+where F: FnOnce() -> anyhow::Result<()> + Send {
 	let _lifecycle = state.wallet_lifecycle.lock().await;
 	let (owner, prepared) = state.replacement.lock().await.take().badarg("Review a fee replacement first")?;
 	let wallet = state.require_wallet()?;
@@ -133,7 +144,7 @@ async fn replacement_commit(State(state): State<Arc<ServerState>>, Json(body): J
 	if !Arc::ptr_eq(&owner, &onchain) { return Err(anyhow::anyhow!("Wallet changed; review again").into()); }
 	let mut guard = onchain.write().await;
 	guard.sync(wallet.chain()).await?;
-	let tx = cast_bdk_mut(&mut *guard)?.commit_replacement(prepared, body.replacement_txid, body.new_fee_sat).await.badarg("Unable to replace payment")?;
+	let tx = cast_bdk_mut(&mut *guard)?.commit_replacement_tracked(prepared, body.replacement_txid, body.new_fee_sat, before_submit).await.badarg("Unable to replace payment")?;
 	let broadcast = wallet.chain().broadcast_tx(&tx).await.is_ok();
 	Ok(Json(serde_json::json!({"state": if broadcast {"submitted"} else {"pending_broadcast"}, "txid": tx.compute_txid()})))
 }

@@ -1743,6 +1743,11 @@ impl Wallet {
 		self.history().await
 	}
 
+	/// Read an exact movement without recipient or timestamp matching.
+	pub async fn movement(&self, id: MovementId) -> anyhow::Result<Movement> {
+		self.inner.db.get_movement_by_id(id).await
+	}
+
 	/// Fetches all wallet fund movements ordered from newest to oldest.
 	pub async fn history(&self) -> anyhow::Result<Vec<Movement>> {
 		Ok(self.inner.db.get_all_movements().await?)

@@ -306,10 +306,16 @@ pub async fn pay(
 	State(state): State<Arc<ServerState>>,
 	Json(body): Json<bark_json::web::LightningPayRequest>,
 ) -> HandlerResult<Json<bark_json::web::LightningPayResponse>> {
+	pay_with_options(state, body, LightningSendOptions::default()).await
+}
+
+pub(super) async fn pay_with_options(
+	state: Arc<ServerState>, body: bark_json::web::LightningPayRequest, options: LightningSendOptions,
+) -> HandlerResult<Json<bark_json::web::LightningPayResponse>> {
 	let wallet = state.require_wallet()?;
 
 	let amount = body.amount_sat.map(|a| Amount::from_sat(a));
-	let opts = LightningSendOptions::default()
+	let opts = options
 		.retry_for(body.retry_for_secs.map(Duration::from_secs))
 		.max_total(body.max_total_sat.map(Amount::from_sat));
 

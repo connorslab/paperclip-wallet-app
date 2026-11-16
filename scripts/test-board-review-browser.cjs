@@ -9,12 +9,16 @@ const fs=require('node:fs'),path=require('node:path'),assert=require('node:asser
    let malformed=false,hold=null,release=null;
    const quote={request_id:'b'.repeat(64),board_amount_sat:25000,total_sat:26000,net_sat:23000,reserve_sat:2000,network_fee_sat:1000,boarding_fee_sat:500,recovery_anchor_sat:1000,recovery_miner_fee_sat:1000};
    await page.route('http://wallet.test/**',async route=>{
-    const url=new URL(route.request().url()),name=url.pathname.replace('/api/v1/','');
+    const url=new URL(route.request().url());let name=url.pathname.replace('/api/v1/',''),body=route.request().postDataJSON();
+    if(name==='submissions'&&!body)return route.fulfill({json:{version:1,pending:[],recent:[]}});
+    if(name==='submissions/ack')return route.fulfill({json:{id:body.id,acknowledged:true}});
+    if(name==='submissions/check')return route.fulfill({json:{id:body.id,state:'unconfirmed'}});
+    if(name==='submissions'){name=body.operation;body=body.body;}
     if(url.pathname.startsWith('/api/')) {
      if(name==='boards/prepare') {actions.push('prepare');if(hold)await hold;return route.fulfill({json:{...quote,total_sat:malformed?25000:26000}});}
-     if(name==='boards/commit') {actions.push('commit');assert.deepEqual(route.request().postDataJSON(),{request_id:quote.request_id,amount_sat:25000,total_sat:26000});return route.fulfill({status:503,json:{message:'Synthetic uncertain response'}});}
+     if(name==='boards/commit') {actions.push('commit');assert.deepEqual(body,{request_id:quote.request_id,amount_sat:25000,total_sat:26000});return route.fulfill({status:503,json:{message:'Synthetic uncertain response'}});}
      assert.notEqual(name,'boards/board-amount','Do not fall back to an unreviewed boarding contract');
-     return route.fulfill({json:name==='wallet'?{fingerprint:'fixture'}:name==='wallet/identity'?{network:'regtest',exit_profile:2,lightning_enabled:false}:name==='wallet/balance'?{spendable_sat:0}:name==='onchain/balance'?{confirmed_sat:100000}:[]});
+     return route.fulfill({json:name==='wallet'?{fingerprint:'fixture'}:name==='wallet/identity'?{network:'regtest',exit_profile:2,submission_journal:1,lightning_enabled:false}:name==='wallet/balance'?{spendable_sat:0}:name==='onchain/balance'?{confirmed_sat:100000}:[]});
     }
     const file=path.join(__dirname,'../web',url.pathname==='/'?'index.html':url.pathname.slice(1));
     return route.fulfill({body:fs.readFileSync(file),contentType:file.endsWith('.js')?'application/javascript':file.endsWith('.css')?'text/css':file.endsWith('.html')?'text/html':'image/svg+xml'});

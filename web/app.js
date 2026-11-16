@@ -2,6 +2,7 @@
 let token = '';
 let network = null;
 let uncertainMutation = sessionRead('paperclip.uncertain') === '1';
+let submissionJournal = false;
 let lightningEnabled = false;
 let lightningDebitLimit = false;
 let setupPending = false;
@@ -22,7 +23,7 @@ async function api(path, body, method, signal) {
   const mutation = (body !== undefined || (method && method !== 'GET')) && !(path === 'hardware/request' && body?.operation === 'refresh');
   if (mutation) { walletMutations++; globalThis.PaperclipAccounts?.busyChanged(); }
   try {
-    const result = await PaperclipTransport.request(path, {body, method, token, signal, ...(path === 'hardware/request' ? {timeoutMs:150000} : path.startsWith('remote-node/') ? {timeoutMs:190000} : {})});
+    const result = await PaperclipTransport.request(path, {body, method, token, signal, ...(path === 'submissions' && body !== undefined ? {timeoutMs:190000} : path === 'hardware/request' ? {timeoutMs:150000} : path.startsWith('remote-node/') ? {timeoutMs:190000} : {})});
     if (generation !== (globalThis.PaperclipAccounts?.generation ?? 0)) throw new Error('Wallet changed. Refresh the selected wallet.');
     return result;
   }
@@ -85,6 +86,7 @@ async function connectWallet() {
     if (!session || token !== session) return;
     if (!['bitcoin', 'regtest'].includes(info.network) || info.exit_profile !== 2) throw new Error('Unsupported network or ASP recovery profile.');
     network = info.network;
+    submissionJournal = info.submission_journal === 1;
     lightningEnabled = info.lightning_enabled === true;
     lightningDebitLimit = info.lightning_debit_limit === true;
     $('ln-controls').disabled = !lightningEnabled;
@@ -95,6 +97,7 @@ async function connectWallet() {
     $('setup').hidden = true; $('login').hidden = true; $('wallet').hidden = false;
     $('ark-balance').textContent = 'Loading\u2026'; $('chain-balance').textContent = 'Loading\u2026';
     $('submission-warning').hidden = !uncertainMutation;
+    if (submissionJournal && !globalThis.PaperclipAccounts?.selectedId) await syncSubmissions();
     if ($('remember-session').checked) sessionWrite('paperclip.session', token);
     status('Signed in. Loading balances\u2026');
     void update().then(complete => { if (token === session) status(complete ? 'Wallet updated.' : 'Signed in. Some wallet data is unavailable.'); }).catch(() => { if (token === session) status('Signed in. Check connections in Settings.'); });
@@ -203,9 +206,10 @@ $('send').addEventListener('submit', event => { event.preventDefault(); run(even
   }
   if (token !== sessionToken || !network || $('destination').value.trim() !== destination || Number($('amount').value) !== amount) throw new Error('Payment details changed. Review again.');
   status('Submitting once. If the connection fails, check history before trying again.');
-  await mutate('wallet/send', {destination, amount_sat: amount, max_total_sat: quote.total_debit_sat});
+  const result = await mutate('wallet/send', {destination, amount_sat: amount, max_total_sat: quote.total_debit_sat});
   $('destination').value = ''; $('amount').value = ''; $('ark-estimate').hidden = true;
-  transactionResult('success', 'Transaction succeeded', 'Your Ark transfer completed.');
+  if (result?.state === 'successful') transactionResult('success', 'Transfer completed', 'Your Ark transfer is recorded as successful.');
+  else transactionResult(result?.state === 'failed' || result?.state === 'canceled' ? 'failed' : 'pending', 'Check transfer status', 'The wallet recorded your request. Open Activity for its current outcome.', String(result?.movement_id ?? ''));
   void update().catch(() => {});
 }); });
 for (const id of ['destination', 'amount']) $(id).addEventListener('input', () => { $('ark-estimate').hidden = true; });
@@ -214,22 +218,86 @@ $('refresh').onclick = event => run(event.target, async () => {
   await mutate('wallet/refresh/all', {}); await update(); status('Refresh requested. Wait for confirmation and update to check completion.');
 });
 
-// Do not automatically retry an operation after an ambiguous transport failure.
+// Persisted on the server so closing a tab cannot erase an uncertain payment.
+const journalOperations = new Set(['wallet/send','lightning/pay','onchain/send/commit',
+  'onchain/replacement/commit','boards/commit','wallet/offboard/all','wallet/refresh/all',
+  'exits/start/all','exits/progress','exits/claim/all']);
+function submissionWarning(uncertain) {
+  uncertainMutation = uncertain; sessionWrite('paperclip.uncertain', uncertain ? '1' : null);
+  $('submission-warning').hidden = !uncertain;
+}
+async function acknowledgeSubmission(id) {
+  const record = await api('submissions/ack', {id});
+  if (record?.id !== id || record.acknowledged !== true) throw new Error('Could not confirm receipt of this result. Check saved status.');
+}
+async function syncSubmissions(check = false) {
+  const context = walletContext();
+  // Fail closed while loading, including the first visit from a new browser.
+  submissionWarning(true);
+  const history = await api('submissions');
+  if (!currentWallet(context) || !token) return;
+  if (history?.version !== 1 || !Array.isArray(history.pending) || !Array.isArray(history.recent)) throw new Error('Saved payment status is unavailable. Try checking again before sending.');
+  const localId = sessionRead('paperclip.submission');
+  if (!localId && history.pending.length) sessionWrite('paperclip.submission', history.pending[0].id);
+  const ids = new Set(history.pending.map(record => record.id));
+  if (localId) ids.add(localId);
+  let unresolved = false, recovered = null;
+  for (const id of ids) {
+    if (!/^[a-f0-9]{64}$/.test(id)) throw new Error('Saved payment reference is invalid.');
+    const record = check || id === localId ? await api('submissions/check', {id}) : history.pending.find(row => row.id === id);
+    if (!currentWallet(context) || !token) return;
+    if (record?.id !== id || !['received','recorded','rejected','unconfirmed'].includes(record.state)) throw new Error('Could not verify the saved payment result.');
+    unresolved ||= record.state === 'unconfirmed';
+    if (record.state !== 'unconfirmed' && (!recovered || recovered.state === 'rejected')) recovered = record;
+  }
+  if (recovered && !(unresolved && recovered.state === 'rejected')) {
+    const detail = recovered.result?.state;
+    const title = recovered.state === 'rejected' ? 'Request was not submitted' : detail === 'successful' ? 'Transfer completed' : 'Submission found';
+    transactionResult(detail === 'successful' ? 'success' : recovered.state === 'rejected' ? 'failed' : 'pending', title,
+      recovered.state === 'rejected' ? 'Review again when ready.' : 'The original wallet record was recovered. Check Activity or payment status for settlement.',
+      recovered.payment_hash || recovered.txid || String(recovered.result?.movement_id ?? ''));
+    if (recovered.state !== 'rejected') await acknowledgeSubmission(recovered.id);
+    if (!currentWallet(context) || !token) return;
+  }
+  submissionWarning(unresolved);
+  if (!unresolved) sessionWrite('paperclip.submission', null);
+  if (check) status(unresolved ? 'Still awaiting a confirmed result. Check again later; no payment was resent.' : 'Saved results checked. No payment was resent.');
+}
+
+// A retry uses the original receipt for observation; it never repeats a send.
 async function mutate(path, body) {
   if (!token || !network) throw new Error('Unlock and verify the wallet network first.');
-  if (uncertainMutation) throw new Error('A prior submission needs checking. Review Activity and payment status, then acknowledge the result before retrying.');
-  uncertainMutation = true; sessionWrite('paperclip.uncertain', '1');
-  $('submission-warning').hidden = false;
+  if (uncertainMutation) throw new Error('A prior submission needs checking. Check its saved status before another payment.');
+  if (journalOperations.has(path) && !submissionJournal) throw new Error('Update the wallet server before sending. This version requires saved submission recovery.');
+  const journal = submissionJournal && journalOperations.has(path);
   const context = walletContext();
+  let id;
+  if (journal) {
+    id = Array.from(crypto.getRandomValues(new Uint8Array(32)), byte => byte.toString(16).padStart(2,'0')).join('');
+    sessionWrite('paperclip.submission', id);
+  }
+  submissionWarning(true);
   let result;
-  try { result = await api(path, body); }
-  catch (error) {
-    if (currentWallet(context) && token) transactionResult('unknown', 'Result not confirmed', 'The wallet could not confirm the result. Check Activity and payment status before trying again.');
+  try {
+    result = await api(journal ? 'submissions' : path, journal ? {id, operation:path, body} : body);
+    if (!currentWallet(context) || !token) throw new Error('Wallet changed while submitting. Check saved status after signing in again.');
+    if (journal) {
+      if (result?.id !== id || result.operation !== path || !['received','rejected'].includes(result.state)) throw new Error('The wallet has not confirmed this submission. Check saved status.');
+      if (result.state === 'received') {
+        transactionResult('pending', 'Submission recorded', 'Check Activity or payment status for the final outcome.', result.txid || result.payment_hash || String(result.result?.movement_id ?? ''));
+        await acknowledgeSubmission(id);
+      }
+      if (!currentWallet(context) || !token) throw new Error('Wallet changed while receiving the result. Check saved status after signing in again.');
+      submissionWarning(false); sessionWrite('paperclip.submission', null);
+      if (result.state === 'rejected') throw Object.assign(new Error(result.result?.message || 'No payment was submitted. Review again.'), {notSubmitted:true});
+      result = result.result;
+    }
+  } catch (error) {
+    if (currentWallet(context) && token) transactionResult(error.notSubmitted ? 'failed' : 'unknown', error.notSubmitted ? 'Request was not submitted' : 'Result not confirmed',
+      error.notSubmitted ? error.message : 'Check saved status before trying again. The original request will not be sent again.');
     throw error;
   }
-  if (!currentWallet(context) || !token) throw new Error('Wallet changed while submitting. Check Activity after signing in again.');
-  uncertainMutation = false; sessionWrite('paperclip.uncertain', null);
-  $('submission-warning').hidden = true;
+  submissionWarning(false);
   return result;
 }
 
@@ -424,11 +492,12 @@ const sessionLock = $('lock').onclick;
 $('lock').onclick = () => { sessionWrite('paperclip.session', null); sessionLock(); $('token').type = 'password'; $('show-token').textContent = 'Show'; $('show-token').setAttribute('aria-pressed', 'false'); };
 const sessionSetupLock = $('setup-lock').onclick;
 $('setup-lock').onclick = () => { sessionWrite('paperclip.session', null); sessionSetupLock(); };
-$('submission-reviewed').onclick = async () => {
+$('submission-reviewed').onclick = event => run(event.target, async () => {
+  if (submissionJournal) { await syncSubmissions(true); return; }
   if (!await PaperclipReview.ask('Have you checked Activity and the payment status? Continue only after resolving the previous submission. A pending payment must not be sent again.')) return;
   uncertainMutation = false; sessionWrite('paperclip.uncertain', null); $('submission-warning').hidden = true;
   status('Previous result acknowledged. No payment has been resubmitted.');
-};
+});
 let refreshing = false;
 setInterval(async () => {
   if (!token || !network || $('wallet').hidden || document.hidden || refreshing || Date.now() < nextAutomaticUpdate) return;

@@ -347,6 +347,16 @@ impl Wallet {
 	pub async fn send_arkoor_payment_with_max_cost(
 		&self, destination: &ark::Address, amount: Amount, max_total: Option<Amount>,
 	) -> anyhow::Result<MovementId> {
+		self.send_arkoor_payment_tracked(destination, amount, max_total, |_| Ok(())).await
+	}
+
+	/// Persist an application receipt after planning and before creating a checkpoint.
+	/// Returning an error from the observer prevents submission. The action ID stays
+	/// indexed by its movement after the checkpoint completes.
+	pub async fn send_arkoor_payment_tracked<F>(
+		&self, destination: &ark::Address, amount: Amount, max_total: Option<Amount>, before_submit: F,
+	) -> anyhow::Result<MovementId>
+	where F: FnOnce(&str) -> anyhow::Result<()> + Send {
 		let action = start_arkoor_send(self, destination.clone(), amount, max_total).await?;
 		let action_id = action.id();
 
@@ -360,6 +370,7 @@ impl Wallet {
 		// and `drive_checkpoint` leaves a checkpoint to resume from. The first
 		// step locks the inputs, so no vtxo is ever locked without a checkpoint
 		// row.
+		before_submit(&action_id)?;
 		checkpoint.create(self, action).await?;
 
 		self.drive_checkpoint(checkpoint, DriveMode::UntilDone).await?;
@@ -368,6 +379,14 @@ impl Wallet {
 		// keeps its action index.
 		self.inner.db.get_movement_id_by_action(&action_id).await?
 			.with_context(|| format!("arkoor send {} finished without a movement", action_id))
+	}
+
+	/// Look up an exact submitted action, without matching recipients or amounts.
+	pub async fn movement_for_action(&self, action_id: &str) -> anyhow::Result<Option<crate::movement::Movement>> {
+		match self.inner.db.get_movement_id_by_action(action_id).await? {
+			Some(id) => Ok(Some(self.inner.db.get_movement_by_id(id).await?)),
+			None => Ok(None),
+		}
 	}
 
 	/// Read-only plan shared by estimates and sends. No keys, locks or signatures are created.

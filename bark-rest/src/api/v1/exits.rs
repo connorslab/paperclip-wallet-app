@@ -307,9 +307,15 @@ pub async fn exit_start_vtxos(
 pub async fn exit_start_all(
 	State(state): State<Arc<ServerState>>,
 ) -> HandlerResult<Json<bark_json::web::ExitStartResponse>> {
+	exit_start_all_tracked(state, |_| Ok(())).await
+}
+
+pub(super) async fn exit_start_all_tracked<F>(state: Arc<ServerState>, before_submit: F) -> HandlerResult<Json<bark_json::web::ExitStartResponse>>
+where F: FnOnce(&[ark::VtxoId]) -> anyhow::Result<()> + Send {
+	let _lifecycle = state.wallet_lifecycle.lock().await;
 	let wallet = state.require_wallet()?;
 
-	wallet.exit_mgr().start_exit_for_entire_wallet().await
+	wallet.exit_mgr().start_exit_for_entire_wallet_tracked(before_submit).await
 		.context("Failed to start exit for entire wallet")?;
 
 	Ok(axum::Json(bark_json::web::ExitStartResponse {
@@ -368,6 +374,11 @@ async fn inner_claim_vtxos(
 	vtxos: &[bark::exit::ExitVtxo],
 	fee_rate: Option<FeeRate>,
 ) -> HandlerResult<Json<bark_json::web::ExitClaimResponse>> {
+	inner_claim_vtxos_tracked(state, address, vtxos, fee_rate, |_| Ok(())).await
+}
+
+async fn inner_claim_vtxos_tracked<F>(state: &ServerState, address: bitcoin::Address, vtxos: &[bark::exit::ExitVtxo], fee_rate: Option<FeeRate>, before_submit: F) -> HandlerResult<Json<bark_json::web::ExitClaimResponse>>
+where F: FnOnce(bitcoin::Txid) -> anyhow::Result<()> + Send {
 	let wallet = state.require_wallet()?;
 
 	let address_spk = address.script_pubkey();
@@ -375,6 +386,7 @@ async fn inner_claim_vtxos(
 		.context("Failed to drain exits")?;
 	let tx = psbt.extract_tx()
 		.context("Failed to extract transaction")?;
+	before_submit(tx.compute_txid())?;
 	wallet.chain().broadcast_tx(&tx).await
 		.context("Failed to broadcast transaction")?;
 	info!("Drain transaction broadcasted: {}", tx.compute_txid());
@@ -473,6 +485,12 @@ pub async fn exit_claim_all(
 	State(state): State<Arc<ServerState>>,
 	Json(body): Json<bark_json::web::ExitClaimAllRequest>,
 ) -> HandlerResult<Json<bark_json::web::ExitClaimResponse>> {
+	exit_claim_all_tracked(state, body, |_| Ok(())).await
+}
+
+pub(super) async fn exit_claim_all_tracked<F>(state: Arc<ServerState>, body: bark_json::web::ExitClaimAllRequest, before_submit: F) -> HandlerResult<Json<bark_json::web::ExitClaimResponse>>
+where F: FnOnce(bitcoin::Txid) -> anyhow::Result<()> + Send {
+	let _lifecycle = state.wallet_lifecycle.lock().await;
 	let wallet = state.require_wallet()?;
 	let network = wallet.network().await?;
 
@@ -485,7 +503,7 @@ pub async fn exit_claim_all(
 
 	let fee_rate = body.fee_rate.map(FeeRate::from_sat_per_kvb_ceil);
 
-	inner_claim_vtxos(&state, address, &vtxos, fee_rate).await
+	inner_claim_vtxos_tracked(&state, address, &vtxos, fee_rate, before_submit).await
 }
 
 #[utoipa::path(

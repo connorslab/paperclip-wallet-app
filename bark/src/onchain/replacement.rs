@@ -127,6 +127,12 @@ impl OnchainWallet {
 
 	/// Consume the prepared transaction once. Sync before calling while holding the wallet lock.
 	pub async fn commit_replacement(&mut self, prepared: PreparedReplacement, replacement_txid: Txid, new_fee_sat: u64) -> anyhow::Result<Transaction> {
+		self.commit_replacement_tracked(prepared, replacement_txid, new_fee_sat, || Ok(())).await
+	}
+
+	/// Save the submission receipt after validation, before persisting a signed spend.
+	pub async fn commit_replacement_tracked<F>(&mut self, prepared: PreparedReplacement, replacement_txid: Txid, new_fee_sat: u64, before_submit: F) -> anyhow::Result<Transaction>
+	where F: FnOnce() -> anyhow::Result<()> + Send {
 		ensure!(prepared.created.elapsed() < Duration::from_secs(60), "Fee review expired; review again");
 		ensure!(prepared.review.replacement_txid == replacement_txid && prepared.review.new_fee_sat == new_fee_sat, "Reviewed replacement changed");
 		let (current, proof) = self.replacement_original(prepared.review.original_txid).await?;
@@ -136,6 +142,7 @@ impl OnchainWallet {
 		ensure!(tx.compute_txid() == replacement_txid, "Signed replacement changed");
 		let change_script = &current.transaction.output[current.change_index.context("Missing change")?].script_pubkey;
 		let change_index = tx.output.iter().position(|out| &out.script_pubkey == change_script);
+		before_submit()?;
 		self.db.store_authorized_send(&AuthorizedSend { transaction: tx.clone(), change_index,
 			replaces: Some(prepared.review.original_txid), replaced_by: None }).await?;
 		self.register_tx(&tx).await?;
@@ -211,6 +218,21 @@ mod tests {
 			assert_eq!(next.review.old_fee_sat, 2000);
 			assert_eq!(db.authorized_send(original.compute_txid()).await.unwrap().unwrap().replaced_by, Some(replacement.compute_txid()));
 		}
+	}
+
+	#[tokio::test]
+	async fn receipt_failure_never_persists_a_replacement() {
+		let directory = tempfile::tempdir().unwrap();
+		let db = Arc::new(SqliteClient::open(directory.path().join("wallet.sqlite")).unwrap());
+		let mut wallet = funded(db.clone(), false).await;
+		let original = payment(&mut wallet).await;
+		let prepared = wallet.prepare_replacement(original.compute_txid(),2000).await.unwrap();
+		let id = prepared.review.replacement_txid;
+		let error = wallet.commit_replacement_tracked(prepared,id,2000,|| anyhow::bail!("receipt write failed")).await.unwrap_err();
+		assert!(error.to_string().contains("receipt write failed"));
+		assert!(db.authorized_send(id).await.unwrap().is_none());
+		assert!(db.authorized_send(original.compute_txid()).await.unwrap().unwrap().replaced_by.is_none());
+		assert!(wallet.prepare_replacement(original.compute_txid(),2000).await.is_ok());
 	}
 
 	#[tokio::test]

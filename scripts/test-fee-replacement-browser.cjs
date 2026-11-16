@@ -8,15 +8,19 @@ const fs=require('node:fs'),path=require('node:path'),assert=require('node:asser
    page.on('pageerror',e=>errors.push(e.message));page.setDefaultTimeout(10000);
    const original='a'.repeat(64),replacement='b'.repeat(64);let malformed=false,hold=null,release=null;
    await page.route('http://wallet.test/**',async route=>{
-    const url=new URL(route.request().url()),name=url.pathname.replace('/api/v1/','');
+    const url=new URL(route.request().url());let name=url.pathname.replace('/api/v1/',''),body=route.request().postDataJSON();
+    if(name==='submissions'&&!body)return route.fulfill({json:{version:1,pending:[],recent:[]}});
+    if(name==='submissions/ack')return route.fulfill({json:{id:body.id,acknowledged:true}});
+    if(name==='submissions/check')return route.fulfill({json:{id:body.id,state:'unconfirmed'}});
+    if(name==='submissions'){name=body.operation;body=body.body;}
     if(url.pathname.startsWith('/api/')) {
      if(name==='onchain/replacement/prepare') {
       actions.push('prepare');if(hold)await hold;
       return route.fulfill({json:{original_txid:original,replacement_txid:replacement,old_fee_sat:1000,new_fee_sat:2000,additional_fee_sat:malformed?2000:1000,
        recipients:[{address:'bcrt1qsyntheticrecipientforbrowserlayoutonly',amount_sat:100000}]}});
      }
-     if(name==='onchain/replacement/commit') {actions.push('commit');assert.deepEqual(route.request().postDataJSON(),{replacement_txid:replacement,new_fee_sat:2000});return route.fulfill({status:503,json:{message:'Synthetic uncertain broadcast'}});}
-     const value=name==='wallet'?{fingerprint:'fixture'}:name==='wallet/identity'?{network:'regtest',exit_profile:2,lightning_enabled:false}:
+     if(name==='onchain/replacement/commit') {actions.push('commit');assert.deepEqual(body,{replacement_txid:replacement,new_fee_sat:2000});return route.fulfill({status:503,json:{message:'Synthetic uncertain broadcast'}});}
+     const value=name==='wallet'?{fingerprint:'fixture'}:name==='wallet/identity'?{network:'regtest',exit_profile:2,submission_journal:1,lightning_enabled:false}:
       name==='wallet/balance'?{spendable_sat:0}:name==='onchain/balance'?{confirmed_sat:100000}:
       name==='onchain/transactions'?[{txid:original,balance_change_sat:-101000,onchain_fee_sat:1000,confirmation:null}]:[];
      return route.fulfill({json:value});

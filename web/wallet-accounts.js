@@ -47,7 +47,7 @@
     showIdentity();
     $('wallet-readiness').hidden=true;status('');PaperclipNavigation.show('overview');renderAccounts();
     if($('wallet').hidden)return;
-    if(selected){const ticket=generation;void refresh().catch(error=>{if(ticket===generation)$('cold-relay').textContent=error.message;});}else void update();
+    if(selected){const ticket=generation;void refresh().catch(error=>{if(ticket===generation)$('cold-relay').textContent=error.message;});}else { if (submissionJournal) void syncSubmissions().catch(error=>status(error.message)); void update(); }
   }
   function showIdentity() {
     $('wallet-select').value=selected?.id||'';$('wallet-kind').textContent=selected?'QR WALLET · KEYS OFFLINE':'HOT WALLET';

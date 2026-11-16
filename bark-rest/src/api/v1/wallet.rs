@@ -205,6 +205,10 @@ pub async fn wallet_delete(
 		badarg!("No wallet deletion hook configured");
 	};
 
+	#[cfg(feature = "web-ui")]
+	let _submission = state.submissions.lock().await;
+	#[cfg(feature = "web-ui")]
+	super::submissions::ensure_resolved(&state).await?;
 	let _lifecycle = state.wallet_lifecycle.lock().await;
 
 	// Take the wallet out of the state before the wipe, so no new request
@@ -349,6 +353,7 @@ pub async fn identity(
 		"network": wallet.network().await?,
 		"exit_profile": ark::exit_policy::PAPERCLIP_EXIT_PROFILE,
 		"lightning_debit_limit": true,
+		"submission_journal": if cfg!(feature = "web-ui") { 1 } else { 0 },
 		"lightning_enabled": wallet.ark_info().await.ok().flatten().is_some_and(|info| info.funded_lightning),
 	})))
 }
@@ -740,7 +745,7 @@ pub async fn pending_rounds(
 	summary = "Send a payment",
 	request_body = bark_json::web::SendRequest,
 	responses(
-		(status = 200, description = "Ark payment completed or external payment initiated", body = bark_json::web::SendResponse),
+		(status = 200, description = "Ark payment recorded or external payment initiated", body = bark_json::web::SendResponse),
 		(status = 400, description = "The destination is not a valid payment string, has no \
 			valid payment method, or the request lacks a required amount", body = error::BadRequestError),
 		(status = 500, description = "Internal server error", body = error::InternalServerError)
@@ -824,9 +829,9 @@ pub async fn send(
 		PaymentInitOutput::Lightning(invoice) => {
 			("Lightning payment initiated; check payment status for the final outcome".to_string(), Some(invoice.payment_hash()))
 		},
-		PaymentInitOutput::Ark(_) => ("Payment sent successfully".to_string(), None),
+		PaymentInitOutput::Ark(_) => ("Ark payment recorded; check Activity for its outcome".to_string(), None),
 		PaymentInitOutput::Onchain(txid) => {
-			(format!("Payment sent successfully in transaction {}", txid), None)
+			(format!("Transaction {} submitted; wait for confirmation", txid), None)
 		},
 	};
 	Ok(axum::Json(bark_json::web::SendResponse { message, payment_hash }))
@@ -957,6 +962,12 @@ pub async fn refresh_delegated(
 pub async fn refresh_all(
 	State(state): State<Arc<ServerState>>,
 ) -> HandlerResult<Json<bark_json::web::PendingRoundInfo>> {
+	refresh_all_tracked(state, |_| Ok(())).await
+}
+
+pub(super) async fn refresh_all_tracked<F>(state: Arc<ServerState>, before_submit: F) -> HandlerResult<Json<bark_json::web::PendingRoundInfo>>
+where F: FnOnce(Option<bark::movement::MovementId>) -> anyhow::Result<()> + Send {
+	let _lifecycle = state.wallet_lifecycle.lock().await;
 	let wallet = state.require_wallet()?;
 
 	let vtxos = wallet
@@ -970,7 +981,7 @@ pub async fn refresh_all(
 	match participation {
 		Some(participation) => {
 			let mut round = wallet
-				.join_next_round(participation, Some(RoundMovement::Refresh)).await
+				.join_next_round_tracked(participation, Some(RoundMovement::Refresh), before_submit).await
 				.context("Failed to store round participation")?;
 
 			let sync = round.state_mut().sync(&wallet).await;
@@ -1110,6 +1121,12 @@ pub async fn offboard_all(
 	State(state): State<Arc<ServerState>>,
 	Json(body): Json<bark_json::web::OffboardAllRequest>,
 ) -> HandlerResult<Json<bark_json::cli::OffboardResult>> {
+	offboard_all_tracked(state, body, |_| Ok(())).await
+}
+
+pub(super) async fn offboard_all_tracked<F>(state: Arc<ServerState>, body: bark_json::web::OffboardAllRequest, before_submit: F) -> HandlerResult<Json<bark_json::cli::OffboardResult>>
+where F: FnOnce(&str) -> anyhow::Result<()> + Send {
+	let _lifecycle = state.wallet_lifecycle.lock().await;
 	let wallet = state.require_wallet()?;
 	let onchain = state.require_onchain()?;
 
@@ -1123,7 +1140,7 @@ pub async fn offboard_all(
 		onchain.write().await.address().await?
 	};
 
-	let offboard = wallet.offboard_all(address).await?;
+	let offboard = wallet.offboard_all_tracked(address, before_submit).await?;
 
 	Ok(axum::Json(bark_json::cli::OffboardResult {
 		offboard_txid: offboard.txid,

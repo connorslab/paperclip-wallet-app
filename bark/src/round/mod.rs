@@ -2029,6 +2029,12 @@ impl Wallet {
 		participation: RoundParticipation,
 		movement_kind: Option<RoundMovement>,
 	) -> anyhow::Result<StoredRoundState> {
+		self.join_next_round_tracked(participation, movement_kind, |_| Ok(())).await
+	}
+
+	/// Persist an application receipt before the participation can enter a round.
+	pub async fn join_next_round_tracked<F>(&self, participation: RoundParticipation, movement_kind: Option<RoundMovement>, before_submit: F) -> anyhow::Result<StoredRoundState>
+	where F: FnOnce(Option<MovementId>) -> anyhow::Result<()> + Send {
 		let input_ids = participation.inputs.iter().map(|v| v.id()).collect::<Vec<_>>();
 
 		// The inputs are only locked at attempt start; here they must just
@@ -2046,6 +2052,7 @@ impl Wallet {
 			None
 		};
 		let movement_id = movement.as_ref().map(|m| m.id());
+		before_submit(movement_id)?;
 		let state = RoundState::new_interactive(participation, movement_id);
 
 		match (async || {

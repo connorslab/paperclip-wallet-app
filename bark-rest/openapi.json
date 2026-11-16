@@ -3632,7 +3632,7 @@
         },
         "responses": {
           "200": {
-            "description": "Ark payment completed or external payment initiated",
+            "description": "Ark payment recorded or external payment initiated",
             "content": {
               "application/json": {
                 "schema": {
