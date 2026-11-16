@@ -396,6 +396,40 @@ mod tests {
 	}
 
 	#[test]
+	fn failed_restore_cleans_staging_and_allows_corrected_retry() {
+		let base = tempfile::tempdir().unwrap();
+		let source = base.path().join("source");
+		let destination = base.path().join("restored");
+		let mut state = None;
+		let seed = [41; 64];
+		dispatch(&mut state, json!({"op":"create", "network":"xbt-regtest", "directory":source}), seed).unwrap();
+		let archive = dispatch(&mut state, json!({"op":"backup"}), seed).unwrap();
+		dispatch(&mut state, json!({"op":"close"}), seed).unwrap();
+		let request = json!({"op":"restore", "network":"xbt-regtest", "directory":destination, "database":archive["database"]});
+		let mut damaged = request.clone();
+		damaged["database"] = json!(STANDARD.encode(b"damaged database"));
+		let mut wrong_network = request.clone();
+		wrong_network["network"] = json!("xbt-mainnet");
+		for (attempt, key) in [(damaged, seed), (request.clone(), [42;64]), (wrong_network, seed)] {
+			assert!(dispatch(&mut state, attempt, key).is_err());
+			assert!(state.is_none());
+			assert!(!destination.exists());
+			assert_eq!(std::fs::read_dir(base.path()).unwrap().count(), 1, "failed restore left staging data");
+		}
+		// An older interrupted attempt is retained for manual recovery, but it
+		// must not block a new restore or be reused as its staging directory.
+		let previous = destination.with_extension("restore-staging");
+		std::fs::create_dir(&previous).unwrap();
+		std::fs::write(previous.join("keep"), b"previous recovery data").unwrap();
+		dispatch(&mut state, request.clone(), seed).unwrap();
+		assert_eq!(std::fs::read(previous.join("keep")).unwrap(), b"previous recovery data");
+		assert_eq!(std::fs::read_dir(base.path()).unwrap().count(), 3);
+		assert!(dispatch(&mut state, request, seed).is_err());
+		dispatch(&mut state, json!({"op":"open", "network":"xbt-regtest", "directory":destination}), seed).unwrap();
+		assert!(dispatch(&mut state, json!({"op":"address_onchain"}), seed).is_ok());
+	}
+
+	#[test]
 	fn backup_check_preserves_active_wallet_and_cleans_staging() {
 		let directory = tempfile::tempdir().unwrap();
 		let source = directory.path().join("source");
@@ -489,13 +523,12 @@ pub fn dispatch(state: &mut Option<Session>, request: Value, seed: [u8; 64]) -> 
 		ensure!(dir.is_absolute() && !dir.exists(), "restore destination must not exist");
 		let data = STANDARD.decode(text(&request, "database")?)?;
 		ensure!(data.len() < 32 * 1024 * 1024, "backup too large");
-		let staging = dir.with_extension("restore-staging");
-		std::fs::create_dir(&staging)?;
-		#[cfg(unix)] {
-			use std::os::unix::fs::PermissionsExt;
-			std::fs::set_permissions(&staging, std::fs::Permissions::from_mode(0o700))?;
-		}
-		let dbpath = staging.join("db.sqlite");
+		// A unique, private sibling keeps rename on the same filesystem. The
+		// guard removes rejected data so a corrected archive can be retried.
+		// Never reuse or delete staging data from an older interrupted attempt.
+		let staging = tempfile::Builder::new().prefix("restore-staging-")
+			.tempdir_in(dir.parent().context("restore destination needs a parent")?)?;
+		let dbpath = staging.path().join("db.sqlite");
 		std::fs::write(&dbpath, data)?;
 		let conn = rusqlite::Connection::open(&dbpath)?;
 		let integrity: String = conn.query_row("PRAGMA quick_check", [], |row| row.get(0))?;
@@ -512,7 +545,7 @@ pub fn dispatch(state: &mut Option<Session>, request: Value, seed: [u8; 64]) -> 
 		})?;
 		drop(db);
 		std::fs::File::open(&dbpath)?.sync_all()?;
-		std::fs::rename(staging, dir)?;
+		std::fs::rename(staging.path(), dir)?;
 		return Ok(json!({"restored": true}));
 	}
 	if op == "create" || op == "open" {

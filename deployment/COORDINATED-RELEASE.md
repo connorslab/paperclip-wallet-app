@@ -508,3 +508,24 @@ original checkpoint and locked funds remain available for recovery. This shared
 Rust guard applies to mobile and server builds without changing the FFI contract.
 New mobile artifacts must include it before release; existing installed builds
 have not been changed.
+
+At `f8bcbb0`, the local native Apple simulator Rust build, Xcode app link and bundle
+verification passed, including Tor framework metadata and signatures. Browser CI
+`43837023562` passed. Android run `43837023567`, Lightning regression run
+`43837023612`, Linux build-only run `43837079138` and iOS run `43837081855` were
+still running when recorded. Linux publication is disabled. These are candidate
+checks, not physical-device installs or release acceptance.
+
+## Mobile restore retry: 2026-11-16
+
+The shared iOS/Android engine now removes staging files when restore rejects an
+archive. Previously, a rejected database left a fixed staging directory that
+blocked a corrected retry. Restore now uses a unique private sibling directory
+with automatic cleanup. Older interrupted staging data is preserved, and an
+existing wallet destination still cannot be restored over.
+
+A new regression first reproduced the failure, then passed for damaged databases,
+wrong keys, wrong networks, a corrected retry and preservation of older staging
+data. All 28 mobile-engine tests passed (one live opt-in test skipped), and
+`just checks` passed. No production wallet or physical device was changed. This
+fix does not close funded backup/restore or platform-upgrade acceptance.

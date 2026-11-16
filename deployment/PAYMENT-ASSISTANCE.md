@@ -149,6 +149,12 @@ engine migration, key and network ownership, and on-chain wallet loading. Tempor
 files are removed on success and failure; existing wallets and selection remain
 unchanged. Only a matching wallet receives a local check timestamp.
 
+The shared mobile restore path also cleans its private staging directory after a
+rejected archive. A damaged database, wrong key or wrong network does not block a
+corrected retry at the same destination. Staging data left by an older interrupted
+attempt is preserved separately and is never reused. Existing wallet destinations
+remain protected from replacement.
+
 A local save timestamp is not proof of cloud upload. A restore check is not a live
 fund-recovery test and does not establish that an older archive contains recent
 Ark activity. Server editions retain host-managed complete-volume backups; the
