@@ -338,3 +338,27 @@ Bridge checks cover quote tampering, networks, expiry, settlement proof,
 availability decoding, bounded responses, private persistence, symlinks,
 authentication, and duplicate quote recovery. These tests made no live payments
 and do not establish successful production swaps.
+
+## Android Bridge navigation: 2026-11-15
+
+Android now separates Bridge entry, conversion review, payment detail, activity
+and connection settings. All saved records are accessible in pages of ten.
+Selecting history clears in-memory funding approvals; a historical quote cannot
+restore authorization to send. Incoming or expired quotes do not offer a funding
+action, and expired incoming invoices are not presented as payable QR codes.
+Wide screens place direction choices side by side; large text uses stacked rows.
+The live-service indicator remains separate from the payment result on each page.
+
+Two UI-only navigation tests passed on API 35, and the final layout and the
+Android unit suite passed on API 36 with 16 KB memory pages. The final wide-screen
+and 2× text screenshots were inspected. The tests use synthetic callbacks and
+never fund a payment. Release lint passed with no errors, and all 77 executed
+Android unit tests passed (three live opt-in tests skipped). The full native wallet screen flow also passed on the local
+API 36 emulator after an initial startup wait timed out.
+
+Linux build-only run `43812021957` passed AMD64 and ARM64 at `4dde5dd`, with
+publication skipped. Server regression run `43813156807` passed at `87ccf5d`.
+Android run `43811981065` passed both native architectures and API 35; its first
+API 36 run timed out while identifying the onboarding screenshot window. The
+failed job was rerun without weakening the capture check. Its final result and
+the next candidate's complete matrix must be checked before release.

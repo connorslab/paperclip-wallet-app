@@ -15,6 +15,8 @@ internal data class BridgeState(
 	val record: JSONObject? = null,
 	val nativeQuote: JSONObject? = null,
 	val nodeReview: NodeInvoiceReview? = null,
+	val history: List<JSONObject> = emptyList(),
+	val quoteRevision: Long = 0,
 )
 
 internal class BridgeModel(app: Application) : AndroidViewModel(app) {
@@ -112,6 +114,7 @@ internal class BridgeModel(app: Application) : AndroidViewModel(app) {
 			loaded = true
 			change {
 				it.copy(
+					history = historySnapshot(),
 					record =
 						if (journal.length() > 0) journal.getJSONObject(journal.length() - 1)
 						else null,
@@ -130,7 +133,18 @@ internal class BridgeModel(app: Application) : AndroidViewModel(app) {
 		next.put(record)
 		write("bridge-records", next.toString())
 		journal = next
-		change { it.copy(record = record) }
+		change { it.copy(record = record, history = historySnapshot()) }
+	}
+	private fun historySnapshot() = (journal.length() - 1 downTo 0).map {
+		JSONObject(journal.getJSONObject(it).toString())
+	}
+
+	fun selectSaved(hash: String) = job {
+		loadJournal()
+		val record = historySnapshot().firstOrNull { it.optString("hash") == hash }
+			?: error("Saved bridge payment is unavailable")
+		// A historical quote never restores an old authorization to fund it.
+		change { it.copy(record = record, nativeQuote = null, nodeReview = null) }
 	}
 
 	private fun unsettled(r: JSONObject) =
@@ -235,6 +249,7 @@ internal class BridgeModel(app: Application) : AndroidViewModel(app) {
 			change { it.copy(nodeReview = review) }
 		}
 		save(record)
+		change { it.copy(quoteRevision = it.quoteRevision + 1) }
 		startPolling()
 	}
 
