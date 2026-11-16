@@ -5,6 +5,18 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.repeatOnLifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -23,9 +35,12 @@ internal fun BridgePage(model: BridgeModel, canUseArk: Boolean) {
 	if (s.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
 	if (s.message.isNotEmpty()) Text(s.message, color = MaterialTheme.colorScheme.error)
 	Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-		Text("Paperclip Bridge", style = MaterialTheme.typography.headlineSmall)
+		Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+			Text("Paperclip Bridge", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.weight(1f))
+			BridgeStatusBadge(model, receive)
+		}
 		Text(
-			"Exchange XBT and Spamcoin (BTC) using linked Lightning invoices. Review the quote and funding fee before confirming.",
+			"Pay Spamcoin (BTC) with XBT, or receive XBT on your node. Review the conversion before confirming.",
 		)
 		Row {
 			Text("Receive XBT on your node", Modifier.weight(1f))
@@ -135,4 +150,46 @@ internal fun BridgePage(model: BridgeModel, canUseArk: Boolean) {
 			Text("Save bridge access")
 		}
 	}
+}
+
+@Composable
+internal fun BridgeStatusBadge(model: BridgeModel, receiveXbt: Boolean? = null) {
+	val observations by model.serviceHealth.collectAsStateWithLifecycle()
+	val lifecycle = LocalLifecycleOwner.current.lifecycle
+	var now by remember { mutableLongStateOf(android.os.SystemClock.elapsedRealtime()) }
+	LaunchedEffect(model, receiveXbt, lifecycle) {
+		lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+			while (isActive) {
+				now = android.os.SystemClock.elapsedRealtime()
+				if (receiveXbt != true) model.refreshAvailability(false)?.join()
+				if (receiveXbt != false) model.refreshAvailability(true)?.join()
+				now = android.os.SystemClock.elapsedRealtime()
+				delay(5000)
+			}
+		}
+	}
+	fun state(direction: Boolean) = (observations[direction] ?: BridgeHealth(checking = true)).state(now)
+	val state = receiveXbt?.let(::state) ?: BridgeHealthState.combined(state(false), state(true))
+	BridgeStatusLabel(state)
+}
+
+@Composable
+internal fun BridgeStatusLabel(state: BridgeHealthState) {
+	val light = MaterialTheme.colorScheme.background.luminance() > 0.5f
+	val color = when (state) {
+		BridgeHealthState.LIVE -> if (light) Color(0xFF126B3B) else Color(0xFF67CF9A)
+		BridgeHealthState.PAUSED, BridgeHealthState.LIMITED -> if (light) Color(0xFF944000) else MaterialTheme.colorScheme.primary
+		else -> MaterialTheme.colorScheme.onSurfaceVariant
+	}
+	val icon = when (state) {
+		BridgeHealthState.LIVE -> "✓"
+		BridgeHealthState.PAUSED -> "Ⅱ"
+		BridgeHealthState.LIMITED -> "◐"
+		BridgeHealthState.CHECKING -> "◷"
+		else -> "?"
+	}
+	Text("$icon ${state.title}", color = color, style = MaterialTheme.typography.labelMedium,
+		modifier = Modifier.background(color.copy(alpha = 0.08f), RoundedCornerShape(50))
+			.padding(horizontal = 8.dp, vertical = 5.dp)
+			.semantics { contentDescription = "Bridge service: ${state.title}. Service availability, not payment status." })
 }

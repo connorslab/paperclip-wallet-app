@@ -109,10 +109,12 @@ public actor LightningBridge {
         config.timeoutIntervalForRequest = 35; config.timeoutIntervalForResource = 45
         session = URLSession(configuration: config, delegate: BridgeRedirectGuard(), delegateQueue: nil)
     }
+    deinit { session.invalidateAndCancel() }
     private struct Failure: Decodable { let error: String?; let wait_s: Int? }
-    private func request<T: Decodable>(_ path: String, body: [String: Any]? = nil) async throws -> T {
+    private func request<T: Decodable>(_ path: String, body: [String: Any]? = nil, timeout: TimeInterval? = nil) async throws -> T {
         guard let url = URL(string: path, relativeTo: base) else { throw BridgeError.invalidQuote }
         var request = URLRequest(url: url)
+        if let timeout { request.timeoutInterval = timeout }
         if !key.isEmpty { request.setValue("Bearer " + key, forHTTPHeaderField: "Authorization") }
         if let body {
             request.httpMethod = "POST"; request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -126,7 +128,7 @@ public actor LightningBridge {
         guard response.statusCode == 200 else { throw BridgeError.unavailable("Bridge unavailable (\(response.statusCode)). Try again shortly.") }
         return try JSONDecoder().decode(T.self, from: data)
     }
-    public func availability(direction: BridgeDirection = .paySpamcoin) async throws -> BridgeAvailability { try await request("info?direction=\(direction.rawValue)") }
+    public func availability(direction: BridgeDirection = .paySpamcoin) async throws -> BridgeAvailability { try await request("info?direction=\(direction.rawValue)", timeout: 8) }
     public func check(_ invoice: String, direction: BridgeDirection = .paySpamcoin) async throws -> BridgeEstimate {
         try await request("check", body: ["invoice": invoice, "direction": direction.rawValue])
     }

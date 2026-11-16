@@ -177,6 +177,31 @@ final class AdaptiveLayoutTests: XCTestCase {
 		capture(app, "Node connection compact")
 	}
 
+	func testBridgeStatusIsVisibleOnEntryAndBothDirections() {
+		continueAfterFailure = false
+		XCUIDevice.shared.orientation = .portrait
+		defer { XCUIDevice.shared.orientation = .portrait }
+		let app = XCUIApplication()
+		app.launchArguments = ["-build61-preview", "-lightning-balance-preview", "-appearance", "dark"]
+		app.launch()
+		let entry = app.buttons["lightning-open-bridge"]
+		XCTAssertTrue(entry.waitForExistence(timeout: 15))
+		entry.tap()
+		let badge = app.descendants(matching: .any).matching(identifier: "bridge-service-status").firstMatch
+		XCTAssertTrue(badge.waitForExistence(timeout: 10))
+		app.buttons["bridge-open-pay"].tap()
+		XCTAssertTrue(badge.waitForExistence(timeout: 10))
+		XCTAssertTrue(badge.label.hasPrefix("Bridge service:"))
+		capture(app, "Bridge send status compact")
+		app.navigationBars.buttons.element(boundBy: 0).tap()
+		app.buttons["bridge-open-receive"].tap()
+		XCTAssertTrue(badge.waitForExistence(timeout: 10))
+		XCUIDevice.shared.orientation = .landscapeLeft
+		XCTAssertTrue(badge.waitForExistence(timeout: 10))
+		capture(app, "Bridge receive status wide")
+		// Availability may be unknown on an offline test host. No quote or payment is created.
+	}
+
 	func testLightningReflows() {
 		continueAfterFailure = false
 		XCUIDevice.shared.orientation = .portrait

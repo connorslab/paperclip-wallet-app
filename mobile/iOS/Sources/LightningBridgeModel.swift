@@ -29,6 +29,10 @@ struct BridgePaymentRecord: Codable, Identifiable {
     @Published private(set) var loaded = false
     @Published var error = ""
     @Published var availability: BridgeAvailability?
+    @Published private(set) var receiveAvailability: BridgeAvailability?
+    @Published private(set) var serviceHealth: [BridgeDirection: BridgeHealth] = [:]
+    private var healthRequests: [BridgeDirection: Task<BridgeAvailability?, Never>] = [:]
+    private var healthGeneration = 0
     @Published var checking = false
     private var poller: Task<Void, Never>?
     private let account = "lightning-bridge-payments-v1"
@@ -92,10 +96,21 @@ struct BridgePaymentRecord: Codable, Identifiable {
             throw WalletFailure(message: "Enter the private API key, or leave blank to use the public API.")
         }
         try WalletKeychain.save(Data(value.utf8), account: Self.keyAccount)
+        healthGeneration += 1; healthRequests.values.forEach { $0.cancel() }; healthRequests.removeAll()
+        serviceHealth = [:]; availability = nil; receiveAvailability = nil
     }
-    func refreshAvailability() async {
-        do { availability = try await client().availability() }
-        catch { self.error = error.localizedDescription; availability = nil }
+    func refreshAvailability(direction: BridgeDirection = .paySpamcoin) async {
+        if let pending = healthRequests[direction] { _ = await pending.value; return }
+        guard (serviceHealth[direction] ?? BridgeHealth()).shouldRefresh() else { return }
+        let generation = healthGeneration
+        serviceHealth[direction] = BridgeHealth(checking: true)
+        let request = Task<BridgeAvailability?, Never> { try? await self.client().availability(direction: direction) }
+        healthRequests[direction] = request
+        let info = await request.value
+        guard generation == healthGeneration else { return }
+        healthRequests[direction] = nil
+        serviceHealth[direction] = BridgeHealth(open: info?.open, checkedAt: Date())
+        if direction == .paySpamcoin { availability = info } else { receiveAvailability = info }
     }
     func setForeground(_ active: Bool) {
         poller?.cancel(); poller = nil

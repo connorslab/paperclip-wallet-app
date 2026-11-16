@@ -285,3 +285,32 @@ required service interruption must respect the existing no-restart constraint.
 Apple's [manual release controls](https://developer.apple.com/help/app-store-connect/manage-your-apps-availability/select-an-app-store-version-release-option)
 and Google's [managed publishing rules](https://support.google.com/googleplay/android-developer/answer/9859654)
 govern the store portion of this sequence.
+
+## Bridge service status and build evidence: 2026-11-15
+
+The mobile candidate adds a compact bridge-service indicator to the Ark and node
+entry points, outgoing and incoming bridge forms, and their activity/connection
+screens. Availability is checked separately for XBT-to-BTC and BTC-to-XBT. Live
+requires a valid `open: true` response; `open: false` is Paused. A combined entry
+shows Limited when only one direction is open. Transport, TLS, malformed-response
+and authentication errors are Status unknown, not proof of an outage or settlement.
+Visible foreground screens refresh at most once per direction per 30 seconds;
+observations older than 90 seconds cannot remain Live. Changing bridge access
+clears observations. Checks use the existing fixed HTTPS service and never create
+quotes, invoices or payment attempts. Payment recovery remains independent.
+
+Both public availability endpoints returned HTTP 200 and `open: true` during the
+read-only check. The iOS simulator showed Live on both direction screens, and the
+entry/send/receive navigation test passed. Swift bridge tests passed (10 tests),
+and Android unit tests passed (77 executed, three live opt-in tests skipped).
+The Android status-label layout test also passed at 2× text size on an unfunded
+API 35 emulator, and release lint completed without errors. The bridge headers
+now use a short explanation instead of repeating the page title in a large banner.
+Browser Bridge flows remain a parity gap; add the same directional status contract
+when those flows are implemented rather than showing an unsupported bridge menu.
+
+Linux build-only run `43807411593` passed AMD64 and ARM64 container checks at
+`2fa221e`; publication was skipped. This verifies that revision, not the subsequent
+Send Max changes or a deployed Umbrel/StartOS upgrade. Android run `43806295576`
+passed ARM64/x86-64 builds and API 35/36 emulator checks at `c3c9738`. Re-run the
+candidate matrix after the final source freeze.

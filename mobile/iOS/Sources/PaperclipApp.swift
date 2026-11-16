@@ -446,7 +446,10 @@ struct ArkOverviewView: View {
                 }
                 WalletSection {
                     NavigationLink { LightningBridgeView(source: .ark) } label: {
-                        WalletNavigationRow("Pay Spamcoin (BTC)", subtitle: "Use Ark through Paperclip Bridge", icon: "arrow.left.arrow.right")
+                        VStack(alignment: .leading, spacing: 6) {
+                            WalletNavigationRow("Pay Spamcoin (BTC)", subtitle: "Use Ark through Paperclip Bridge", icon: "arrow.left.arrow.right")
+                            BridgeStatusBadge(direction: .paySpamcoin)
+                        }
                     }.buttonStyle(.plain)
                 }
                 WalletSection("Manage Ark") {

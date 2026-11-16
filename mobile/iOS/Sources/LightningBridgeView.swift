@@ -31,9 +31,8 @@ struct LightningBridgeView: View {
         ScrollView {
             VStack(spacing: 20) {
                 WalletSection {
-                    Label("Paperclip Bridge", systemImage: "arrow.left.arrow.right").font(.headline).foregroundStyle(PaperclipTheme.orange)
-                    Text("Pay Spamcoin (BTC).\nUse your XBT.").font(.title.bold())
-                    Text("Paste a Spamcoin (BTC) Lightning invoice. Review the conversion, then pay its matching XBT invoice from Ark or your node.")
+                    HStack { Label("Paperclip Bridge", systemImage: "arrow.left.arrow.right").font(.headline).foregroundStyle(PaperclipTheme.orange); Spacer(); BridgeStatusBadge(direction: .paySpamcoin) }
+                    Text("Pay a Spamcoin (BTC) invoice using XBT from Ark or your node.")
                         .font(.subheadline).foregroundStyle(PaperclipTheme.muted)
                     Label("Beta · Mainnet", systemImage: "flask").font(.caption)
                 }
@@ -94,8 +93,6 @@ struct LightningBridgeView: View {
                 .lineLimit(3...5).textInputAutocapitalization(.never).autocorrectionDisabled().disabled(busy)
                 .accessibilityIdentifier("bridge-recipient")
             if let availability = model.availability {
-                Label(availability.open ? "Bridge available" : "Bridge temporarily unavailable", systemImage: availability.open ? "checkmark.circle" : "clock")
-                    .font(.subheadline).foregroundStyle(PaperclipTheme.muted)
                 if let min = availability.min_sat, let max = availability.max_sat {
                     Text("Current range: \(btcAmount(min)) – \(btcAmount(max))").font(.caption)
                 }
@@ -176,13 +173,14 @@ struct LightningBridgeView: View {
                     }
                 }
             }.walletPageContent()
-        }.walletPageBackground().navigationTitle("Bridge activity")
+        }.walletPageBackground().navigationTitle("Bridge activity").toolbar { ToolbarItem(placement: .topBarTrailing) { BridgeStatusBadge(direction: .paySpamcoin) } }
     }
     private var connectionPage: some View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 20) {
                     WalletSection("Paperclip Bridge") {
+                        BridgeStatusBadge(direction: .paySpamcoin)
                         Text("lightning.paperclip-xbt.xyz").font(.headline)
                         Text("The public API works without a key. For operator testing, enter your private wallet API key. It stays in device-only Keychain.").font(.subheadline).foregroundStyle(PaperclipTheme.muted)
                         SecureField("Private API key (optional)", text: $apiKey).textInputAutocapitalization(.never).autocorrectionDisabled()
@@ -341,5 +339,36 @@ struct LightningBridgeView: View {
                 }
             }
         } catch { message = "Funding status is unavailable. No payment was resent." }
+    }
+}
+
+/// Small, directional service indicator. Never changes or retries a payment.
+struct BridgeStatusBadge: View {
+    var direction: BridgeDirection? = nil
+    @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.colorScheme) private var colorScheme
+    @ObservedObject private var model = LightningBridgeModel.shared
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 5)) { _ in
+            let pay = (model.serviceHealth[.paySpamcoin] ?? BridgeHealth(checking: true)).state()
+            let receive = (model.serviceHealth[.receiveXBT] ?? BridgeHealth(checking: true)).state()
+            let state = direction == .paySpamcoin ? pay : direction == .receiveXBT ? receive : BridgeHealthState.combined(pay, receive)
+            HStack(spacing: 5) {
+                Image(systemName: state == .live ? "checkmark.circle.fill" : state == .paused ? "pause.circle.fill" : state == .limited ? "circle.lefthalf.filled" : state == .checking ? "clock" : "questionmark.circle")
+                Text(state.title)
+            }.font(.caption.weight(.medium))
+                .foregroundStyle(state == .live ? (colorScheme == .dark ? Color.green : Color(red: 0.07, green: 0.42, blue: 0.23)) : state == .paused || state == .limited ? (colorScheme == .dark ? PaperclipTheme.orange : Color(red: 0.58, green: 0.22, blue: 0.02)) : PaperclipTheme.muted)
+                .padding(.horizontal, 8).padding(.vertical, 5).background(.primary.opacity(0.05), in: Capsule())
+                .accessibilityElement(children: .ignore).accessibilityLabel("Bridge service: " + state.title)
+                .accessibilityHint("Service availability, not payment status")
+                .accessibilityIdentifier("bridge-service-status")
+        }.task(id: scenePhase) {
+            guard scenePhase == .active else { return }
+            while !Task.isCancelled {
+                if direction != .receiveXBT { await model.refreshAvailability(direction: .paySpamcoin) }
+                if direction != .paySpamcoin { await model.refreshAvailability(direction: .receiveXBT) }
+                do { try await Task.sleep(for: .seconds(30)) } catch { return }
+            }
+        }
     }
 }

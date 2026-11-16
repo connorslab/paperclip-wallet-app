@@ -302,6 +302,7 @@ internal fun PaperclipApp(
 												"Paperclip Bridge",
 												"Pay or receive across XBT and BTC",
 												Icons.Default.SwapHoriz,
+												status = { if (bridge != null) BridgeStatusBadge(bridge) },
 											) {
 												navigate("Bridge")
 											}
@@ -474,6 +475,7 @@ private fun NavCard(
 	title: String,
 	subtitle: String,
 	icon: androidx.compose.ui.graphics.vector.ImageVector,
+	status: (@Composable () -> Unit)? = null,
 	action: () -> Unit,
 ) {
 	Card(
@@ -501,6 +503,7 @@ private fun NavCard(
 					style = MaterialTheme.typography.bodySmall,
 					color = MaterialTheme.colorScheme.onSurfaceVariant,
 				)
+				status?.invoke()
 			}
 			Icon(Icons.Default.ChevronRight, null)
 		}

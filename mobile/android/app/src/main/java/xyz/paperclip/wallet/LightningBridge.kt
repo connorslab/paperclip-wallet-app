@@ -53,13 +53,15 @@ internal class BridgeQuote(val value: JSONObject) {
 
 /** Requests contain only the invoice and bridge proof; never wallet/node credentials. */
 internal class LightningBridge(private val apiKey: String = "") {
-	private val client =
-		OkHttpClient.Builder()
-			.followRedirects(false)
-			.followSslRedirects(false)
-			.retryOnConnectionFailure(false)
-			.callTimeout(45, TimeUnit.SECONDS)
-			.build()
+	companion object {
+		private val client =
+			OkHttpClient.Builder()
+				.followRedirects(false)
+				.followSslRedirects(false)
+				.retryOnConnectionFailure(false)
+				.callTimeout(45, TimeUnit.SECONDS)
+				.build()
+	}
 	private val base =
 		if (apiKey.isEmpty()) "https://lightning.paperclip-xbt.xyz/bridge/api/"
 		else "https://lightning.paperclip-xbt.xyz/bridge/private/v1/"
@@ -70,7 +72,9 @@ internal class LightningBridge(private val apiKey: String = "") {
 			if (apiKey.isNotEmpty()) r.header("Authorization", "Bearer $apiKey")
 			if (body != null)
 				r.post(body.toString().toRequestBody("application/json".toMediaType()))
-			client.newCall(r.build()).execute().use { response ->
+			val call = client.newCall(r.build())
+			if (path.startsWith("info?")) call.timeout().timeout(8, TimeUnit.SECONDS)
+			call.execute().use { response ->
 				require(response.code == 200) { "Bridge unavailable (HTTP ${response.code})" }
 				val source = checkNotNull(response.body).source()
 				require(!source.request(65537)) { "Bridge response too large" }

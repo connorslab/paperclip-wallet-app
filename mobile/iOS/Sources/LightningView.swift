@@ -109,8 +109,11 @@ struct LightningView: View {
                 }.buttonStyle(WalletNavigationButtonStyle())
                 Divider()
                 Button { page = .bridge } label: {
-                    WalletNavigationRow("Paperclip Bridge", subtitle: "Pay or receive across XBT and BTC", icon: "arrow.left.arrow.right")
-                }.buttonStyle(WalletNavigationButtonStyle())
+                    VStack(alignment: .leading, spacing: 6) {
+                        WalletNavigationRow("Paperclip Bridge", subtitle: "Pay or receive across XBT and BTC", icon: "arrow.left.arrow.right")
+                        BridgeStatusBadge()
+                    }
+                }.buttonStyle(WalletNavigationButtonStyle()).accessibilityIdentifier("lightning-open-bridge")
             }
 
             if busy { ProgressView(operation) }
@@ -193,13 +196,14 @@ struct LightningView: View {
     }
     private var bridgeCard: some View {
             WalletSection("Paperclip Bridge") {
+                BridgeStatusBadge()
                 NavigationLink { LightningBridgeView(source: .node) } label: {
                     WalletNavigationRow("Pay Spamcoin (BTC)", subtitle: "Use XBT through Paperclip Bridge", icon: "arrow.left.arrow.right")
-                }.buttonStyle(WalletNavigationButtonStyle())
+                }.buttonStyle(WalletNavigationButtonStyle()).accessibilityIdentifier("bridge-open-pay")
                 Divider()
                 NavigationLink { LightningBridgeReceiveView() } label: {
                     WalletNavigationRow("Receive from Spamcoin (BTC)", subtitle: "Receive XBT on your CLN or LND node", icon: "arrow.down.left")
-                }.buttonStyle(WalletNavigationButtonStyle())
+                }.buttonStyle(WalletNavigationButtonStyle()).accessibilityIdentifier("bridge-open-receive")
             }
     }
     private var balanceCard: some View {

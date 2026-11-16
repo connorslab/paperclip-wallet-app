@@ -3,6 +3,26 @@ import CryptoKit
 @testable import PaperclipMobile
 
 final class LightningBridgeTests: XCTestCase {
+    func testServiceAvailabilityExpiresAndNeverInfersAnOutageFromAnError() throws {
+        let checked = Date(timeIntervalSince1970: 1000)
+        let live = BridgeHealth(open: true, checkedAt: checked)
+        XCTAssertEqual(live.state(now: checked), .live)
+        XCTAssertFalse(live.shouldRefresh(now: checked.addingTimeInterval(29)))
+        XCTAssertTrue(live.shouldRefresh(now: checked.addingTimeInterval(30)))
+        XCTAssertEqual(live.state(now: checked.addingTimeInterval(90)), .unknown)
+        XCTAssertEqual(live.state(now: checked.addingTimeInterval(-1)), .unknown)
+        XCTAssertEqual(BridgeHealth(open: false, checkedAt: checked).state(now: checked), .paused)
+        XCTAssertEqual(BridgeHealth(checkedAt: checked).state(now: checked), .unknown)
+        XCTAssertEqual(BridgeHealth(checking: true).state(now: checked), .checking)
+        XCTAssertEqual(BridgeHealthState.combined(.live, .paused), .limited)
+        XCTAssertEqual(BridgeHealthState.combined(.live, .unknown), .unknown)
+        XCTAssertEqual(BridgeHealthState.combined(.live, .live), .live)
+        XCTAssertEqual(BridgeHealthState.combined(.paused, .checking), .checking)
+        for json in ["{}", "{\"open\":\"true\"}", "{\"open\":1}"] {
+            XCTAssertThrowsError(try JSONDecoder().decode(BridgeAvailability.self, from: Data(json.utf8)))
+        }
+        XCTAssertFalse(try JSONDecoder().decode(BridgeAvailability.self, from: Data("{\"open\":false}".utf8)).open)
+    }
     private let now = Date(timeIntervalSince1970: 1_800_000_000)
     // Encoding fixtures intentionally have dummy signatures: BridgeInvoice is a
     // commitment parser, not the funding wallet's signature verifier.

@@ -5,7 +5,7 @@ struct LightningBridgeReceiveView: View {
     @AppStorage("displayUnit") private var unit: BitcoinUnit = .sats
     @ObservedObject private var model = LightningBridgeReceiveModel.shared
     @State private var amount = ""
-    @State private var availability: BridgeAvailability?
+    @ObservedObject private var service = LightningBridgeModel.shared
     @State private var estimate: BridgeEstimate?
     @State private var estimatedHash: String?
     @State private var newRequest = false
@@ -16,9 +16,8 @@ struct LightningBridgeReceiveView: View {
         ScrollView {
             VStack(spacing: 20) {
                 WalletSection {
-                    Label("Paperclip Bridge", systemImage: "arrow.left.arrow.right").font(.headline).foregroundStyle(PaperclipTheme.orange)
-                    Text("Receive XBT.\nThey pay Spamcoin (BTC).").font(.title.bold())
-                    Text("Create an invoice on your CLN or LND node, then share a Spamcoin (BTC) invoice with the sender. The bridge pays XBT to your node.")
+                    HStack { Label("Paperclip Bridge", systemImage: "arrow.left.arrow.right").font(.headline).foregroundStyle(PaperclipTheme.orange); Spacer(); BridgeStatusBadge(direction: .receiveXBT) }
+                    Text("Share a Spamcoin (BTC) invoice and receive XBT on your node.")
                         .font(.subheadline).foregroundStyle(PaperclipTheme.muted)
                 }
                 if let record = current {
@@ -30,7 +29,7 @@ struct LightningBridgeReceiveView: View {
                         if let sats = unit.parse(amount) { USDValue(sats: sats) }
                         Text("This is the XBT amount your node receives. The sender covers the bridge conversion and their wallet’s routing fee.")
                             .font(.caption).foregroundStyle(PaperclipTheme.muted)
-                        if let info = availability, let min = info.min_sat, let max = info.max_sat {
+                        if let info = service.receiveAvailability, let min = info.min_sat, let max = info.max_sat {
                             Text("Current range: \(min.formatted(.number.precision(.fractionLength(0...3)))) – \(max.formatted(.number.precision(.fractionLength(0...3)))) XBT sats")
                                 .font(.caption).foregroundStyle(PaperclipTheme.muted)
                         }
@@ -55,8 +54,7 @@ struct LightningBridgeReceiveView: View {
         }.walletPageBackground().navigationTitle("Receive from Spamcoin (BTC)").navigationBarTitleDisplayMode(.inline)
             .task {
                 model.load()
-                do { availability = try await LightningBridgeModel.shared.client().availability(direction: .receiveXBT) }
-                catch { model.error = error.localizedDescription }
+                await service.refreshAvailability(direction: .receiveXBT)
                 await model.refresh()
             }
             .onChange(of: unit) { old, new in amount = old.parse(amount).map { new.input($0) } ?? "" }
@@ -126,7 +124,7 @@ struct LightningBridgeReceiveView: View {
                     }
                 }
             }.walletPageContent()
-        }.walletPageBackground().navigationTitle("Bridge receive activity")
+        }.walletPageBackground().navigationTitle("Bridge receive activity").toolbar { ToolbarItem(placement: .topBarTrailing) { BridgeStatusBadge(direction: .receiveXBT) } }
     }
     private func title(_ record: BridgeReceiveRecord) -> String {
         if record.received { return "XBT received on your node" }
@@ -145,7 +143,6 @@ struct LightningBridgeReceiveView: View {
         guard let sats = unit.parse(amount), sats > 0, sats <= 2_100_000_000_000_000 else { return }
         model.perform {
             let info = try await LightningBridgeModel.shared.client().availability(direction: .receiveXBT)
-            availability = info
             guard info.open else { throw BridgeError.unavailable("The receive bridge is temporarily unavailable.") }
             if let min = info.min_sat, Double(sats) < min { throw BridgeError.unavailable("Increase the XBT amount to the current bridge minimum.") }
             if let max = info.max_sat, Double(sats) > max { throw BridgeError.unavailable("Reduce the XBT amount to the current bridge maximum.") }

@@ -26,6 +26,36 @@ internal class BridgeModel(app: Application) : AndroidViewModel(app) {
 	private var loaded = false
 	private var poll: Job? = null
 	private var foreground = false
+	private val mutableHealth = MutableStateFlow<Map<Boolean, BridgeHealth>>(emptyMap())
+	val serviceHealth = mutableHealth.asStateFlow()
+	private val healthRequests = mutableMapOf<Boolean, Job>()
+	private var healthGeneration = 0L
+
+	fun refreshAvailability(receiveXbt: Boolean): Job? {
+		healthRequests[receiveXbt]?.let { return it }
+		if (!(mutableHealth.value[receiveXbt] ?: BridgeHealth()).shouldRefresh(android.os.SystemClock.elapsedRealtime())) return null
+		val ticket = healthGeneration
+		mutableHealth.value = mutableHealth.value + (receiveXbt to BridgeHealth(checking = true))
+		return viewModelScope.launch(start = CoroutineStart.LAZY) {
+			var open: Boolean? = null
+			try {
+				val result = client().availability(receiveXbt)
+				open = result.opt("open") as? Boolean ?: error("Invalid availability response")
+			} catch (e: CancellationException) { throw e }
+			catch (_: Exception) { /* Unreachable or malformed is unknown, never live or paused. */ }
+			finally {
+				if (ticket == healthGeneration) {
+					mutableHealth.value = mutableHealth.value + (receiveXbt to BridgeHealth(open, android.os.SystemClock.elapsedRealtime()))
+					healthRequests.remove(receiveXbt)
+				}
+			}
+		}.also { healthRequests[receiveXbt] = it; it.start() }
+	}
+	private fun clearAvailability() {
+		healthGeneration++
+		healthRequests.values.forEach { it.cancel() }; healthRequests.clear()
+		mutableHealth.value = emptyMap()
+	}
 
 	private fun change(f: (BridgeState) -> BridgeState) {
 		mutable.value = f(mutable.value)
@@ -351,6 +381,7 @@ internal class BridgeModel(app: Application) : AndroidViewModel(app) {
 			"Finish pending bridge payments before changing access"
 		}
 		write("bridge-api-key", value)
+		clearAvailability()
 	}
 
 	private fun startPolling() {
@@ -377,6 +408,7 @@ internal class BridgeModel(app: Application) : AndroidViewModel(app) {
 	}
 
 	fun lock() {
+		clearAvailability()
 		generation++
 		foreground = false
 		poll?.cancel()
