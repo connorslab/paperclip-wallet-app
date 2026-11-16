@@ -149,7 +149,10 @@ class StartOSProcessTests(unittest.TestCase):
             self.assertRegex(status, r'CapBnd:\s+0+\n')
             self.assertEqual((roots[2] / 'client.cookie').stat().st_gid, 1000)
             self.assertEqual(stat.S_IMODE((roots[2] / 'client.cookie').stat().st_mode), 0o440)
-            self.assertNotIn('fixture:first', Path(f'/proc/{child}/environ').read_bytes().decode())
+            # Docker's ordinary root cannot inspect a different uid's process
+            # environment without ptrace capability. Do not weaken that isolation.
+            with self.assertRaises(PermissionError):
+                Path(f'/proc/{child}/environ').read_bytes()
             expected[0] = b'fixture:rotated'
             replacement = roots[0] / 'rotated'
             replacement.write_bytes(expected[0] + b'\n')
