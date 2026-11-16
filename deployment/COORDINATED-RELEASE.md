@@ -314,3 +314,27 @@ Linux build-only run `43807411593` passed AMD64 and ARM64 container checks at
 Send Max changes or a deployed Umbrel/StartOS upgrade. Android run `43806295576`
 passed ARM64/x86-64 builds and API 35/36 emulator checks at `c3c9738`. Re-run the
 candidate matrix after the final source freeze.
+
+## Server Bridge foundation: 2026-11-15
+
+The authenticated server API now retains public-service quotes for both Bridge
+directions. It verifies signed mainnet BOLT11 invoices, required XBT identity,
+the shared payment hash, exact recipient and funding amounts, conversion fields,
+and both invoice deadlines. Quote files use the full wallet identity and private,
+atomic storage. A repeated request returns the original saved quote, including
+after expiry or restart; it cannot silently replace a possibly funded invoice.
+Status tokens and settlement preimages are not returned to the browser. A remote
+`settled` string alone is insufficient: a matching preimage must verify first.
+
+The client permits only the fixed HTTPS bridge origin, system TLS validation,
+bounded responses and deadlines, and no redirects or automatic retries. Public
+proof-of-work is bounded and yields to cancellation. These endpoints create no
+wallet payments or node invoices. Browser funding/review, receiving-node receipt
+reconciliation and the complete browser UI remain required before claiming
+Bridge parity. No unsupported Bridge menu has been exposed.
+
+Synthetic REST tests passed: 54 executed and one live opt-in test ignored. Ten
+Bridge checks cover quote tampering, networks, expiry, settlement proof,
+availability decoding, bounded responses, private persistence, symlinks,
+authentication, and duplicate quote recovery. These tests made no live payments
+and do not establish successful production swaps.

@@ -190,6 +190,8 @@ pub struct ServerState {
 	pub(crate) remote_node: tokio::sync::Mutex<api::v1::remote_node::Sessions>,
 	#[cfg(feature = "web-ui")]
 	pub(crate) submissions: tokio::sync::Mutex<()>,
+	#[cfg(feature = "web-ui")]
+	pub(crate) bridge: tokio::sync::Mutex<()>,
 	wallet: parking_lot::RwLock<Option<ServerWallet>>,
 	shutdown: CancellationToken,
 	auth_token: Option<AuthToken>,
@@ -300,6 +302,8 @@ impl ServerStateBuilder {
 			remote_node: tokio::sync::Mutex::new(Default::default()),
 			#[cfg(feature = "web-ui")]
 			submissions: tokio::sync::Mutex::new(()),
+			#[cfg(feature = "web-ui")]
+			bridge: tokio::sync::Mutex::new(()),
 			wallet: parking_lot::RwLock::new(wallet_opt),
 			shutdown: shutdown,
 			auth_token: self.auth_token,

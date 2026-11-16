@@ -16,6 +16,8 @@ pub mod hardware;
 pub mod remote_node;
 #[cfg(feature = "web-ui")]
 pub mod submissions;
+#[cfg(feature = "web-ui")]
+pub mod bridge;
 
 use std::sync::Arc;
 
@@ -44,5 +46,7 @@ pub fn router(state: &Arc<ServerState>) -> Router<Arc<ServerState>> {
 	let router = router.nest("/remote-node", authed_router(state, remote_node::router()));
 	#[cfg(feature = "web-ui")]
 	let router = router.nest("/submissions", authed_router(state, submissions::router()));
+	#[cfg(feature = "web-ui")]
+	let router = router.nest("/bridge", authed_router(state, bridge::router()));
 	router
 }
