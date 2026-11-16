@@ -3,6 +3,32 @@ import PaperclipMobile
 
 /// Minimal native test host: isolated container and Keychain access group.
 final class ProfileInstallationTests: XCTestCase {
+    func testCollidingFingerprintDoesNotAuthorizeAnotherSeedAcrossFFI() throws {
+        func fixture(_ counter: UInt64) -> Data {
+            var bytes = Data(repeating: 0, count: 64)
+            for index in 0..<8 { bytes[index] = UInt8(truncatingIfNeeded: counter >> (index * 8)) }
+            return bytes
+        }
+        let seed = fixture(68878), other = fixture(85331)
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("binding-" + UUID().uuidString)
+        func call(_ key: Data, _ request: [String: Any]) throws -> [String: Any] {
+            let input = String(data: try JSONSerialization.data(withJSONObject: request), encoding: .utf8)!
+            let output: String = input.withCString { request in
+                key.withUnsafeBytes { bytes in
+                    guard let reply = paperclip_mobile_call(request, bytes.bindMemory(to: UInt8.self).baseAddress) else { return "{}" }
+                    defer { paperclip_mobile_free(reply) }
+                    return String(cString: reply)
+                }
+            }
+            return try JSONSerialization.jsonObject(with: Data(output.utf8)) as? [String: Any] ?? [:]
+        }
+        _ = try call(seed, ["op": "close"])
+        defer { _ = try? call(seed, ["op": "close"]); try? FileManager.default.removeItem(at: directory) }
+        XCTAssertNotNil(try call(seed, ["op": "create", "network": "xbt-regtest", "directory": directory.path])["ok"])
+        XCTAssertNotNil(try call(other, ["op": "overview_onchain"])["error"], "A colliding fingerprint authorized the wrong seed")
+        XCTAssertNotNil(try call(seed, ["op": "overview_onchain"])["ok"], "Original session must remain usable")
+    }
+
     func testExistingKeyAndConnectionAreNeverReplacedOrRemoved() async throws {
         for collisionIsKey in [true, false] {
             let wallet = NativeWallet()

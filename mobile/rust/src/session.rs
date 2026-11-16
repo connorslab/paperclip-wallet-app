@@ -5,6 +5,7 @@ use std::time::{Duration, Instant};
 use anyhow::{bail, ensure, Context};
 use base64::{engine::general_purpose::STANDARD, Engine};
 use bitcoin::{Amount, Network};
+use bitcoin::hashes::{sha256, Hash};
 use serde_json::{json, Value};
 use rusqlite::OptionalExtension;
 
@@ -82,6 +83,9 @@ pub struct Session {
 	// Retained independently of the async wallet for its whole lifetime.
 	_lock: Box<dyn LockManager>,
 	fingerprint: String,
+	// A BIP32 fingerprint is a display/lookup hint, not a unique key identity.
+	// This binding is memory-only and is never returned through the mobile API.
+	seed_commitment: sha256::Hash,
 	network: Network,
 	quote: Option<(String, u64, u64, Instant, Option<Vec<ark::VtxoId>>)>,
 	replacement_quote: Option<bark::onchain::replacement::PreparedReplacement>,
@@ -107,6 +111,49 @@ fn arkoor_review_issue(issue: &bark::ArkoorAmountError, fixed_amount: bool) -> V
 
 #[cfg(test)]
 mod tests {
+	use super::*;
+
+	// Deterministic, unfunded fixtures with the same four-byte Ark fingerprint.
+	fn colliding_fixture_seeds() -> ([u8; 64], [u8; 64]) {
+		let mut first = [0u8; 64]; first[..8].copy_from_slice(&68878u64.to_le_bytes());
+		let mut second = [0u8; 64]; second[..8].copy_from_slice(&85331u64.to_le_bytes());
+		assert_ne!(first, second);
+		assert_eq!(WalletSeed::new_from_seed(Network::Regtest, &first).fingerprint(),
+			WalletSeed::new_from_seed(Network::Regtest, &second).fingerprint());
+		(first, second)
+	}
+
+	#[test]
+	fn fingerprint_collision_does_not_authorize_another_seed() {
+		let (seed, other) = colliding_fixture_seeds();
+		let directory = tempfile::tempdir().unwrap();
+		let mut state = None;
+		dispatch(&mut state, json!({"op":"create", "network":"xbt-regtest", "directory":directory.path().join("wallet")}), seed).unwrap();
+		for op in ["address_onchain", "overview_onchain", "backup"] {
+			assert!(dispatch(&mut state, json!({"op":op}), other).is_err(), "A short fingerprint cannot authorize a request");
+		}
+		assert!(dispatch(&mut state, json!({"op":"address_onchain"}), seed).is_ok());
+	}
+
+	#[test]
+	fn fingerprint_collision_does_not_match_another_backup() {
+		let (seed, other) = colliding_fixture_seeds();
+		let directory = tempfile::tempdir().unwrap();
+		let mut foreign = None;
+		dispatch(&mut foreign, json!({"op":"create", "network":"xbt-regtest", "directory":directory.path().join("other")}), other).unwrap();
+		let archive = dispatch(&mut foreign, json!({"op":"backup"}), other).unwrap();
+		drop(foreign);
+		let mut state = None;
+		dispatch(&mut state, json!({"op":"create", "network":"xbt-regtest", "directory":directory.path().join("wallet")}), seed).unwrap();
+		let request = json!({"op":"verify_backup", "network":"xbt-regtest", "directory":directory.path(), "database":archive["database"]});
+		// Loading the backup must still check its full on-chain descriptors,
+		// even when the supplied seed has the same short fingerprint.
+		assert!(dispatch(&mut state, request.clone(), seed).is_err());
+		let result = dispatch(&mut state, request, other).unwrap();
+		assert_eq!(result, json!({"verified":true, "matches_current":false}));
+		assert!(dispatch(&mut state, json!({"op":"address_onchain"}), seed).is_ok());
+	}
+
 	#[test]
 	fn arkoor_alternatives_are_not_sendable_quotes_or_fixed_invoice_overrides() {
 		let issue = bark::ArkoorAmountError {
@@ -124,7 +171,6 @@ mod tests {
 		assert!(fixed["review_issue"]["maximum_amount_sat"].is_null());
 	}
 
-	use super::*;
 
 	#[test]
 	fn send_max_signs_reopened_taproot_and_segwit_accounts() {
@@ -530,7 +576,7 @@ pub fn dispatch(state: &mut Option<Session>, request: Value, seed: [u8; 64]) -> 
 		dispatch(&mut empty, json!({"op":"restore", "network":request["network"],
 			"directory":staging.path().join("wallet"), "database":request["database"]}), seed)?;
 		let matches = state.as_ref().map(|active| active.kind == "hot" && active.network == network &&
-			active.fingerprint == WalletSeed::new_from_seed(network, &seed).fingerprint().to_string()).unwrap_or(false);
+			active.seed_commitment == sha256::Hash::hash(&seed)).unwrap_or(false);
 		return Ok(json!({"verified":true, "matches_current":matches}));
 	}
 	if op == "validate_public_wallet" {
@@ -622,11 +668,11 @@ pub fn dispatch(state: &mut Option<Session>, request: Value, seed: [u8; 64]) -> 
 			std::fs::write(&marker, serde_json::to_vec(&json!({"kind": kind, "receive": receive, "change": change}))?)?;
 		}
 		*state = Some(Session { kind: kind.into(), hardware_board: None, hardware_request: None, offer_task: None, receive_task: None, runtime, dir, db, onchain: Arc::new(tokio::sync::RwLock::new(onchain)),
-			wallet: None, ark_wallet: None, _lock: lock, fingerprint: fingerprint.to_string(), network, quote: None, replacement_quote: None, onchain_quote: None, board_quote: None });
+			wallet: None, ark_wallet: None, _lock: lock, fingerprint: fingerprint.to_string(), seed_commitment: sha256::Hash::hash(&seed), network, quote: None, replacement_quote: None, onchain_quote: None, board_quote: None });
 		return Ok(json!({"fingerprint": fingerprint.to_string()}));
 	}
 	let session = state.as_mut().context("open a wallet first")?;
-	ensure!(WalletSeed::new_from_seed(session.network, &seed).fingerprint().to_string() == session.fingerprint,
+	ensure!(sha256::Hash::hash(&seed) == session.seed_commitment,
 		"wallet key mismatch");
 	if session.kind != "hot" {
 		ensure!(matches!(op, "close" | "connect" | "config_template" | "chain_health" | "overview_onchain" | "addresses_onchain" | "address_onchain" | "sync_onchain" | "activity" | "hardware_prepare" | "hardware_import" | "hardware_broadcast" | "hardware_cancel"), "This public-only wallet supports on-chain monitoring and QR signing only");

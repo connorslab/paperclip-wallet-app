@@ -130,6 +130,13 @@ Play-signed download option in its
   The passing fixture is not evidence of automatic LAN discovery on Android.
 - All 33 deployment Python unit tests passed using Python 3.13. The separate Linux
   daemon smoke script requires its built container and was not accepted on macOS.
+  Linux CI [43891347530](https://github.com/connorslab/paperclip-wallet-app/actions/runs/43891347530)
+  at `b00ee675` subsequently passed both AMD64 and ARM64 builds and authenticated
+  container/daemon smoke checks with `publish=false`. No image or manifest was
+  published. This does not establish an installed StartOS/Umbrel upgrade.
+- All 106 Swift policy tests and 70 server adapter/recovery tests passed locally.
+  The server's opt-in live test was ignored in that default suite and passed in
+  the separate authenticated StartOS run described above.
 - Manual desktop balance refresh now reports partial failures instead of claiming
   success. Invalid/negative balances display as unavailable, including the recovery
   summary. A late refresh cannot overwrite the locked status. Browser regressions
@@ -137,6 +144,35 @@ Play-signed download option in its
   All 16 browser workflow suites passed with these changes.
 
 ## Acceptance matrix
+
+### Native key binding follow-up: 2026-11-16
+
+Two deterministic, unfunded regtest wallets with the same four-byte Ark fingerprint
+reproduced a native mobile session-binding failure. The dispatcher accepted the
+other seed for operations on an already-open session, and backup verification
+reported the other wallet's valid archive as matching the active wallet.
+[BIP32](https://bips.dev/32/#key-identifiers) defines this fingerprint as a short
+identifier and explicitly requires implementations to handle collisions.
+
+The shared iOS/Android dispatcher now checks a 256-bit seed commitment retained
+only in memory. Backup matching also uses that binding plus the network and wallet
+kind. Displayed fingerprints, stored files, backups and ABI contracts are unchanged;
+the commitment is never returned by the API. Both collision regressions failed
+before the change and pass afterward. Full on-chain descriptor validation still
+rejects a backup supplied with the wrong colliding seed. All 31 active native
+mobile unit tests pass; one opt-in live Electrum test remains ignored.
+
+This is a local session identity check, not evidence of a remote unauthenticated
+attack. It does not complete portable payment/Bridge recovery archives or prove
+funded upgrade acceptance. The Android ARM64 native library, app and test APKs
+built successfully. Five JNI/native/profile tests passed on the isolated API 36
+emulator, including the same collision and preservation of the original session.
+The native Apple simulator library and app built successfully, bundle verification
+passed, and all five native XCTest cases passed in the isolated test host,
+including the collision through FFI. No funded physical device was changed.
+`just checks` passed. Device-signing and x86-64 release acceptance remain separate.
+
+### Release gates
 
 A feature is complete only when users can perform the same task with equivalent
 validation, recovery and error handling. A shared library or visible menu alone

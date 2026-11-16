@@ -6,9 +6,30 @@ import org.junit.Assert.*
 import org.junit.Test
 import java.io.File
 import java.util.UUID
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import kotlinx.coroutines.runBlocking
 
 class NativeBridgeTest {
+    @Test fun collidingFingerprintDoesNotAuthorizeAnotherSeedAcrossJni() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        runBlocking { WalletEngine.shared(context).close() }
+        fun fixture(counter: Long) = ByteArray(64).also { ByteBuffer.wrap(it).order(ByteOrder.LITTLE_ENDIAN).putLong(counter) }
+        val seed = fixture(68878); val other = fixture(85331)
+        val base = File(context.cacheDir, "binding-${UUID.randomUUID()}")
+        fun call(key: ByteArray, request: JSONObject) = JSONObject(String(NativeBridge.call(request.toString().toByteArray(), key)))
+        try {
+            val created = call(seed, JSONObject().put("op", "create").put("network", "xbt-regtest").put("directory", base.absolutePath))
+            assertTrue("Fixture creation failed", created.has("ok"))
+            val rejected = call(other, JSONObject().put("op", "overview_onchain"))
+            assertTrue("A colliding fingerprint authorized the wrong seed", rejected.has("error"))
+            assertTrue("Original session must remain usable", call(seed, JSONObject().put("op", "overview_onchain")).has("ok"))
+        } finally {
+            call(seed, JSONObject().put("op", "close"))
+            seed.fill(0); other.fill(0); base.deleteRecursively()
+        }
+    }
+
     @Test fun nativeBoundaryAndFullDatabaseRecovery() {
         runBlocking { WalletEngine.shared(InstrumentationRegistry.getInstrumentation().targetContext).close() }
         val seed = ByteArray(64) { 37 }
