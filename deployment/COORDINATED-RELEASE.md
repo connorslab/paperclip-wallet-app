@@ -572,3 +572,26 @@ wrong-wallet records, interrupted import and status recovery after restoration.
 Node credentials intentionally stored only on-device require a separate policy;
 do not silently add them to portable backups. This gap remains open alongside
 funded recovery and platform upgrade/restore acceptance.
+
+## Restore validation before wallet changes: 2026-11-16
+
+Android now decrypts and validates an archive before closing the active wallet.
+Both mobile adapters run the shared temporary database restore validator before
+profile installation. A bad key, unsupported archive, duplicate wallet or damaged
+database therefore cannot discard Android's current native session as part of
+preflight. Later storage/installation failures still require separate recovery
+handling; this does not make import atomic across every storage failure.
+
+Validation passed: 81 Android unit tests (three opt-in tests skipped), native ARM64
+build, APK/test APK assembly, and two AssistanceNativeTest cases on an unfunded
+API 35 emulator. The new case calls JNI directly after rejected restores, so an
+automatic reopen cannot conceal a closed session. It covers wrong keys, duplicate
+wallets and damaged databases, while preserving wallet selection. The native iOS
+simulator app compiles and its bundle verifies; the new Swift preflight path has
+not yet been exercised through Files on a physical device. `just checks` passed.
+
+Linux build-only CI `43837079138` passed AMD64 and ARM64 at `f8bcbb0`; the manifest
+publishing job was skipped. iOS CI `43837081855` failed in the Lightning screen's
+SwiftUI type checking during the unsigned device build. Its Rust device/simulator
+and Swift unit-test jobs passed. The compiler failure remains a release gate until
+the smaller-view follow-up passes that CI toolchain.

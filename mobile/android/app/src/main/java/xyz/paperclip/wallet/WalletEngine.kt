@@ -571,10 +571,6 @@ class WalletEngine private constructor(context: Context) {
 	}
 
 	suspend fun restore(bytes: ByteArray, key: String, testOnly: Boolean = false) = serial {
-		if (opened) invoke("close")
-		opened = false
-		connected = false
-		record = null
 		val plain = BackupCodec.open(bytes, key)
 		val archive =
 			try {
@@ -609,6 +605,14 @@ class WalletEngine private constructor(context: Context) {
 				"Backup words do not match its seed"
 			}
 		}
+		// Validate the database before closing the current wallet. A rejected
+		// archive must not discard its active session or connection state.
+		invoke("verify_backup", JSONObject().put("network", network)
+			.put("directory", root.absolutePath).put("database", archive.getString("recoveryState")), seed.copyOf())
+		if (opened) invoke("close")
+		opened = false
+		connected = false
+		record = null
 		val id = UUID.randomUUID().toString()
 		invoke(
 			"restore",

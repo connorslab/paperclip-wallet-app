@@ -559,6 +559,10 @@ actor NativeWallet: WalletEngine, WalletBackupEngine {
             let derived = try await call(["op": "seed_derive", "phrase": phrase], seed: Data(repeating: 0, count: 64))
             guard derived["seed"] as? String == archive.seed.base64EncodedString() else { throw BackupError.invalidArchive }
         }
+        // Reject damaged recovery data before profile installation closes the
+        // current wallet. The validator leaves its active session untouched.
+        _ = try await call(["op":"verify_backup", "network":archive.network,
+            "directory":FileManager.default.temporaryDirectory.path, "database":archive.recoveryState.base64EncodedString()], seed: archive.seed)
         provisioning = false
         _ = try await installProfile(WalletProfile(name: "Restored wallet", kind: .hot, network: archive.network),
             key: KeyRecord(seed: archive.seed, phrase: archive.seedPhrase, network: archive.network), archive: archive)
