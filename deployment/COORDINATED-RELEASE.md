@@ -396,3 +396,37 @@ The API specification/client generation and `just checks` passed. The earlier
 Android run `43811981065` now passes both native architectures and API 35/36;
 the API 36 rerun used the unchanged onboarding check. This does not verify later
 candidate revisions or a physical-device upgrade.
+
+## Mobile Bridge review lifetime: 2026-11-16
+
+The iOS and Android candidates now invalidate unsubmitted Bridge reviews when
+the app locks or the Bridge screen closes. A delayed network response cannot
+restore funding approval. Android captures the review session before it waits
+for the shared payment gate, and publishes fee approval only after it saves the
+quote. Both implementations recheck that session immediately before they record
+submission intent. Once an attempt is journaled, locking does not discard its
+result or automatically submit another payment. iOS also rejects a review whose
+wall-clock age is negative.
+
+Matching asynchronous tests cover delayed responses, a lock during the final
+node check, queued reviews and reviews from another screen. The 14 selected Swift
+tests passed. Android unit tests passed: 81 executed, three live opt-in tests
+skipped. The Android ARM64 debug build and release lint passed, with no lint
+errors. `just checks` passed. No live payment was made for these tests.
+
+Repeated iPhone simulator navigation exposed a long SwiftUI destination-update
+stall in the existing Bridge entry flow. The Bridge menu now owns its nested
+navigation state independently of the node dashboard. Two consecutive tests pass
+through send, Back, receive and rotation, including a 30-second navigation limit.
+The opened Duo simulator also passed Bridge navigation and the strengthened
+Lightning layout check. These are synthetic UI checks, not physical-device or
+funded payment acceptance; capture details are in `UI-UX-VALIDATION.md`.
+
+Previous candidate CI is complete: browser run `43818026894` and Lightning
+regression run `43818026844` passed at `a7439f1`. Android run `43815916922` passed
+both native architectures and API 35/36 at `fd966a6`. Linux build-only run
+`43815931641` passed AMD64 and ARM64 at that revision; publication was skipped.
+These results are not production upgrades or acceptance of later source changes.
+
+Linux build-only run `43825088026` passed AMD64 and ARM64 at `a7439f1`, including
+the latest server Bridge receive changes. The publishing job was skipped.

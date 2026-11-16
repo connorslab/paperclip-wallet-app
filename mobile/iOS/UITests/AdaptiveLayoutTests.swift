@@ -189,11 +189,18 @@ final class AdaptiveLayoutTests: XCTestCase {
 		entry.tap()
 		let badge = app.descendants(matching: .any).matching(identifier: "bridge-service-status").firstMatch
 		XCTAssertTrue(badge.waitForExistence(timeout: 10))
+		let openedAt = Date()
 		app.buttons["bridge-open-pay"].tap()
+		XCTAssertTrue(app.navigationBars["Pay Spamcoin (BTC)"].waitForExistence(timeout: 10))
 		XCTAssertTrue(badge.waitForExistence(timeout: 10))
+		XCTAssertLessThan(Date().timeIntervalSince(openedAt), 30, "Bridge navigation must not stall the UI event loop")
 		XCTAssertTrue(badge.label.hasPrefix("Bridge service:"))
 		capture(app, "Bridge send status compact")
-		app.navigationBars.buttons.element(boundBy: 0).tap()
+		// Duo places the native back control in a separate toolbar.
+		let back = app.descendants(matching: .any).matching(identifier: "BackButton").firstMatch
+		XCTAssertTrue(back.waitForExistence(timeout: 5))
+		back.tap()
+		XCTAssertTrue(app.buttons["bridge-open-receive"].waitForExistence(timeout: 10))
 		app.buttons["bridge-open-receive"].tap()
 		XCTAssertTrue(badge.waitForExistence(timeout: 10))
 		XCUIDevice.shared.orientation = .landscapeLeft
@@ -202,6 +209,7 @@ final class AdaptiveLayoutTests: XCTestCase {
 		// Availability may be unknown on an offline test host. No quote or payment is created.
 	}
 
+	// Open a foldable simulator in Device Hub before testing its wide layout.
 	func testLightningReflows() {
 		continueAfterFailure = false
 		XCUIDevice.shared.orientation = .portrait
@@ -214,7 +222,12 @@ final class AdaptiveLayoutTests: XCTestCase {
 		XCTAssertTrue(balance.waitForExistence(timeout: 15))
 		XCTAssertGreaterThan(bridge.frame.minY, balance.frame.maxY)
 		XCUIDevice.shared.orientation = .landscapeLeft
-		expectation(for: NSPredicate { _, _ in bridge.frame.minX > balance.frame.maxX }, evaluatedWith: app)
+		expectation(for: NSPredicate { _, _ in
+			guard bridge.exists, balance.exists else { return false }
+			let primary = balance.frame, secondary = bridge.frame
+			guard primary.width > 0, primary.height > 0, secondary.width > 0, secondary.height > 0 else { return false }
+			return secondary.minX > primary.maxX
+		}, evaluatedWith: app)
 		waitForExpectations(timeout: 10)
 		capture(app, "Lightning wide")
 	}
@@ -273,11 +286,14 @@ final class AdaptiveLayoutTests: XCTestCase {
 		}
 	}
 
-	private func capture(_ app: XCUIApplication, _ name: String) {
-		// Element screenshots can crop using stale portrait bounds after rotation.
-		let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
-		attachment.name = name
-		attachment.lifetime = .keepAlways
-		add(attachment)
+	private func capture(_: XCUIApplication, _ name: String) {
+		// The unfolded Duo uses a second display; main alone can be powered off.
+		// Whole-screen captures also avoid stale element bounds after rotation.
+		for (index, screen) in XCUIScreen.screens.enumerated() {
+			let attachment = XCTAttachment(screenshot: screen.screenshot())
+			attachment.name = "\(name) · screen \(index + 1)"
+			attachment.lifetime = .keepAlways
+			add(attachment)
+		}
 	}
 }

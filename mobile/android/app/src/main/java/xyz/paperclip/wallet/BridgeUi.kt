@@ -28,6 +28,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 internal fun BridgePage(model: BridgeModel, canUseArk: Boolean) {
 	val state by model.state.collectAsStateWithLifecycle()
 	LaunchedEffect(model) { model.load() }
+	DisposableEffect(model) { onDispose { model.invalidateReview() } }
 	BridgeContent(state, canUseArk, { direction -> BridgeStatusBadge(model, direction) },
 		model::quote, model::fund, model::check, model::saveKey, model::selectSaved)
 }

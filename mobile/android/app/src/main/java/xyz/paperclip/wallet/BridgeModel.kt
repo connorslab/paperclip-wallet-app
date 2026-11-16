@@ -8,6 +8,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import org.json.JSONArray
 import org.json.JSONObject
+import java.util.UUID
 
 internal data class BridgeState(
 	val busy: Boolean = false,
@@ -64,6 +65,8 @@ internal class BridgeModel(app: Application) : AndroidViewModel(app) {
 	}
 
 	private var generation = 0L
+	private val reviewSession = PaymentReviewSession()
+	private var approval: UUID? = null
 
 	private fun job(block: suspend () -> Unit) {
 		if (mutable.value.busy) return
@@ -144,6 +147,7 @@ internal class BridgeModel(app: Application) : AndroidViewModel(app) {
 		val record = historySnapshot().firstOrNull { it.optString("hash") == hash }
 			?: error("Saved bridge payment is unavailable")
 		// A historical quote never restores an old authorization to fund it.
+		reviewSession.invalidate(); approval = null
 		change { it.copy(record = record, nativeQuote = null, nodeReview = null) }
 	}
 
@@ -179,81 +183,99 @@ internal class BridgeModel(app: Application) : AndroidViewModel(app) {
 		receiveXbt: Boolean,
 		amount: String,
 		fee: String,
-	) = job {
-		loadJournal()
-		require(source in listOf("ark", "node"))
-		check((0 until journal.length()).none { unsettled(journal.getJSONObject(it)) }) {
-			"Check the existing bridge payment before creating another"
-		}
-		change { it.copy(nativeQuote = null, nodeReview = null) }
-		val n = if (source == "node" || receiveXbt) node() else null
-		val requestedAmount = if (receiveXbt) WalletModel.positiveAmount(amount) else null
-		val target =
-			BridgeInvoice(
-				if (receiveXbt) checkNotNull(n).invoice(checkNotNull(requestedAmount))
-				else targetText,
-			)
-		target.validateTarget(receiveXbt)
-		if (receiveXbt) {
-			target.validateNodeReceive(checkNotNull(requestedAmount), checkNotNull(n).receivedInvoice(target))
-		}
-		check(
-			(0 until journal.length()).none {
-				journal.getJSONObject(it).let { r ->
-					r.getString("hash") == target.hash && r.optBoolean("submitted")
-				}
-			},
-		) {
-			"This invoice already has a recorded payment attempt"
-		}
-		val quote = client().quote(target, receiveXbt)
-		val hold = quote.validate(target, receiveXbt)
-		val record =
-			JSONObject()
-				.put("hash", target.hash)
-				.put("target", target.text)
-				.put("quote", quote.value)
-				.put("source", source)
-				.put("receive", receiveXbt)
-				.put("wallet", engine.activeID())
-				.put("submitted", receiveXbt)
-				.put("funding", "not_sent")
-				.put("bridge", "quoted")
-				.put("private_api", !read("bridge-api-key").isNullOrEmpty())
-		if (n != null)
-			record
-				.put("node_endpoint", n.connection.endpoint)
-				.put("node_implementation", n.connection.implementation)
-		if (!receiveXbt && source == "ark") {
-			require(engine.network() == "xbt-mainnet")
-			val native =
-				engine.call(
-					"quote",
-					JSONObject()
-						.put("destination", hold.text)
-						.put("amount_sat", (hold.msat + 999) / 1000),
+	) {
+		if (mutable.value.busy) return
+		invalidateReview()
+		// Capture before waiting for another wallet operation in PaymentGate.
+		val ticket = reviewSession.capture()
+		job {
+			reviewSession.check(ticket)
+			loadJournal()
+			require(source in listOf("ark", "node"))
+			check((0 until journal.length()).none { unsettled(journal.getJSONObject(it)) }) {
+				"Check the existing bridge payment before creating another"
+			}
+			change { it.copy(nativeQuote = null, nodeReview = null) }
+			val n = if (source == "node" || receiveXbt) node() else null
+			reviewSession.check(ticket)
+			val requestedAmount = if (receiveXbt) WalletModel.positiveAmount(amount) else null
+			val target =
+				BridgeInvoice(
+					if (receiveXbt) checkNotNull(n).invoice(checkNotNull(requestedAmount))
+					else targetText,
 				)
-			require(
-				native.has("total_sat") && native.getLong("amount_sat") == (hold.msat + 999) / 1000,
-			)
-			change { it.copy(nativeQuote = native) }
-		} else if (!receiveXbt) {
-			val review =
-				checkNotNull(n)
-					.review(
-						hold.text,
-						null,
-						fee.toLongOrNull() ?: error("Enter a maximum routing fee"),
+			reviewSession.check(ticket)
+			target.validateTarget(receiveXbt)
+			if (receiveXbt) {
+				target.validateNodeReceive(checkNotNull(requestedAmount), checkNotNull(n).receivedInvoice(target))
+			}
+			check(
+				(0 until journal.length()).none {
+					journal.getJSONObject(it).let { r ->
+						r.getString("hash") == target.hash && r.optBoolean("submitted")
+					}
+				},
+			) {
+				"This invoice already has a recorded payment attempt"
+			}
+			reviewSession.check(ticket)
+			val quote = client().quote(target, receiveXbt)
+			reviewSession.check(ticket)
+			val hold = quote.validate(target, receiveXbt)
+			val record =
+				JSONObject()
+					.put("hash", target.hash)
+					.put("target", target.text)
+					.put("quote", quote.value)
+					.put("source", source)
+					.put("receive", receiveXbt)
+					.put("wallet", engine.activeID())
+					.put("submitted", receiveXbt)
+					.put("funding", "not_sent")
+					.put("bridge", "quoted")
+					.put("private_api", !read("bridge-api-key").isNullOrEmpty())
+			if (n != null)
+				record
+					.put("node_endpoint", n.connection.endpoint)
+					.put("node_implementation", n.connection.implementation)
+			var nativeApproval: JSONObject? = null
+			var nodeApproval: NodeInvoiceReview? = null
+			if (!receiveXbt && source == "ark") {
+				require(engine.network() == "xbt-mainnet")
+				val native =
+					engine.call(
+						"quote",
+						JSONObject()
+							.put("destination", hold.text)
+							.put("amount_sat", (hold.msat + 999) / 1000),
 					)
-			require(review.hash == hold.hash && review.msat == hold.msat)
-			change { it.copy(nodeReview = review) }
+				require(
+					native.has("total_sat") && native.getLong("amount_sat") == (hold.msat + 999) / 1000,
+				)
+				nativeApproval = native
+			} else if (!receiveXbt) {
+				val review =
+					checkNotNull(n)
+						.review(
+							hold.text,
+							null,
+							fee.toLongOrNull() ?: error("Enter a maximum routing fee"),
+						)
+				require(review.hash == hold.hash && review.msat == hold.msat)
+				nodeApproval = review
+			}
+			reviewSession.check(ticket)
+			save(record)
+			reviewSession.check(ticket)
+			approval = ticket
+			change { it.copy(nativeQuote = nativeApproval, nodeReview = nodeApproval, quoteRevision = it.quoteRevision + 1) }
+			startPolling()
 		}
-		save(record)
-		change { it.copy(quoteRevision = it.quoteRevision + 1) }
-		startPolling()
 	}
 
 	fun fund() = job {
+		val ticket = approval ?: error("Review this bridge payment again")
+		reviewSession.check(ticket)
 		loadJournal()
 		val old = mutable.value.record ?: error("Review a quote first")
 		check(!old.optBoolean("receive") && !old.optBoolean("submitted")) {
@@ -296,8 +318,11 @@ internal class BridgeModel(app: Application) : AndroidViewModel(app) {
 				"Check the existing outgoing node payment first"
 			}
 		}
+		reviewSession.check(ticket)
 		val intent = JSONObject(old.toString()).put("submitted", true).put("funding", "unknown")
 		save(intent) // Durable before either funding call; never replayed automatically.
+		// Past this durable boundary, finish and reconcile even if the UI locks.
+		approval = null
 		change { it.copy(nativeQuote = null, nodeReview = null) }
 		try {
 			val funding =
@@ -397,6 +422,7 @@ internal class BridgeModel(app: Application) : AndroidViewModel(app) {
 		}
 		write("bridge-api-key", value)
 		clearAvailability()
+		invalidateReview()
 	}
 
 	private fun startPolling() {
@@ -422,11 +448,16 @@ internal class BridgeModel(app: Application) : AndroidViewModel(app) {
 		}
 	}
 
+	fun invalidateReview() {
+		reviewSession.invalidate(); approval = null
+		change { it.copy(nativeQuote = null, nodeReview = null) }
+	}
+
 	fun lock() {
+		invalidateReview()
 		clearAvailability()
 		generation++
 		foreground = false
 		poll?.cancel()
-		change { it.copy(nativeQuote = null, nodeReview = null) }
 	}
 }

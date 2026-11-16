@@ -3,6 +3,8 @@ import PaperclipMobile
 
 struct LightningBridgeView: View {
     @EnvironmentObject private var store: WalletStore
+    private var reviewSession: PaymentReviewSession { model.reviewSession }
+    @State private var fundingTicket: PaymentReviewSession.Ticket?
     @AppStorage("displayUnit") private var unit: BitcoinUnit = .sats
     @ObservedObject private var model = LightningBridgeModel.shared
     @ObservedObject private var payments = LightningPaymentMonitor.shared
@@ -73,9 +75,11 @@ struct LightningBridgeView: View {
             }
             .onChange(of: invoice) { _, _ in clearReview() }
             .onChange(of: source) { _, _ in clearReview() }
-            .onChange(of: fee) { _, _ in reviewedTotal = nil; fundingReview = nil }
-            .onChange(of: store.walletID) { _, _ in reviewedTotal = nil; fundingReview = nil }
-            .onChange(of: unit) { old, new in fee = old.parse(fee).map { new.input($0) } ?? new.input(100); reviewedTotal = nil }
+            .onChange(of: fee) { _, _ in invalidateFunding() }
+            .onChange(of: store.walletID) { _, _ in invalidateFunding() }
+            .onChange(of: unit) { old, new in fee = old.parse(fee).map { new.input($0) } ?? new.input(100); invalidateFunding() }
+            .onReceive(NotificationCenter.default.publisher(for: UIApplication.willResignActiveNotification)) { _ in invalidateFunding() }
+            .onDisappear { reviewSession.invalidate() }
     }
     private var composeCard: some View {
         WalletSection("Payment request") {
@@ -143,7 +147,7 @@ struct LightningBridgeView: View {
                     Label(seconds == 0 ? "Quote expired" : "Quote expires in \(seconds)s", systemImage: "timer").font(.caption).monospacedDigit()
                 }
                 if record.source == .node { TextField("Maximum routing fee in \(unit.title)", text: $fee).keyboardType(.decimalPad).disabled(busy) }
-                if let total = reviewedTotal, reviewedQuote == record.quote {
+                if let total = reviewedTotal, reviewedQuote == record.quote, fundingTicket == reviewSession.capture() {
                     Divider()
                     LabeledContent(record.source == .ark ? "Ark fee / recovery funding" : "Maximum routing fee", value: unit.display(total - record.quote.pay_sat))
                     LabeledContent("Maximum XBT debit", value: unit.display(total)).font(.headline)
@@ -205,30 +209,40 @@ struct LightningBridgeView: View {
         default: return "Waiting for payment confirmation"
         }
     }
-    private func clearReview() { estimate = nil; parsed = nil; reviewedTotal = nil; fundingReview = nil; message = "" }
+    private func invalidateFunding() {
+        reviewSession.invalidate(); fundingTicket = nil; confirming = false
+        reviewedTotal = nil; fundingReview = nil; reviewedAt = nil; reviewedQuote = nil
+        node = nil; nodeConnection = nil
+    }
+    private func clearReview() { invalidateFunding(); estimate = nil; parsed = nil; message = "" }
     private func run(_ action: @escaping @MainActor () async throws -> Void) {
         guard !busy else { return }; busy = true; message = ""
-        Task { @MainActor in defer { busy = false }; do { try await action() } catch { message = error.localizedDescription } }
+        Task { @MainActor in defer { busy = false }; do { try await action() } catch is CancellationError { } catch { message = error.localizedDescription } }
     }
     private func checkInvoice() {
-        let text = invoice, chosen = source
+        let text = invoice, chosen = source, ticket = reviewSession.capture()
         run {
+            try reviewSession.check(ticket)
             let target = try BridgeInvoice(text); try target.validateTarget()
             let api = try model.client(), availability = try await api.availability()
+            try reviewSession.check(ticket)
             model.availability = availability
             guard availability.open else { throw BridgeError.unavailable("The bridge is temporarily unavailable. Try again shortly.") }
             let result = try await api.check(target.text); try result.validate(target: target)
+            try reviewSession.check(ticket)
             guard text == invoice, chosen == source else { return }
             parsed = target; estimate = result
         }
     }
     private func getQuote() {
         guard let target = parsed else { return }
-        let chosen = source, walletID = store.walletID
+        let chosen = source, walletID = store.walletID, ticket = reviewSession.capture()
         run {
+            try reviewSession.check(ticket)
             try target.validateTarget()
             if chosen == .ark && !arkAvailable { throw WalletFailure(message: "Select an Ark-enabled mainnet wallet.") }
             let result = try await model.client().quote(target)
+            try reviewSession.check(ticket)
             guard parsed == target, source == chosen, chosen != .ark || walletID == store.walletID else { throw BridgeError.invalidQuote }
             try model.record(target: target, quote: result, source: chosen, store: store)
             newPayment = false; reviewedTotal = nil
@@ -245,7 +259,11 @@ struct LightningBridgeView: View {
         return (node, saved)
     }
     private func reviewFunding(_ record: BridgePaymentRecord) {
+        guard !busy else { return }
+        invalidateFunding()
+        let ticket = reviewSession.capture()
         run {
+            try reviewSession.check(ticket)
             reviewedTotal = nil
             let hold = try record.quote.validate(target: BridgeInvoice(record.target))
             guard !record.submitted else { return }
@@ -254,34 +272,43 @@ struct LightningBridgeView: View {
                     throw WalletFailure(message: "Open the original Ark wallet. Ark funding requires a whole-sat XBT invoice.")
                 }
                 let quote = try await store.engine.quote(destination: record.quote.hold_invoice, amount: record.quote.pay_sat)
+                try reviewSession.check(ticket)
                 guard record.walletID == store.walletID, let total = (quote["total_sat"] as? NSNumber)?.uint64Value, total >= record.quote.pay_sat else { throw BridgeError.invalidQuote }
                 if let balance = store.ark, total > balance { throw WalletFailure(message: "Your Ark balance does not cover the invoice and fees.") }
                 reviewedTotal = total
             } else {
                 guard payments.pending == nil, let maxFee = unit.parse(fee), maxFee <= 2_100_000_000_000_000 - record.quote.pay_sat else { throw WalletFailure(message: "Enter a valid routing fee limit and finish any pending node payment first.") }
                 let (client, saved) = try await connectedNode()
+                try reviewSession.check(ticket)
                 let review = try LightningPaymentReview.decode(await client.decode(record.quote.hold_invoice), implementation: saved.implementation)
+                try reviewSession.check(ticket)
                 guard review.hash == hold.hash, review.millisatoshis == hold.msat else { throw BridgeError.invalidQuote }
                 node = client; nodeConnection = saved; fundingReview = review
                 reviewedTotal = record.quote.pay_sat + maxFee
             }
+            try reviewSession.check(ticket)
+            fundingTicket = ticket
             reviewedQuote = record.quote
             reviewedAt = Date()
         }
     }
     private func pay() {
-        guard let record = current, let total = reviewedTotal, reviewedQuote == record.quote, !record.submitted else { return }
+        guard let record = current, let total = reviewedTotal, let ticket = fundingTicket, reviewedQuote == record.quote, !record.submitted else { return }
         run {
+            try reviewSession.check(ticket)
             _ = try record.quote.validate(target: BridgeInvoice(record.target))
-            guard let reviewedAt, Date().timeIntervalSince(reviewedAt) < 50 else { reviewedTotal = nil; throw BridgeError.expired }
+            guard let reviewedAt, (0..<50).contains(Date().timeIntervalSince(reviewedAt)) else { reviewedTotal = nil; throw BridgeError.expired }
             if record.source == .ark {
                 guard arkAvailable, store.walletID == record.walletID, !store.busy else { throw WalletFailure(message: "Open the reviewed Ark wallet and wait for other operations to finish.") }
                 // Pin the selected wallet across suspension points and the native send.
                 let held = try await store.engine.holdMaintenanceWallet()
                 guard held?.id == record.walletID else { await store.engine.releaseMaintenanceWallet(); throw BridgeError.invalidQuote }
+                do { try reviewSession.check(ticket) }
+                catch { await store.engine.releaseMaintenanceWallet(); throw error }
                 store.busy = true
                 do {
                     try model.beginSubmission(record)
+                    fundingTicket = nil
                     reviewedTotal = nil
                     let result = try await store.engine.send(destination: record.quote.hold_invoice, amount: record.quote.pay_sat, total: total)
                     if result["state"] as? String == "not_sent" {
@@ -297,10 +324,12 @@ struct LightningBridgeView: View {
                       try JSONDecoder().decode(LightningConnection.self, from: data) == connection,
                       payments.pending == nil else { throw WalletFailure(message: "Node connection changed. Review again.") }
                 let decoded = try LightningPaymentReview.decode(await node.decode(record.quote.hold_invoice), implementation: connection.implementation)
+                try reviewSession.check(ticket)
                 guard decoded == review else { throw BridgeError.invalidQuote }
                 _ = try record.quote.validate(target: BridgeInvoice(record.target))
                 // Journal the attempt before either the node request or a possible timeout.
                 try model.beginSubmission(record, connection: connection)
+                fundingTicket = nil
                 do { try payments.record(PendingNodePayment(invoice: record.quote.hold_invoice, hash: record.id)) }
                 catch { try model.update(record.id) { $0.submitted = false; $0.fundingState = "not_sent" }; throw error }
                 payments.useNode(node); reviewedTotal = nil

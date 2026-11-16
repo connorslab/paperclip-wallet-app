@@ -25,6 +25,7 @@ struct BridgePaymentRecord: Codable, Identifiable {
 
 @MainActor final class LightningBridgeModel: ObservableObject {
     static let shared = LightningBridgeModel()
+    let reviewSession = PaymentReviewSession()
     @Published private(set) var records: [BridgePaymentRecord] = []
     @Published private(set) var loaded = false
     @Published var error = ""
@@ -96,6 +97,7 @@ struct BridgePaymentRecord: Codable, Identifiable {
             throw WalletFailure(message: "Enter the private API key, or leave blank to use the public API.")
         }
         try WalletKeychain.save(Data(value.utf8), account: Self.keyAccount)
+        reviewSession.invalidate()
         healthGeneration += 1; healthRequests.values.forEach { $0.cancel() }; healthRequests.removeAll()
         serviceHealth = [:]; availability = nil; receiveAvailability = nil
     }
@@ -114,7 +116,7 @@ struct BridgePaymentRecord: Codable, Identifiable {
     }
     func setForeground(_ active: Bool) {
         poller?.cancel(); poller = nil
-        guard active else { return }
+        guard active else { reviewSession.invalidate(); return }
         load()
         LightningBridgeReceiveModel.shared.load()
         poller = Task { [weak self] in

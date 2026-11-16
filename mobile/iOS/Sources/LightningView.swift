@@ -125,7 +125,7 @@ struct LightningView: View {
                 ScrollView {
                     VStack(spacing: 20) {
                         switch selected {
-                        case .bridge: bridgeCard
+                        case .bridge: LightningBridgeMenu()
                         case .balance: balanceCard.disabled(busy)
                         case .connection: connectionCard
                         case .receive: receiveCard.disabled(busy)
@@ -193,18 +193,6 @@ struct LightningView: View {
             .onChange(of: maximumFee) { _, _ in reviewedHash = nil }
             .onChange(of: connection) { old, _ in if !old.endpoint.isEmpty { connectionGeneration = UUID(); client = nil; nodeNetwork = nil; reviewedHash = nil; balance = nil; balanceChecked = nil; lastChecked = nil; connectionError = ""; receiveInvoice = ""; receiveOffer = false } }
 
-    }
-    private var bridgeCard: some View {
-            WalletSection("Paperclip Bridge") {
-                BridgeStatusBadge()
-                NavigationLink { LightningBridgeView(source: .node) } label: {
-                    WalletNavigationRow("Pay Spamcoin (BTC)", subtitle: "Use XBT through Paperclip Bridge", icon: "arrow.left.arrow.right")
-                }.buttonStyle(WalletNavigationButtonStyle()).accessibilityIdentifier("bridge-open-pay")
-                Divider()
-                NavigationLink { LightningBridgeReceiveView() } label: {
-                    WalletNavigationRow("Receive from Spamcoin (BTC)", subtitle: "Receive XBT on your CLN or LND node", icon: "arrow.down.left")
-                }.buttonStyle(WalletNavigationButtonStyle()).accessibilityIdentifier("bridge-open-receive")
-            }
     }
     private var balanceCard: some View {
         WalletSection("Channel balance") {
@@ -571,3 +559,26 @@ extension LightningView {
     }
 }
 #endif
+
+// Keep nested Bridge destinations independent of the node dashboard's state.
+private struct LightningBridgeMenu: View {
+    private enum Destination: Hashable { case pay, receive }
+    @State private var destination: Destination?
+    var body: some View {
+        WalletSection("Paperclip Bridge") {
+            BridgeStatusBadge()
+            Button { destination = .pay } label: {
+                WalletNavigationRow("Pay Spamcoin (BTC)", subtitle: "Use XBT through Paperclip Bridge", icon: "arrow.left.arrow.right")
+            }.buttonStyle(WalletNavigationButtonStyle()).accessibilityIdentifier("bridge-open-pay")
+            Divider()
+            Button { destination = .receive } label: {
+                WalletNavigationRow("Receive from Spamcoin (BTC)", subtitle: "Receive XBT on your CLN or LND node", icon: "arrow.down.left")
+            }.buttonStyle(WalletNavigationButtonStyle()).accessibilityIdentifier("bridge-open-receive")
+        }.navigationDestination(item: $destination) { destination in
+            switch destination {
+            case .pay: LightningBridgeView(source: .node)
+            case .receive: LightningBridgeReceiveView()
+            }
+        }
+    }
+}

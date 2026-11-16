@@ -336,3 +336,37 @@ screen. Final cover screenshots were inspected: all six Settings categories fit
 without scrolling, and Send/Receive remain visible on the wallet overview. Local
 log: `/tmp/compact-qa35-cover-final.log`. No real device installation, live payment
 or store submission was performed in this pass.
+
+
+## Bridge navigation and Duo display evidence: 2026-11-16
+
+The iOS Bridge menu now owns its nested selection state separately from the node
+dashboard. Repeated iPhone simulator checks cover opening send, returning to the
+menu, opening receive and rotation. The send-screen check also enforces a
+30-second upper bound, catching the observed event-loop stall instead of accepting
+a screen that eventually appears after nearly two minutes.
+
+For Duo, select the owned QA simulator in Device Hub and press **Open** before
+running the wide-layout test. Rotation alone does not unfold it. The layout check
+now requires both measured elements to exist and have nonzero frames: a missing
+element must not turn a geometry comparison into a pass. Back is located by its
+accessibility identifier across the app because Duo places it in a separate
+toolbar rather than inside the navigation bar.
+
+Both checks passed on the opened iOS 27.2 Duo simulator. A direct capture of its
+`primary-1` display showed the Lightning balance and action cards in two columns.
+The outer `primary` display was inactive; capturing only `XCUIScreen.main` produced
+black attachments even though the inner display was rendering normally. The
+capture helper now enumerates active screens using Apple's
+[XCUIScreen API](https://developer.apple.com/documentation/xcuiautomation/xcuiscreen).
+For independent capture, use `xcrun simctl io <QA-device> enumerate` to identify the
+active display, then `screenshot --display=<display-name> <output.png>`.
+
+Local evidence: `/tmp/bridge-review-item-navigation.log` (two iPhone passes),
+`/tmp/bridge-review-duo-open.log` (Bridge navigation and Lightning layout), and
+`/tmp/bridge-review-duo-open-display.png` (the actual inner-display capture).
+The final run `/tmp/bridge-review-duo-screens.log` passed both tests and produced
+inner-display attachments for the send, receive and two-column Lightning screens;
+those attachments were inspected.
+These checks use synthetic balances and do not verify a physical Duo, screen-reader
+interaction or a live payment. The full release acceptance matrix remains open.
