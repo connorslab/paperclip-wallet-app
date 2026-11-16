@@ -1,0 +1,425 @@
+[
+  {
+    "name": "preparing",
+    "valid": true,
+    "payment": {
+      "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "state": "preparing",
+      "quote": {
+        "wallet": "fixture.jmdat",
+        "jar": 0,
+        "purpose": "send",
+        "destination": "bc1qsyntheticdestination",
+        "txid": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "amount_sat": 20000,
+        "fee_sat": 140,
+        "total_sat": 20140
+      }
+    }
+  },
+  {
+    "name": "prepared",
+    "valid": true,
+    "payment": {
+      "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "state": "prepared",
+      "quote": {
+        "wallet": "fixture.jmdat",
+        "jar": 0,
+        "purpose": "send",
+        "destination": "bc1qsyntheticdestination",
+        "txid": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "amount_sat": 20000,
+        "fee_sat": 140,
+        "total_sat": 20140
+      }
+    }
+  },
+  {
+    "name": "submitting",
+    "valid": true,
+    "payment": {
+      "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "state": "submitting",
+      "quote": {
+        "wallet": "fixture.jmdat",
+        "jar": 0,
+        "purpose": "send",
+        "destination": "bc1qsyntheticdestination",
+        "txid": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "amount_sat": 20000,
+        "fee_sat": 140,
+        "total_sat": 20140
+      }
+    }
+  },
+  {
+    "name": "unknown",
+    "valid": true,
+    "payment": {
+      "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "state": "unknown",
+      "quote": {
+        "wallet": "fixture.jmdat",
+        "jar": 0,
+        "purpose": "send",
+        "destination": "bc1qsyntheticdestination",
+        "txid": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "amount_sat": 20000,
+        "fee_sat": 140,
+        "total_sat": 20140
+      }
+    }
+  },
+  {
+    "name": "submitted",
+    "valid": true,
+    "payment": {
+      "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "state": "submitted",
+      "quote": {
+        "wallet": "fixture.jmdat",
+        "jar": 0,
+        "purpose": "send",
+        "destination": "bc1qsyntheticdestination",
+        "txid": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "amount_sat": 20000,
+        "fee_sat": 140,
+        "total_sat": 20140
+      }
+    }
+  },
+  {
+    "name": "cancelled",
+    "valid": true,
+    "payment": {
+      "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "state": "cancelled",
+      "quote": {
+        "wallet": "fixture.jmdat",
+        "jar": 0,
+        "purpose": "send",
+        "destination": "bc1qsyntheticdestination",
+        "txid": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "amount_sat": 20000,
+        "fee_sat": 140,
+        "total_sat": 20140
+      }
+    }
+  },
+  {
+    "name": "preparing without quote",
+    "valid": true,
+    "payment": {
+      "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "state": "preparing",
+      "quote": null
+    }
+  },
+  {
+    "name": "cancelled without quote",
+    "valid": true,
+    "payment": {
+      "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "state": "cancelled",
+      "quote": null
+    }
+  },
+  {
+    "name": "submitted without quote",
+    "valid": false,
+    "payment": {
+      "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "state": "submitted",
+      "quote": null
+    }
+  },
+  {
+    "name": "unknown without quote",
+    "valid": false,
+    "payment": {
+      "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "state": "unknown",
+      "quote": null
+    }
+  },
+  {
+    "name": "prepared without quote",
+    "valid": false,
+    "payment": {
+      "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "state": "prepared",
+      "quote": null
+    }
+  },
+  {
+    "name": "reject id ../commit",
+    "valid": false,
+    "payment": {
+      "id": "../commit",
+      "state": "unknown",
+      "quote": {
+        "wallet": "fixture.jmdat",
+        "jar": 0,
+        "purpose": "send",
+        "destination": "bc1qsyntheticdestination",
+        "txid": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "amount_sat": 20000,
+        "fee_sat": 140,
+        "total_sat": 20140
+      }
+    }
+  },
+  {
+    "name": "reject id AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+    "valid": false,
+    "payment": {
+      "id": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "state": "unknown",
+      "quote": {
+        "wallet": "fixture.jmdat",
+        "jar": 0,
+        "purpose": "send",
+        "destination": "bc1qsyntheticdestination",
+        "txid": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "amount_sat": 20000,
+        "fee_sat": 140,
+        "total_sat": 20140
+      }
+    }
+  },
+  {
+    "name": "reject state confirmed",
+    "valid": false,
+    "payment": {
+      "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "state": "confirmed",
+      "quote": {
+        "wallet": "fixture.jmdat",
+        "jar": 0,
+        "purpose": "send",
+        "destination": "bc1qsyntheticdestination",
+        "txid": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "amount_sat": 20000,
+        "fee_sat": 140,
+        "total_sat": 20140
+      }
+    }
+  },
+  {
+    "name": "reject quote.wallet other.jmdat",
+    "valid": false,
+    "payment": {
+      "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "state": "unknown",
+      "quote": {
+        "wallet": "other.jmdat",
+        "jar": 0,
+        "purpose": "send",
+        "destination": "bc1qsyntheticdestination",
+        "txid": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "amount_sat": 20000,
+        "fee_sat": 140,
+        "total_sat": 20140
+      }
+    }
+  },
+  {
+    "name": "reject quote.jar 5",
+    "valid": false,
+    "payment": {
+      "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "state": "unknown",
+      "quote": {
+        "wallet": "fixture.jmdat",
+        "jar": 5,
+        "purpose": "send",
+        "destination": "bc1qsyntheticdestination",
+        "txid": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "amount_sat": 20000,
+        "fee_sat": 140,
+        "total_sat": 20140
+      }
+    }
+  },
+  {
+    "name": "reject quote.jar 1.5",
+    "valid": false,
+    "payment": {
+      "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "state": "unknown",
+      "quote": {
+        "wallet": "fixture.jmdat",
+        "jar": 1.5,
+        "purpose": "send",
+        "destination": "bc1qsyntheticdestination",
+        "txid": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "amount_sat": 20000,
+        "fee_sat": 140,
+        "total_sat": 20140
+      }
+    }
+  },
+  {
+    "name": "reject quote.purpose coinjoin",
+    "valid": false,
+    "payment": {
+      "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "state": "unknown",
+      "quote": {
+        "wallet": "fixture.jmdat",
+        "jar": 0,
+        "purpose": "coinjoin",
+        "destination": "bc1qsyntheticdestination",
+        "txid": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "amount_sat": 20000,
+        "fee_sat": 140,
+        "total_sat": 20140
+      }
+    }
+  },
+  {
+    "name": "reject quote.destination <script>alert(1)</script>",
+    "valid": false,
+    "payment": {
+      "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "state": "unknown",
+      "quote": {
+        "wallet": "fixture.jmdat",
+        "jar": 0,
+        "purpose": "send",
+        "destination": "<script>alert(1)</script>",
+        "txid": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "amount_sat": 20000,
+        "fee_sat": 140,
+        "total_sat": 20140
+      }
+    }
+  },
+  {
+    "name": "reject quote.txid bad",
+    "valid": false,
+    "payment": {
+      "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "state": "unknown",
+      "quote": {
+        "wallet": "fixture.jmdat",
+        "jar": 0,
+        "purpose": "send",
+        "destination": "bc1qsyntheticdestination",
+        "txid": "bad",
+        "amount_sat": 20000,
+        "fee_sat": 140,
+        "total_sat": 20140
+      }
+    }
+  },
+  {
+    "name": "reject quote.total_sat 20141",
+    "valid": false,
+    "payment": {
+      "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "state": "unknown",
+      "quote": {
+        "wallet": "fixture.jmdat",
+        "jar": 0,
+        "purpose": "send",
+        "destination": "bc1qsyntheticdestination",
+        "txid": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "amount_sat": 20000,
+        "fee_sat": 140,
+        "total_sat": 20141
+      }
+    }
+  },
+  {
+    "name": "reject quote.amount_sat 0",
+    "valid": false,
+    "payment": {
+      "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "state": "unknown",
+      "quote": {
+        "wallet": "fixture.jmdat",
+        "jar": 0,
+        "purpose": "send",
+        "destination": "bc1qsyntheticdestination",
+        "txid": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "amount_sat": 0,
+        "fee_sat": 140,
+        "total_sat": 20140
+      }
+    }
+  },
+  {
+    "name": "reject quote.fee_sat -1",
+    "valid": false,
+    "payment": {
+      "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "state": "unknown",
+      "quote": {
+        "wallet": "fixture.jmdat",
+        "jar": 0,
+        "purpose": "send",
+        "destination": "bc1qsyntheticdestination",
+        "txid": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "amount_sat": 20000,
+        "fee_sat": -1,
+        "total_sat": 20140
+      }
+    }
+  },
+  {
+    "name": "reject quote.amount_sat 20000.5",
+    "valid": false,
+    "payment": {
+      "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "state": "unknown",
+      "quote": {
+        "wallet": "fixture.jmdat",
+        "jar": 0,
+        "purpose": "send",
+        "destination": "bc1qsyntheticdestination",
+        "txid": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "amount_sat": 20000.5,
+        "fee_sat": 140,
+        "total_sat": 20140
+      }
+    }
+  },
+  {
+    "name": "reject quote.amount_sat 20000",
+    "valid": false,
+    "payment": {
+      "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "state": "unknown",
+      "quote": {
+        "wallet": "fixture.jmdat",
+        "jar": 0,
+        "purpose": "send",
+        "destination": "bc1qsyntheticdestination",
+        "txid": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "amount_sat": "20000",
+        "fee_sat": 140,
+        "total_sat": 20140
+      }
+    }
+  },
+  {
+    "name": "reject quote.total_sat 2100000000000001",
+    "valid": false,
+    "payment": {
+      "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "state": "unknown",
+      "quote": {
+        "wallet": "fixture.jmdat",
+        "jar": 0,
+        "purpose": "send",
+        "destination": "bc1qsyntheticdestination",
+        "txid": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "amount_sat": 20000,
+        "fee_sat": 140,
+        "total_sat": 2100000000000001
+      }
+    }
+  }
+]

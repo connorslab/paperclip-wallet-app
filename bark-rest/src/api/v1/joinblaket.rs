@@ -27,11 +27,12 @@ pub struct Request {
 	minimum_sat: Option<u64>,
 	fee_sat: Option<u64>,
 	lock_month: Option<String>,
+	payment_id: Option<String>,
 }
 
 #[derive(Deserialize)]
 #[serde(rename_all = "snake_case")]
-enum Operation { Wallets, Unlock, Status, Coins, Address, BondAddress, StartMaker, StopMaker }
+enum Operation { Wallets, Unlock, Status, Coins, Address, BondAddress, StartMaker, StopMaker, Payments, CheckPayment }
 
 fn bond_month(value: &str, now: chrono::DateTime<chrono::Utc>) -> anyhow::Result<()> {
 	ensure!(value.len() == 7 && value.as_bytes()[4] == b'-'
@@ -117,6 +118,22 @@ async fn execute(input: Request) -> anyhow::Result<Value> {
 	ensure!(session["session"] == true && session["wallet_name"] == input.wallet, "The active Jam wallet changed; reconnect");
 	match input.operation {
 		Operation::Status => Ok(session),
+		Operation::Payments => {
+			let result = upstream(&client, &base, &["wallet", &input.wallet, "paperclip", "payments"], &input.token, None).await?;
+			let rows = result["payments"].as_array().context("Invalid Jam payment history")?;
+			ensure!(rows.len() <= 100, "Jam payment history too large");
+			let payments = rows.iter().map(|row| recovery_payment(row, &input.wallet)).collect::<anyhow::Result<Vec<_>>>()?;
+			ensure!(payments.iter().map(|row| row["id"].as_str().unwrap()).collect::<std::collections::HashSet<_>>().len() == payments.len(), "Duplicate Jam payment reference");
+			Ok(json!({"payments": payments}))
+		},
+		Operation::CheckPayment => {
+			let id = input.payment_id.context("Select a saved Jam payment")?;
+			ensure!(payment_identifier(&id), "Invalid Jam payment reference");
+			// Observation only: no commit, cancellation or legacy send route is exposed.
+			let result = upstream(&client, &base, &["wallet", &input.wallet, "paperclip", "payments", &id], &input.token, None).await?;
+			ensure!(result["id"] == id, "Jam returned a different payment");
+			recovery_payment(&result, &input.wallet)
+		},
 		Operation::Coins => {
 			let result = upstream(&client, &base, &["wallet", &input.wallet, "utxos"], &input.token, None).await?;
 			let coins: Vec<bark::joinblaket::JarCoin> = serde_json::from_value(result["utxos"].clone()).context("Invalid Jam coins")?;
@@ -151,6 +168,39 @@ async fn execute(input: Request) -> anyhow::Result<Value> {
 	}
 }
 
+fn payment_identifier(value: &str) -> bool {
+	value.len() == 64 && value.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+}
+
+/// Only the fields needed for recovery cross the browser boundary. No approval
+/// token, inputs, wallet identity, signed bytes or future upstream fields escape.
+fn recovery_payment(value: &Value, wallet: &str) -> anyhow::Result<Value> {
+	let id = value["id"].as_str().context("Missing Jam payment reference")?;
+	ensure!(payment_identifier(id), "Invalid Jam payment reference");
+	let state = value["state"].as_str().context("Missing Jam payment state")?;
+	ensure!(["preparing", "prepared", "submitting", "unknown", "submitted", "cancelled"].contains(&state), "Unknown Jam payment state");
+	let quote = &value["quote"];
+	let quote = if quote.is_null() {
+		ensure!(["preparing", "cancelled"].contains(&state), "Missing Jam payment details");
+		Value::Null
+	} else {
+		ensure!(quote["wallet"] == wallet, "Jam payment belongs to a different wallet");
+		ensure!(quote["jar"].as_u64().is_some_and(|jar| jar < 5), "Invalid Jam payment jar");
+		ensure!(quote["purpose"].as_str().is_some_and(|purpose| ["send", "fund_bond", "withdraw_bond"].contains(&purpose)), "Unknown Jam payment purpose");
+		ensure!(quote["txid"].as_str().is_some_and(payment_identifier), "Invalid Jam transaction reference");
+		let destination = quote["destination"].as_str().context("Missing Jam destination")?;
+		ensure!((14..=90).contains(&destination.len()) && destination.bytes().all(|b| b.is_ascii_alphanumeric()), "Invalid Jam destination");
+		let amounts: Vec<u64> = ["amount_sat", "fee_sat", "total_sat"].iter().map(|key| {
+			quote[key].as_u64().filter(|n| *n <= 2_100_000_000_000_000).context("Invalid Jam payment amount")
+		}).collect::<anyhow::Result<_>>()?;
+		ensure!(amounts[0] > 0 && amounts[0] + amounts[1] == amounts[2], "Inconsistent Jam payment total");
+		json!({"wallet": wallet, "jar": quote["jar"], "purpose": quote["purpose"],
+			"destination": destination, "txid": quote["txid"], "amount_sat": amounts[0],
+			"fee_sat": amounts[1], "total_sat": amounts[2]})
+	};
+	Ok(json!({"id": id, "state": state, "quote": quote}))
+}
+
 async fn request(State(state): State<Arc<ServerState>>, Json(input): Json<Request>) -> (StatusCode, HeaderMap, Json<Value>) {
 	let mut headers = HeaderMap::new(); headers.insert(header::CACHE_CONTROL, "no-store".parse().unwrap());
 	if state.auth_token().is_none() { return (StatusCode::FORBIDDEN, headers, Json(json!({"message": "Configure wallet authentication first"}))); }
@@ -163,6 +213,21 @@ async fn request(State(state): State<Arc<ServerState>>, Json(input): Json<Reques
 #[cfg(test)]
 mod tests {
 	use super::*;
+	#[test]
+	fn jam_recovery_matches_shared_cases_and_strips_private_fields() {
+		let cases: Value = serde_json::from_str(include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../mobile/Tests/PaperclipMobileTests/Fixtures/jam-recovery.json"))).unwrap();
+		for case in cases.as_array().unwrap() {
+			assert_eq!(recovery_payment(&case["payment"], "fixture.jmdat").is_ok(), case["valid"].as_bool().unwrap(), "{}", case["name"]);
+		}
+		let mut record = cases[0]["payment"].clone();
+		record["approval"] = "synthetic-approval".into();
+		record["signed_tx"] = "synthetic-private-bytes".into();
+		record["quote"]["wallet_identity"] = "synthetic-identity".into();
+		record["quote"]["inputs"] = json!(["synthetic-input"]);
+		let result = recovery_payment(&record, "fixture.jmdat").unwrap();
+		assert_eq!(result, cases[0]["payment"]);
+	}
+
 	#[test]
 	fn jam_requires_tls_or_explicit_onion_route_and_no_url_secrets() {
 		assert!(endpoint("https://start.local:28183", None).is_ok());

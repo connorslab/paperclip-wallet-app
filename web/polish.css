@@ -251,3 +251,14 @@ input:focus-visible,select:focus-visible,textarea:focus-visible {box-shadow:0 0 
 .menu-row small.cold-wallet-tool {display:none}
 .qr-account-active .menu-row small.cold-wallet-tool {display:block}
 .qr-account-active .menu-row small.hot-wallet-tool {display:none}
+
+/* Recovery remains separate from payment creation, with readable exact amounts. */
+#jam-payments {display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:12px;margin-top:16px}
+#jam-payments:empty {display:none}
+.jam-payment {display:flex;flex-direction:column;align-items:flex-start;gap:14px;padding:20px;border:1px solid var(--stroke);border-radius:20px;background:#142338;animation:wallet-view-in .18s ease-out both;min-width:0}
+.jam-payment h3 {font-size:16px;line-height:1.5;color:#eef2f8;margin:0;letter-spacing:0}
+.jam-payment p {margin:0;max-width:60ch;line-height:1.6}
+.jam-payment .jam-payment-amount {font-size:20px;font-variant-numeric:tabular-nums;color:#eef2f8}
+.jam-payment details {width:100%;min-width:0}
+.jam-payment details p {font-size:13px;overflow-wrap:anywhere;margin-top:8px}
+.jam-payment summary {color:#ffad83;cursor:pointer}

@@ -65,6 +65,54 @@ public struct JoinBlaketJar: Decodable, Identifiable, Sendable {
     public let bond_sat: UInt64
 }
 
+/// Saved server state only. Node acceptance is not confirmation, and observation
+/// must never turn into another send. Unknown future states fail closed.
+public struct JoinBlaketPayment: Decodable, Identifiable, Sendable {
+    public enum State: String, Decodable, Sendable {
+        case preparing, prepared, submitting, unknown, submitted, cancelled
+        public var label: String {
+            switch self {
+            case .preparing: return "Review incomplete · not sent"
+            case .prepared: return "Review saved · not sent"
+            case .submitting, .unknown: return "Outcome unknown · check status"
+            case .submitted: return "Seen by node · confirmation not checked"
+            case .cancelled: return "Review cancelled · not sent"
+            }
+        }
+    }
+    public struct Quote: Decodable, Sendable {
+        public let wallet: String
+        public let jar: UInt8
+        public let purpose: String
+        public let destination: String
+        public let txid: String
+        public let amount_sat: UInt64
+        public let fee_sat: UInt64
+        public let total_sat: UInt64
+    }
+    public let id: String
+    public let state: State
+    public let quote: Quote?
+    public var needsCheck: Bool { state == .submitting || state == .unknown }
+    static func validID(_ id: String) -> Bool {
+        id.utf8.count == 64 && id.utf8.allSatisfy { (48...57).contains($0) || (97...102).contains($0) }
+    }
+    func validate(wallet: String) throws {
+        guard Self.validID(id) else { throw JoinBlaketError.invalidResponse }
+        guard let quote else {
+            guard state == .preparing || state == .cancelled else { throw JoinBlaketError.invalidResponse }
+            return
+        }
+        guard quote.wallet == wallet else { throw JoinBlaketError.wrongWallet }
+        guard quote.jar < 5, ["send", "fund_bond", "withdraw_bond"].contains(quote.purpose),
+              Self.validID(quote.txid), (14...90).contains(quote.destination.utf8.count),
+              quote.destination.utf8.allSatisfy({ (48...57).contains($0) || (65...90).contains($0) || (97...122).contains($0) }),
+              quote.amount_sat > 0,
+              [quote.amount_sat, quote.fee_sat, quote.total_sat].allSatisfy({ $0 <= 2_100_000_000_000_000 }),
+              quote.amount_sat + quote.fee_sat == quote.total_sat else { throw JoinBlaketError.invalidResponse }
+    }
+}
+
 /// Setup guidance, not a guarantee of market selection or an active bond proof.
 public struct JoinBlaketMakerReadiness: Sendable {
     public let terms: Bool
@@ -203,6 +251,24 @@ public actor JoinBlaketClient {
         let address = try JSONDecoder().decode(Response.self, from: await request(["wallet", authorization.wallet, "address", "timelock", "new", month], authorization: authorization)).address
         guard !address.isEmpty, address.utf8.count <= 128, !address.contains(where: { $0.isWhitespace }) else { throw JoinBlaketError.invalidResponse }
         return address
+    }
+    /// The companion retains payment recovery across app and daemon restarts.
+    /// A missing companion is an error, never an empty history or a legacy send.
+    public func payments(_ authorization: JoinBlaketAuthorization) async throws -> [JoinBlaketPayment] {
+        _ = try await status(authorization)
+        struct Response: Decodable { let payments: [JoinBlaketPayment] }
+        let rows = try JSONDecoder().decode(Response.self, from: await request(["wallet", authorization.wallet, "paperclip", "payments"], authorization: authorization)).payments
+        guard rows.count <= 100, Set(rows.map(\.id)).count == rows.count else { throw JoinBlaketError.invalidResponse }
+        for row in rows { try row.validate(wallet: authorization.wallet) }
+        return rows
+    }
+    public func checkPayment(id: String, authorization: JoinBlaketAuthorization) async throws -> JoinBlaketPayment {
+        guard JoinBlaketPayment.validID(id) else { throw JoinBlaketError.invalidResponse }
+        _ = try await status(authorization)
+        let row = try JSONDecoder().decode(JoinBlaketPayment.self, from: await request(["wallet", authorization.wallet, "paperclip", "payments", id], authorization: authorization))
+        guard row.id == id else { throw JoinBlaketError.invalidResponse }
+        try row.validate(wallet: authorization.wallet)
+        return row
     }
     /// Starts a remote service only after the user reviews its explicit terms.
     /// A timeout means reconcile status; it never causes a second start request.

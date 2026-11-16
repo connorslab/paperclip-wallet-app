@@ -35,6 +35,46 @@ private final class JamStub: URLProtocol {
 }
 
 final class JoinBlaketTests: XCTestCase {
+    func testRecoveryMatchesSharedCases() throws {
+        let url = Bundle.module.url(forResource: "jam-recovery", withExtension: "json", subdirectory: "Fixtures")!
+        let cases = try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as! [[String: Any]]
+        for item in cases {
+            let data = try JSONSerialization.data(withJSONObject: item["payment"]!)
+            do {
+                let payment = try JSONDecoder().decode(JoinBlaketPayment.self, from: data)
+                try payment.validate(wallet: "fixture.jmdat")
+                XCTAssertEqual(item["valid"] as? Bool, true, item["name"] as! String)
+                XCTAssertFalse(payment.state.label.lowercased().contains("successful"))
+            } catch { XCTAssertEqual(item["valid"] as? Bool, false, item["name"] as! String) }
+        }
+    }
+    func testRecoveryChecksAreReadOnlyAndFailuresDoNotReplay() async throws {
+        let auth = try JoinBlaketAuthorization(wallet: "fixture.jmdat", token: "synthetic-token")
+        let url = Bundle.module.url(forResource: "jam-recovery", withExtension: "json", subdirectory: "Fixtures")!
+        let cases = try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as! [[String: Any]]
+        let record = try JSONSerialization.data(withJSONObject: cases[3]["payment"]!)
+        let body = String(decoding: record, as: UTF8.self)
+        var code = 200
+        JamStub.route = { request in
+            if request.url!.path == "/api/v1/session" { return (200, "{\"session\":true,\"wallet_name\":\"fixture.jmdat\",\"maker_running\":false,\"coinjoin_in_process\":false,\"rescanning\":false}") }
+            return (code, request.url!.path.hasSuffix("/payments") ? "{\"payments\":[" + body + "]}" : body)
+        }
+        let c = try client()
+        let rows = try await c.payments(auth)
+        XCTAssertEqual(rows.count, 1)
+        let checked = try await c.checkPayment(id: rows[0].id, authorization: auth)
+        XCTAssertEqual(checked.state, .unknown)
+        XCTAssertEqual(JamStub.requests.count, 4)
+        XCTAssertTrue(JamStub.requests.allSatisfy { $0.httpMethod == "GET" && $0.url?.query == nil })
+        code = 504; JamStub.requests = []
+        do { _ = try await c.checkPayment(id: rows[0].id, authorization: auth); XCTFail("Must surface timeout") } catch {}
+        XCTAssertEqual(JamStub.requests.count, 2)
+        JamStub.requests = []
+        do { _ = try await c.checkPayment(id: "../commit", authorization: auth); XCTFail("Must reject bad id") } catch {}
+        XCTAssertTrue(JamStub.requests.isEmpty)
+        code = 404
+        do { _ = try await c.payments(auth); XCTFail("Missing companion is not empty history") } catch {}
+    }
     func testMakerReadinessMatchesSharedCases() throws {
         struct Case: Decodable {
             let name: String, minimum: String, fee: String

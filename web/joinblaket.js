@@ -10,6 +10,53 @@
     if (!token || token !== identity || ticket !== generation) throw new Error('Wallet session ended.');
     return result;
   }
+  let payments = null;
+  function paymentRecord(value, expectedID) {
+    const hex = value => typeof value === 'string' && /^[0-9a-f]{64}$/.test(value);
+    if (!value || !hex(value.id) || (expectedID && value.id !== expectedID) ||
+        !['preparing','prepared','submitting','unknown','submitted','cancelled'].includes(value.state)) throw new Error('Invalid saved Jam payment.');
+    const q = value.quote;
+    if (q == null) {
+      if (!['preparing','cancelled'].includes(value.state)) throw new Error('Missing saved Jam payment details.');
+    } else if (q.wallet !== authorization?.wallet || !Number.isInteger(q.jar) || q.jar < 0 || q.jar > 4 ||
+      !['send','fund_bond','withdraw_bond'].includes(q.purpose) || !hex(q.txid) ||
+      typeof q.destination !== 'string' || !/^[A-Za-z0-9]{14,90}$/.test(q.destination) ||
+      ['amount_sat','fee_sat','total_sat'].some(key => !Number.isSafeInteger(q[key]) || q[key] < 0 || q[key] > 2100000000000000) ||
+      q.amount_sat === 0 || q.amount_sat + q.fee_sat !== q.total_sat) throw new Error('Invalid saved Jam payment details.');
+    return value;
+  }
+  function renderPayments() {
+    const root = $('jam-payments'); root.replaceChildren();
+    if (payments === null) return;
+    if (!payments.length) { root.textContent = 'No saved Paperclip payments in this Jam wallet.'; return; }
+    for (const payment of payments) {
+      const card = document.createElement('article'); card.className = 'jam-payment';
+      const heading = document.createElement('h3');
+      heading.textContent = {preparing:'Review incomplete · not sent',prepared:'Review saved · not sent',
+        submitting:'Outcome unknown · check status',unknown:'Outcome unknown · check status',
+        submitted:'Seen by node · confirmation not checked',cancelled:'Review cancelled · not sent'}[payment.state];
+      card.append(heading);
+      if (payment.quote) {
+        const q = payment.quote, summary = document.createElement('p'); summary.className = 'jam-payment-amount';
+        summary.textContent = amount(q.amount_sat) + ' · Jar ' + (q.jar + 1) + ' · ' + {send:'Send',fund_bond:'Bond funding',withdraw_bond:'Bond withdrawal'}[q.purpose];
+        const details = document.createElement('details'), title = document.createElement('summary'); title.textContent = 'Payment details'; details.append(title);
+        for (const text of ['Mining fee: '+amount(q.fee_sat),'Total: '+amount(q.total_sat),q.destination,'Transaction: '+q.txid]) {
+          const line = document.createElement('p'); line.textContent = text; line.style.overflowWrap = 'anywhere'; details.append(line);
+        }
+        card.append(summary, details);
+      }
+      if (['submitting','unknown'].includes(payment.state)) {
+        const warning = document.createElement('p'); warning.textContent = 'This payment may have reached the network. Do not send it again.';
+        const button = document.createElement('button'); button.textContent = 'Check status'; button.className = 'secondary';
+        button.onclick = () => work(async () => {
+          const updated = paymentRecord(await call('check_payment', {payment_id:payment.id}), payment.id);
+          payments = payments.map(row => row.id === payment.id ? updated : row); renderPayments();
+        });
+        card.append(warning, button);
+      }
+      root.append(card);
+    }
+  }
   function clearAddress() { window.PaperclipReceive?.clear('jam-address'); $('jam-address').textContent = ''; }
   function clearBond() { window.PaperclipReceive?.clear('jam-bond-address'); $('jam-bond-address').textContent = ''; $('jam-bond-detail').textContent = ''; }
   function validateBondMonth(month) {
@@ -115,6 +162,14 @@
     if (result.walletname !== wallet || typeof result.token !== 'string' || !result.token) throw new Error('Jam did not unlock the selected wallet.');
     authorization = {wallet, token: result.token}; await refresh();
   });
+  $('jam-payments-load').onclick = () => work(async () => {
+    const result = await call('payments');
+    if (!Array.isArray(result.payments) || result.payments.length > 100 || new Set(result.payments.map(row => row.id)).size !== result.payments.length)
+      throw new Error('Invalid Jam payment history.');
+    const rows = result.payments.map(row => paymentRecord(row));
+    payments = rows; renderPayments();
+    $('jam-payments-load').textContent = 'Refresh saved payments';
+  });
   $('jam-refresh').onclick = () => work(refresh);
   $('jam-bond-month').oninput = clearBond;
   $('jam-bond-review').onclick = () => work(async () => {
@@ -149,7 +204,7 @@
   });
   new MutationObserver(() => {
     if (!$('wallet').hidden) return;
-    generation++; authorization = null; jars = []; session = null; selected = 0;
+    generation++; payments = null; renderPayments(); $('jam-payments-panel').open = false; authorization = null; jars = []; session = null; selected = 0;
     $('jam-open').hidden = true; $('jam-open').removeAttribute('href');
     $('jam-password').value = ''; $('jam-passphrase').value = ''; needsRefresh = false; $('jam-wallet').replaceChildren(); $('jam-unlock-fields').hidden = true;
     clearAddress(); clearBond(); $('jam-bond-month').value = ''; render();

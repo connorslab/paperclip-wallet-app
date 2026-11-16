@@ -24,6 +24,45 @@ import org.junit.Test
 /** Synthetic session only: no transport, wallet keys or funds. */
 class JoinBlaketLayoutTest {
 	@get:Rule val compose = createComposeRule()
+	@Test fun recoveryPreservesUnknownOnTimeoutAndOnlyObserves() {
+		val paths = java.util.Collections.synchronizedList(mutableListOf<String>())
+		val checks = java.util.concurrent.atomic.AtomicInteger()
+		val id = "a".repeat(64)
+		val http = okhttp3.OkHttpClient.Builder().retryOnConnectionFailure(false).addInterceptor {
+			val path = it.request().url.encodedPath; paths.add(path)
+			check(it.request().method == "GET")
+			val status = path.endsWith("/session")
+			val checking = path.endsWith("/$id")
+			val count = if (checking) checks.incrementAndGet() else checks.get()
+			val record = """{"id":"$id","state":"${if (count > 1) "submitted" else "unknown"}","quote":{"wallet":"fixture.jmdat","jar":2,"purpose":"send","destination":"bc1qsyntheticdestination","txid":"${"b".repeat(64)}","amount_sat":20000,"fee_sat":140,"total_sat":20140}}"""
+			val body = if (status) """{"session":true,"wallet_name":"fixture.jmdat"}""" else if (checking) record else """{"payments":[$record]}"""
+			okhttp3.Response.Builder().request(it.request()).protocol(okhttp3.Protocol.HTTP_1_1)
+				.code(if (checking && count == 1) 504 else 200).message("Synthetic")
+				.body(okhttp3.ResponseBody.create(null, body)).build()
+		}.build()
+		val state = JoinBlaketUiState().apply {
+			wallet.value = "Sample Jars · no live funds"
+			session.value = JSONObject().put("session", true).put("maker_running", false).put("coinjoin_in_process", false).put("rescanning", false)
+			client.value = JoinBlaketClient(JoinBlaketConnection("https://jam.example.invalid"), http)
+			authorization.value = JoinBlaketAuthorization("fixture.jmdat", "synthetic-token")
+		}
+		compose.setContent { MaterialTheme(colorScheme = paperclipColors(true)) { Surface {
+			Column(Modifier.fillMaxSize().safeDrawingPadding().verticalScroll(rememberScrollState()).padding(20.dp)) { JoinBlaketPage(state) }
+		} } }
+		compose.onNodeWithText("Jars payment activity").performScrollTo().performClick()
+		compose.waitUntil(10000) { compose.onAllNodesWithText("Outcome unknown · check status").fetchSemanticsNodes().isNotEmpty() }
+		compose.onNodeWithText("Check status").assertIsDisplayed().performClick()
+		compose.waitUntil(10000) { compose.onAllNodesWithText("Could not check payment status. Check your connection and try again.").fetchSemanticsNodes().isNotEmpty() }
+		compose.onNodeWithText("Outcome unknown · check status").assertIsDisplayed()
+		assertEquals(1, checks.get())
+		capture("android-jam-recovery")
+		compose.onNodeWithText("Check status").performClick()
+		compose.waitUntil(10000) { compose.onAllNodesWithText("Seen by node · confirmation not checked").fetchSemanticsNodes().isNotEmpty() }
+		compose.onNodeWithText("Check status").assertDoesNotExist()
+		assertEquals(2, checks.get())
+		assertTrue(paths.all { it == "/api/v1/session" || it == "/api/v1/wallet/fixture.jmdat/paperclip/payments" || it == "/api/v1/wallet/fixture.jmdat/paperclip/payments/$id" })
+	}
+
 	@Test fun compactJarSelectionShowsActionsAndKeepsAllAccountsReachable() {
 		val state = JoinBlaketUiState().apply {
 			wallet.value = "Sample Jars wallet · no live funds"

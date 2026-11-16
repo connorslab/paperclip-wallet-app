@@ -15,7 +15,9 @@ for (const item of cases) {
    const page=await browser.newPage({viewport:{width,height:1000}}),errors=[],actions=[];
    page.setDefaultTimeout(15000);
    page.on('pageerror',error=>errors.push(error.message));
-   let failStatus=false, failBond=false;
+   let failStatus=false, failBond=false, failRecovery=false, recoveryState='unknown';
+   const recoveryCases=JSON.parse(fs.readFileSync(path.join(__dirname,'../mobile/Tests/PaperclipMobileTests/Fixtures/jam-recovery.json')));
+   let recovery=structuredClone(recoveryCases[3].payment); recovery.quote.wallet='Sample Jars.jmdat';
    const accounts=[{id:'a'.repeat(64),label:'Krux savings',kind:'hardware'},{id:'b'.repeat(64),label:'Watch savings',kind:'watch'}];
    const received=[];
    const jars=['Apricot','Blueberry','Cherry','Date','Elderberry'].map((name,id)=>({id,name,total_sat:id===0?200000:0,confirmed_sat:id===0?200000:0,pending_sat:0,frozen_sat:0,bond_sat:0}));
@@ -48,6 +50,12 @@ for (const item of cases) {
       else if(body.operation==='status') value={session:true,wallet_name:'Sample Jars.jmdat',maker_running:false,coinjoin_in_process:false,rescanning:false};
       else if(body.operation==='coins') value={jars};
       else if(body.operation==='address') { assert(Number.isInteger(body.jar)&&body.jar>=0&&body.jar<5);received.push(body.jar);value={address:'bc1qsyntheticdisplayonly'+body.jar}; }
+      else if(body.operation==='payments') value={payments:[recovery]};
+      else if(body.operation==='check_payment') {
+       assert.equal(body.payment_id,'a'.repeat(64));
+       if(failRecovery)return route.fulfill({status:504,json:{message:'Synthetic lookup timeout; do not resend'}});
+       value={...recovery,state:recoveryState};
+      }
       else if(body.operation==='bond_address') {
        assert.equal(body.lock_month,'2099-12');
        if(failBond)return route.fulfill({status:504,json:{message:'Synthetic bond timeout; check Jam before retrying'}});
@@ -75,6 +83,33 @@ for (const item of cases) {
    assert.equal(await page.locator('#jam-password').inputValue(),'');
    assert.equal(await page.locator('#jam-passphrase').inputValue(),'');
    assert.equal(await page.locator('.jam-jar').count(),5);
+   await page.locator('#jam-payments-panel summary').first().click();
+   await page.locator('#jam-payments-load').click();
+   await page.getByRole('heading',{name:'Outcome unknown · check status'}).waitFor();
+   await page.getByText('This payment may have reached the network. Do not send it again.').waitFor();
+   failRecovery=true;
+   const checksBefore=actions.filter(x=>x==='check_payment').length;
+   await page.getByRole('button',{name:'Check status',exact:true}).click();
+   await page.waitForFunction(()=>document.querySelector('#jam-status').textContent.includes('Synthetic lookup timeout'));
+   assert.equal(actions.filter(x=>x==='check_payment').length,checksBefore+1,'No automatic recovery retries');
+   await page.getByRole('heading',{name:'Outcome unknown · check status'}).waitFor();
+   if(process.env.SCREENSHOT_DIR) await page.locator('#jam-payments-panel').screenshot({path:path.join(process.env.SCREENSHOT_DIR,`jam-recovery-${width}.png`),animations:'disabled'});
+   failRecovery=false; recoveryState='submitted';
+   await page.getByRole('button',{name:'Check status',exact:true}).click();
+   await page.getByRole('heading',{name:'Seen by node · confirmation not checked'}).waitFor();
+   assert.equal(await page.getByRole('button',{name:'Check status',exact:true}).count(),0);
+   assert(!actions.some(x=>/commit|send|cancel/.test(x)),'Recovery never creates, commits or cancels a payment');
+   if(width===390) {
+    for(const item of recoveryCases.filter(x=>!x.valid)) {
+     recovery=structuredClone(item.payment);
+     if(recovery.quote && recovery.quote.wallet==='fixture.jmdat') recovery.quote.wallet='Sample Jars.jmdat';
+     await page.locator('#jam-payments-load').click();
+     await page.waitForFunction(()=>document.querySelector('#jam-status').textContent.startsWith('Invalid')||document.querySelector('#jam-status').textContent.startsWith('Missing'));
+     await page.getByRole('heading',{name:'Seen by node · confirmation not checked'}).waitFor();
+    }
+   }
+   await page.locator('#jam-payments-panel summary').first().click();
+
    if(process.env.SCREENSHOT_DIR) {
     await page.locator('#network').evaluate(el=>el.textContent='SAMPLE WALLET · NO LIVE FUNDS');
     await page.evaluate(()=>window.scrollTo(0,0));

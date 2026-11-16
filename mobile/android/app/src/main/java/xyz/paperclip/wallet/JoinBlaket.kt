@@ -55,6 +55,45 @@ internal data class JoinBlaketConnection(
 	}
 }
 
+/** Server recovery state. Never infer confirmation or retry a send from this record. */
+internal data class JoinBlaketPayment(val id: String, val state: String, val quote: Quote?) {
+	data class Quote(val wallet: String, val jar: Int, val purpose: String, val destination: String,
+		val txid: String, val amountSat: Long, val feeSat: Long, val totalSat: Long)
+	val needsCheck: Boolean get() = state in setOf("submitting", "unknown")
+	val label: String get() = when (state) {
+		"preparing" -> "Review incomplete · not sent"
+		"prepared" -> "Review saved · not sent"
+		"submitting", "unknown" -> "Outcome unknown · check status"
+		"submitted" -> "Seen by node · confirmation not checked"
+		else -> "Review cancelled · not sent"
+	}
+	companion object {
+		fun validId(id: String) = id.matches(Regex("[0-9a-f]{64}"))
+		fun parse(value: JSONObject, wallet: String): JoinBlaketPayment {
+			val id = value.getString("id"); val state = value.getString("state")
+			require(validId(id) && state in setOf("preparing", "prepared", "submitting", "unknown", "submitted", "cancelled")) { "Invalid Jam payment state" }
+			if (value.isNull("quote")) {
+				require(state in setOf("preparing", "cancelled")) { "Missing Jam payment details" }
+				return JoinBlaketPayment(id, state, null)
+			}
+			val q = value.getJSONObject("quote")
+			// JSONObject's getLong/getInt coerce fractional numbers and numeric strings.
+			// Recovery amounts must instead be exact bounded JSON integers.
+			fun integer(key: String): Long {
+				val n = q.get(key)
+				require(n is Int || n is Long) { "Invalid Jam payment amount" }
+				return (n as Number).toLong().also { require(it in 0..2_100_000_000_000_000L) }
+			}
+			val jar = integer("jar"); val amount = integer("amount_sat"); val fee = integer("fee_sat"); val total = integer("total_sat")
+			val purpose = q.getString("purpose"); val destination = q.getString("destination"); val txid = q.getString("txid")
+			require(q.getString("wallet") == wallet) { "The saved payment belongs to a different Jam wallet" }
+			require(jar in 0..4 && purpose in setOf("send", "fund_bond", "withdraw_bond") && validId(txid) &&
+				destination.matches(Regex("[A-Za-z0-9]{14,90}")) && amount > 0 && amount + fee == total) { "Invalid Jam payment details" }
+			return JoinBlaketPayment(id, state, Quote(wallet, jar.toInt(), purpose, destination, txid, amount, fee, total))
+		}
+	}
+}
+
 // Not a data class: never include the token in generated toString or copy output.
 internal class JoinBlaketAuthorization(val wallet: String, internal val token: String) {
 	init {
@@ -147,6 +186,23 @@ internal class JoinBlaketClient internal constructor(
 		require(address.isNotEmpty() && address.length <= 128 && address.none(Char::isWhitespace)) { "Jam returned an invalid bond address" }
 		return address
 	}
+	/** No fallback to legacy sends, no replay, and no missing-companion-as-empty-history. */
+	suspend fun payments(authorization: JoinBlaketAuthorization): List<JoinBlaketPayment> {
+		status(authorization)
+		val rows = request(listOf("wallet", authorization.wallet, "paperclip", "payments"), authorization).getJSONArray("payments")
+		require(rows.length() <= 100) { "Jam payment history too large" }
+		val result = (0 until rows.length()).map { JoinBlaketPayment.parse(rows.getJSONObject(it), authorization.wallet) }
+		require(result.map { it.id }.toSet().size == result.size) { "Duplicate Jam payment reference" }
+		return result
+	}
+	suspend fun checkPayment(id: String, authorization: JoinBlaketAuthorization): JoinBlaketPayment {
+		require(JoinBlaketPayment.validId(id)) { "Invalid Jam payment reference" }
+		status(authorization)
+		val result = JoinBlaketPayment.parse(request(listOf("wallet", authorization.wallet, "paperclip", "payments", id), authorization), authorization.wallet)
+		require(result.id == id) { "Jam returned a different payment" }
+		return result
+	}
+
 	suspend fun startMaker(minimumSat: Long, feeSat: Long, authorization: JoinBlaketAuthorization) {
 		require(minimumSat in 27_300..2_100_000_000_000_000L && feeSat in 0 until minimumSat) { "Review the maker amount and fee" }
 		val current = status(authorization)

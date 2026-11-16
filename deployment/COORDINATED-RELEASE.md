@@ -79,8 +79,8 @@ in-app funding, confirmed bond eligibility and live maker acceptance remain open
 Validation: eight Swift adapter tests, eight Kotlin adapter tests, the Rust UTC
 month-boundary test, browser review/cancel/timeout checks at phone and desktop
 widths, native iOS portrait/landscape UI tests and Android APK/test-APK compilation
-passed. The new Android bond layout test is included in the emulator suite but
-has not yet passed on a running emulator. No live bond was registered or funded.
+passed. The Android bond layout test has since passed on the emulator, including
+the review/cancel/date checks. No live bond was registered or funded.
 
 The Kilombino runtime index was independently fetched from GHCR on 2026-11-16:
 `ghcr.io/kilombino/jam-xbt:0.43.0-xbt7@sha256:f6f4a194a6f20ac56949b02f2a92032bad29dc5e466a4938838951a2960a217d`.
@@ -138,6 +138,27 @@ Play-signed download option in its
 [App Bundle FAQ](https://developer.android.com/guide/app-bundle/faq).
 
 ## Latest verification: 2026-11-16
+
+Jars now has a separate payment-recovery view in iOS, Android and the shared
+StartOS/Umbrel browser UI. It loads this Jam wallet's saved Paperclip payment
+records and checks the exact transaction after an uncertain submission. These
+operations cannot prepare, commit, cancel or replay a payment. Node observation
+is labelled separately from confirmation; a lookup failure retains the saved
+unknown outcome. All clients validate wallet, payment ID, known states, jar,
+purpose, destination, transaction reference and exact integer amounts. The browser
+proxy strips approval digests, inputs and private wallet-identity fields.
+
+This closes the read-only recovery-view increment, not the Jam payment release
+gate. Direct/CoinJoin send review, cancellation of unused reviews, bond funding
+and withdrawal flows, scoped pairing, host install/backup/restore and live
+settlement remain unaccepted. The history requires the Paperclip Jam companion;
+a missing companion is an error, never an empty history or a legacy-send fallback.
+
+Validation: ten Swift and ten Kotlin adapter tests, shared Rust contract cases,
+three Android Jars emulator tests, iOS simulator recovery and compact-grid tests,
+and browser Jars/navigation fixtures passed. The pinned runtime's 25 synthetic
+signer/journal/HTTP tests passed. These do not establish live settlement or an
+installed StartOS/Umbrel package. No funds or production services were touched.
 
 The shared UI pass extends the amount-first review to mobile Lightning and QR
 signer payments, preserves invoice/fee drafts when editing, and keeps confirmation

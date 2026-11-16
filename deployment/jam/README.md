@@ -50,8 +50,14 @@ failed to permit a replacement spend.
 
 Bond funding requires this wallet's registered address and matching future date.
 Bond withdrawal requires one explicitly selected, chain-matured bond. Ordinary
-jar sends cannot consume bond coins. These API foundations do not constitute a
-completed bond or payment UI.
+jar sends cannot consume bond coins.
+
+The native clients and desktop proxy now expose read-only saved-payment history
+and exact-transaction status checks. Their recovery views retain unknown outcomes
+on failure and never present node acceptance as confirmation. They cannot prepare,
+commit or cancel a payment. Direct/CoinJoin review, bond funding/withdrawal and
+scoped mobile pairing remain unfinished; these API foundations and recovery views
+do not constitute a completed bond or payment UI.
 
 ## Validation and distribution
 

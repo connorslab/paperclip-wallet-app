@@ -44,7 +44,7 @@ internal class JoinBlaketUiState {
 }
 
 /** The Jam daemon owns these accounts; no local seed or Kilojoin namespace is migrated. */
-@OptIn(ExperimentalLayoutApi::class)
+@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 @Composable
 internal fun JoinBlaketPage(state: JoinBlaketUiState) {
 	val context = LocalContext.current
@@ -71,6 +71,7 @@ internal fun JoinBlaketPage(state: JoinBlaketUiState) {
 	var minimum by state.minimum
 	var makerFee by state.makerFee
 	var confirmMaker by remember { mutableStateOf(false) }
+	var showPayments by remember { mutableStateOf(false) }
 	var bondMonth by state.bondMonth
 	var bondAddress by state.bondAddress
 	var showBond by remember { mutableStateOf(false) }
@@ -162,6 +163,10 @@ internal fun JoinBlaketPage(state: JoinBlaketUiState) {
 					}
 				}
 			}
+		}
+		TextButton(enabled = !busy && client != null && authorization != null, onClick = { showPayments = true }) { Text("Jars payment activity") }
+		if (showPayments) ModalBottomSheet(onDismissRequest = { showPayments = false }, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
+			JoinBlaketRecoveryPage(checkNotNull(client), checkNotNull(authorization))
 		}
 		WalletColumns(primary = {
 		jars.firstOrNull { it.getInt("id") == selected }?.let { jar ->
@@ -285,5 +290,62 @@ internal fun JoinBlaketPage(state: JoinBlaketUiState) {
 		drawRoundRect(color.copy(alpha = .35f), Offset(x + 3.dp.toPx(), height - fill), Size(width - 6.dp.toPx(), fill), CornerRadius(4.dp.toPx()))
 		drawRoundRect(color.copy(alpha = .65f), Offset(x, 4.dp.toPx()), Size(width, height), CornerRadius(7.dp.toPx()), style = Stroke(1.5.dp.toPx()))
 		drawRoundRect(color, Offset(x, 0f), Size(width, 4.dp.toPx()), CornerRadius(4.dp.toPx()))
+	}
+}
+
+@Composable private fun JoinBlaketRecoveryPage(client: JoinBlaketClient, authorization: JoinBlaketAuthorization) {
+	val scope = rememberCoroutineScope()
+	val unit = LocalBitcoinUnit.current
+	var payments by remember { mutableStateOf<List<JoinBlaketPayment>>(emptyList()) }
+	var loaded by remember { mutableStateOf(false) }
+	var busy by remember { mutableStateOf(false) }
+	var message by remember { mutableStateOf<String?>(null) }
+	fun work(action: suspend () -> Unit) {
+		if (busy) return
+		busy = true; message = null
+		scope.launch {
+			try { action() }
+			catch (e: CancellationException) { throw e }
+			catch (_: Exception) { message = "Could not check payment status. Check your connection and try again." }
+			finally { busy = false }
+		}
+	}
+	LaunchedEffect(client, authorization) { work { payments = client.payments(authorization); loaded = true } }
+	Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+		Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+			Text("Jars payments", style = MaterialTheme.typography.titleLarge)
+			TextButton(enabled = !busy, onClick = { work { payments = client.payments(authorization); loaded = true } }) { Text("Refresh") }
+		}
+		Text("Saved payments from your separate Jam wallet. Checking status never sends again.", style = MaterialTheme.typography.bodyMedium)
+		if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
+		message?.let { Text(it) }
+		if (loaded && payments.isEmpty()) Text("No saved Paperclip payments in this Jam wallet.")
+		androidx.compose.foundation.lazy.LazyColumn(Modifier.fillMaxWidth().weight(1f, fill = false), contentPadding = PaddingValues(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+			items(payments.size, key = { payments[it].id }) { index ->
+				val payment = payments[index]
+				WalletSurface {
+					Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+						Text(payment.label, style = MaterialTheme.typography.titleMedium)
+						payment.quote?.let { quote ->
+							Text(unit.display(quote.amountSat), style = MaterialTheme.typography.headlineSmall)
+							Text("Jar "+(quote.jar + 1)+" · "+when (quote.purpose) { "send" -> "Send"; "fund_bond" -> "Bond funding"; else -> "Bond withdrawal" })
+							var details by remember(payment.id) { mutableStateOf(false) }
+							TextButton(onClick = { details = !details }) { Text(if (details) "Hide details" else "Payment details") }
+							if (details) {
+								Text("Mining fee: " + unit.display(quote.feeSat)); Text("Total: " + unit.display(quote.totalSat))
+								SelectionContainer { Column { Text(quote.destination); Text("Transaction: " + quote.txid) } }
+							}
+						}
+						if (payment.needsCheck) {
+							Text("This payment may have reached the network. Do not send it again.")
+							WalletPrimaryButton(enabled = !busy, onClick = { work {
+								val updated = client.checkPayment(payment.id, authorization)
+								payments = payments.map { if (it.id == payment.id) updated else it }
+							} }) { Text("Check status") }
+						}
+					}
+				}
+			}
+		}
 	}
 }

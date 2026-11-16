@@ -10,6 +10,41 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class JoinBlaketTest {
+	private fun recoveryCases() = org.json.JSONArray(checkNotNull(javaClass.getResourceAsStream("/jam-recovery.json")).bufferedReader().use { it.readText() })
+	@Test fun recoveryMatchesSharedCases() {
+		val cases = recoveryCases()
+		for (index in 0 until cases.length()) {
+			val item = cases.getJSONObject(index)
+			val result = runCatching { JoinBlaketPayment.parse(item.getJSONObject("payment"), "fixture.jmdat") }
+			assertEquals(item.getString("name"), item.getBoolean("valid"), result.isSuccess)
+			result.getOrNull()?.let { assertFalse(it.label.lowercase().contains("successful")) }
+		}
+	}
+	@Test fun recoveryChecksAreReadOnlyAndFailuresDoNotReplay() = runBlocking {
+		val paths = mutableListOf<String>(); var code = 200
+		val record = recoveryCases().getJSONObject(3).getJSONObject("payment")
+		val http = OkHttpClient.Builder().retryOnConnectionFailure(false).addInterceptor {
+			val path = it.request().url.encodedPath; paths.add(path)
+			assertEquals("GET", it.request().method); assertNull(it.request().url.query)
+			val state = path == "/api/v1/session"
+			Response.Builder().request(it.request()).protocol(Protocol.HTTP_1_1).code(if (state) 200 else code).message("Synthetic")
+				.body((if (state) """{"session":true,"wallet_name":"fixture.jmdat"}""" else if (path.endsWith("/payments")) """{"payments":[$record]}""" else record.toString()).toResponseBody()).build()
+		}.build()
+		val client = JoinBlaketClient(JoinBlaketConnection("https://jam.example.invalid"), http)
+		val auth = JoinBlaketAuthorization("fixture.jmdat", "synthetic-token")
+		val rows = client.payments(auth); assertEquals(1, rows.size)
+		assertEquals("unknown", client.checkPayment(rows[0].id, auth).state)
+		assertEquals(4, paths.size)
+		code = 504; paths.clear()
+		try { client.checkPayment(rows[0].id, auth); fail() } catch (_: IllegalArgumentException) {}
+		assertEquals(2, paths.size)
+		paths.clear()
+		try { client.checkPayment("../commit", auth); fail() } catch (_: IllegalArgumentException) {}
+		assertTrue(paths.isEmpty())
+		code = 404
+		try { client.payments(auth); fail("Missing companion is not empty history") } catch (_: IllegalArgumentException) {}
+	}
+
 	@Test fun bondMonthHasStrictUtcFutureBoundary() {
 		val now = java.time.Instant.parse("2030-05-01T00:00:00Z")
 		for (month in listOf("2030-05", "2030-04", "2030-00", "2030-13", "2030-6", "2100-01", "2019-12", "2031-01/other", "２０３１-01")) {

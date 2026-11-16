@@ -44,6 +44,24 @@ import PaperclipMobile
         jars = try JSONDecoder().decode(Response.self, from: data).jars
         session = current; needsRefresh = false
     }
+    func payments() async throws -> [JoinBlaketPayment] {
+#if DEBUG
+        if previewOnly { return [try previewPayment()] }
+#endif
+        guard let client, let authorization else { throw JoinBlaketError.sessionExpired }
+        return try await client.payments(authorization)
+    }
+    func checkPayment(_ id: String) async throws -> JoinBlaketPayment {
+#if DEBUG
+        if previewOnly {
+            previewRecoveryChecks += 1
+            if previewRecoveryChecks == 1 { throw URLError(.timedOut) }
+            return try previewPayment()
+        }
+#endif
+        guard let client, let authorization else { throw JoinBlaketError.sessionExpired }
+        return try await client.checkPayment(id: id, authorization: authorization)
+    }
     func receive(_ jar: JoinBlaketJar) async throws {
         guard let client, let authorization else { return }
         address = try await client.receiveAddress(jar: jar.id, authorization: authorization)
@@ -62,6 +80,15 @@ import PaperclipMobile
         try await refresh()
     }
 #if DEBUG
+    private var previewRecoveryChecks = 0
+    private func previewPayment() throws -> JoinBlaketPayment {
+        let data = try JSONSerialization.data(withJSONObject: ["id": String(repeating: "a", count: 64),
+            "state": previewRecoveryChecks > 1 ? "submitted" : "unknown",
+            "quote": ["wallet": "UI fixture · no live funds", "jar": 2, "purpose": "send",
+                "destination": "bc1qsyntheticdestination", "txid": String(repeating: "b", count: 64),
+                "amount_sat": 20000, "fee_sat": 140, "total_sat": 20140]])
+        return try JSONDecoder().decode(JoinBlaketPayment.self, from: data)
+    }
     func preview() async throws {
         previewOnly = true
         selectedWallet = "UI test fixture · no live funds"
@@ -85,6 +112,7 @@ struct JoinBlaketView: View {
     @State private var minimum = "100000"
     @State private var makerFee = "100"
     @State private var confirmMaker = false
+    @State private var showPayments = false
     @State private var bondMonth = ""
     @State private var bondYear = Calendar(identifier: .gregorian).component(.year, from: Date())
     @State private var bondNumber = 0
@@ -137,6 +165,9 @@ struct JoinBlaketView: View {
                             }.buttonStyle(WalletNavigationButtonStyle()).accessibilityIdentifier("jar-\(jar.id)").accessibilityAddTraits(selectedJar == jar.id ? .isSelected : [])
                         }
                     }.padding(2).accessibilityElement(children: .contain).accessibilityIdentifier("jar-picker")
+                    Button { showPayments = true } label: {
+                        Label("Jars payment activity", systemImage: "clock.arrow.circlepath")
+                    }.disabled(model.previewOnly)
                     WalletColumns {
                         if let jar = model.jars.first(where: { $0.id == selectedJar }) {
                             WalletSection(jar.name) {
@@ -182,10 +213,13 @@ struct JoinBlaketView: View {
             }.walletPageContent()
         }.walletPageBackground().navigationTitle("Jars").navigationBarTitleDisplayMode(.inline)
             .disabled(model.busy)
+            .sheet(isPresented: $showPayments) {
+                JoinBlaketRecoveryView(load: model.payments, check: model.checkPayment)
+            }
 #if DEBUG
             .task {
                 if ProcessInfo.processInfo.arguments.contains("-joinblaket-preview") {
-                    do { try await model.preview() } catch { model.message = error.localizedDescription }
+                    do { try await model.preview(); showPayments = ProcessInfo.processInfo.arguments.contains("-jam-recovery-preview") } catch { model.message = error.localizedDescription }
                 }
             }
 #endif
@@ -322,5 +356,63 @@ private struct JarGridLayout: Layout {
             }
             y += height + gap
         }
+    }
+}
+
+/// A separate page keeps recovery details out of the compact jars grid.
+private struct JoinBlaketRecoveryView: View {
+    let load: () async throws -> [JoinBlaketPayment]
+    let check: (String) async throws -> JoinBlaketPayment
+    @Environment(\.dismiss) private var dismiss
+    @State private var payments: [JoinBlaketPayment] = []
+    @State private var busy = false
+    @State private var loaded = false
+    @State private var message: String?
+    @AppStorage("displayUnit") private var unit: BitcoinUnit = .sats
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    Text("Saved payments from your separate Jam wallet. Checking status never sends again.")
+                        .font(.subheadline).foregroundStyle(PaperclipTheme.muted)
+                    if loaded && payments.isEmpty { Text("No saved Paperclip payments in this Jam wallet.") }
+                    ForEach(payments) { payment in
+                        WalletSection {
+                            Text(payment.state.label).font(.headline)
+                            if let quote = payment.quote {
+                                Text(unit.display(quote.amount_sat)).font(.title2.bold()).monospacedDigit()
+                                Text("Jar \(Int(quote.jar) + 1) · " + (quote.purpose == "send" ? "Send" : quote.purpose == "fund_bond" ? "Bond funding" : "Bond withdrawal"))
+                                    .font(.subheadline).foregroundStyle(PaperclipTheme.muted)
+                                DisclosureGroup("Payment details") {
+                                    LabeledContent("Mining fee", value: unit.display(quote.fee_sat))
+                                    LabeledContent("Total", value: unit.display(quote.total_sat))
+                                    Text(quote.destination).font(.footnote.monospaced()).textSelection(.enabled)
+                                    Text("Transaction: " + quote.txid).font(.footnote.monospaced()).textSelection(.enabled)
+                                }
+                            }
+                            if payment.needsCheck {
+                                Text("This payment may have reached the network. Do not send it again.").font(.subheadline)
+                                Button("Check status") { perform {
+                                    let updated = try await check(payment.id)
+                                    if let index = payments.firstIndex(where: { $0.id == payment.id }) { payments[index] = updated }
+                                } }.modifier(GlassAction())
+                            }
+                        }
+                    }
+                    if busy { ProgressView().frame(maxWidth: .infinity) }
+                    if let message { Text(message).font(.subheadline) }
+                }.walletPageContent().disabled(busy)
+            }.walletPageBackground().navigationTitle("Jars payments").navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .topBarLeading) { Button("Done") { dismiss() } }
+                    ToolbarItem(placement: .topBarTrailing) { Button("Refresh") { refresh() }.disabled(busy) }
+                }
+                .task { refresh() }
+        }
+    }
+    private func refresh() { perform { payments = try await load(); loaded = true } }
+    private func perform(_ action: @escaping @MainActor () async throws -> Void) {
+        guard !busy else { return }; busy = true; message = nil
+        Task { defer { busy = false }; do { try await action() } catch { message = error is JoinBlaketError ? error.localizedDescription : "Could not check payment status. Check your connection and try again." } }
     }
 }
