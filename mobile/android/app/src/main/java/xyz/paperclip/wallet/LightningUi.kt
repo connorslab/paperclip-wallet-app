@@ -1,6 +1,9 @@
 package xyz.paperclip.wallet
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.animation.*
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.activity.compose.BackHandler
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.foundation.BorderStroke
@@ -9,17 +12,20 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 
 @Composable
-internal fun NodeLightning(model: LightningModel, initialPage: String = "balance") {
+internal fun NodeLightning(model: LightningModel, initialPage: String = "balance", onPageChanged: (String) -> Unit = {}) {
 	val unit = LocalBitcoinUnit.current
+	val focus = LocalFocusManager.current
 	val s by model.state.collectAsStateWithLifecycle()
 	val torStatus by EmbeddedTor.status.collectAsStateWithLifecycle()
 	var page by rememberSaveable { mutableStateOf(initialPage) }
+	LaunchedEffect(initialPage) { page = initialPage }
 	var endpoint by remember(s.connection) { mutableStateOf(s.connection.endpoint) }
 	var credential by remember(s.connection) { mutableStateOf(s.connection.credential) }
 	var pin by remember(s.connection) { mutableStateOf(s.connection.pin) }
@@ -48,11 +54,13 @@ internal fun NodeLightning(model: LightningModel, initialPage: String = "balance
 		}
 	var description by remember { mutableStateOf("Paperclip wallet") }
 	fun navigate(p: String) {
+		focus.clearFocus()
 		model.clearReview()
 		page = p
+		onPageChanged(p)
 	}
 	BackHandler(page != "balance") { if (!s.busy) navigate("balance") }
-	if (s.connection.endpoint.isNotBlank() || s.busy) {
+	if (s.connecting || s.balanceStale || page == "connection") {
 		HingeSafeContent {
 		Card(
 			Modifier.fillMaxWidth(),
@@ -73,6 +81,7 @@ internal fun NodeLightning(model: LightningModel, initialPage: String = "balance
 		}
 	}
 	}
+	if (page != "balance") TextButton(onClick = { navigate("balance") }, enabled = !s.busy) { Text("Back to balance") }
 	if (s.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
 	if (s.message.isNotEmpty()) HingeSafeContent { Text(s.message, color = MaterialTheme.colorScheme.error) }
 	HingeSafeContent(enabled = page != "connection") {
@@ -83,7 +92,13 @@ internal fun NodeLightning(model: LightningModel, initialPage: String = "balance
 			colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
 		) {
 		Column(Modifier.padding(22.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-			when (page) {
+			AnimatedContent(targetState = page, transitionSpec = {
+				val direction = if (targetState == "balance") -1 else 1
+				(fadeIn(tween(120)) + slideInHorizontally(tween(190, easing = FastOutSlowInEasing)) { it / 14 * direction }) togetherWith
+					(fadeOut(tween(90)) + slideOutHorizontally(tween(150)) { -it / 18 * direction })
+			}, label = "node-page") { visiblePage ->
+			Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+			when (visiblePage) {
 				"connection" -> {
 					val pending = s.pending?.optString("state")?.let { it !in listOf("succeeded", "failed") } ?: false
 					val editable = !s.busy && !pending
@@ -279,14 +294,15 @@ internal fun NodeLightning(model: LightningModel, initialPage: String = "balance
 						Text("Review payment", style = MaterialTheme.typography.titleLarge)
 						Text("Amount: ${unit.displayMsat(review.msat)}")
 						Text("Maximum fee: ${unit.display(review.feeSat)}")
-						SelectionContainer {
-							Text(review.invoice, style = MaterialTheme.typography.bodySmall)
-						}
+						var showInvoice by remember(review.hash) { mutableStateOf(false) }
+						TextButton(onClick = { showInvoice = !showInvoice }) { Text(if (showInvoice) "Hide invoice" else "View full invoice") }
+						if (showInvoice) SelectionContainer { Text(review.invoice, style = MaterialTheme.typography.bodySmall) }
 						Text("Confirm only if this invoice and amount are correct.")
 						Button(
 							onClick = {
 								model.send()
 								page = "status"
+								onPageChanged("status")
 							},
 							enabled = !s.busy && review.valid(),
 						) {
@@ -296,6 +312,18 @@ internal fun NodeLightning(model: LightningModel, initialPage: String = "balance
 							Text("Cancel")
 						}
 					}
+				}
+				"details" -> {
+					Text("Channel balance", style = MaterialTheme.typography.titleLarge)
+					s.balance?.let { b ->
+						Text("Available to send: ${unit.displayMsat(b.sendable)}")
+						Text("Receive capacity: ${unit.displayMsat(b.receivable)}")
+						Text("Active channels: ${b.channels}")
+						b.local?.let { Text("Funds in active channels: ${unit.displayMsat(it)}") }
+						b.reserve?.let { Text("Required channel reserves: ${unit.displayMsat(it)}") }
+						Text("Reserves stay in each channel. Routes, liquidity, and fees can limit individual payments.", style = MaterialTheme.typography.bodySmall)
+					} ?: Text("Refresh to load channel balances.")
+					TextButton(onClick = model::refresh, enabled = !s.busy) { Text("Refresh balance") }
 				}
 				"status" -> {
 					Text("Outgoing node payment", style = MaterialTheme.typography.titleLarge)
@@ -333,20 +361,7 @@ internal fun NodeLightning(model: LightningModel, initialPage: String = "balance
 					UsdValue(b?.let { (it.local ?: it.sendable) / 1000 }, mainnet = s.mainnet)
 					if (b != null) {
 						Text("Available to send: ${unit.displayMsat(b.sendable)}")
-						if (b.local != null && b.local > b.sendable)
-							Text(
-								"Your funds are still in your channels. Channel reserves limit how much you can send.",
-								style = MaterialTheme.typography.bodySmall,
-							)
-						Text(
-							"Receive capacity: ${unit.displayMsat(b.receivable)} · ${b.channels} active channels",
-						)
-						b.reserve?.let {
-							Text(
-								"Required channel reserves: ${unit.displayMsat(it)}",
-								style = MaterialTheme.typography.bodySmall,
-							)
-						}
+
 					}
 					Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
 						Button(onClick = { navigate("pay") }, enabled = s.connected && !s.busy) {
@@ -364,15 +379,14 @@ internal fun NodeLightning(model: LightningModel, initialPage: String = "balance
 					}
 				}
 			}
-			if (page != "balance")
-				TextButton(onClick = { navigate("balance") }, enabled = !s.busy) {
-					Text("Back to balance")
-				}
-			if (page != "connection")
+			}
+			}
+			if (page == "balance") TextButton(onClick = { navigate("details") }, enabled = !s.busy) { Text("Balance details") }
+			if (page == "balance")
 				TextButton(onClick = { navigate("connection") }, enabled = !s.busy) {
 					Text("Node connection")
 				}
-			if (page != "status")
+			if (page == "balance")
 				TextButton(onClick = { navigate("status") }, enabled = !s.busy) {
 					Text("Payment status")
 				}

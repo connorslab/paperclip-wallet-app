@@ -50,6 +50,9 @@ final class AdaptiveLayoutTests: XCTestCase {
 		XCTAssertTrue(settings.waitForExistence(timeout: 15))
 		settings.tap()
 		XCTAssertTrue(settings.isSelected)
+		let recovery = app.buttons["settings-recovery"]
+		XCTAssertTrue(recovery.waitForExistence(timeout: 10))
+		recovery.tap()
 		let security = app.buttons["settings-security"]
 		for _ in 0..<6 { if security.isHittable { break }; app.swipeUp() }
 		XCTAssertTrue(security.isHittable)
@@ -57,12 +60,14 @@ final class AdaptiveLayoutTests: XCTestCase {
 		XCTAssertTrue(app.navigationBars["Wallet security"].waitForExistence(timeout: 10))
 		app.tabBars.buttons["Wallet"].tap()
 		XCTAssertTrue(app.tabBars.buttons["Wallet"].isSelected)
-		XCTAssertTrue(app.staticTexts["Your Keys. Your Bitcoin."].waitForExistence(timeout: 10))
+		XCTAssertTrue(app.staticTexts["Total balance"].waitForExistence(timeout: 10))
 		settings.tap()
 		XCTAssertTrue(app.navigationBars["Wallet security"].waitForExistence(timeout: 10))
 		XCUIDevice.shared.orientation = .landscapeLeft
 		XCTAssertTrue(settings.isSelected)
 		app.navigationBars["Wallet security"].buttons.firstMatch.tap()
+		XCTAssertTrue(app.navigationBars["Security & recovery"].waitForExistence(timeout: 10))
+		app.navigationBars["Security & recovery"].buttons.firstMatch.tap()
 		XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 10))
 		XCTAssertTrue(settings.isSelected)
 		capture(app, "Settings navigation wide")
@@ -75,9 +80,11 @@ final class AdaptiveLayoutTests: XCTestCase {
 		let app = XCUIApplication()
 		app.launchArguments = ["-build61-preview", "-dashboard-preview", "-appearance", "dark"]
 		app.launch()
-		let hero = app.staticTexts["Your Keys. Your Bitcoin."]
+		let hero = app.staticTexts["Total balance"]
 		let account = app.staticTexts["On-chain"]
 		XCTAssertTrue(hero.waitForExistence(timeout: 15))
+		XCTAssertTrue(app.buttons["Send"].isHittable)
+		XCTAssertTrue(app.buttons["Receive"].isHittable)
 		XCTAssertGreaterThan(account.frame.minY, hero.frame.maxY)
 		app.buttons["Toggle balance visibility"].tap()
 		XCUIDevice.shared.orientation = .landscapeLeft
@@ -233,10 +240,10 @@ final class AdaptiveLayoutTests: XCTestCase {
 			for _ in 0..<8 { if verify.isHittable { break }; app.swipeUp() }
 			XCTAssertTrue(verify.isHittable)
 			verify.tap()
-			XCTAssertTrue(app.staticTexts["Node connected"].waitForExistence(timeout: 90))
+			XCTAssertTrue(app.descendants(matching: .any)["lightning-node-connected"].firstMatch.waitForExistence(timeout: 90))
 			XCTAssertTrue(app.buttons["Refresh Lightning balance"].exists)
 			app.buttons["Refresh Lightning balance"].tap()
-			XCTAssertTrue(app.staticTexts["Node connected"].exists)
+			XCTAssertTrue(app.descendants(matching: .any)["lightning-node-connected"].firstMatch.exists)
 			app.terminate()
 		}
 	}

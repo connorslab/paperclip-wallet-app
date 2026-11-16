@@ -37,7 +37,18 @@ struct WalletPrimaryButtonStyle: ButtonStyle {
             .opacity(configuration.isPressed ? 0.82 : 1)
             .shadow(color: PaperclipTheme.orange.opacity(enabled ? 0.15 : 0), radius: 10, y: 4)
             .scaleEffect(configuration.isPressed && !reduceMotion ? 0.96 : 1)
-            .animation(reduceMotion ? nil : .spring(duration: 0.25, bounce: 0.25), value: configuration.isPressed)
+            .animation(reduceMotion ? nil : .spring(duration: 0.18, bounce: 0.18), value: configuration.isPressed)
+    }
+}
+
+/// A brief press response for navigation rows; native navigation owns the page transition.
+struct WalletNavigationButtonStyle: ButtonStyle {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .opacity(configuration.isPressed ? 0.72 : 1)
+            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.985 : 1)
+            .animation(reduceMotion ? nil : .spring(duration: 0.18, bounce: 0.12), value: configuration.isPressed)
     }
 }
 
@@ -60,7 +71,7 @@ struct WalletCard<Content: View>: View {
             .scaleEffect(appeared || reduceMotion ? 1 : 0.985)
             .onAppear {
                 guard !appeared else { return }
-                withAnimation(reduceMotion ? nil : .spring(duration: 0.4, bounce: 0.12)) { appeared = true }
+                withAnimation(reduceMotion ? nil : .spring(duration: 0.22, bounce: 0.12)) { appeared = true }
             }
     }
 }

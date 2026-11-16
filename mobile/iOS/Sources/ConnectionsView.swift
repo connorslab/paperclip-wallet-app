@@ -113,17 +113,36 @@ struct ConnectionsView: View {
 
 struct SettingsView: View {
     @EnvironmentObject var store: WalletStore
+    private enum Page: String, Hashable { case preferences = "Preferences", security = "Security & recovery", tools = "Wallet tools", help = "Help & privacy" }
+    @State private var page: Page?
     var body: some View {
         ScrollView {
-            VStack(spacing: 20) {
-                WalletColumns {
-                WalletSection { NavigationLink { WalletPickerView() } label: { WalletNavigationRow("Your wallets", subtitle: "Switch, add, or rename a wallet", icon: "wallet.pass") } }
+            WalletSection {
+                NavigationLink { WalletPickerView() } label: { WalletNavigationRow("Your wallets", subtitle: "Switch, add, or rename", icon: "wallet.pass") }
+                Divider()
+                Button { page = .security } label: { WalletNavigationRow("Security & recovery", subtitle: "Lock, backups, and recovery", icon: "lock.shield") }.accessibilityIdentifier("settings-recovery")
+                Divider()
+                NavigationLink { ConnectionsView() } label: { WalletNavigationRow("Connections", subtitle: "On-chain, Ark, and Tor", icon: "network") }
+                Divider()
+                Button { page = .preferences } label: { WalletNavigationRow("Preferences", subtitle: "Appearance, units, and notifications", icon: "slider.horizontal.3") }
+                Divider()
+                Button { page = .tools } label: { WalletNavigationRow("Wallet tools", subtitle: "Health, CoinJoin, and advanced actions", icon: "wrench.and.screwdriver") }
+                Divider()
+                Button { page = .help } label: { WalletNavigationRow("Help & privacy", subtitle: "Support and privacy information", icon: "questionmark.circle") }
+            }.buttonStyle(WalletNavigationButtonStyle()).walletPageContent(maxWidth: 760)
+        }.navigationTitle("Settings").walletPageBackground()
+            .sensoryFeedback(.selection, trigger: page)
+            .navigationDestination(item: $page) { selected in
+                ScrollView {
+                    Group {
+                        switch selected {
+                        case .preferences:
                 WalletSection("Preferences") {
                     NavigationLink { PaymentNotificationSettingsView() } label: { WalletNavigationRow("Notifications", subtitle: "Payment alerts and refresh timing", icon: "bell") }
                     NavigationLink { DisplaySettingsView() } label: { WalletNavigationRow("Appearance & units", subtitle: "Light, dark, sats, or XBT", icon: "circle.lefthalf.filled") }
-                    NavigationLink { ConnectionsView() } label: { WalletNavigationRow("Connections", subtitle: "On-chain and Ark servers · Tor", icon: "network") }
                 }
-                } secondary: {
+
+                        case .security:
                 WalletSection("Security & recovery") {
                     NavigationLink { SecuritySettingsView() } label: { WalletNavigationRow("Wallet security", subtitle: "Device authentication and protected storage", icon: "lock.shield") }.accessibilityIdentifier("settings-security")
                     if store.supportsArk { NavigationLink { BackupView(engine: store.engine) } label: { WalletNavigationRow("Encrypted backup", subtitle: "Save your wallet and Ark recovery data", icon: "icloud.and.arrow.up") }
@@ -136,6 +155,8 @@ struct SettingsView: View {
                         }
                     }
                 }
+
+                        case .tools:
                 WalletSection("Wallet tools") {
                     NavigationLink { WalletHealthView() } label: { WalletNavigationRow("Wallet health", subtitle: "Connections, recovery, and support report", icon: "heart.text.square") }
                     NavigationLink { JoinBlaketView() } label: { WalletNavigationRow("CoinJoin", subtitle: "JoinBlaket jars & maker", icon: "shuffle") }
@@ -144,6 +165,8 @@ struct SettingsView: View {
                     if store.supportsArk { NavigationLink { MessageSigningView() } label: { WalletNavigationRow("Sign a message", subtitle: "Prove ownership of an on-chain address", icon: "signature") }
                     NavigationLink { ArkMaintenanceView() } label: { WalletNavigationRow("Ark maintenance", subtitle: "Refresh funds and expiry reminders", icon: "arrow.triangle.2.circlepath") } }
                 }
+
+                        case .help:
                 WalletSection("Help & privacy") {
                     NavigationLink { WalletSupportView() } label: {
                         WalletNavigationRow("Contact support", subtitle: "Get help with your wallet", icon: "questionmark.circle")
@@ -152,9 +175,11 @@ struct SettingsView: View {
                         WalletNavigationRow("Privacy policy", subtitle: "Your data, connections, and choices", icon: "hand.raised")
                     }
                 }
-                }
-            }.walletPageContent(maxWidth: 1120)
-        }.navigationTitle("Settings").walletPageBackground()
+
+                        }
+                    }.buttonStyle(WalletNavigationButtonStyle()).walletPageContent(maxWidth: 760)
+                }.navigationTitle(selected.rawValue).navigationBarTitleDisplayMode(.inline).walletPageBackground()
+            }
     }
 }
 

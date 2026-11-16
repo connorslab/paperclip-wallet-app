@@ -267,3 +267,72 @@ acceptance on a 16 KB-page device remains separate. Android unit tests passed
 The target-SDK-36 rebuild passed six Android 15 emulator checks covering native
 backup/destinations, health, Settings navigation, resize, separating hinges and
 tabletop layout. Android 16 and 16 KB runtime checks remain separate.
+
+
+## Compact pages and responsive motion: 2026-11-15
+
+The wallet overview now keeps totals and Send/Receive together, removes repeated
+branding and shortens the activity preview. Settings has six entry points with
+focused subpages. Lightning balances, connection settings, payment status and
+Bridge actions no longer compete in one long overview. Android retains each
+screen's scroll state; opening a node subpage starts at the top and dismisses the
+keyboard. Full invoices are expandable on the Android review, while amount and
+fee remain visible.
+
+Android navigation uses 190 ms short slides and fades, with reversed motion on
+Back and a lighter fade between primary tabs. Node subpages follow the same
+motion. iOS retains native stack/swipe navigation and adds quick spring press
+responses, 220 ms card entry and selection feedback on the new page choices.
+iOS Reduce Motion, Android system animation duration and browser reduced-motion
+preferences continue to apply. Payment completion effects remain tied to verified
+completion; moving between pages does not mark a payment successful.
+
+The shared server node wallet has separate overview, Send, Receive and Activity
+routes with browser Back support. Its transitions use a short 180 ms fade/slide,
+disabled for reduced motion. Browser checks passed at 390, 840 and 1280 px using
+both CLN and LND fixtures across StartOS/Umbrel configurations. The existing browser
+regression suites also passed, including wallet switching, late responses,
+review cancellation and lock cleanup. No live node, payment or deployed wrapper
+was involved. See REMOTE-LIGHTNING.md for transport and recovery validation.
+
+Before this compact-layout change, the candidate passed eight Android 16/API 36
+checks on a disposable emulator with an actual 16384-byte page size. These covered
+native JNI, public wallet and backup/destination behavior, wallet health, Settings,
+large text and hinge/tabletop geometry. This supersedes the earlier note that
+16 KB runtime acceptance was entirely untested; embedded Tor and physical-device
+acceptance remain separate.
+
+The final iOS simulator run passed four tests covering immediate dashboard actions,
+portrait/landscape reflow, accessibility-sized text and nested Settings Back/tab
+restoration. Result: `Test-Paperclip-2026.11.15_19-49-01--0700.xcresult` in the local
+parity derived-data folder. The final Android build completed with 68 passing unit
+tests, three explicit live-only skips and release lint success. The first updated
+Android interaction run was interrupted by an emulator System UI ANR; it is not
+counted as a pass. Follow-up emulator results are recorded below.
+
+The five final Android interaction/layout tests passed on a fresh API 35 Pixel
+Fold-profile emulator: nested Settings navigation, immediate Send/Receive access,
+large-text/resize preservation, separating-hinge/tabletop geometry and wallet
+health. Local log: `/tmp/compact-qa35-host-tests.log`. A fresh ARM64 iOS test build
+also passed the Tor framework/platform/signature bundle verifier after the final
+connection-label correction.
+
+The API 36/16 KB foldable image repeatedly encountered System UI/compositor
+failures during the updated interaction runs, including missing UI hierarchies in
+basic layout fixtures. These runs are not passes. Software-rendered API 35 runs
+were also slow; the complete five-test pass used host rendering. Physical foldable
+and Android 16 fold/unfold acceptance remain open, independently of the earlier
+successful 16 KB native checks. Existing developer emulators and real devices were
+not modified; only newly owned disposable test instances were restarted.
+
+The opt-in API 35 fold workflow also passed: enter a setup draft, unfold, fold to
+the cover, reopen, rotate and continue to public-wallet pairing. The activity and
+draft were retained. The test now wakes the cover screen and waits for its resumed
+UI instead of assuming it is ready immediately after the posture command. Local
+log: `/tmp/compact-qa35-fold-final.log`.
+
+The Settings/Send/Receive interaction test also passed on the API 35 folded cover
+screen. Final cover screenshots were inspected: all six Settings categories fit
+without scrolling, and Send/Receive remain visible on the wallet overview. Local
+log: `/tmp/compact-qa35-cover-final.log`. No real device installation, live payment
+or store submission was performed in this pass.

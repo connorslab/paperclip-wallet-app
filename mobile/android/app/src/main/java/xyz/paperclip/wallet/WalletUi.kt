@@ -8,6 +8,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.LocalActivity
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
@@ -160,7 +161,10 @@ internal fun PaperclipApp(
 			val focus = LocalFocusManager.current
 			val scrollPositions = remember(s.activeID) { mutableMapOf<String, ScrollState>() }
 			val scroll = scrollPositions.getOrPut("$tab:$route") { ScrollState(0) }
+			var nodePage by rememberSaveable { mutableStateOf("balance") }
+			LaunchedEffect(nodePage) { if (route == "Lightning") scroll.scrollTo(0) }
 			fun navigate(next: String) {
+				if (next == "Lightning" && tab == "Lightning") nodePage = "balance"
 				navigationDirection = if (next in WalletNavigation.tabs) { if (next == tab && navigation.canGoBack) -1 else 0 } else 1
 				focus.clearFocus()
 				model.cancelReview()
@@ -234,7 +238,7 @@ internal fun PaperclipApp(
 						if (!s.hasWallet) Setup(model, s, scroll)
 						else {
 							if (route == tab) {
-								if (route == "Wallet") Brand()
+								if (route == "Wallet") Unit
 								else
 									Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
 										Text(
@@ -265,12 +269,12 @@ internal fun PaperclipApp(
 								targetState = tab to route,
 								transitionSpec = {
 									val direction = navigationDirection
-									(fadeIn(tween(180)) +
-										slideInHorizontally(tween(220)) {
+									(fadeIn(tween(120)) +
+										slideInHorizontally(tween(190, easing = FastOutSlowInEasing)) {
 											it / 12 * direction
 										}) togetherWith
-										(fadeOut(tween(100)) +
-											slideOutHorizontally(tween(180)) {
+										(fadeOut(tween(90)) +
+											slideOutHorizontally(tween(150, easing = FastOutSlowInEasing)) {
 												-it / 12 * direction
 											})
 								},
@@ -278,7 +282,7 @@ internal fun PaperclipApp(
 							) { destination ->
 								val page = destination.second
 								screenStates.SaveableStateProvider("${s.activeID}:${destination.first}:$page") {
-								Column(verticalArrangement = Arrangement.spacedBy(20.dp)) {
+								Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
 									when (page) {
 										"Wallet" -> Dashboard(s, model, ::navigate)
 										"Send" ->
@@ -292,143 +296,54 @@ internal fun PaperclipApp(
 											}
 										"Receive" -> Receive(s, model, receiveMethod)
 										"Lightning" -> {
-											if (lightning != null) NodeLightning(lightning)
+											if (lightning != null) NodeLightning(lightning, initialPage = nodePage, onPageChanged = { nodePage = it })
 											HingeSafeContent {
-											NavCard(
+											if (nodePage == "balance") NavCard(
 												"Paperclip Bridge",
 												"Pay or receive across XBT and BTC",
 												Icons.Default.SwapHoriz,
 											) {
 												navigate("Bridge")
 											}
-											if (walletKind == "hot") Lightning(::navigate)
+											if (nodePage == "balance" && walletKind == "hot") NavCard("Lightning through Ark", "Pay or receive using your Ark balance", Icons.Default.Bolt) { navigate("Ark Lightning") }
 											}
 										}
+										"Ark Lightning" -> Lightning(::navigate)
 										"Activity" -> Activity(s, model)
-										"Settings" -> WalletGrid {
-											CardBlock("Your wallet") {
-												Text(
-													if (s.network == "xbt-mainnet")
-														"XBT mainnet wallet"
-													else "Regtest development wallet",
-													style = MaterialTheme.typography.titleMedium,
-												)
-												Text(
-													"Keep your recovery words and a current encrypted full backup somewhere safe.",
-												)
+										"Settings" -> HingeSafeContent { CardBlock("Your wallet") {
+											SettingsLink("Your wallets", "Switch, add, or rename", Icons.Default.AccountBalanceWallet) { navigate("Wallets") }
+											SettingsLink("Security & recovery", "Lock, backups, and recovery", Icons.Default.Shield) { navigate("Security & recovery") }
+											SettingsLink("Connections", "On-chain, Ark, and Tor", Icons.Default.SettingsEthernet) { navigate("Connections") }
+											SettingsLink("Preferences", "Appearance, units, and notifications", Icons.Default.Tune) { navigate("Preferences") }
+											SettingsLink("Wallet tools", "Health, CoinJoin, and advanced actions", Icons.Default.Build) { navigate("Wallet tools") }
+											SettingsLink("Help & support", "Guides and app information", Icons.Default.Help) { navigate("Help & support") }
+										}
+										}
+										"Security & recovery" -> CardBlock("Protect your wallet") {
+											SettingsLink("Wallet security", "Device authentication and protected storage", Icons.Default.Lock) { navigate("Wallet security") }
+											if (walletKind == "hot") {
+												SettingsLink("Full encrypted backup", "Keys and Ark recovery data", Icons.Default.Shield) { navigate("Backup") }
+												SettingsLink("Emergency exit", "Recover without the Ark server", Icons.Default.Security) { navigate("Emergency exit"); model.checkExit() }
 											}
-											if (walletKind == "hardware")
-												NavCard(
-													"Hardware payment",
-													"Review and sign with an external device",
-													Icons.Default.QrCode,
-												) {
-													navigate("Hardware payment")
-													model.clearTools()
-												}
-											if (walletKind == "hot")
-												NavCard(
-													"CoinJoin",
-													"JoinBlaket jars & maker",
-													Icons.Default.Shuffle,
-												) {
-													navigate("Coinjoin")
-												}
-											if (walletKind == "hot")
-												NavCard(
-													"Hardware wallet to Ark",
-													"Fund this mobile Ark wallet using a QR signer",
-													Icons.Default.QrCode,
-												) {
-													navigate("Hardware boarding")
-													model.clearTools()
-												}
-											if (walletKind == "hot")
-												NavCard(
-													"Ark maintenance",
-													"Board funds, manage offers and recover receives",
-													Icons.Default.Build,
-												) {
-													navigate("Ark maintenance")
-													model.clearTools()
-												}
-											NavCard(
-												"Wallets",
-												"Select, add or rename a wallet",
-												Icons.Default.AccountBalanceWallet,
-											) {
-												navigate("Wallets")
+										}
+										"Wallet tools" -> CardBlock("Wallet tools") {
+											SettingsLink("Wallet health", "Connections, recovery, and support report", Icons.Default.HealthAndSafety) { navigate("Wallet health") }
+											if (walletKind == "hardware") SettingsLink("Hardware payment", "Sign with your QR device", Icons.Default.QrCode) { navigate("Hardware payment"); model.clearTools() }
+											if (walletKind == "hot") {
+												SettingsLink("CoinJoin", "JoinBlaket jars & maker", Icons.Default.Shuffle) { navigate("Coinjoin") }
+												SettingsLink("Hardware wallet to Ark", "Fund Ark using your QR signer", Icons.Default.QrCode) { navigate("Hardware boarding"); model.clearTools() }
+												SettingsLink("Ark maintenance", "Board, refresh, and recover funds", Icons.Default.Build) { navigate("Ark maintenance"); model.clearTools() }
+												SettingsLink("Message signing", "Prove address ownership", Icons.Default.Edit) { navigate("Message signing"); model.clearTools() }
 											}
-											NavCard(
-												"On-chain tools",
-												"Address accounts and history",
-												Icons.Default.List,
-											) {
-												navigate("On-chain tools")
-												model.clearTools()
-											}
-											if (walletKind == "hot")
-												NavCard(
-													"Message signing",
-													"BIP322 proof of address ownership",
-													Icons.Default.Edit,
-												) {
-													navigate("Message signing")
-													model.clearTools()
-												}
-											NavCard(
-												"Wallet security",
-												"Device authentication and protected storage",
-												Icons.Default.Lock,
-											) {
-												navigate("Wallet security")
-											}
-											NavCard(
-												"Connection settings",
-												"Chain backend, Ark server and Tor route",
-												Icons.Default.SettingsEthernet,
-											) {
-												navigate("Connections")
-											}
-											if (walletKind == "hot")
-												NavCard(
-													"Full encrypted backup",
-													"Protect your keys and Ark recovery data",
-													Icons.Default.Shield,
-												) {
-													navigate("Backup")
-												}
-											if (walletKind == "hot")
-												NavCard(
-													"Emergency exit",
-													"Recover Ark funds without the Ark server",
-													Icons.Default.Security,
-												) {
-													navigate("Emergency exit")
-													model.checkExit()
-												}
-											NavCard(
-												"Alerts and maintenance",
-												"Payment updates and periodic Ark checks",
-												Icons.Default.Notifications,
-											) {
-												navigate("Alerts")
-											}
-											NavCard("Wallet health", "Connections, recovery, and support report", Icons.Default.HealthAndSafety) { navigate("Wallet health") }
-											NavCard(
-												"Help and support",
-												"Connections, payments and recovery",
-												Icons.Default.Help,
-											) {
-												navigate("Help")
-											}
-											NavCard(
-												"Buy XBT",
-												"External exchange links",
-												Icons.Default.AddCircle,
-											) {
-												navigate("Buy XBT")
-											}
+											SettingsLink("On-chain tools", "Address accounts and history", Icons.Default.List) { navigate("On-chain tools"); model.clearTools() }
+										}
+										"Help & support" -> CardBlock("Help & support") {
+											SettingsLink("Wallet guides", "Connections, payments, and recovery", Icons.Default.Help) { navigate("Help") }
+											SettingsLink("Buy XBT", "External exchange links", Icons.Default.AddCircle) { navigate("Buy XBT") }
+											SettingsLink("Open-source notices", "Software licenses", Icons.Default.Info) { navigate("Open-source notices") }
+											Text("Paperclip Android · ${BuildConfig.VERSION_NAME}", color = colors.onSurfaceVariant)
+										}
+										"Preferences" -> {
 											CardBlock("Display unit") {
 												Choices(listOf("sats", "XBT"), displayUnit.title) {
 													value ->
@@ -450,15 +365,8 @@ internal fun PaperclipApp(
 													preferences.edit().putString("mode", it).apply()
 												}
 											}
-											TextButton(
-												onClick = { navigate("Open-source notices") },
-											) {
-												Text("Open-source notices")
-											}
-											Text(
-												"Paperclip Android · ${BuildConfig.VERSION_NAME}",
-												color = colors.onSurfaceVariant,
-											)
+
+											NavCard("Alerts and maintenance", "Payment updates and periodic Ark checks", Icons.Default.Notifications) { navigate("Alerts") }
 										}
 										"Open-source notices" -> OpenSourceNotices()
 										"Wallet security" -> WalletSecurity()
@@ -546,6 +454,18 @@ internal fun CardBlock(title: String, content: @Composable ColumnScope.() -> Uni
 			}
 			content()
 		}
+	}
+}
+
+@Composable
+private fun SettingsLink(title: String, subtitle: String, icon: androidx.compose.ui.graphics.vector.ImageVector, action: () -> Unit) {
+	TextButton(onClick = action, modifier = Modifier.fillMaxWidth().heightIn(min = 64.dp)) {
+		Icon(icon, null, Modifier.size(24.dp))
+		Column(Modifier.weight(1f).padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+			Text(title, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Medium)
+			Text(subtitle, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+		}
+		Icon(Icons.Default.ChevronRight, null, Modifier.size(18.dp))
 	}
 }
 
@@ -681,7 +601,7 @@ private fun Dashboard(s: WalletState, model: WalletModel, navigate: (String) -> 
 		}
 	}
 	WalletColumns(primary = {
-	CardBlock("Your Keys. Your Bitcoin.") {
+	CardBlock("Total balance") {
 		Text(
 			if (hidden) "••••••"
 			else if (s.chain != null && s.ark != null) sats(s.chain + s.ark) else "— sats",
@@ -726,20 +646,8 @@ private fun Dashboard(s: WalletState, model: WalletModel, navigate: (String) -> 
 		}
 	}
 	if (s.expiryHeight != null)
-		CardBlock("Ark maintenance") {
-			BalanceRow("Earliest expiry", "Block ${s.expiryHeight}")
-			Text(
-				"Open and sync regularly. Refresh eligible funds before expiry, or use an emergency exit. Enable optional automatic maintenance in Settings. Android controls background timing.",
-				style = MaterialTheme.typography.bodySmall,
-			)
-			OutlinedButton(
-				onClick = model::refreshArk,
-				enabled = s.connected && !s.busy,
-				modifier = Modifier.fillMaxWidth(),
-			) {
-				Text("Refresh eligible funds")
-			}
-		}
+		NavCard("Ark maintenance", "Earliest expiry · block ${s.expiryHeight}", Icons.Default.Build) { navigate("Ark maintenance") }
+
 	if (!s.connected)
 		NavCard(
 			"Connect your wallet",
@@ -1267,9 +1175,7 @@ private fun Lightning(navigate: (String) -> Unit) {
 			"Pay invoices and offers from your Ark balance.",
 			style = MaterialTheme.typography.titleLarge,
 		)
-		Text(
-			"BOLT11 and BOLT12 payments use the shared iPhone wallet engine. Review the fee before confirming.",
-		)
+		Text("Review the amount and fee before confirming.")
 		Button(onClick = { navigate("Send") }) { Text("Pay with Ark") }
 		OutlinedButton(onClick = { navigate("Receive Lightning") }) {
 			Text("Receive a Lightning payment")

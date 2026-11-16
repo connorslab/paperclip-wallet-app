@@ -20,7 +20,12 @@ class FoldableWorkflowTest {
 	private fun state(value: Int) {
 		instrumentation.uiAutomation.executeShellCommand("cmd device_state state $value").close()
 		android.os.SystemClock.sleep(1500)
-		compose.waitForIdle()
+		// Folding can put the cover display to sleep on newer Pixel system images.
+		// Wake it as a user would, then wait for the resumed Compose hierarchy.
+		instrumentation.uiAutomation.executeShellCommand("input keyevent 224").close()
+		compose.waitUntil(15000) {
+			runCatching { compose.onAllNodesWithText("Fold test wallet").fetchSemanticsNodes().isNotEmpty() }.getOrDefault(false)
+		}
 	}
 	private fun capture(name: String) {
 		instrumentation.waitForIdleSync()

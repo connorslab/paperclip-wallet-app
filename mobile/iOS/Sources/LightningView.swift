@@ -17,7 +17,7 @@ struct LightningView: View {
     @State private var connectionTask: Task<Void, Error>?
     @State private var message = ""
     @State private var nodeNetwork: LightningNetwork?
-    private enum Page: String, Hashable { case balance = "Node balance", connection = "Node connection", receive = "Receive on your node", pay = "Pay from your node", status = "Payment status" }
+    private enum Page: String, Hashable { case bridge = "Paperclip Bridge", balance = "Node balance", connection = "Node connection", receive = "Receive on your node", pay = "Pay from your node", status = "Payment status" }
     @State private var page: Page?
     @State private var scanning = false
     @State private var connection = LightningConnection()
@@ -50,8 +50,8 @@ struct LightningView: View {
     private let configAccount = "lightning-connection-v1"
     var body: some View {
         ScrollView {
-          VStack(spacing: 20) {
-            if !connection.endpoint.isEmpty { connectionSummary }
+          VStack(spacing: 14) {
+            if !connection.endpoint.isEmpty && (connecting || !connectionError.isEmpty) { connectionSummary }
             WalletColumns {
             if client != nil || balance != nil {
                 WalletSection {
@@ -68,7 +68,7 @@ struct LightningView: View {
                         LabeledContent("Available to send", value: unit.display(balance.sendableMsat / 1000))
                             .font(.subheadline.weight(.medium))
                         if funds > balance.sendableMsat {
-                            Text("Your funds are still in your channels. Channel reserves limit how much you can send.")
+                            Text("Channel reserves limit spending. See balance details.")
                                 .font(.caption).foregroundStyle(PaperclipTheme.muted)
                         }
                     } else {
@@ -85,7 +85,7 @@ struct LightningView: View {
                     }
                     Button { page = .balance } label: {
                         WalletNavigationRow("Balance details", subtitle: "Receive capacity and active channels", icon: "chart.bar")
-                    }.buttonStyle(.plain)
+                    }.buttonStyle(WalletNavigationButtonStyle())
                 }
             } else {
                 WalletSection {
@@ -97,35 +97,32 @@ struct LightningView: View {
                 }
             }
             } secondary: {
-            WalletSection("Paperclip Bridge") {
-                NavigationLink { LightningBridgeView(source: .node) } label: {
-                    WalletNavigationRow("Pay Spamcoin (BTC)", subtitle: "Use XBT through Paperclip Bridge", icon: "arrow.left.arrow.right")
-                }.buttonStyle(.plain)
-                Divider()
-                NavigationLink { LightningBridgeReceiveView() } label: {
-                    WalletNavigationRow("Receive from Spamcoin (BTC)", subtitle: "Receive XBT on your CLN or LND node", icon: "arrow.down.left")
-                }.buttonStyle(.plain)
-            }
             WalletSection {
                 Button { page = .connection } label: {
                     WalletNavigationRow(nodeName.isEmpty ? "Node connection" : nodeName,
-                        subtitle: client == nil ? "Set up Core Lightning or LND" : connection.implementation.title + (connection.useTor ? " · Tor" : " · Direct connection"), icon: "server.rack")
-                }.buttonStyle(.plain)
+                        subtitle: !connectionError.isEmpty ? "Connection needs attention" : client == nil ? "Set up Core Lightning or LND" : "Connected · " + connection.implementation.title + (connection.useTor ? " · Tor" : ""), icon: "server.rack")
+                        .accessibilityIdentifier(client != nil && connectionError.isEmpty ? "lightning-node-connected" : "lightning-node-disconnected")
+                }.buttonStyle(WalletNavigationButtonStyle())
                 Divider()
                 Button { page = .status } label: {
                     WalletNavigationRow("Payments", subtitle: pending == nil ? "View your latest payment status" : "Payment in progress · checking automatically", icon: pending == nil ? "clock.arrow.circlepath" : "clock")
-                }.buttonStyle(.plain)
+                }.buttonStyle(WalletNavigationButtonStyle())
+                Divider()
+                Button { page = .bridge } label: {
+                    WalletNavigationRow("Paperclip Bridge", subtitle: "Pay or receive across XBT and BTC", icon: "arrow.left.arrow.right")
+                }.buttonStyle(WalletNavigationButtonStyle())
             }
-            Text("Your node connection is shared across all wallets. Funds and channel backups stay on your node.")
-                .font(.caption).foregroundStyle(PaperclipTheme.muted).frame(maxWidth: .infinity, alignment: .leading)
+
             if busy { ProgressView(operation) }
             }
           }.walletPageContent(maxWidth: 1120).textFieldStyle(WalletInputStyle())
         }.navigationTitle("Lightning").walletPageBackground()
+            .sensoryFeedback(.selection, trigger: page)
             .navigationDestination(item: $page) { selected in
                 ScrollView {
                     VStack(spacing: 20) {
                         switch selected {
+                        case .bridge: bridgeCard
                         case .balance: balanceCard.disabled(busy)
                         case .connection: connectionCard
                         case .receive: receiveCard.disabled(busy)
@@ -193,6 +190,17 @@ struct LightningView: View {
             .onChange(of: maximumFee) { _, _ in reviewedHash = nil }
             .onChange(of: connection) { old, _ in if !old.endpoint.isEmpty { connectionGeneration = UUID(); client = nil; nodeNetwork = nil; reviewedHash = nil; balance = nil; balanceChecked = nil; lastChecked = nil; connectionError = ""; receiveInvoice = ""; receiveOffer = false } }
 
+    }
+    private var bridgeCard: some View {
+            WalletSection("Paperclip Bridge") {
+                NavigationLink { LightningBridgeView(source: .node) } label: {
+                    WalletNavigationRow("Pay Spamcoin (BTC)", subtitle: "Use XBT through Paperclip Bridge", icon: "arrow.left.arrow.right")
+                }.buttonStyle(WalletNavigationButtonStyle())
+                Divider()
+                NavigationLink { LightningBridgeReceiveView() } label: {
+                    WalletNavigationRow("Receive from Spamcoin (BTC)", subtitle: "Receive XBT on your CLN or LND node", icon: "arrow.down.left")
+                }.buttonStyle(WalletNavigationButtonStyle())
+            }
     }
     private var balanceCard: some View {
         WalletSection("Channel balance") {

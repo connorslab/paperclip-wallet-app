@@ -119,7 +119,7 @@ class WalletScreensTest {
 				.onNodeWithTag("seed-confirmation")
 				.performTextReplacement(words.joinToString(" "))
 			click("Verify and create wallet")
-			waitFor("Your Keys. Your Bitcoin.")
+			waitFor("Total balance")
 			compose.onNodeWithTag("wallet-switcher").performClick()
 			waitFor("Add a wallet")
 			click("Rename")

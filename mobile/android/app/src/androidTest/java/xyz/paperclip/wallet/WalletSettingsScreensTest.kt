@@ -2,6 +2,8 @@ package xyz.paperclip.wallet
 
 import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
+import java.io.File
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.test.core.app.ActivityScenario
@@ -14,6 +16,15 @@ import org.junit.Test
 class WalletSettingsScreensTest {
 	@get:Rule val compose = createEmptyComposeRule()
 
+	private fun capture(name: String) {
+		compose.waitForIdle()
+		val instrumentation = InstrumentationRegistry.getInstrumentation()
+		instrumentation.waitForIdleSync()
+		val image = checkNotNull(instrumentation.uiAutomation.takeScreenshot())
+		File(instrumentation.targetContext.cacheDir, "$name.png").outputStream().use { image.compress(Bitmap.CompressFormat.PNG, 100, it) }
+		image.recycle()
+	}
+
 	private fun click(text: String) {
 		compose.waitUntil(10000) {
 			compose.onAllNodesWithText(text).fetchSemanticsNodes().isNotEmpty()
@@ -21,7 +32,7 @@ class WalletSettingsScreensTest {
 		compose.onNodeWithText(text).performScrollTo().performClick()
 	}
 
-	private fun back() {
+	private fun back(destination: String = "Your wallet") {
 		compose.waitUntil(10000) {
 			compose
 				.onAllNodes(hasContentDescription("Back") and isEnabled())
@@ -30,7 +41,7 @@ class WalletSettingsScreensTest {
 		}
 		compose.onNodeWithContentDescription("Back").performScrollTo().performClick()
 		compose.waitUntil(10000) {
-			compose.onAllNodesWithText("Your wallet").fetchSemanticsNodes().isNotEmpty()
+			compose.onAllNodesWithText(destination).fetchSemanticsNodes().isNotEmpty()
 		}
 	}
 
@@ -54,14 +65,21 @@ class WalletSettingsScreensTest {
 				.use {
 					compose.waitUntil(30000) {
 						compose
-							.onAllNodesWithText("Your Keys. Your Bitcoin.")
+							.onAllNodesWithText("Total balance")
 							.fetchSemanticsNodes()
 							.isNotEmpty()
 					}
+					compose.onNodeWithText("Send").assertIsDisplayed()
+					compose.onNodeWithText("Receive").assertIsDisplayed()
+					capture("compact-wallet")
 					compose.onNodeWithTag("tab-Settings").performClick()
+					capture("compact-settings")
+					click("Security & recovery")
 					click("Wallet security")
 					compose.onNodeWithText("Require device authentication").assertExists()
+					back("Protect your wallet")
 					back()
+					click("Wallet tools")
 					click("On-chain tools")
 					click("Load addresses")
 					compose.waitUntil(10000) {
@@ -78,7 +96,9 @@ class WalletSettingsScreensTest {
 							.fetchSemanticsNodes()
 							.isNotEmpty()
 					}
+					back("Wallet tools")
 					back()
+					click("Help & support")
 					click("Open-source notices")
 					compose.waitUntil(10000) {
 						compose
@@ -86,7 +106,9 @@ class WalletSettingsScreensTest {
 							.fetchSemanticsNodes()
 							.isNotEmpty()
 					}
+					back("Help & support")
 					back()
+					click("Preferences")
 					click("XBT")
 					compose.onNodeWithTag("tab-Wallet").performClick()
 					click("Send")

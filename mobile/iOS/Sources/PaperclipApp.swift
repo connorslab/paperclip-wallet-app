@@ -118,14 +118,13 @@ struct DashboardView: View {
     @Environment(\.dynamicTypeSize) private var balanceTextSize
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 22) {
-                WalletBrand()
+            VStack(alignment: .leading, spacing: 14) {
                 if let profile = store.selectedProfile {
                     NavigationLink { WalletPickerView() } label: {
                         HStack {
                             VStack(alignment: .leading, spacing: 4) {
                                 Label(profile.name, systemImage: profile.kind.icon).font(.headline)
-                                Text(profile.kind == .hardware ? "QR wallet · Keys offline" : profile.kind.title)
+                                Text((store.network == "xbt-mainnet" ? "XBT MAINNET · " : "REGTEST · ") + (profile.kind == .hardware ? "QR wallet · Keys offline" : profile.kind.title))
                                     .font(.caption).foregroundStyle(PaperclipTheme.muted)
                             }
                             Spacer()
@@ -133,21 +132,12 @@ struct DashboardView: View {
                         }.frame(maxWidth: .infinity, minHeight: 44, alignment: .leading).contentShape(Rectangle()).foregroundStyle(.primary)
                     }.buttonStyle(.plain).accessibilityLabel("Active wallet: \(profile.name). Switch wallet")
                 }
-                HStack {
-                    Label {
-                        Text(store.network == "xbt-mainnet" ? "XBT MAINNET" : "REGTEST")
-                    } icon: {
-                        Image(systemName: "circle.fill").foregroundStyle(store.chainConnected ? Color.green : PaperclipTheme.muted)
-                    }.font(.caption2).tracking(2)
-                        .accessibilityLabel("\(store.network == "xbt-mainnet" ? "XBT mainnet" : "Regtest"). \(store.chainConnectionDescription)")
-                    Spacer()
-                    Button { hideBalance.toggle() } label: { Image(systemName: hideBalance ? "eye.slash" : "eye").frame(width: 44, height: 44).contentShape(Rectangle()) }.accessibilityLabel("Toggle balance visibility").accessibilityValue(hideBalance ? "Hidden" : "Visible")
-                }.foregroundStyle(PaperclipTheme.muted)
                 WalletColumns {
                 WalletCard {
                     HStack {
-                        Text("Your Keys. Your Bitcoin.").font(.title3.bold())
+                        Text("Total balance").font(.subheadline).foregroundStyle(PaperclipTheme.muted)
                         Spacer(minLength: 0)
+                        Button { hideBalance.toggle() } label: { Image(systemName: hideBalance ? "eye.slash" : "eye").frame(width: 44, height: 44) }.accessibilityLabel("Toggle balance visibility").accessibilityValue(hideBalance ? "Hidden" : "Visible")
                     }
                     VStack(alignment: .leading, spacing: 6) {
                         HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -157,16 +147,10 @@ struct DashboardView: View {
                         USDValue(sats: store.onchain.flatMap { chain in store.supportsArk ? store.ark.map { chain + $0 } : chain }, hidden: hideBalance, mainnet: store.network == "xbt-mainnet")
                     }.padding(.vertical, 4)
                     Text(store.supportsArk ? "Total · on-chain + available Ark" : "Total on-chain balance").font(.caption).foregroundStyle(PaperclipTheme.muted)
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("Confirmed on-chain: " + (hideBalance ? "••••" : unit.display(store.onchainConfirmed)))
-                        if let pending = store.onchainPending, pending > 0 {
-                            Label(hideBalance ? "Pending on-chain: ••••" : "Pending on-chain: " + unit.display(pending), systemImage: "clock")
-                            Text("Pending includes incoming payments and change awaiting confirmation.")
-                        }
-                        if let immature = store.onchainImmature, immature > 0 {
-                            Text(hideBalance ? "Immature rewards: ••••" : "Immature rewards: " + unit.display(immature))
-                        }
-                    }.font(.caption).foregroundStyle(PaperclipTheme.muted).privacySensitive()
+                    if let pending = store.onchainPending, pending > 0 {
+                        Label(hideBalance ? "Pending on-chain: ••••" : "Pending on-chain: " + unit.display(pending), systemImage: "clock")
+                            .font(.caption).foregroundStyle(PaperclipTheme.muted).privacySensitive()
+                    }
                     HStack(spacing: 12) {
                         if !store.isWatchOnly {
                             Button { Task { await store.pauseSync(); sending = true } } label: {
@@ -202,9 +186,9 @@ struct DashboardView: View {
                 WalletSection("Recent activity") {
                     if store.activity.isEmpty {
                         Label("No activity loaded", systemImage: "clock.arrow.circlepath").font(.headline)
-                        Text("Your recent transactions will appear after synchronization.").font(.subheadline).foregroundStyle(PaperclipTheme.muted)
+
                     }
-                    ForEach(Array(ActivityItem.newestFirst(store.activity).prefix(3))) { item in
+                    ForEach(Array(ActivityItem.newestFirst(store.activity).prefix(1))) { item in
                         VStack(alignment: .leading, spacing: 6) {
                             HStack(alignment: .firstTextBaseline) {
                                 Text(item.title).font(.subheadline.weight(.medium))
@@ -221,7 +205,7 @@ struct DashboardView: View {
                 }
                 }
                 NavigationLink { BuyXBTView() } label: {
-                    WalletCard { WalletNavigationRow("Buy XBT", subtitle: "Explore exchanges", icon: "plus.circle") }
+                    Label("Buy XBT", systemImage: "plus.circle").font(.subheadline.weight(.semibold)).frame(minHeight: 44)
                 }.buttonStyle(.plain)
                 if let pending = store.pending, pending > 0 { Label("\(unit.display(pending)) pending", systemImage: "clock").font(.subheadline) }
                 if store.observed == nil {
