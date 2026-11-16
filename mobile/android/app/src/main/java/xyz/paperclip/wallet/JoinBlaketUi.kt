@@ -146,7 +146,7 @@ internal fun JoinBlaketPage(state: JoinBlaketUiState) {
 							val color = colors[id]
 							OutlinedCard(onClick = { selected = id; address = null }, enabled = !busy,
 								shape = androidx.compose.foundation.shape.RoundedCornerShape(20.dp),
-								modifier = Modifier.width(cardWidth).testTag("jar-$id").semantics { this.selected = selected == id },
+								modifier = Modifier.width(cardWidth).walletEdgeGlow(color, 20.dp, selected == id && !busy).testTag("jar-$id").semantics { this.selected = selected == id },
 								border = BorderStroke(if (selected == id) 2.dp else 1.dp, if (selected == id) color else MaterialTheme.colorScheme.outlineVariant),
 								colors = CardDefaults.outlinedCardColors(containerColor = color.copy(alpha = if (selected == id) .20f else .07f))) {
 								Column(Modifier.padding(12.dp).heightIn(min = 78.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {

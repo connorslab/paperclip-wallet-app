@@ -507,6 +507,7 @@ private fun NavCard(
 ) {
 	Card(
 		onClick = action,
+		modifier = Modifier.fillMaxWidth().walletEdgeGlow(),
 		shape = RoundedCornerShape(26.dp),
 		border = walletSurfaceBorder(),
 		elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
