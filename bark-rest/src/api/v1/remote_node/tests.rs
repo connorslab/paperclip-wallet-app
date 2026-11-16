@@ -8,6 +8,11 @@ use axum::{body::Body, http::Request as HttpRequest};
 use tower::ServiceExt;
 use tokio_util::sync::CancellationToken;
 
+// Scoped to one current-thread test, so parallel tests keep the real clock.
+thread_local! {
+	pub(super) static CLOCK: std::cell::RefCell<Option<Arc<std::sync::atomic::AtomicU64>>> = const { std::cell::RefCell::new(None) };
+}
+
 const CERT: &[u8] = include_bytes!("fixtures/node-cert.der");
 // This generated fixture key has no purpose outside the local TLS test server.
 const TEST_KEY: &[u8] = include_bytes!("fixtures/node-test-key.der");
@@ -237,23 +242,32 @@ async fn bridge_funding_uses_the_node_journal_and_never_replays_uncertain_result
 	}
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "current_thread")]
 async fn bridge_expiry_during_node_preflight_leaves_no_payment_intent() {
+	let seconds = Arc::new(std::sync::atomic::AtomicU64::new(model::now().as_secs()));
+	CLOCK.with(|clock| assert!(clock.borrow_mut().replace(seconds.clone()).is_none()));
+	struct ResetClock;
+	impl Drop for ResetClock { fn drop(&mut self) { CLOCK.with(|clock| *clock.borrow_mut() = None); } }
+	let _reset_clock = ResetClock;
+	let deadline = model::now().as_secs() + 300;
 	let root = tempfile::tempdir().unwrap(); private_dir(&root.path().join("payments")).unwrap();
 	let delay = Arc::new(AtomicBool::new(false)); let wait = delay.clone();
 	let fixture = Fixture::new(move |_| {
-		if wait.load(Ordering::SeqCst) { thread::sleep(Duration::from_secs(2)); }
+		// Expire precisely while the real TLS preflight is in progress, after
+		// the initial review check and before its final pre-submission check.
+		if wait.load(Ordering::SeqCst) { seconds.store(deadline, Ordering::SeqCst); }
 		json_response(json!({"identity_pubkey":node_id(),"chains":[{"chain":"bitcoin","network":"regtest"}]}))
 	});
 	save(&root.path().join("connection.json"),&fixture.connection(Implementation::Lnd)).unwrap();
 	let text = test_invoice(true); let hash = invoice(&text,Network::Regtest).unwrap().payment_hash().to_string();
-	let mut sessions = Sessions::default(); let deadline = model::now().as_secs() + 6;
+	let mut sessions = Sessions::default();
 	let review = execute_at(root.path().into(),Network::Regtest,&mut sessions,bridge::request(Operation::Prepare,&text,deadline,"",1,"")).await.unwrap();
 	delay.store(true,Ordering::SeqCst);
 	let error = bridge::fund_at(root.path().into(),Network::Regtest,&mut sessions,bridge::request(Operation::Pay,&text,deadline,&hash,1,review["request_id"].as_str().unwrap()),|_|Ok(())).await.unwrap_err();
 	assert!(error.to_string().contains("expired"));
 	assert!(!record_path(root.path(),&hash,false).unwrap().exists());
 	assert_eq!(bridge::status_at(root.path().into(),Network::Regtest,&mut sessions,&text,&hash,&node_id(),1).await.unwrap(),None);
+	assert_eq!(fixture.requests.lock().unwrap().len(),2, "Both review and send preflights must run");
 	assert!(fixture.requests.lock().unwrap().iter().all(|r|r.starts_with("GET /v1/getinfo ")));
 }
 

@@ -8,7 +8,13 @@ use serde_json::{Value, json};
 
 use super::transport::Implementation;
 
-pub(super) fn now() -> Duration { SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default() }
+pub(super) fn now() -> Duration {
+	#[cfg(test)]
+	if let Some(seconds) = super::tests::CLOCK.with(|clock| clock.borrow().as_ref().map(|value| value.load(std::sync::atomic::Ordering::SeqCst))) {
+		return Duration::from_secs(seconds);
+	}
+	SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default()
+}
 pub(super) fn number(value: &Value) -> anyhow::Result<u64> {
 	value.as_u64().or_else(|| value.as_str().and_then(|s| s.strip_suffix("msat").unwrap_or(s).parse().ok()))
 		.context("Invalid node amount")
