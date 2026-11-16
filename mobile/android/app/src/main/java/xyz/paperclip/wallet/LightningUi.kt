@@ -6,7 +6,6 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.activity.compose.BackHandler
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.*
@@ -62,12 +61,7 @@ internal fun NodeLightning(model: LightningModel, initialPage: String = "balance
 	BackHandler(page != "balance") { if (!s.busy) navigate("balance") }
 	if (s.connecting || s.balanceStale || page == "connection") {
 		HingeSafeContent {
-		Card(
-			Modifier.fillMaxWidth(),
-			border = BorderStroke(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = .09f)),
-			shape = RoundedCornerShape(26.dp),
-			colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-		) {
+		WalletSurface {
 			Column(Modifier.padding(22.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
 				Text(s.connectionStatus, style = MaterialTheme.typography.titleMedium)
 				Text((if (s.connection.implementation == "cln") "Core Lightning" else "LND") +
@@ -85,12 +79,7 @@ internal fun NodeLightning(model: LightningModel, initialPage: String = "balance
 	if (s.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
 	if (s.message.isNotEmpty()) HingeSafeContent { Text(s.message, color = MaterialTheme.colorScheme.error) }
 	HingeSafeContent(enabled = page != "connection") {
-	Card(
-			Modifier.fillMaxWidth(),
-			border = BorderStroke(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = .09f)),
-			shape = RoundedCornerShape(26.dp),
-			colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-		) {
+	WalletSurface {
 		Column(Modifier.padding(22.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
 			AnimatedContent(targetState = page, transitionSpec = {
 				val direction = if (targetState == "balance") -1 else 1
@@ -165,7 +154,7 @@ internal fun NodeLightning(model: LightningModel, initialPage: String = "balance
 					}
 					})
 					HingeSafeContent(limitWidth = false) {
-					Button(
+					WalletPrimaryButton(
 						onClick = {
 							model.connect(
 								NodeConnection(
@@ -228,7 +217,7 @@ internal fun NodeLightning(model: LightningModel, initialPage: String = "balance
 							modifier = Modifier.fillMaxWidth(),
 							shape = RoundedCornerShape(16.dp),
 						)
-					Button(
+					WalletPrimaryButton(
 						onClick = { model.receive(unit.backendAmount(amount), offer, description) },
 						enabled = s.connected && !s.busy,
 					) {
@@ -278,7 +267,7 @@ internal fun NodeLightning(model: LightningModel, initialPage: String = "balance
 							modifier = Modifier.fillMaxWidth(),
 							shape = RoundedCornerShape(16.dp),
 						)
-						Button(
+						WalletPrimaryButton(
 							onClick = {
 								model.review(
 									invoice,
@@ -322,7 +311,7 @@ internal fun NodeLightning(model: LightningModel, initialPage: String = "balance
 							},
 						)
 						Text("Amount: ${unit.displayMsat(nodeAmount(p.get("amount_msat")))}")
-						Button(onClick = model::checkPayment, enabled = s.connected && !s.busy) {
+						WalletPrimaryButton(onClick = model::checkPayment, enabled = s.connected && !s.busy) {
 							Text("Check now")
 						}
 					}
@@ -347,10 +336,10 @@ internal fun NodeLightning(model: LightningModel, initialPage: String = "balance
 
 					}
 					Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-						Button(onClick = { navigate("pay") }, enabled = s.connected && !s.busy) {
+						WalletPrimaryButton(onClick = { navigate("pay") }, enabled = s.connected && !s.busy) {
 							Text("Pay")
 						}
-						Button(
+						WalletPrimaryButton(
 							onClick = { navigate("receive") },
 							enabled = s.connected && !s.busy,
 						) {
@@ -423,7 +412,7 @@ internal fun NodePaymentReview(review: NodeInvoiceReview, unit: BitcoinUnit, bus
 		if (showInvoice) SelectionContainer { Text(review.invoice, style = MaterialTheme.typography.bodySmall) }
 		Text("Confirm only if this invoice and amount are correct.", style = MaterialTheme.typography.bodySmall,
 			color = MaterialTheme.colorScheme.onSurfaceVariant)
-		Button(onClick = onConfirm, enabled = !busy && review.valid(), modifier = Modifier.fillMaxWidth()) { Text("Confirm and pay") }
+		WalletPrimaryButton(onClick = onConfirm, enabled = !busy && review.valid(), modifier = Modifier.fillMaxWidth()) { Text("Confirm and pay") }
 		TextButton(onClick = onEdit, enabled = !busy) { Text("Edit invoice or fee") }
 	}
 }

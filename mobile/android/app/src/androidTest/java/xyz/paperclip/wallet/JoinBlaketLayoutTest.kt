@@ -35,7 +35,8 @@ class JoinBlaketLayoutTest {
 					.put("frozen_sat", 0).put("bond_sat", 0)
 			}
 		}
-		compose.setContent { MaterialTheme(colorScheme = paperclipColors(true)) { Surface(color = MaterialTheme.colorScheme.background) {
+		val dark = androidx.compose.runtime.mutableStateOf(true)
+		compose.setContent { MaterialTheme(colorScheme = paperclipColors(dark.value)) { Surface(color = MaterialTheme.colorScheme.background) {
 			Column(Modifier.fillMaxSize().safeDrawingPadding().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
 				androidx.compose.material3.Text("Jars", style = MaterialTheme.typography.headlineLarge)
 				JoinBlaketPage(state)
@@ -49,16 +50,13 @@ class JoinBlaketLayoutTest {
 		assertEquals(first.top, second.top, 2f)
 		assertEquals((first.left + second.right) / 2, last.center.x, 2f)
 		assertEquals(first.width, last.width, 2f)
-		compose.waitForIdle()
-		val instrumentation = InstrumentationRegistry.getInstrumentation()
-		instrumentation.waitForIdleSync()
-		val image = checkNotNull(instrumentation.uiAutomation.takeScreenshot())
-		File(instrumentation.targetContext.getExternalFilesDir(null), "android-jars.png").outputStream().use {
-			image.compress(Bitmap.CompressFormat.PNG, 100, it)
-		}
+		capture("android-jars")
 		compose.onNodeWithTag("jar-4").performClick().assertIsSelected()
 		compose.onNodeWithText("Receive into Elderberry").assertExists()
-		compose.runOnIdle { assertEquals(4, state.selected.intValue); assertNull(state.client.value) }
+		compose.runOnIdle { assertEquals(4, state.selected.intValue); assertNull(state.client.value); dark.value = false }
+		for (id in 0..4) compose.onNodeWithTag("jar-$id").assertIsDisplayed()
+		compose.onNodeWithTag("jar-4").assertIsSelected()
+		capture("android-jars-light")
 	}
 
 	@Test fun bondReviewNamesWalletAndDateWithoutFunding() {
@@ -84,5 +82,16 @@ class JoinBlaketLayoutTest {
 		}
 		compose.onNodeWithText("Review bond address").performScrollTo().performClick()
 		compose.onNodeWithText("Choose a future month before 2100. Bonds unlock on its first day at 00:00 UTC.").performScrollTo().assertIsDisplayed()
+	}
+
+	private fun capture(name: String) {
+		compose.waitForIdle()
+		val instrumentation = InstrumentationRegistry.getInstrumentation()
+		instrumentation.waitForIdleSync()
+		val image = checkNotNull(instrumentation.uiAutomation.takeScreenshot())
+		File(instrumentation.targetContext.getExternalFilesDir(null), "$name.png").outputStream().use {
+			image.compress(Bitmap.CompressFormat.PNG, 100, it)
+		}
+		image.recycle()
 	}
 }

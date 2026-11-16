@@ -103,7 +103,7 @@ internal fun JoinBlaketPage(state: JoinBlaketUiState) {
 		OutlinedTextField(endpoint, { endpoint = it }, label = { Text("HTTPS or onion address") }, enabled = !busy, modifier = Modifier.fillMaxWidth())
 		OutlinedTextField(pin, { pin = it }, label = { Text("Certificate SHA256 (optional)") }, enabled = !busy, modifier = Modifier.fillMaxWidth())
 		Row { Text("Use Tor", Modifier.weight(1f)); Switch(tor, { tor = it }, enabled = !busy) }
-		Button(enabled = !busy, onClick = { run {
+		WalletPrimaryButton(enabled = !busy, onClick = { run {
 			authorization = null; jars = emptyList(); address = null; wallets = emptyList(); bondAddress = null; bondMonth = ""
 			val c = JoinBlaketClient.open(context, JoinBlaketConnection(endpoint.trim(), pin.trim(), if (tor) "builtin" else ""))
 			wallets = c.wallets(); wallet = wallets.firstOrNull().orEmpty(); client = c
@@ -116,15 +116,19 @@ internal fun JoinBlaketPage(state: JoinBlaketUiState) {
 			OutlinedTextField(password, { password = it }, label = { Text("Jam wallet password") }, visualTransformation = PasswordVisualTransformation(), enabled = !busy, modifier = Modifier.fillMaxWidth())
 			TextButton(onClick = { showPassphrase = !showPassphrase }, enabled = !busy) { Text("Wallet passphrase") }
 			if (showPassphrase) OutlinedTextField(passphrase, { passphrase = it }, label = { Text("BIP39 passphrase, if used") }, visualTransformation = PasswordVisualTransformation(), enabled = !busy, modifier = Modifier.fillMaxWidth())
-			Button(enabled = !busy, onClick = {
+			WalletPrimaryButton(enabled = !busy, onClick = {
 				val entered = password; val enteredPassphrase = passphrase; password = ""; passphrase = ""
 				run { val c = checkNotNull(client); val auth = c.unlock(wallet, entered, enteredPassphrase); authorization = auth; refresh(c, auth) }
 			}) { Text("Unlock and view jars") }
 		}
 	} else {
-		Text("CoinJoin balance", color = MaterialTheme.colorScheme.onSurfaceVariant)
-		Text(unit.display(jars.sumOf { it.getLong("total_sat") }), style = MaterialTheme.typography.headlineLarge)
-		Text(wallet, color = MaterialTheme.colorScheme.onSurfaceVariant)
+		WalletSurface {
+			Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+				Text("CoinJoin balance", color = MaterialTheme.colorScheme.onSurfaceVariant)
+				Text(unit.display(jars.sumOf { it.getLong("total_sat") }), style = MaterialTheme.typography.headlineLarge)
+				Text(wallet, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+			}
+		}
 		Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
 			Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
 				Text("Your jars", style = MaterialTheme.typography.titleLarge)
@@ -141,6 +145,7 @@ internal fun JoinBlaketPage(state: JoinBlaketUiState) {
 							val id = jar.getInt("id")
 							val color = colors[id]
 							OutlinedCard(onClick = { selected = id; address = null }, enabled = !busy,
+								shape = androidx.compose.foundation.shape.RoundedCornerShape(20.dp),
 								modifier = Modifier.width(cardWidth).testTag("jar-$id").semantics { this.selected = selected == id },
 								border = BorderStroke(if (selected == id) 2.dp else 1.dp, if (selected == id) color else MaterialTheme.colorScheme.outlineVariant),
 								colors = CardDefaults.outlinedCardColors(containerColor = color.copy(alpha = if (selected == id) .20f else .07f))) {
@@ -160,14 +165,14 @@ internal fun JoinBlaketPage(state: JoinBlaketUiState) {
 		}
 		WalletColumns(primary = {
 		jars.firstOrNull { it.getInt("id") == selected }?.let { jar ->
-			Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+			WalletSurface {
 				Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
 					Text(jar.getString("name"), style = MaterialTheme.typography.titleLarge)
 					for ((field, label) in listOf("confirmed_sat" to "Confirmed", "pending_sat" to "Pending", "frozen_sat" to "Frozen", "bond_sat" to "Fidelity bonds")) {
 						val amount = jar.getLong(field)
 						if (amount > 0 || field == "confirmed_sat") Row(Modifier.fillMaxWidth()) { Text(label, Modifier.weight(1f)); Text(unit.display(amount)) }
 					}
-					Button(enabled = !busy, onClick = { run { address = checkNotNull(client).receiveAddress(selected, checkNotNull(authorization)) } }) { Text("Receive into ${jar.getString("name")}") }
+					WalletPrimaryButton(enabled = !busy, onClick = { run { address = checkNotNull(client).receiveAddress(selected, checkNotNull(authorization)) } }) { Text("Receive into ${jar.getString("name")}") }
 					address?.let { NodeReceiveCode(it); SelectionContainer { Text(it) } }
 				}
 			}
@@ -201,7 +206,7 @@ internal fun JoinBlaketPage(state: JoinBlaketUiState) {
 			Text("A bond locks coins until your chosen month. It may help your maker get selected; earnings are not guaranteed.")
 			BondMonthPicker(bondMonth, enabled = !busy) { bondMonth = it; bondAddress = null }
 			Text("Unlocks on the first day at 00:00 UTC. Creating the address sends no funds.", style = MaterialTheme.typography.bodySmall)
-			Button(enabled = !busy, onClick = {
+			WalletPrimaryButton(enabled = !busy, onClick = {
 				try { JoinBlaketBond.validate(bondMonth); reviewedBondMonth = bondMonth }
 				catch (e: Exception) { message = e.message }
 			}) { Text("Review bond address") }
@@ -225,7 +230,7 @@ internal fun JoinBlaketPage(state: JoinBlaketUiState) {
 				dismissButton = { TextButton(onClick = { reviewedBondMonth = null }) { Text("Cancel") } })
 		}
 		if (needsRefresh) Text("Refresh maker status before another action.")
-		Button(enabled = !busy && !needsRefresh && (running || readiness.canStart), onClick = { confirmMaker = true }) { Text(if (running) "Stop maker" else "Review maker setup") }
+		WalletPrimaryButton(enabled = !busy && !needsRefresh && (running || readiness.canStart), onClick = { confirmMaker = true }) { Text(if (running) "Stop maker" else "Review maker setup") }
 		if (confirmMaker) AlertDialog(onDismissRequest = { confirmMaker = false },
 			title = { Text(if (running) "Stop your server’s maker?" else "Start making on your Jam server?") },
 			text = { Text(if (running) "Existing CoinJoins may need to finish before the maker stops." else "Minimum CoinJoin: $minimum sats. Your fee: $makerFee sats per CoinJoin. Mining fee contribution: 0 sats. The maker uses eligible Jam jars and keeps running when Paperclip closes.") },

@@ -125,7 +125,7 @@ internal fun BridgeContent(
 							}
 							if (source == "node") OutlinedTextField(fee, { fee = it }, label = { Text("Maximum routing fee in ${unit.title}") }, enabled = !s.busy, modifier = Modifier.fillMaxWidth())
 						}
-						Button(onClick = { onQuote(invoice, if (incoming || !canUseArk) "node" else source, incoming, unit.backendAmount(amount), unit.backendAmount(fee)) }, enabled = !s.busy, modifier = Modifier.fillMaxWidth()) {
+						WalletPrimaryButton(onClick = { onQuote(invoice, if (incoming || !canUseArk) "node" else source, incoming, unit.backendAmount(amount), unit.backendAmount(fee)) }, enabled = !s.busy, modifier = Modifier.fillMaxWidth()) {
 							Text(if (incoming) "Create invoice and review" else "Review conversion")
 						}
 					}
@@ -162,7 +162,7 @@ internal fun BridgeContent(
 							OutlinedButton(onClick = { clipboard.setText(androidx.compose.ui.text.AnnotatedString(quote.getString("hold_invoice"))) }) { Text("Copy BTC invoice") }
 						} else if (!incoming && !record.optBoolean("submitted") && !verified) {
 							if (quote.optLong("expires_at") > now + 5 && (s.nativeQuote != null || s.nodeReview?.valid(now) == true)) {
-								Button(onClick = onFund, enabled = !s.busy, modifier = Modifier.fillMaxWidth()) { Text("Confirm and fund bridge") }
+								WalletPrimaryButton(onClick = onFund, enabled = !s.busy, modifier = Modifier.fillMaxWidth()) { Text("Confirm and fund bridge") }
 							} else {
 								Text("Review a fresh conversion before funding this saved quote.")
 								OutlinedButton(onClick = { invoice = record.getString("target"); source = if (canUseArk) record.optString("source", "node") else "node"; navigate("pay") }, enabled = !s.busy) { Text("Review again") }
@@ -176,7 +176,7 @@ internal fun BridgeContent(
 					"access" -> {
 						Text("The public bridge works without a key.")
 						OutlinedTextField(key, { key = it }, label = { Text("Private API key (optional)") }, visualTransformation = PasswordVisualTransformation(), enabled = !s.busy, modifier = Modifier.fillMaxWidth())
-						Button(onClick = { onSaveKey(key.trim()); key = "" }, enabled = !s.busy) { Text("Save bridge access") }
+						WalletPrimaryButton(onClick = { onSaveKey(key.trim()); key = "" }, enabled = !s.busy) { Text("Save bridge access") }
 					}
 				}
 			}

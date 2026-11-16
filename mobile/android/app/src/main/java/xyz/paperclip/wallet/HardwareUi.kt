@@ -76,14 +76,14 @@ internal fun HardwarePayment(s: WalletState, model: WalletModel, boarding: Boole
 					Switch(maximum, { maximum = it })
 				}
 			if (boarding)
-				Button(
+				WalletPrimaryButton(
 					onClick = { model.prepareHardwareBoard(sourceID, unit.backendAmount(amount)) },
 					enabled = s.connected && !s.busy && sourceID.isNotEmpty(),
 				) {
 					Text("Review boarding")
 				}
 			else
-				Button(
+				WalletPrimaryButton(
 					onClick = {
 						val f =
 							JSONObject()
@@ -118,7 +118,7 @@ internal fun HardwarePayment(s: WalletState, model: WalletModel, boarding: Boole
 					"On XBT Krux, choose Sign PSBT. On XBT SeedSigner, choose Scan. Compare the recipient, amount, fee, and change on your signer before approving.",
 					style = MaterialTheme.typography.bodySmall,
 				)
-				Button(onClick = { showQr = !showQr }) {
+				WalletPrimaryButton(onClick = { showQr = !showQr }) {
 					Text(if (showQr) "Hide signing QR" else "Show signing QR")
 				}
 				if (showQr) {
@@ -136,7 +136,7 @@ internal fun HardwarePayment(s: WalletState, model: WalletModel, boarding: Boole
 					NodeReceiveCode(frames[index])
 					Text("Frame ${index+1} of ${frames.size}")
 				}
-				Button(
+				WalletPrimaryButton(
 					onClick = {
 						collector = SigningQrCollector()
 						scanning = true
@@ -175,7 +175,7 @@ internal fun HardwarePayment(s: WalletState, model: WalletModel, boarding: Boole
 			} else {
 				Text("Signatures verified. Transaction matches the reviewed request.")
 				SelectionContainer { Text(verified) }
-				Button(
+				WalletPrimaryButton(
 					onClick = {
 						model.tool(
 							if (boarding) "ark_hardware_commit" else "hardware_broadcast",

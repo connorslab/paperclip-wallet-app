@@ -128,7 +128,7 @@ internal fun PaperclipApp(
 	}
 	val colors = paperclipColors(dark)
 	CompositionLocalProvider(LocalBitcoinUnit provides displayUnit) {
-		MaterialTheme(colorScheme = colors, shapes = Shapes(large = RoundedCornerShape(26.dp))) {
+		MaterialTheme(colorScheme = colors, shapes = Shapes(extraSmall = RoundedCornerShape(12.dp), small = RoundedCornerShape(16.dp), medium = RoundedCornerShape(20.dp), large = RoundedCornerShape(26.dp), extraLarge = RoundedCornerShape(30.dp))) {
 			if (!unlocked) {
 				Surface(Modifier.fillMaxSize(), color = colors.background) {
 					Column(
@@ -141,7 +141,7 @@ internal fun PaperclipApp(
 						Icon(Icons.Default.Lock, null, Modifier.size(56.dp), tint = Orange)
 						Text("Your XBT. Your keys.", style = MaterialTheme.typography.headlineSmall)
 						Spacer(Modifier.height(24.dp))
-						Button(onClick = unlock) { Text("Unlock Paperclip") }
+						WalletPrimaryButton(onClick = unlock) { Text("Unlock Paperclip") }
 						Text("A device screen lock is required.", Modifier.padding(16.dp))
 						if (authError.isNotEmpty()) Text(authError, color = colors.error)
 					}
@@ -211,6 +211,8 @@ internal fun PaperclipApp(
 									NavigationBarItem(
 										modifier = Modifier.testTag("tab-$label"),
 										selected = tab == label,
+										colors = NavigationBarItemDefaults.colors(selectedIconColor = colors.primary, selectedTextColor = colors.primary,
+											indicatorColor = colors.primary.copy(alpha = .12f), unselectedIconColor = colors.onSurfaceVariant, unselectedTextColor = colors.onSurfaceVariant),
 										enabled = !s.busy,
 										onClick = {
 											navigate(label)
@@ -460,18 +462,13 @@ private fun Brand() {
 
 @Composable
 internal fun CardBlock(title: String, content: @Composable ColumnScope.() -> Unit) {
-	Card(
-		Modifier.fillMaxWidth(),
-		border = BorderStroke(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = .09f)),
-		shape = RoundedCornerShape(26.dp),
-		colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-	) {
+	WalletSurface {
 		Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
 			Row(
 				verticalAlignment = Alignment.CenterVertically,
 				horizontalArrangement = Arrangement.spacedBy(9.dp),
 			) {
-				Box(Modifier.width(3.dp).height(15.dp).background(Orange, RoundedCornerShape(2.dp)))
+				Box(Modifier.width(3.dp).height(15.dp).background(MaterialTheme.colorScheme.primary, RoundedCornerShape(2.dp)))
 				Text(
 					title,
 					style = MaterialTheme.typography.titleSmall,
@@ -511,17 +508,19 @@ private fun NavCard(
 	Card(
 		onClick = action,
 		shape = RoundedCornerShape(26.dp),
+		border = walletSurfaceBorder(),
+		elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
 		colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
 	) {
 		Row(
-			Modifier.fillMaxWidth().padding(22.dp),
+			Modifier.fillMaxWidth().background(walletSurfaceBrush()).padding(20.dp),
 			horizontalArrangement = Arrangement.spacedBy(14.dp),
 			verticalAlignment = Alignment.CenterVertically,
 		) {
 			Icon(
 				icon,
 				null,
-				Modifier.background(Orange.copy(alpha = .09f), RoundedCornerShape(12.dp))
+				Modifier.background(MaterialTheme.colorScheme.primary.copy(alpha = .09f), RoundedCornerShape(12.dp))
 					.padding(10.dp)
 					.size(22.dp),
 				tint = MaterialTheme.colorScheme.primary,
@@ -656,7 +655,7 @@ private fun Dashboard(s: WalletState, model: WalletModel, navigate: (String) -> 
 			style = MaterialTheme.typography.bodySmall,
 		)
 		Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-			Button(
+			WalletPrimaryButton(
 				onClick = { navigate("Send") },
 				enabled = !s.busy && kind != "watch",
 				modifier = Modifier.weight(1f),
@@ -762,7 +761,7 @@ private fun Setup(model: WalletModel, s: WalletState, scroll: ScrollState) {
 					keyboardOptions = KeyboardOptions(autoCorrectEnabled = false),
 				)
 				val matches = confirmation.trim().lowercase().split(Regex("\\s+")) == words
-				Button(
+				WalletPrimaryButton(
 					onClick = {
 						focus.clearFocus()
 						keyboard?.hide()
@@ -790,7 +789,7 @@ private fun Setup(model: WalletModel, s: WalletState, scroll: ScrollState) {
 					style = MaterialTheme.typography.bodyMedium,
 				)
 				SeedWords(words)
-				Button(
+				WalletPrimaryButton(
 					onClick = { mode = "verify" },
 					enabled = !s.busy,
 					modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp),
@@ -815,7 +814,7 @@ private fun Setup(model: WalletModel, s: WalletState, scroll: ScrollState) {
 				"Seed-only recovery does not restore complete Ark recovery data. Use a full backup for an existing Ark wallet.",
 				style = MaterialTheme.typography.bodySmall,
 			)
-			Button(
+			WalletPrimaryButton(
 				onClick = { model.create(phrase, name) },
 				enabled = phrase.isNotBlank() && validName && !s.busy,
 				modifier = Modifier.fillMaxWidth(),
@@ -842,7 +841,7 @@ private fun Setup(model: WalletModel, s: WalletState, scroll: ScrollState) {
 				"Create your wallet, then back up and verify your recovery words.",
 				style = MaterialTheme.typography.bodyMedium,
 			)
-			Button(
+			WalletPrimaryButton(
 				onClick = { entropyOptions = true },
 				enabled = validName && !s.busy,
 				modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp),
@@ -991,7 +990,7 @@ internal fun Send(s: WalletState, model: WalletModel) {
 					Text("Check payment status")
 				}
 				if (status in listOf(PaymentStatus.COMPLETE, PaymentStatus.NOT_SENT)) {
-					Button(
+					WalletPrimaryButton(
 						onClick = {
 							destination = ""
 							amount = ""
@@ -1024,7 +1023,7 @@ internal fun Send(s: WalletState, model: WalletModel) {
 				Text("Quotes expire after 60 seconds. Confirm only if these details are correct.",
 					style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
 					textAlign = androidx.compose.ui.text.style.TextAlign.Center)
-				Button(onClick = model::send, enabled = !s.busy, modifier = Modifier.fillMaxWidth()) { Text("Confirm and send") }
+				WalletPrimaryButton(onClick = model::send, enabled = !s.busy, modifier = Modifier.fillMaxWidth()) { Text("Confirm and send") }
 				TextButton(onClick = model::cancelReview, enabled = !s.busy) { Text("Edit recipient or amount") }
 			}
 		} else {
@@ -1046,7 +1045,7 @@ internal fun Send(s: WalletState, model: WalletModel) {
 					else "Send from your on-chain balance.",
 					style = MaterialTheme.typography.bodySmall,
 				)
-				Button(
+				WalletPrimaryButton(
 					onClick = {
 						focus.clearFocus()
 						model.quote(
@@ -1133,7 +1132,7 @@ internal fun Receive(s: WalletState, model: WalletModel, initialMethod: String) 
 				}
 			if (kind != "On-chain" && !s.connected)
 				Text("Connect and sync your wallet first.", style = MaterialTheme.typography.bodySmall)
-			Button(
+			WalletPrimaryButton(
 				onClick = {
 					focus.clearFocus()
 					model.receive(kind, unit.backendAmount(amount))
@@ -1225,7 +1224,7 @@ private fun Lightning(navigate: (String) -> Unit) {
 			style = MaterialTheme.typography.titleLarge,
 		)
 		Text("Review the amount and fee before confirming.")
-		Button(onClick = { navigate("Send") }) { Text("Pay with Ark") }
+		WalletPrimaryButton(onClick = { navigate("Send") }) { Text("Pay with Ark") }
 		OutlinedButton(onClick = { navigate("Receive Lightning") }) {
 			Text("Receive a Lightning payment")
 		}
@@ -1238,7 +1237,7 @@ private fun Activity(s: WalletState, model: WalletModel) {
 	var filter by remember { mutableStateOf("All") }
 	var detail by remember { mutableStateOf<WalletActivity?>(null) }
 	Choices(listOf("All", "On-chain", "Ark"), filter) { filter = it }
-	Button(onClick = model::sync, enabled = s.connected && !s.busy) { Text("Refresh activity") }
+	WalletPrimaryButton(onClick = model::sync, enabled = s.connected && !s.busy) { Text("Refresh activity") }
 	s.result?.let { result ->
 		CardBlock(PaymentStatus.from(result.optString("state")).title) {
 			Text(PaymentStatus.from(result.optString("state")).detail)
@@ -1447,7 +1446,7 @@ private fun Connections(s: WalletState, model: WalletModel, draft: MutableState<
 		}
 		if (s.busy && c.proxy == "builtin")
 			Text("Connecting through Tor… First startup can take a few minutes.")
-		Button(
+		WalletPrimaryButton(
 			onClick = { model.connect(c) },
 			enabled = !s.busy,
 			modifier = Modifier.fillMaxWidth(),
@@ -1486,7 +1485,7 @@ private fun BackupExport(s: WalletState, model: WalletModel) {
 		Text(
 			"Save your wallet keys and Ark state. Keep the recovery key separately; Paperclip cannot recover a lost key.",
 		)
-		Button(
+		WalletPrimaryButton(
 			onClick = {
 				keySaved = false
 				model.prepareBackup()
@@ -1502,7 +1501,7 @@ private fun BackupExport(s: WalletState, model: WalletModel) {
 				Checkbox(keySaved, { keySaved = it })
 				Text("I stored the recovery key separately")
 			}
-			Button(onClick = { activity?.exportBackup() }, enabled = keySaved && !s.busy) {
+			WalletPrimaryButton(onClick = { activity?.exportBackup() }, enabled = keySaved && !s.busy) {
 				Text("Save backup file")
 			}
 			if (s.backupSaved) Text("Backup file saved. Keep the recovery key separately.")
@@ -1565,7 +1564,7 @@ private fun EmergencyExit(s: WalletState, model: WalletModel) {
 			Checkbox(confirmed, { confirmed = it })
 			Text("I understand the fees and waiting period")
 		}
-		Button(
+		WalletPrimaryButton(
 			onClick = model::startExit,
 			enabled = confirmed && s.connected && !s.busy,
 			modifier = Modifier.fillMaxWidth(),
@@ -1586,7 +1585,7 @@ private fun EmergencyExit(s: WalletState, model: WalletModel) {
 				"Claiming sends the matured outputs to this address, less the on-chain fee. Verify the address before confirming.",
 				style = MaterialTheme.typography.bodySmall,
 			)
-			Button(
+			WalletPrimaryButton(
 				onClick = {
 					confirmed = false
 					model.claimExit(destination)
