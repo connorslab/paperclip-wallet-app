@@ -62,8 +62,8 @@ Play-signed download option in its
   Assertions and timeouts are unchanged.
 - Android CI [43873204870](https://github.com/connorslab/paperclip-wallet-app/actions/runs/43873204870)
   at `046dcf7` passed native builds and API 36 storage/profile tests, then hit the
-  same system ANR obstruction at the first onboarding capture. API 35 is still
-  running. This recurrence remains unresolved. New deletion-failure changes have
+  same system ANR obstruction at the first onboarding capture. The complete API 35
+  job passed. This API 36 recurrence remains unresolved. New deletion-failure changes have
   local evidence below and need separate CI confirmation. These checks do not
   close live, physical-device or distribution gates.
 
