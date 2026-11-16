@@ -87,7 +87,7 @@ struct AddWalletView: View {
                 }.buttonStyle(.plain)
             }
             NavigationLink { PublicWalletImportView(hardware: true) } label: {
-                WalletCard { WalletNavigationRow("QR hardware wallet", subtitle: "Pair Krux, SeedSigner, or a compatible QR signer", icon: "qrcode") }
+                WalletCard { WalletNavigationRow("QR Signer", subtitle: "Connect XBT SeedSigner or XBT Krux", icon: "qrcode") }
             }.buttonStyle(.plain)
             NavigationLink { PublicWalletImportView(hardware: false) } label: {
                 WalletCard { WalletNavigationRow("Watch-only wallet", subtitle: "Monitor an account XPUB or public descriptor", icon: "eye") }
@@ -143,7 +143,7 @@ struct PublicWalletImportView: View {
                 }
                 WalletSection {
                     DisclosureGroup("How to export from your device", isExpanded: $help) {
-                        Text("Use a BLAKE2b-compatible Krux or SeedSigner with a single-key wallet.").font(.subheadline)
+                        Text("Use privkeyio’s XBT SeedSigner or Paperclip’s XBT Krux with a single-key wallet.").font(.subheadline)
                         Text("Krux: export the account public key or descriptor as plain QR or BBQr.\n\nSeedSigner: choose Specter for the account-key export.").font(.subheadline).foregroundStyle(PaperclipTheme.muted)
                         Text("When paying later, you’ll scan the payment on your signer, approve it there, then scan the signed transaction back into Paperclip. Animated UR is supported for signed PSBTs.").font(.caption).foregroundStyle(PaperclipTheme.muted)
                     }

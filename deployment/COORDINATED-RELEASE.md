@@ -90,12 +90,24 @@ Jam data/backups, a restricted RPC filter, verified internal TLS trust, runtime
 health, mobile pairing, licensing/source distribution and installation tests.
 
 The unshipped companion now has a hash-guarded extension for reviewed direct sends
-and bond funding/withdrawal. Twenty-three local tests pass, including real pinned
-Jam signing and HTTP routes against a synthetic chain, wrong-wallet/session
-rejection, stale/frozen coins, mutation exclusion and uncertain-broadcast lookup.
-The journal records the submission boundary durably and never replays it. Linux
-container checks, host packaging, pairing, client flows and live acceptance remain
-open. No real funds or production services were touched for these tests.
+and bond funding/withdrawal. Twenty-five tests pass locally and in both AMD64 and
+ARM64 Linux containers ([run 43924197397](https://github.com/connorslab/paperclip-wallet-app/actions/runs/43924197397)),
+including real pinned Jam signing and HTTP routes against a synthetic chain,
+wrong-wallet/session rejection, stale/frozen coins, mutation exclusion and
+uncertain-broadcast lookup. The journal records the submission boundary durably
+and never replays it. The optional Umbrel generator isolates Jam data, filtered
+node credentials and public TLS trust; its three package tests pass. StartOS
+bundling, installed host backup/restore, pairing, client flows and live acceptance
+remain open. No real funds or production services were touched for these tests.
+
+QR Signer setup and payment instructions name both privkeyio XBT SeedSigner and
+Paperclip XBT Krux across the mobile and shared desktop clients. Actual signer
+source generates the public test vectors for all five jar paths and bond funding;
+seven shared verification tests pass. The verifier also checks Jam's exact CLTV
+bond witness, including dates after 2038. This does not establish hardware bond
+withdrawal support: SeedSigner's pinned review parser rejects that script, and
+Krux's complete descriptor/review workflow remains unaccepted. Physical camera
+round trips and cold-bond registration/certificate delegation remain release gates.
 
 - Freeze one source commit in `connorslab/paperclip-wallet-app`. Record the commit,
   dependency lockfiles, native toolchain versions and CI runs for every artifact.

@@ -227,7 +227,7 @@ class WalletScreensTest {
 			click("Your wallets")
 			waitFor("Add a wallet")
 			capture("12-wallets")
-			click("Krux / QR signer")
+			click("QR Signer")
 			waitFor("Public descriptor or extended public key")
 			compose.onNodeWithText("12 or 24 recovery words").assertDoesNotExist()
 			compose.onNodeWithText("legacy").performScrollTo().assertIsDisplayed()

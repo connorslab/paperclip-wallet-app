@@ -36,6 +36,7 @@ internal fun WalletPicker(s: WalletState, model: WalletModel, initialMode: Strin
 	var removal by remember { mutableStateOf<WalletProfile?>(null) }
 	var backupAcknowledged by remember { mutableStateOf(false) }
 	var scanning by remember { mutableStateOf(false) }
+	var signerHelp by remember { mutableStateOf(false) }
 	var collector by remember { mutableStateOf(SigningQrCollector()) }
 	val context = LocalContext.current
 	val activity = LocalActivity.current as? MainActivity
@@ -115,7 +116,7 @@ internal fun WalletPicker(s: WalletState, model: WalletModel, initialMode: Strin
 						mode = kind
 						model.clearTools()
 					},
-					label = { Text(when (kind) { "hardware" -> "Krux / QR signer"; "watch" -> "Watch-only"; else -> "Mobile wallet" }) },
+					label = { Text(when (kind) { "hardware" -> "QR Signer"; "watch" -> "Watch-only"; else -> "Mobile wallet" }) },
 				)
 			}
 		}
@@ -204,6 +205,16 @@ internal fun WalletPicker(s: WalletState, model: WalletModel, initialMode: Strin
 				Text("Import mobile wallet")
 			}
 		} else {
+			if (mode == "hardware") {
+				Text("Connect XBT SeedSigner or XBT Krux", style = MaterialTheme.typography.titleMedium)
+				TextButton(onClick = { signerHelp = !signerHelp }) {
+					Text(if (signerHelp) "Hide export help" else "How to export from your signer")
+				}
+				if (signerHelp) Text(
+					"Use privkeyio’s XBT SeedSigner or Paperclip’s XBT Krux with a single-key wallet.\n\nSeedSigner: choose Specter for the public account export.\n\nKrux: export the account public key or descriptor as plain QR or BBQr.",
+					style = MaterialTheme.typography.bodySmall,
+				)
+			}
 			OutlinedTextField(
 				key,
 				{

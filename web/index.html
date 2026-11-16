@@ -95,7 +95,7 @@
 </div>
 
 <section data-screen="overview" data-wallet="hardware" hidden class="cold-overview">
-<p class="eyebrow">PUBLIC ACCOUNT</p><h2 id="cold-name">QR wallet</h2><p id="public-wallet-detail">On-chain XBT · Approve payments on your Krux or compatible signer.</p>
+<p class="eyebrow">PUBLIC ACCOUNT</p><h2 id="cold-name">QR wallet</h2><p id="public-wallet-detail">On-chain XBT · Approve payments on your XBT SeedSigner or XBT Krux.</p>
 <div class="metrics"><div><h3>Confirmed balance</h3><strong id="cold-balance">Unavailable</strong><small>sats</small></div><div><h3>Pending</h3><strong id="cold-pending">Unavailable</strong><small>sats</small></div></div>
 <div class="actions"><button data-view="signing">↗ Send</button><button id="cold-receive" class="secondary">↙ Receive</button></div><output id="cold-address"></output><p id="cold-relay" role="status"></p>
 </section>
@@ -105,8 +105,9 @@
 <section data-screen="wallets" hidden>
 <button data-view="settings" data-back class="secondary">Back to settings</button><h2>One app. Your wallets.</h2><p>Switch between your hot wallet, QR signing wallets, and watch-only accounts.</p><div id="paired-wallets" class="paired-wallets"></div>
 <details id="pair-wallet"><summary>Add a public wallet</summary><p>Import a public account from your XBT wallet or signer. Keep seed words and private keys on the original device.</p>
-<form id="pair-form"><label>Wallet name<input id="pair-name" maxlength="64" required placeholder="My Krux"></label><label>Public account or descriptor<textarea id="pair-key" rows="3" maxlength="4096" autocomplete="off" required></textarea></label>
-<label>Use this account for<select id="pair-kind"><option value="hardware">QR signing · Krux or compatible signer</option><option value="watch">Watch-only · View and receive</option></select></label>
+<details><summary>How to export from your signer</summary><p>Use privkeyio’s XBT SeedSigner or Paperclip’s XBT Krux with a single-key wallet.</p><p>SeedSigner: choose Specter for the public account export. Krux: export the account public key or descriptor as plain QR or BBQr.</p><p>Your keys stay on the signer. Compare the first receive address before using the account.</p></details>
+<form id="pair-form"><label>Wallet name<input id="pair-name" maxlength="64" required placeholder="My cold wallet"></label><label>Public account or descriptor<textarea id="pair-key" rows="3" maxlength="4096" autocomplete="off" required></textarea></label>
+<label>Use this account for<select id="pair-kind"><option value="hardware">QR Signer · XBT SeedSigner or XBT Krux</option><option value="watch">Watch-only · View and receive</option></select></label>
 <div class="actions"><button type="button" id="pair-scan" class="secondary">Scan public account</button><label class="file-button">Import public account file<input id="pair-file" type="file" accept=".txt,.json,.png,.jpg,.jpeg"></label></div>
 <label>Address type<select id="pair-script"><option value="segwit">Native SegWit · BIP84</option><option value="taproot">Taproot · BIP86</option><option value="nested">Nested SegWit · BIP49</option><option value="legacy">Legacy · BIP44</option></select></label>
 <details><summary>Key origin, if not included in the export</summary><label>Master fingerprint and account path<input id="pair-origin" placeholder="1234abcd/84h/0h/0h" autocomplete="off"></label></details><button>Pair public account</button></form>
@@ -116,7 +117,7 @@
 <p id="watch-only-notice" hidden>This account is watch-only. Send from the wallet that holds its keys.</p>
 <form id="cold-send"><label>Recipient address<input id="cold-destination" required autocomplete="off"></label><label>Amount in sats<input id="cold-amount" type="number" min="1" step="1" required></label><label class="compact-check"><input id="cold-max" type="checkbox"> Send Max · after network fees</label><button>Review signing request</button></form>
 <div id="signing-request" hidden><h3>Approve on your signer</h3><p id="signing-review"></p><div id="signing-qr" class="signing-qr" role="img" aria-label="Unsigned transaction QR"></div><p id="signing-frame" aria-live="off"></p><div class="actions"><button id="signing-pause" class="secondary">Pause QR</button><button id="signing-next" class="secondary">Next frame</button><button id="signing-download" class="secondary">Download PSBT</button></div>
-<p>On Krux, choose Sign PSBT. Compare the recipient, amount, fee, and change on the signer before you approve.</p>
+<p>On XBT Krux, choose Sign PSBT. On XBT SeedSigner, choose Scan. Compare the recipient, amount, fee, and change on the signer before you approve.</p>
 <div class="actions"><button id="signed-scan">Scan signed response</button><label class="file-button">Import signed PSBT<input id="signed-file" type="file" accept=".psbt,.txn,.txt,.png,.jpg,.jpeg"></label></div>
 <details><summary>Paste signed response</summary><label>Signed PSBT or QR frame<textarea id="signed-text" rows="3" autocomplete="off"></textarea></label><button id="signed-paste" class="secondary">Read response</button></details>
 <p id="signing-progress" role="status"></p><button id="signed-broadcast" disabled>Review broadcast</button><button id="signing-cancel" class="secondary">Cancel signing request</button></div><p id="signing-status" role="status" aria-live="polite"></p></section>

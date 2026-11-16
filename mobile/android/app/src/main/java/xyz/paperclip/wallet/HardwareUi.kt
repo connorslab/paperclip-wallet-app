@@ -108,6 +108,10 @@ internal fun HardwarePayment(s: WalletState, model: WalletModel, boarding: Boole
 					"Recovery funding deducted: ${unit.display(p.getLong("reserve_sat"))} · Spendable in Ark: ${unit.display(p.getLong("net_sat"))}",
 				)
 			if (verified.isEmpty()) {
+				Text(
+					"On XBT Krux, choose Sign PSBT. On XBT SeedSigner, choose Scan. Compare the recipient, amount, fee, and change on your signer before approving.",
+					style = MaterialTheme.typography.bodySmall,
+				)
 				Button(onClick = { showQr = !showQr }) {
 					Text(if (showQr) "Hide signing QR" else "Show signing QR")
 				}

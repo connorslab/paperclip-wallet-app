@@ -2,7 +2,7 @@ import Foundation
 
 public enum WalletKind: String, Codable, CaseIterable, Sendable {
     case hot, hardware, watch
-    public var title: String { switch self { case .hot: "Mobile wallet"; case .hardware: "QR hardware wallet"; case .watch: "Watch-only wallet" } }
+    public var title: String { switch self { case .hot: "Mobile wallet"; case .hardware: "QR Signer"; case .watch: "Watch-only wallet" } }
     public var icon: String { switch self { case .hot: "wallet.pass"; case .hardware: "qrcode"; case .watch: "eye" } }
 }
 

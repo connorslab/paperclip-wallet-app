@@ -59,7 +59,7 @@
   function showIdentity() {
     $('wallet-select').value=selected?.id||'';$('wallet-kind').textContent=selected?.kind==='watch'?'WATCH-ONLY WALLET':selected?'QR WALLET · KEYS OFFLINE':'HOT WALLET';
     $('cold-name').textContent=selected?.label||'QR wallet';$('signing-name').textContent=selected?'Send from '+selected.label:'Send from QR wallet';
-    $('public-wallet-detail').textContent=selected?.kind==='watch'?'On-chain XBT · View balances and receive. Send from the wallet that holds the keys.':'On-chain XBT · Approve payments on your Krux or compatible signer.';
+    $('public-wallet-detail').textContent=selected?.kind==='watch'?'On-chain XBT · View balances and receive. Send from the wallet that holds the keys.':'On-chain XBT · Approve payments on your XBT SeedSigner or XBT Krux.';
     document.body.classList.toggle('qr-account-active',!!selected);
   }
   function renderAccounts() {
@@ -69,7 +69,7 @@
     for(const account of [{id:'',label:'Hot wallet',kind:'hot'},...accounts]) {
       const button=document.createElement('button');button.className='menu-row secondary';button.type='button';
       const title=document.createElement('strong'),detail=document.createElement('small'),copy=document.createElement('span');title.textContent=account.label;
-      detail.textContent=account.kind==='hot'?'Ark, Lightning & on-chain':account.kind==='watch'?'Watch-only · View and receive':'Krux / QR signer · Public account only';copy.append(title,detail);button.append(copy);
+      detail.textContent=account.kind==='hot'?'Ark, Lightning & on-chain':account.kind==='watch'?'Watch-only · View and receive':'QR Signer · Public account only';copy.append(title,detail);button.append(copy);
       button.setAttribute('aria-pressed',String((selected?.id||'')===account.id));button.onclick=()=>void choose(account.id);
       const card=document.createElement('div');card.className='wallet-choice';card.append(button);
       if(account.id){
