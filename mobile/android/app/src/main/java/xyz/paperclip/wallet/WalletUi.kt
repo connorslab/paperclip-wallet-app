@@ -544,12 +544,14 @@ private fun Field(
 	value: String,
 	secret: Boolean = false,
 	number: Boolean = false,
+	enabled: Boolean = true,
 	change: (String) -> Unit,
 ) {
 	var revealed by remember { mutableStateOf(false) }
 	OutlinedTextField(
 		value,
 		change,
+		enabled = enabled,
 		label = { Text(label) },
 		modifier = Modifier.fillMaxWidth(),
 		visualTransformation =
@@ -1103,7 +1105,10 @@ private fun Receive(s: WalletState, model: WalletModel, initialMethod: String) {
 			color = MaterialTheme.colorScheme.onSurfaceVariant,
 		)
 		if (kind == "Lightning")
-			Field("Amount in ${unit.title}", amount, number = true) { amount = it }
+			Field("Amount in ${unit.title}", amount, number = true, enabled = !s.busy) {
+				amount = it
+				model.clearReceive()
+			}
 		if (kind != "On-chain" && !s.connected)
 			Text("Connect and sync your wallet first.", style = MaterialTheme.typography.bodySmall)
 		Button(

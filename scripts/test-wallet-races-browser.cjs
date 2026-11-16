@@ -5,8 +5,8 @@ const cold='a'.repeat(64);
 (async()=>{
  const browser=await chromium.launch({headless:true,...(process.env.BROWSER_CHANNEL?{channel:process.env.BROWSER_CHANNEL}:{})});
  const failures=[];
- async function scenario(name,test){
-  const page=await browser.newPage({viewport:{width:1000,height:1000}}),calls=[],errors=[];
+ async function scenario(name,test,{width=1000,platform="startos"}={}){
+  const page=await browser.newPage({viewport:{width,height:1000}}),calls=[],errors=[];
   page.setDefaultTimeout(10000);
   let blocker=null;const receipts=new Map();
   const hold=match=>{let release,arrived;const wait=new Promise(r=>release=r),seen=new Promise(r=>arrived=r);blocker={match,wait,arrived};return{release,seen};};
@@ -21,9 +21,10 @@ const cold='a'.repeat(64);
     if(name==='submissions'){envelope=body;name=body.operation;body=body.body;receipts.set(envelope.id,{id:envelope.id,operation:name,state:'unconfirmed'});}
     calls.push({name,body});
     if(blocker?.match(name,body)){const blocked=blocker;blocker=null;blocked.arrived();await blocked.wait;}
-    const value=name==='wallet'?{fingerprint:'synthetic'}:name==='wallet/identity'?{network:'regtest',exit_profile:2,submission_journal:1,lightning_enabled:true,lightning_debit_limit:true}:
+    const value=url.pathname==='/api/ui-platform'?{platform}:name==='wallet'?{fingerprint:'synthetic'}:name==='wallet/identity'?{network:'regtest',exit_profile:2,submission_journal:1,lightning_enabled:true,lightning_debit_limit:true}:
      name==='hardware/accounts'?{accounts:[{id:cold,label:'Savings signer',kind:'hardware'}]}:
      name==='wallet/balance'?{spendable_sat:12345}:name==='onchain/balance'?{confirmed_sat:6789}:
+     name==='lightning/receives/invoice'?{invoice:'ln-test-'+body.amount_sat}:
      name==='onchain/send/prepare'?{...body,request_id:'d'.repeat(64),fee_sat:100,total_sat:body.amount_sat+100}:
      name==='onchain/send/commit'?{txid:'b'.repeat(64),state:'submitted'}:
      name==='history'?[{id:'fresh-record',status:'successful',effective_balance_sat:123,subsystem:{name:'bark.arkoor',kind:'send'},time:{created_at:'2026-11-15T12:00:00Z'},offchain_fee_sat:0}]:
@@ -46,6 +47,40 @@ const cold='a'.repeat(64);
   finally{await page.close();}
  }
  try{
+  for(const [width,platform] of [[390,'startos'],[1280,'umbrel']]) {
+   await scenario('receive draft edits invalidate QR '+platform+'/'+width,async({page,hold,settled,calls})=>{
+    await page.locator('.view-nav [data-view="lightning"]').click();
+    await page.locator('#ln-receive-amount').fill('1000');
+    await page.locator('#ln-description').fill('First request');
+    const delayed=hold(name=>name==='lightning/receives/invoice');
+    await page.locator('#ln-receive button').click();await delayed.seen;
+    await page.locator('#ln-receive-amount').fill('2000');
+    delayed.release();await settled();
+    assert.equal(await page.locator('#ln-invoice').textContent(),'','Old invoice must not be shown beside the edited amount');
+    assert.equal(await page.locator('.receive-card').count(),0);
+    assert.match(await page.locator('#status').textContent(),/details changed/i);
+    assert.equal(calls.filter(call=>call.name==='lightning/receives/invoice').length,1,'Editing must not automatically create another invoice');
+    await page.locator('#ln-receive button').click();await settled();
+    assert.equal(await page.locator('#ln-invoice').textContent(),'ln-test-2000');
+    assert.equal(await page.locator('.receive-card').count(),1);
+    assert.match(await page.locator('.receive-caption').textContent(),/2,000 sats/);
+    assert.equal(await page.locator('#payment-summary').isVisible(),true);
+    assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),'Receive page must fit its viewport');
+    if(process.env.PAPERCLIP_SCREENSHOT_DIR){fs.mkdirSync(process.env.PAPERCLIP_SCREENSHOT_DIR,{recursive:true});await page.locator("#ln-receive").locator("..").screenshot({path:path.join(process.env.PAPERCLIP_SCREENSHOT_DIR,`receive-${platform}-${width}.png`)});}
+    await page.locator('#ln-description').fill('Changed request');
+    assert.equal(await page.locator('#ln-invoice').textContent(),'','Editing a shown invoice must clear its shareable request');
+    assert.equal(await page.locator('.receive-card').count(),0);
+    assert.equal(await page.locator('#payment-summary').isVisible(),false,'Old share guidance must clear with the QR');
+    assert.equal(await page.locator('#ln-identifier').inputValue(),'ln-test-2000','The original invoice must remain available for status checks');
+    await page.locator('#ln-receive button').click();await settled();
+    assert.equal(await page.locator('.receive-card').count(),1);
+    assert.equal(calls.filter(call=>call.name==='lightning/receives/invoice').length,3);
+    await page.evaluate(()=>paymentSummary('Observed payment', 'Keep this separate status visible.'));
+    await page.locator('#ln-receive-amount').fill('3000');
+    assert.match(await page.locator('#payment-summary').textContent(),/Keep this separate status visible/);
+    assert.equal(await page.locator('#payment-summary').isVisible(),true);
+   },{width,platform});
+  }
   await scenario('restore cold selection during an old address request',async({page,hold,select,unlock,settled})=>{
    await select(cold);const delayed=hold((name,body)=>name==='hardware/request'&&body.operation==='address');
    await page.locator('#cold-receive').click();await delayed.seen;

@@ -485,3 +485,25 @@ matches the displayed wallet. The light-theme screenshot
 primary actions fit without clipping. The unsynced total remains unknown while
 the known local on-chain balance appears separately. These are unfunded emulator
 checks, not physical-device, screen-reader or live-node acceptance.
+
+## Receive draft consistency: 2026-11-16
+
+Desktop receive amount and description edits remove the previous QR and sharing
+controls. A delayed response cannot display an invoice for the old draft beside
+new details. Its invoice stays available for status lookup; replacement requires
+an explicit request. Unrelated payment summaries stay visible. Synthetic browser
+regressions cover StartOS at 390 px and Umbrel at 1280 px, explicit retries and
+viewport overflow. All 16 browser workflow suites passed, and the receive cards
+were inspected at both widths.
+
+Android similarly clears the displayed request when its amount changes and
+invalidates queued/late receive results after leaving the page. A real regtest
+model test failed before the queued-request fix, then passed with explicit retry.
+The 19-case native/model/storage/Settings suite passed on API 36. Both mobile
+platforms disable receive amount inputs during creation; iOS also disables its
+offer description. Native Xcode receive/persistence navigation and bundle checks
+passed. These tests do not cover a live Lightning invoice or physical devices.
+
+Evidence: `/tmp/receive-draft-suite.log`, `/tmp/receive-draft-final-races.log`,
+`/tmp/receive-draft-screens/`, `/tmp/receive-queue-before-runtime.log`,
+`/tmp/receive-draft-android-final-runtime.log` and `/tmp/receive-draft-ios.log`.

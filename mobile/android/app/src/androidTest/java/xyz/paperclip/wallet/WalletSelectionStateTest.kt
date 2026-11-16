@@ -5,6 +5,8 @@ import android.net.Uri
 import java.io.File
 import androidx.lifecycle.ViewModelStore
 import androidx.test.platform.app.InstrumentationRegistry
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
@@ -167,6 +169,44 @@ class WalletSelectionStateTest {
             for (id in created.distinct()) {
                 val profile = engine.profiles().firstOrNull { it.id == id } ?: continue
                 engine.removeWallet(id, profile.name, "REMOVE ${profile.name}", true)
+            }
+            if (original != null && engine.profiles().any { it.id == original }) engine.select(original)
+        }
+    }
+
+
+    @Test fun leavingReceiveDiscardsAQueuedRequestAndAllowsAnExplicitNewOne() = runBlocking<Unit> {
+        val app = InstrumentationRegistry.getInstrumentation().targetContext.applicationContext as Application
+        val engine = WalletEngine.shared(app)
+        val original = engine.activeID()
+        val models = ViewModelStore()
+        val release = CompletableDeferred<Unit>()
+        var created: String? = null
+        try {
+            engine.create(engine.phrase(), "xbt-regtest", "Receive queue fixture")
+            created = engine.activeID()
+            val model = withContext(Dispatchers.Main) { WalletModel(app).also { models.put("receive", it) } }
+            suspend fun idle() { withTimeout(10000) { model.state.first { !it.busy && it.loaded } } }
+            withContext(Dispatchers.Main) { model.load(screenshots = true) }
+            idle()
+            val entered = CompletableDeferred<Unit>()
+            val holding = launch(Dispatchers.Default) { PaymentGate.run { entered.complete(Unit); release.await() } }
+            entered.await()
+            withContext(Dispatchers.Main) {
+                model.receive("On-chain")
+                model.clearReceive() // Navigation clears the request while the job is queued.
+            }
+            release.complete(Unit); holding.join(); idle()
+            assertEquals("Cancelled receive request reappeared", "", model.state.value.address)
+            withContext(Dispatchers.Main) { model.receive("On-chain") }
+            idle()
+            assertNull(model.state.value.error)
+            assertTrue(model.state.value.address.startsWith("bcrt1"))
+        } finally {
+            release.complete(Unit)
+            withContext(Dispatchers.Main) { models.clear() }
+            created?.let { id ->
+                engine.profiles().firstOrNull { it.id == id }?.let { engine.removeWallet(id, it.name, "REMOVE ${it.name}", true) }
             }
             if (original != null && engine.profiles().any { it.id == original }) engine.select(original)
         }

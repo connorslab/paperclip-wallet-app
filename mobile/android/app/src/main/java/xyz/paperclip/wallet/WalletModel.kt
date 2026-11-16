@@ -58,6 +58,7 @@ class WalletModel internal constructor(
 	}
 
 	private var generation = 0L
+	private var receiveGeneration = 0L
 
 	private fun job(work: suspend () -> Unit) {
 		if (mutable.value.busy) return
@@ -505,21 +506,29 @@ class WalletModel internal constructor(
 		change { it.copy(exitStatus = status) }
 	}
 
-	fun receive(kind: String, amount: String = "") = job {
-		val result =
-			when (kind) {
-				"Ark" -> engine.call("address_ark")
-				"Lightning" ->
-					engine.call(
-						"receive_lightning",
-						JSONObject().put("amount_sat", positiveAmount(amount)),
-					)
-				else -> engine.call("address_onchain")
-			}
-		change { it.copy(address = result.optString("address", result.optString("invoice"))) }
+	fun receive(kind: String, amount: String = "") {
+		val ticket = receiveGeneration
+		val session = generation
+		job {
+			if (ticket != receiveGeneration || session != generation) return@job
+			change { it.copy(address = "") }
+			val result =
+				when (kind) {
+					"Ark" -> engine.call("address_ark")
+					"Lightning" ->
+						engine.call(
+							"receive_lightning",
+							JSONObject().put("amount_sat", positiveAmount(amount)),
+						)
+					else -> engine.call("address_onchain")
+				}
+			if (ticket == receiveGeneration && session == generation)
+				change { it.copy(address = result.optString("address", result.optString("invoice"))) }
+		}
 	}
 
 	fun clearReceive() {
+		receiveGeneration++
 		change { it.copy(address = "") }
 	}
 

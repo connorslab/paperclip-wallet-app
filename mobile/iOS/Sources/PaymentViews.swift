@@ -271,9 +271,9 @@ struct ReceiveView: View {
                     Text(route == 0 ? "Create an address controlled by your wallet. Only send XBT on the matching network." : "Create an Ark address to share with the sender.")
                         .font(.subheadline).foregroundStyle(PaperclipTheme.muted)
                 }
-                if route >= 2 { TextField(route == 3 ? unit.amountPrompt + " (optional)" : unit.amountPrompt, text: $amount).keyboardType(.decimalPad).textFieldStyle(WalletInputStyle()) }
+                if route >= 2 { TextField(route == 3 ? unit.amountPrompt + " (optional)" : unit.amountPrompt, text: $amount).keyboardType(.decimalPad).textFieldStyle(WalletInputStyle()).disabled(store.busy) }
                 if route == 3 {
-                    TextField("Offer description", text: $offerDescription).textFieldStyle(WalletInputStyle())
+                    TextField("Offer description", text: $offerDescription).textFieldStyle(WalletInputStyle()).disabled(store.busy)
                     Button("Load saved BOLT12 offer") { store.run {
                         let result = try await store.engine.operation("offer_status")
                         offerActive = result["active"] as? Bool == true

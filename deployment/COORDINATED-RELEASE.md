@@ -63,9 +63,32 @@ Play-signed download option in its
 - Android CI [43873204870](https://github.com/connorslab/paperclip-wallet-app/actions/runs/43873204870)
   at `046dcf7` passed native builds and API 36 storage/profile tests, then hit the
   same system ANR obstruction at the first onboarding capture. The complete API 35
-  job passed. This API 36 recurrence remains unresolved. New deletion-failure changes have
-  local evidence below and need separate CI confirmation. These checks do not
+  job passed. This API 36 recurrence remains unresolved. These checks do not
   close live, physical-device or distribution gates.
+- Android CI [43878107381](https://github.com/connorslab/paperclip-wallet-app/actions/runs/43878107381)
+  at `6c4a1d0` passed both native architectures and the complete API 35/36 jobs,
+  including deletion failures and alert reset/retry. The system ANR did not recur;
+  the new diagnostic categories have not identified its source.
+- Shared desktop receive UI now discards an invoice QR when its amount or description
+  changes, including edits during a delayed response. The issued invoice remains
+  available for status lookup; creating a replacement requires an explicit action.
+  All 16 browser workflow suites passed. Focused delayed-response regressions pass
+  at StartOS phone width (390) and Umbrel desktop width (1280); neither overflows.
+- iOS receive amount/description fields are disabled while a request is running.
+  Native Xcode simulator receive/persistence navigation and bundle verification
+  passed. That existing test does not exercise a live Lightning invoice.
+- Android now invalidates queued or late receive results when leaving the page,
+  changing the receive method or editing the invoice amount. The amount field is
+  disabled during request creation. A real regtest model regression reproduced
+  the queued result returning after navigation; it passes after the fix and
+  verifies an explicit new request succeeds. All 19 local API 36 native/model/
+  storage/Settings cases pass, plus 81 unit tests (3 opt-in skips). This does not
+  establish live Lightning or physical-device acceptance.
+- Repository `just checks` passed with the existing local Boost MultiIndex
+  compatibility-header configuration. A fresh native cache without that setting
+  failed in unchanged `libbitcoinkernel-sys` against Homebrew Boost 1.92. Native
+  dependency configuration still needs a reproducible release-toolchain definition;
+  the local workaround is not evidence of a clean-machine release build.
 
 ## Acceptance matrix
 

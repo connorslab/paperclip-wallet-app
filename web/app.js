@@ -372,18 +372,40 @@ $('ln-pay').onsubmit = event => { event.preventDefault(); run(event.submitter, a
   $('ln-destination').value = ''; $('ln-amount').value = '';
   status('Payment submitted. Check its status before making another payment.');
 }); };
+let receiveDraftVersion = 0;
+function clearLightningInvoice() {
+  const displayed = !!$('ln-invoice').textContent;
+  $('ln-invoice').textContent = ''; $('ln-copy').hidden = true;
+  PaperclipReceive.clear('ln-invoice');
+  if ($('payment-summary').dataset.source === 'receive-invoice') {
+    $('payment-summary').replaceChildren(); $('payment-summary').hidden = true;
+    $('payment-summary').dataset.source = '';
+  }
+  return displayed;
+}
+for (const id of ['ln-receive-amount', 'ln-description']) $(id).addEventListener('input', () => {
+  receiveDraftVersion++;
+  if (clearLightningInvoice()) status('Receive details changed. Create a new invoice for these details.');
+});
 $('ln-receive').onsubmit = event => { event.preventDefault(); run(event.submitter, async () => {
   if (!lightningEnabled) throw new Error('Lightning is not enabled in this wallet recovery profile.');
-  const receiveSession = token;
-  const amount = sats('ln-receive-amount');
+  const context = walletContext(), version = receiveDraftVersion;
+  const amount = sats('ln-receive-amount'), enteredAmount = $('ln-receive-amount').value;
+  const description = $('ln-description').value.trim();
+  clearLightningInvoice();
   const result = await mutate('lightning/receives/invoice', {
-    amount_sat: amount, description: $('ln-description').value.trim() || null, token: null
+    amount_sat: amount, description: description || null, token: null
   });
-  if (!token || token !== receiveSession || $('wallet').hidden) return;
-  $('ln-invoice').textContent = result.invoice; $('ln-copy').hidden = true;
-  PaperclipReceive.show('ln-invoice', result.invoice, 'Receive Lightning into Ark');
-  paymentSummary('Awaiting payment', 'Share this invoice. Keep the wallet online until settlement completes.');
+  if (!token || !currentWallet(context) || $('wallet').hidden) return;
+  // Preserve the issued invoice for read-only status checks, even when the
+  // draft changed. Never automatically request a replacement or share stale QR.
   $('ln-identifier').value = result.invoice; $('ln-direction').value = 'receives';
+  if (version !== receiveDraftVersion || enteredAmount !== $('ln-receive-amount').value || description !== $('ln-description').value.trim()) {
+    throw new Error('Receive details changed. Create a new invoice for these details. The earlier invoice remains available in payment lookup.');
+  }
+  $('ln-invoice').textContent = result.invoice; $('ln-copy').hidden = true;
+  PaperclipReceive.show('ln-invoice', result.invoice, 'Receive ' + amount.toLocaleString() + ' sats into Ark');
+  paymentSummary('Awaiting payment', 'Share this invoice. Keep the wallet online until settlement completes.', 'receive-invoice');
   status('Invoice created. A payment is not settled until the wallet reports completion.');
 }); };
 $('ln-check').onsubmit = event => { event.preventDefault(); run(event.submitter, async () => {
@@ -478,8 +500,9 @@ $('exit-claim').onclick = event => run(event.target, async () => {
   await mutate('exits/claim/all', {destination: address.address}); await update(); status('Claim submitted. Wait for confirmation.');
 });
 
-function paymentSummary(title, detail) {
+function paymentSummary(title, detail, source = '') {
   const box = $('payment-summary'); box.hidden = false;
+  box.dataset.source = source;
   box.textContent = title.replaceAll('_', ' ') + ' \u2014 ' + detail;
 }
 $('ln-copy').onclick = event => run(event.target, async () => {
