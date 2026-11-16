@@ -26,6 +26,51 @@ import okhttp3.RequestBody.Companion.toRequestBody
 
 /** Explicit one-shot harness. No run, failed outcome or unknown outcome is replayed. */
 class NodeLivePaymentTest {
+	@Test fun reconcileSavedArkAttemptWithoutSending() = runBlocking {
+		assumeTrue(System.getenv("PAPERCLIP_LIVE_RECONCILE_ARK") == "yes")
+		val ledger = JSONObject(File(checkNotNull(System.getenv("PAPERCLIP_LIVE_PAYMENT_LEDGER"))).readText())
+		val attempts = ledger.getJSONArray("tests")
+		val saved = (0 until attempts.length()).map { attempts.getJSONObject(it) }.last {
+			it.optString("case") == "cln_to_ark" && it.has("payment_hash")
+		}
+		val hash = saved.getString("payment_hash")
+		require(hash.matches(Regex("[0-9a-f]{64}")))
+		val configuration = JSONObject(File(checkNotNull(System.getenv("PAPERCLIP_LIVE_CONFIG"))).readText())
+		val cases = configuration.getJSONArray("cases")
+		val fixture = (0 until cases.length()).map { cases.getJSONObject(it) }.first {
+			it.getJSONObject("connection").getString("implementation") == "cln" && !it.getJSONObject("connection").getBoolean("useTor")
+		}
+		val c = fixture.getJSONObject("connection")
+		val connection = NodeConnection("cln", c.getString("endpoint"), c.getString("credential"), c.getString("certificateSHA256"), "")
+		val node = LightningNode(connection, LightningNode.transport(connection, ""))
+		val info = node.info()
+		require(info.getString("id") == fixture.getString("expectedIdentity")) { "Authenticated sender identity mismatch" }
+		NodeNetwork.decode(info, false)
+		val pays = node.track(hash).getJSONArray("pays")
+		val statuses = (0 until pays.length()).map { index ->
+			val payment = pays.getJSONObject(index)
+			require(payment.getString("payment_hash") == hash) { "Sender returned a different payment" }
+			payment.getString("status").takeIf { it in setOf("pending", "complete", "failed") } ?: "unrecognized"
+		}.distinct().sorted()
+		val receipt = try { ArkLiveReceiver(configuration.getJSONObject("ark")).request("lightning/receives/$hash") }
+		catch (failure: ArkReceiverHTTPError) { if (failure.status == 404) null else throw failure }
+		if (receipt != null) require(receipt.getString("payment_hash") == hash) { "Receiver returned a different payment" }
+		val state = receipt?.getString("state")?.takeIf {
+			it in setOf("awaiting-payment", "htlcs-ready", "preimage-revealed", "delivering", "settled")
+		} ?: if (receipt == null) "unavailable" else "unrecognized"
+		// Observation only: never submit, cancel, release the budget reservation,
+		// or write a remote response/hash/preimage to the report.
+		val report = JSONObject().put("sender_statuses", org.json.JSONArray(statuses))
+			.put("receiver_state", state).put("receiver_http_status", if (receipt == null) 404 else 200)
+			.put("htlc_vtxo_count", receipt?.optJSONArray("htlc_vtxo_ids")?.length() ?: JSONObject.NULL)
+			.put("settled_at_present", receipt?.let { it.has("settled_at") && !it.isNull("settled_at") } ?: JSONObject.NULL)
+			.put("payment_submitted", false).put("ledger_changed", false)
+		val output = File(checkNotNull(System.getenv("PAPERCLIP_LIVE_RECONCILE_OUTPUT")))
+		require(!output.exists()) { "Do not overwrite prior reconciliation evidence" }
+		Files.writeString(output.toPath(), report.toString(2), StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE)
+		println("Read-only saved Ark attempt: sender=${statuses.joinToString(",")}, receiver=$state; no payment or ledger change")
+	}
+
 	@Test fun diagnoseArkOfferReviewWithoutPayment() = runBlocking {
 		assumeTrue(System.getenv("PAPERCLIP_LIVE_REVIEW_ARK") == "yes")
 		val configuration = JSONObject(File(checkNotNull(System.getenv("PAPERCLIP_LIVE_CONFIG"))).readText())
@@ -162,6 +207,8 @@ class NodeLivePaymentTest {
 	}
 }
 
+private class ArkReceiverHTTPError(val status: Int) : IllegalArgumentException("Ark receiver request failed (HTTP $status)")
+
 /** Only the user's existing Ark receiver, using the supplied trusted StartOS CA. */
 private class ArkLiveReceiver(private val config: JSONObject) {
 	private val client: OkHttpClient
@@ -193,7 +240,7 @@ private class ArkLiveReceiver(private val config: JSONObject) {
 			.header("Authorization", "Bearer " + config.getString("apiToken"))
 		body?.let { request.post(it.toString().toRequestBody("application/json".toMediaType())) }
 		return client.newCall(request.build()).execute().use {
-			require(it.isSuccessful) { "Ark receiver request failed (HTTP ${it.code})" }
+			if (!it.isSuccessful) throw ArkReceiverHTTPError(it.code)
 			val source = checkNotNull(it.body).source(); require(!source.request(4L * 1024 * 1024 + 1))
 			val text = source.readUtf8()
 			if (text.trim() == "null") null else JSONObject(text)

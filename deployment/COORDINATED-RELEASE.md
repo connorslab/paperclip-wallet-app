@@ -1469,3 +1469,51 @@ managed bundled runtime; removing locking is not an acceptable substitute.
 Linux/macOS/Windows signing, native packaging and the other desktop gates above
 remain open. A separate regression test also prevents the bundled host's loopback
 Jam API address from becoming a broken browser handoff link.
+
+## Regression and source-provenance checkpoint: 2026-11-16
+
+At shared source `69c0cd8ae058dd1684139579ba888d305f53f8aa`, the complete REST
+suite passes 78 cases with one live case excluded; the mobile Rust suite passes
+31 with one excluded. Shared Swift tests pass all 112 cases. Android JVM tests
+pass 88 cases with four explicitly opt-in live node/payment/reconciliation cases excluded.
+Android CI at `f217f63` passed both emulator API levels and native architectures;
+Jam CI at `168a247` passed both Linux architectures. These results do not replace
+live settlement, physical signer, host restore or signed desktop acceptance.
+
+A StartOS provenance defect was found before installation: candidate `0.10.0:4`
+named a newer source in its manifest while the test workflow still checked out an
+older revision. Its run was cancelled; do not accept its artifacts. Wrapper
+`4126111c70b8954888be18c639550430b99f0f6a` derives the checkout directly from the
+manifest, rejects mismatched or modified source, checks the compiled daemon's
+revision and retains provenance beside the package. Candidate `0.10.0:5` pins
+`69c0cd8`; its packaging and installed-host gates remain pending.
+
+Local desktop builds also now watch Git refs, including linked-worktree refs, so
+cached Cargo builds do not report an earlier commit. Rebuilding after a commit
+without another source edit was verified to update the binary's reported hash.
+
+Duo UI tests exposed incorrect single-display and bottom-tab-bar assumptions in
+the test harness. Corrected checks target the active viewport, content scrolling,
+side-rail controls and native Back controls. Previously failing health/backup,
+large-text recovery, bond, dashboard and tab-navigation checks pass in targeted
+reruns. A fresh iPhone 15 Pro Max simulator subsequently passed all 17 safe UI
+cases. Its first XCTest run aborted while loading accessibility before Paperclip
+launched; an isolated reboot, app launch check and retry resolved the runner issue.
+The failure record is retained. Physical-device and fold-transition acceptance
+remain separate from these UI tests.
+
+The current Android and shared server adapters also passed authenticated CLN/LND
+identity and repeated balance reads against the authorized StartOS fixtures,
+including rejection of wrong certificate pins and successful recovery afterward.
+The Android live harness now rejects fixtures missing either LAN node; an empty
+fixture was verified to fail before network access. These are read-only checks,
+not settlement acceptance. No live payments, physical-device updates or funded
+service changes were made.
+
+A synthetic node endpoint draft survived open → closed → partially open → open
+transitions on the Duo simulator. The closed form remained scrollable to its
+confirmation control. No verification or payment was submitted. QR/camera,
+keyboard, locking and live pending-payment transitions still require acceptance.
+Read-only reconciliation of the saved Ark attempt found a failed sender and an
+unavailable receiver record (HTTP 404). This does not establish settlement or
+fee recovery; the existing budget reservation remains unchanged.

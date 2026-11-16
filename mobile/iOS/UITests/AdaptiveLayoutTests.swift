@@ -16,7 +16,7 @@ final class AdaptiveLayoutTests: XCTestCase {
 		XCTAssertTrue(app.staticTexts["https://host.example.invalid"].exists)
 		XCTAssertTrue(app.staticTexts["fixture.jmdat"].exists)
 		let verify = app.buttons["Verify and save connection"]
-		if !verify.isHittable { app.swipeUp() }
+		if !verify.isHittable { app.scrollViews.firstMatch.swipeUp() }
 		XCTAssertTrue(verify.isHittable)
 		capture(app, "Jars pairing review")
 		app.buttons["Cancel"].tap()
@@ -30,6 +30,7 @@ final class AdaptiveLayoutTests: XCTestCase {
 		app.launch()
 		let confirm = app.buttons["Confirm payment"]
 		XCTAssertTrue(confirm.waitForExistence(timeout: 15))
+		for _ in 0..<3 { if confirm.isHittable { break }; app.scrollViews.firstMatch.swipeUp() }
 		XCTAssertTrue(confirm.isHittable)
 		XCTAssertFalse(app.buttons["Scan QR code"].exists)
 		XCTAssertTrue(app.staticTexts["payment-total-debit"].exists || app.otherElements["payment-total-debit"].exists)
@@ -49,6 +50,7 @@ final class AdaptiveLayoutTests: XCTestCase {
 		app.launch()
 		let confirm = app.buttons["Confirm Lightning payment"]
 		XCTAssertTrue(confirm.waitForExistence(timeout: 15))
+		for _ in 0..<3 { if confirm.isHittable { break }; app.scrollViews.firstMatch.swipeUp() }
 		XCTAssertTrue(confirm.isHittable)
 		XCTAssertFalse(app.buttons["Scan QR code"].exists)
 		XCTAssertTrue(app.staticTexts["10,000 sats"].exists)
@@ -120,8 +122,7 @@ final class AdaptiveLayoutTests: XCTestCase {
 		XCTAssertFalse(review.isEnabled, "The fixture must not contact a live Jam service")
 		capture(app, "Bond setup compact")
 		XCUIDevice.shared.orientation = .landscapeLeft
-		let landscape = NSPredicate { _, _ in app.frame.width > app.frame.height }
-		XCTAssertTrue(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: landscape, object: app)], timeout: 10) == .completed)
+		assertWideContent(app)
 		for _ in 0..<8 { if review.isHittable { break }; app.scrollViews.firstMatch.swipeUp() }
 		XCTAssertTrue(review.exists)
 		capture(app, "Bond setup wide")
@@ -147,8 +148,7 @@ final class AdaptiveLayoutTests: XCTestCase {
 			XCTAssertTrue(button.isHittable)
 			capture(app, "Assistance compact " + title)
 			XCUIDevice.shared.orientation = .landscapeLeft
-			let landscape = NSPredicate { _, _ in app.frame.width > app.frame.height }
-			XCTAssertTrue(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: landscape, object: app)], timeout: 10) == .completed)
+			assertWideContent(app)
 			XCTAssertTrue(app.scrollViews.firstMatch.waitForExistence(timeout: 10))
 			for _ in 0..<8 { if button.isHittable { break }; app.scrollViews.firstMatch.swipeUp() }
 			XCTAssertTrue(button.exists)
@@ -169,7 +169,7 @@ final class AdaptiveLayoutTests: XCTestCase {
 					XCTAssertTrue(app.navigationBars[destination].waitForExistence(timeout: 10))
 					XCTAssertTrue(app.buttons[field].waitForExistence(timeout: 10))
 					capture(app, "Backup task " + destination)
-					app.navigationBars[destination].buttons.firstMatch.tap()
+					backButton(app, title: destination).tap()
 					XCTAssertTrue(app.buttons["backup-save"].waitForExistence(timeout: 10))
 				}
 			}
@@ -184,7 +184,7 @@ final class AdaptiveLayoutTests: XCTestCase {
 		let app = XCUIApplication()
 		app.launchArguments = ["-build61-preview", "-wallet-shell-preview", "-appearance", "dark"]
 		app.launch()
-		let settings = app.tabBars.buttons["Settings"]
+		let settings = primaryTab(app, "Settings")
 		XCTAssertTrue(settings.waitForExistence(timeout: 15))
 		settings.tap()
 		XCTAssertTrue(settings.isSelected)
@@ -192,30 +192,30 @@ final class AdaptiveLayoutTests: XCTestCase {
 		XCTAssertTrue(recovery.waitForExistence(timeout: 10))
 		recovery.tap()
 		let security = app.buttons["settings-security"]
-		for _ in 0..<6 { if security.isHittable { break }; app.swipeUp() }
+		for _ in 0..<6 { if security.isHittable { break }; app.scrollViews.firstMatch.swipeUp() }
 		XCTAssertTrue(security.isHittable)
 		security.tap()
 		XCTAssertTrue(app.navigationBars["Wallet security"].waitForExistence(timeout: 10))
-		app.tabBars.buttons["Jars"].tap()
-		XCTAssertTrue(app.tabBars.buttons["Jars"].isSelected)
+		primaryTab(app, "Jars").tap()
+		XCTAssertTrue(primaryTab(app, "Jars").isSelected)
 		XCTAssertTrue(app.navigationBars["Jars"].waitForExistence(timeout: 10))
 		XCTAssertFalse(app.buttons["Kilojoin recovery"].exists)
 		capture(app, "Jars primary navigation")
-		app.tabBars.buttons["Wallet"].tap()
-		XCTAssertTrue(app.tabBars.buttons["Wallet"].isSelected)
+		primaryTab(app, "Wallet").tap()
+		XCTAssertTrue(primaryTab(app, "Wallet").isSelected)
 		XCTAssertTrue(app.staticTexts["Total balance"].waitForExistence(timeout: 10))
 		settings.tap()
 		XCTAssertTrue(app.navigationBars["Wallet security"].waitForExistence(timeout: 10))
 		XCUIDevice.shared.orientation = .landscapeLeft
 		XCTAssertTrue(settings.isSelected)
-		app.navigationBars["Wallet security"].buttons.firstMatch.tap()
+		backButton(app, title: "Wallet security").tap()
 		XCTAssertTrue(app.navigationBars["Security & recovery"].waitForExistence(timeout: 10))
-		app.navigationBars["Security & recovery"].buttons.firstMatch.tap()
+		backButton(app, title: "Security & recovery").tap()
 		XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 10))
 		XCTAssertTrue(settings.isSelected)
 		capture(app, "Settings navigation wide")
 		let experimental = app.buttons["settings-experimental"]
-		for _ in 0..<6 { if experimental.isHittable { break }; app.swipeUp() }
+		for _ in 0..<6 { if experimental.isHittable { break }; app.scrollViews.firstMatch.swipeUp() }
 		experimental.tap()
 		XCTAssertTrue(app.navigationBars["Experimental"].waitForExistence(timeout: 10))
 		XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Kilojoin recovery'")).firstMatch.exists)
@@ -233,17 +233,26 @@ final class AdaptiveLayoutTests: XCTestCase {
 		XCTAssertTrue(hero.waitForExistence(timeout: 15))
 		XCTAssertTrue(app.buttons["Send"].isHittable)
 		XCTAssertTrue(app.buttons["Receive"].isHittable)
-		XCTAssertGreaterThan(account.frame.minY, hero.frame.maxY)
+		// An unfolded display can already have room for columns in portrait.
+		// Check both valid arrangements, then require wide layout and restoration.
+		XCTAssertTrue(account.exists)
+		let initiallyWide = account.frame.minX > hero.frame.maxX
+		XCTAssertTrue(initiallyWide || account.frame.minY > hero.frame.maxY)
 		app.buttons["Toggle balance visibility"].tap()
 		XCUIDevice.shared.orientation = .landscapeLeft
-		let sideBySide = NSPredicate { _, _ in account.frame.minX > hero.frame.maxX }
+		let sideBySide = NSPredicate { _, _ in
+			account.exists && hero.exists && account.frame.minX > hero.frame.maxX
+		}
 		expectation(for: sideBySide, evaluatedWith: app)
 		waitForExpectations(timeout: 10)
 		XCTAssertTrue(app.staticTexts.matching(identifier: "Balance hidden").firstMatch.exists)
 		capture(app, "Wallet wide")
 		XCUIDevice.shared.orientation = .portrait
-		let stacked = NSPredicate { _, _ in account.frame.minY > hero.frame.maxY }
-		expectation(for: stacked, evaluatedWith: app)
+		let restored = NSPredicate { _, _ in
+			guard account.exists && hero.exists else { return false }
+			return initiallyWide ? account.frame.minX > hero.frame.maxX : account.frame.minY > hero.frame.maxY
+		}
+		expectation(for: restored, evaluatedWith: app)
 		waitForExpectations(timeout: 10)
 		XCTAssertTrue(app.staticTexts.matching(identifier: "Balance hidden").firstMatch.exists)
 		capture(app, "Wallet compact")
@@ -285,23 +294,23 @@ final class AdaptiveLayoutTests: XCTestCase {
 		app.launch()
 		let create = app.buttons["create-wallet"]
 		XCTAssertTrue(create.waitForExistence(timeout: 15))
-		for _ in 0..<10 { if create.isHittable { break }; app.swipeUp() }
+		for _ in 0..<10 { if create.isHittable { break }; app.scrollViews.firstMatch.swipeUp() }
 		XCTAssertTrue(create.isHittable)
 		let restore = app.buttons["import-seed-words"]
-		for _ in 0..<10 { if restore.isHittable { break }; app.swipeUp() }
+		for _ in 0..<10 { if restore.isHittable { break }; app.scrollViews.firstMatch.swipeUp() }
 		XCTAssertTrue(restore.isHittable)
 		restore.tap()
 		XCTAssertTrue(app.staticTexts["Import your seed"].waitForExistence(timeout: 10))
 		app.buttons["import-back"].tap()
 		XCTAssertFalse(app.staticTexts["Mobile wallet"].exists)
 		let backup = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Restore a backup")).firstMatch
-		for _ in 0..<10 { if backup.isHittable { break }; app.swipeUp() }
+		for _ in 0..<10 { if backup.isHittable { break }; app.scrollViews.firstMatch.swipeUp() }
 		XCTAssertTrue(backup.isHittable)
 		backup.tap()
 		let bar = app.navigationBars["Restore backup"]
 		XCTAssertTrue(bar.waitForExistence(timeout: 10))
-		XCTAssertTrue(bar.buttons.firstMatch.isHittable)
-		bar.buttons.firstMatch.tap()
+		XCTAssertTrue(backButton(app, title: "Restore backup").isHittable)
+		backButton(app, title: "Restore backup").tap()
 	}
 
 	func testNodeConnectionLabelsAndDraftSurviveRotation() {
@@ -426,7 +435,7 @@ final class AdaptiveLayoutTests: XCTestCase {
 			app.launch()
 			let verify = app.buttons["Verify and save connection"]
 			XCTAssertTrue(verify.waitForExistence(timeout: 15))
-			for _ in 0..<8 { if verify.isHittable { break }; app.swipeUp() }
+			for _ in 0..<8 { if verify.isHittable { break }; app.scrollViews.firstMatch.swipeUp() }
 			XCTAssertTrue(verify.isHittable)
 			verify.tap()
 			XCTAssertTrue(app.descendants(matching: .any)["lightning-node-connected"].firstMatch.waitForExistence(timeout: 90))
@@ -437,7 +446,34 @@ final class AdaptiveLayoutTests: XCTestCase {
 		}
 	}
 
-	private func capture(_: XCUIApplication, _ name: String) {
+	private func primaryTab(_ app: XCUIApplication, _ name: String) -> XCUIElement {
+		// Duo puts these buttons in a side rail instead of an XCUI tab bar.
+		app.buttons[name]
+	}
+
+	private func backButton(_ app: XCUIApplication, title: String) -> XCUIElement {
+		let toolbarBack = app.descendants(matching: .any).matching(identifier: "BackButton").firstMatch
+		return toolbarBack.exists ? toolbarBack : app.navigationBars[title].buttons.firstMatch
+	}
+
+	private func assertWideContent(_ app: XCUIApplication, file: StaticString = #filePath, line: UInt = #line) {
+		// Duo's application frame is not the active display viewport. Check the
+		// scroll viewport, which must reflow when the active display rotates.
+		let wide = NSPredicate { _, _ in
+			guard app.scrollViews.firstMatch.exists else { return false }
+			let content = app.scrollViews.firstMatch.frame
+			return content.width > content.height && content.height > 0
+		}
+		XCTAssertTrue(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: wide, object: app)], timeout: 10) == .completed,
+			"Expected wide content, got \(app.scrollViews.firstMatch.frame)", file: file, line: line)
+	}
+
+	private func capture(_ app: XCUIApplication, _ name: String) {
+		// These captures are synthetic fixtures only, never authenticated node tests.
+		let tree = XCTAttachment(string: app.debugDescription)
+		tree.name = name + " · accessibility layout"
+		tree.lifetime = .keepAlways
+		add(tree)
 		// The unfolded Duo uses a second display; main alone can be powered off.
 		// Whole-screen captures also avoid stale element bounds after rotation.
 		for (index, screen) in XCUIScreen.screens.enumerated() {

@@ -15,6 +15,11 @@ class NodeLiveTest {
 		val path = System.getenv("PAPERCLIP_LIVE_CONFIG")
 		assumeTrue("Requires explicit private live-node test input", !path.isNullOrBlank())
 		val cases = JSONObject(File(checkNotNull(path)).readText()).getJSONArray("cases")
+		val implementations = (0 until cases.length()).mapNotNull { index ->
+			val connection = cases.getJSONObject(index).getJSONObject("connection")
+			if (connection.getBoolean("useTor")) null else connection.getString("implementation")
+		}.toSet()
+		assertEquals("Supply both CLN and LND LAN cases", setOf("cln", "lnd"), implementations)
 		for (index in 0 until cases.length()) {
 			val item = cases.getJSONObject(index)
 			val config = item.getJSONObject("connection")
