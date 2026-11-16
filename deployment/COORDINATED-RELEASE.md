@@ -701,3 +701,89 @@ classify known system dialogs and report only process-exit reason codes; no dial
 text, wallet content or traces are logged. The same assertion and timeout remain.
 This failure remains unresolved. iOS CI `43846799937` is still running its native
 build prerequisites; the older compiler follow-up is not yet verified.
+
+
+## Native installation cleanup and current CI: 2026-11-16
+
+A real filesystem failure reproduced orphaned iOS Keychain records after profile
+installation failed. The adapter now confirms that the native session closed and
+that the persistent catalog did not register the profile before cleanup. It removes
+only records inserted by that attempt and a directory that did not exist before
+it. Existing records and files remain intact. An unreadable catalog or uncertain
+close preserves data and reports the need to restart. Connection insertion no
+longer replaces an existing record. Validation occurs before the previous session
+closes.
+
+Three native XCTest cases pass in a minimal, isolated simulator host with real
+Keychain access. The filesystem regression failed before the fix, then passed
+cleanup, same-profile retry and a regtest receive address. The other case verifies
+both key and connection collisions. A third case checks the previously open
+native session directly and confirms its receive-address history survives. The
+test host does not start the app, Tor or
+network activity. An earlier standalone test target lacked Keychain entitlements;
+its permission failure was not evidence of the application bug. Android stores
+profile secrets and settings together in its registry; its corresponding restore
+cleanup/reopen behavior was implemented in `646eaf3` and remains regression-tested.
+Process death, persistent storage failure and funded recovery remain acceptance
+gates. No shared Rust or REST contract changed in this follow-up.
+
+At `861acae`, all 15 instrumentation cases across the ten CI test classes passed
+locally on an
+isolated ARM64 API 36 emulator. Its page size was verified as 16,384 bytes. This
+includes native persistence, public wallets, restore failure/retry, backup
+lifecycle, Bridge flows, adaptive layouts and actual wallet/settings screens.
+This does not establish physical-device update acceptance or resolve intermittent
+x86-64 CI failures.
+
+Android CI `43849249118` passed both native architectures and both emulator jobs.
+The later run `43850267919` at `861acae` passed API 35 and both native builds, but
+API 36 failed with a confirmed system “not responding” dialog. The affected
+process and cause are not yet known. The next diagnostic checks whether the dialog
+mentions the app and records at most 16 main-thread method names and line numbers.
+It does not log dialog text, arguments, local values or full system traces. The
+active-window assertion and timeout remain unchanged. The diagnostic test APK
+compiles; the failure branch has not been forced locally.
+
+The old-compiler iOS follow-up is now verified by CI `43846799937` at `5d838fc`:
+Swift tests, both Rust targets, device and simulator app builds, and bundle checks
+passed. The workflow failed only because a Bridge UI test queried a Back-button
+identifier absent from that runtime. The captured hierarchy shows the native
+button with the preceding page label. The test now supports that observed label
+and retains its hittability and return-navigation assertions. Verification on the
+older CI runtime is still required. Passing local tests does not close live,
+physical-device, signing, package-upgrade or coordinated release gates.
+
+
+## New-profile registration parity: 2026-11-16
+
+The follow-up also found Android creation/import paths that closed the previous
+native wallet before a registry write, without recovery if that write failed.
+Hot-wallet creation and public hardware/watch-only import now open the new database
+before committing the profile, as iOS does. A failed operation closes the attempt,
+confirms that registration did not commit, removes only its new directory, and
+reopens the previous active session. An uncertain close or unreadable registry
+preserves the attempted data. Legacy registered provisioning records still retain
+their existing completion path.
+
+A real AtomicFile failure reproduces the old bug with a direct JNI check. After
+the fix, the same test passes for hot-wallet creation and hardware-wallet import,
+including profile/selection preservation, directory cleanup and successful retry.
+All six native assistance, public-wallet and backup-lifecycle cases pass on the
+isolated API 36/16 KB emulator. Android unit tests pass (81 run, three opt-in
+skipped), both APK targets build, and `just checks` passes. The iOS native tests
+also pass all three cases, including a direct FFI check of the previous session.
+An initial address-continuity test incorrectly requested a new address; the final
+test checks persisted address history instead. It was a test error, not a wallet
+identity regression.
+
+No live payment, production service change, funded physical-device installation,
+TLS policy change, release publication or additional usage reset occurred. Process
+termination during installation and funded backup/upgrade tests remain open.
+
+The complete native onboarding/navigation UI test also passes on a separate fresh
+API 36/16 KB emulator after the creation change. An earlier run on the already-used
+QA emulator could not find onboarding because its prior test wallet still existed.
+That data was preserved. The UI test now checks that its QA app is empty and gives
+a clear precondition error otherwise. No existing wallet is deleted to make the
+test pass. Logs: `/tmp/android-create-after-runtime.log` and
+`/tmp/android-create-fresh-ui.log`.

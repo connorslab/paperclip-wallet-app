@@ -437,3 +437,33 @@ opens all three tasks and returns to the hub. The first run used a title-only
 selector for a combined navigation row and was stopped; stable link identifiers
 fixed the test query, and the hub links must now be hittable in both orientations.
 This is synthetic navigation evidence, not Files import or funded restore proof.
+
+
+## Bridge navigation and API 36 follow-up: 2026-11-16
+
+The Bridge status/navigation test passes locally on the iPhone simulator. It
+checks the entry, outgoing and incoming badges, return navigation and the incoming
+landscape layout. The older CI runtime exposes Back with the preceding page label;
+the captured CI hierarchy confirms that label. The test now supports this label
+and the separate Duo toolbar identifier. Hittability and return-navigation checks
+remain required. The older runtime still needs a new CI pass.
+
+At `861acae`, all 15 cases in the ten Android CI test classes pass on an isolated ARM64 API 36
+emulator with a verified 16 KB page size. They include native wallet screens,
+Settings, adaptive layouts, Bridge status and flows, and backup/recovery cases.
+The full sequence used explicit device selection and no funded wallet. API 36
+x86-64 CI still has an intermittent system ANR dialog; the local pass does not
+resolve it. Physical-device and screen-reader acceptance remain open.
+
+Local logs: `/tmp/ios-bridge-selector-test.log` and
+`/tmp/overnight-api36-*Test.log`. CI evidence and remaining gates are recorded in
+COORDINATED-RELEASE.md.
+
+After the profile-registration fix, native onboarding and wallet navigation pass
+on a fresh API 36/16 KB emulator (117.837 seconds). This exercises wallet creation,
+rename, send/receive navigation, Lightning, CoinJoin recovery, public-wallet entry,
+alerts, connections and display settings. A prior attempt used an emulator with
+an existing test wallet and timed out waiting for onboarding. That wallet remains
+intact. The test now rejects a nonempty QA app with a clear precondition error;
+assertions and timeouts remain unchanged. Evidence:
+`/tmp/android-create-fresh-ui.log`.

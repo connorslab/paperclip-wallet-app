@@ -100,6 +100,9 @@ class WalletScreensTest {
 	@Test
 	fun nativeWalletAndNavigation() {
 		val context = InstrumentationRegistry.getInstrumentation().targetContext
+		check(kotlinx.coroutines.runBlocking { WalletEngine.shared(context).profiles().isEmpty() }) {
+			"Onboarding screenshots require an empty QA app. Preserve existing wallets and use a fresh test device."
+		}
 		val intent = Intent(context, MainActivity::class.java).putExtra("regtestScreenshots", true)
 		ActivityScenario.launch<MainActivity>(intent).use { scenario ->
 			waitFor("Create a test wallet")
