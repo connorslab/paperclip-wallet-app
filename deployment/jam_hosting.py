@@ -20,7 +20,8 @@ def add_bundled_jam(directory, image, app):
         'entrypoint': ['/opt/venv/bin/python', '/usr/local/lib/jm-xbt/paperclip-rpc-entry.py'],
         'environment': node_environment,
         'volumes': ['${APP_DATA_DIR}/jam-rpc:/rpc-filter']}
-    services['jam'] = {**common, 'depends_on': ['jam-rpc'],
+    services['jam'] = {**common, 'depends_on': ['wallet', 'jam-rpc'],
+        'network_mode': 'service:wallet',
         'environment': {'JMWALLETD_HOST': '127.0.0.1', 'JM_XBT_RPC_FILTER': 'external',
             'BITCOIN_RPC_URL': 'http://' + app + '_jam-rpc_1:28187',
             'BITCOIN_RPC_COOKIE': '/run/jm-xbt-rpc/client.cookie',
@@ -30,12 +31,11 @@ def add_bundled_jam(directory, image, app):
     # Share only the network namespace, never Jam's wallet files or TLS key.
     # Its loopback HTTPS certificate remains valid without disabling hostname checks.
     wallet = services['wallet']
-    wallet['network_mode'] = 'service:jam'
-    wallet['depends_on'] = ['jam']
+    # The wallet owns the namespace: a failed/stopped Jam must not take the
+    # wallet UI down or prevent users reaching recovery and connection settings.
     wallet['volumes'].append('${APP_DATA_DIR}/jam-public:/run/paperclip-jam-public:ro')
     wallet['environment'].update(BARKD_JOINBLAKET_URL='https://localhost:28183',
         BARKD_JOINBLAKET_CA_FILE='/run/paperclip-jam-public/cert.pem')
-    services['app_proxy']['environment']['APP_HOST'] = app + '_jam_1'
     (directory / 'docker-compose.yml').write_text(json.dumps(compose, indent=2) + '\n')
     manifest = json.loads((directory / 'umbrel-app.yml').read_text())
     manifest['dependencies'] = ['bitcoin']

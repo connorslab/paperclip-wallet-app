@@ -1289,3 +1289,22 @@ after fee alignment. Receive actions were visually checked at standard and
 accessibility XXXL sizes. Browser navigation, Jars, CLN/LND, Bridge receive and
 between-wallet transfer fixture suites passed; `just checks` passed. This is
 simulator/emulator/browser evidence, not physical-device or live-node acceptance.
+
+
+## Bundled Jars host isolation increment: 2026-11-16
+
+The Umbrel candidate now keeps the wallet as the network-namespace owner. Jam
+joins that namespace; the wallet and its app proxy no longer depend on Jam's
+container. Failed Jam startup leaves wallet recovery/settings reachable.
+
+The StartOS RPC supervisor copies the dependency's rotating credential into a
+private filter-only directory. The HTTP listener drops to uid/gid1001 with no
+new privileges and no Linux capabilities; Jam receives only the separate filter
+client cookie. The listener is loopback-only and enforces the pinned RPC allowlist.
+Read/rotation failures stop the listener rather than keeping stale credentials
+in use. Public TLS certificate handoff and separate runtime data remain intact.
+
+The native StartOS wrapper is being updated to include the companion with its
+own data, filter-cookie and public-certificate volumes, a disabled-by-default
+setup action, and complete-volume backups. This does not close installed-host,
+mobile pairing, backup/restore, Jam send/bond or live payment acceptance gates.

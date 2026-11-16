@@ -23,5 +23,5 @@ jobs:
       - name: Real signer, API and crash-recovery tests on an isolated synthetic chain
         run: |
           docker run --rm --network none --entrypoint /opt/venv/bin/python \
-            -e PYTHONPATH=/tests -v "$PWD/deployment/jam:/tests:ro" \
+            -e PYTHONPATH=/tests -e PAPERCLIP_CONTAINER_TESTS=1 -v "$PWD/deployment/jam:/tests:ro" \
             paperclip-jam:test -m unittest discover -s /tests -p 'test_*.py'
