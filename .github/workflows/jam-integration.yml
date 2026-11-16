@@ -1,0 +1,27 @@
+name: Bundled Jam integration
+on:
+  workflow_dispatch:
+  push:
+    branches: ['codex/cross-platform-parity']
+    paths: ['deployment/jam/**', '.github/workflows/jam-integration.yml']
+  pull_request:
+    paths: ['deployment/jam/**', '.github/workflows/jam-integration.yml']
+permissions:
+  contents: read
+jobs:
+  runtime:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the pinned companion without publishing
+        run: docker build -f deployment/jam/Dockerfile -t paperclip-jam:test .
+      - name: Real signer, API and crash-recovery tests on an isolated synthetic chain
+        run: |
+          docker run --rm --network none --entrypoint /opt/venv/bin/python \
+            -e PYTHONPATH=/tests -v "$PWD/deployment/jam:/tests:ro" \
+            paperclip-jam:test -m unittest discover -s /tests -p 'test_*.py'

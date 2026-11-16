@@ -30,6 +30,10 @@ Before a coordinated release, complete and accept:
 - Consistent desktop/mobile Jars setup, bond review and funding, maker controls
   and uncertain-action recovery. Creating a bond address must never fund it.
   Bond setup must identify the wallet, amount, unlock date and fees explicitly.
+- Payments from Jam, including exact-cost direct-send review, bond withdrawal,
+  CoinJoin payment limits and durable recovery, are required before release.
+  Bundled hosting, mobile pairing and bond management have priority over optional
+  polish. Remote-Jam support alone does not satisfy these requirements.
 - Portable mobile pending-payment and Bridge recovery records; migration,
   interrupted-restore and full backup/restore acceptance on both host platforms.
 - Remaining desktop multiple-hot-wallet and hardware/QR-funded Ark workflows;
@@ -75,6 +79,14 @@ Its content hash matches and it contains linux/amd64 and linux/arm64 manifests.
 This closes image identification only. The host package still needs separate
 Jam data/backups, a restricted RPC filter, verified internal TLS trust, runtime
 health, mobile pairing, licensing/source distribution and installation tests.
+
+The unshipped companion now has a hash-guarded extension for reviewed direct sends
+and bond funding/withdrawal. Twenty-three local tests pass, including real pinned
+Jam signing and HTTP routes against a synthetic chain, wrong-wallet/session
+rejection, stale/frozen coins, mutation exclusion and uncertain-broadcast lookup.
+The journal records the submission boundary durably and never replays it. Linux
+container checks, host packaging, pairing, client flows and live acceptance remain
+open. No real funds or production services were touched for these tests.
 
 - Freeze one source commit in `connorslab/paperclip-wallet-app`. Record the commit,
   dependency lockfiles, native toolchain versions and CI runs for every artifact.
