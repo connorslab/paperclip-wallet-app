@@ -1308,3 +1308,28 @@ The native StartOS wrapper is being updated to include the companion with its
 own data, filter-cookie and public-certificate volumes, a disabled-by-default
 setup action, and complete-volume backups. This does not close installed-host,
 mobile pairing, backup/restore, Jam send/bond or live payment acceptance gates.
+
+
+## Activity receipts and bundled-runtime checks: 2026-11-16
+
+Activity details now share the payment-review amount hierarchy and wrapping
+detail rows on iOS and Android. Android replaces its plain-text receipt dialog
+with a scrollable receipt sheet; Done remains fixed, sharing stays available,
+and explorer links require a valid on-chain transaction ID. The server Activity
+cards use the same surfaces and spacing. Amounts are labeled Balance change;
+unknown and pending records retain recovery guidance and never imply settlement.
+
+Validation: three selected native iOS UI cases passed (assistance/health/backup,
+send review and Jam recovery). Seven Android receipt/payment/Jars cases passed,
+then the four payment-flow cases passed after adding a synthetic receipt capture.
+The receipt case checks a maximum-sized amount, doubled text size and reachable
+Share/Done controls. Browser Activity fixtures passed at 390, 800 and 1280px.
+Native builds, visual review and just checks passed. This is isolated UI evidence.
+
+The pinned Jam container suite now passes all 30 cases on AMD64 and ARM64:
+[run 43950368119](https://github.com/connorslab/paperclip-wallet-app/actions/runs/43950368119).
+It includes the real restricted RPC listener, atomic dependency-cookie rotation,
+uid/capability isolation and child shutdown. A first test run failed because it
+tried to read the protected child environment; the corrected test requires that
+access to be denied. No runtime security restriction was relaxed. Installed
+StartOS/Umbrel acceptance and the other release gates remain open.

@@ -10,17 +10,17 @@ struct ArkActivityDetailView: View {
 	var body: some View {
 		ScrollView {
 			VStack(spacing: 22) {
-				WalletSection {
-					Label("Ark activity", systemImage: "square.stack.3d.up").foregroundStyle(PaperclipTheme.muted)
-					Text(unit.signed(current.amountSat)).font(.largeTitle.bold()).minimumScaleFactor(0.6).lineLimit(1).privacySensitive()
-					Text(current.status).font(.headline)
+				WalletAmountHero(amount: unit.signed(current.amountSat), caption: "Balance change", detail: "Ark activity",
+					symbol: current.amountSat > 0 ? "arrow.down.left" : current.amountSat < 0 ? "arrow.up.right" : "arrow.left.arrow.right").privacySensitive()
+				WalletSection("Payment details") {
+					WalletReviewDetail(title: "Status", value: current.status, emphasized: true)
 					if let date = current.date {
 						Text(date.formatted(date: .abbreviated, time: .shortened)).foregroundStyle(PaperclipTheme.muted)
 					}
 					Text("Status reflects the last wallet update.").font(.caption).foregroundStyle(PaperclipTheme.muted)
 				}
 				WalletSection("Record details") {
-					LabeledContent("Type", value: current.title)
+					WalletReviewDetail(title: "Type", value: current.title)
 					Text(current.detail).font(.caption.monospaced()).textSelection(.enabled)
 				}
 				WalletSection("Need to check the outcome?") {

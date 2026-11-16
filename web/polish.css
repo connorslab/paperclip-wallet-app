@@ -289,3 +289,11 @@ button,a,summary {touch-action:manipulation}
   section,.settings-grid section {padding:18px}
   .grid {gap:14px}
 }
+
+
+/* Receipt details keep the same hierarchy as payment review without implying settlement. */
+.activity-row {border-radius:22px;background:var(--surface)}
+.activity-row>details[open] {padding-top:12px;border-top:1px solid var(--stroke)}
+.activity-facts {font-size:14px;line-height:1.5}
+.activity-facts dt:first-child,.activity-facts dd:nth-child(2) {font-weight:650}
+.activity-row .activity-state {font-weight:550}

@@ -17,6 +17,8 @@ struct Build61Preview: View {
                 BackupView(engine: nil)
             } else if ProcessInfo.processInfo.arguments.contains("-payment-assistance-preview") {
                 OnchainTransactionView(transaction: ActivityItem(id: String(repeating: "ab", count: 32), title: "Sent", status: "Pending", amountSat: -101000, detail: "Synthetic fixture", date: Date()))
+            } else if ProcessInfo.processInfo.arguments.contains("-ark-activity-preview") {
+                ArkActivityDetailView(item: ActivityItem(id: "ark-synthetic", title: "Send", status: "Pending", amountSat: -12000, detail: "Synthetic activity · no live funds", date: Date()))
             } else if ProcessInfo.processInfo.arguments.contains("-own-transfer-preview") {
                 SendView()
             } else if ProcessInfo.processInfo.arguments.contains("-joinblaket-preview") {

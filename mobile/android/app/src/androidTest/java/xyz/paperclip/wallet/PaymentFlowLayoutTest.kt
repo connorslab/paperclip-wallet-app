@@ -17,6 +17,36 @@ import org.junit.Test
 /** Presentation states only: no quote, invoice, send or wallet opening. */
 class PaymentFlowLayoutTest {
 	@get:Rule val compose = createComposeRule()
+	@Test fun unknownReceiptKeepsFullAmountAndShareReachableWithLargeText() {
+		var fontScale by mutableStateOf(1f)
+		var shared = 0
+		var closed = 0
+		val item = WalletActivity("a".repeat(64), "On-chain send", "unknown", -2100000000000000L, null, false)
+		compose.setContent { MaterialTheme(colorScheme = paperclipColors(true)) {
+			val density = androidx.compose.ui.platform.LocalDensity.current
+			CompositionLocalProvider(androidx.compose.ui.platform.LocalDensity provides androidx.compose.ui.unit.Density(density.density, fontScale)) {
+				Surface(Modifier.fillMaxSize().safeDrawingPadding()) {
+					ActivityReceiptPage(item, BitcoinUnit.SATS, null, { shared++ }, null, { closed++ })
+				}
+			}
+		} }
+		compose.onNodeWithText(BitcoinUnit.SATS.display(item.amount)).assertExists()
+		compose.onNodeWithText("Recipient receives").assertDoesNotExist()
+		compose.waitForIdle()
+		val instrumentation = InstrumentationRegistry.getInstrumentation()
+		val screenshot = checkNotNull(instrumentation.uiAutomation.takeScreenshot())
+		java.io.File(instrumentation.targetContext.cacheDir, "activity-receipt.png").outputStream().use {
+			screenshot.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it)
+		}
+		screenshot.recycle()
+		compose.onNodeWithText("Confirmation has not been verified. Check Activity before sending again.").performScrollTo().assertIsDisplayed()
+		compose.onNodeWithText("View in explorer").assertDoesNotExist()
+		compose.runOnIdle { fontScale = 2f }
+		compose.onNodeWithText(BitcoinUnit.SATS.display(item.amount)).performScrollTo().assertIsDisplayed()
+		compose.onNodeWithText("Share receipt").performScrollTo().assertIsDisplayed().performClick()
+		compose.onNodeWithText("Done").assertIsDisplayed().performClick()
+		compose.runOnIdle { check(shared == 1 && closed == 1) }
+	}
 	@Test fun reviewReplacesDraftAndReturningKeepsRecipient() {
 		val context = InstrumentationRegistry.getInstrumentation().targetContext
 		val model = WalletModel(context.applicationContext as Application)

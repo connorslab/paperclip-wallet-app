@@ -17,6 +17,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -50,18 +51,24 @@ internal fun PaymentStage(steps: List<String>, current: Int, content: @Composabl
 /** The arrow animates once when reviewing; completion uses a separate receipt. */
 @Composable
 internal fun ReviewAmountHero(amount: String, source: String, caption: String = "Recipient receives") {
+	PaymentAmountHero(amount, caption, "From $source", Icons.Default.NorthEast)
+}
+
+/** An amount header does not assert that a movement is settled. */
+@Composable
+internal fun PaymentAmountHero(amount: String, caption: String, detail: String, icon: ImageVector) {
 	val entrance = remember { Animatable(0f) }
 	LaunchedEffect(Unit) { entrance.animateTo(1f, spring(dampingRatio = .7f, stiffness = 500f)) }
 	Column(Modifier.fillMaxWidth().padding(vertical = 24.dp), horizontalAlignment = Alignment.CenterHorizontally,
 		verticalArrangement = Arrangement.spacedBy(14.dp)) {
-		Icon(Icons.Default.NorthEast, null, Modifier.graphicsLayer {
+		Icon(icon, null, Modifier.graphicsLayer {
 			rotationZ = -12f * (1f - entrance.value)
 			scaleX = .8f + .2f * entrance.value; scaleY = scaleX
 		}.size(60.dp).background(MaterialTheme.colorScheme.primary.copy(alpha = .12f), CircleShape).padding(16.dp),
 			tint = MaterialTheme.colorScheme.primary)
 		Text(caption, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
 		Text(amount, style = MaterialTheme.typography.headlineLarge, textAlign = TextAlign.Center)
-		Text("From $source", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+		Text(detail, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
 	}
 }
 

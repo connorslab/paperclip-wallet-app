@@ -307,11 +307,22 @@ struct PaymentReviewHero: View {
     let amount: String
     let source: String
     var caption = "Recipient receives"
+    var body: some View {
+        WalletAmountHero(amount: amount, caption: caption, detail: "From \(source)", symbol: "arrow.up.right")
+    }
+}
+
+/// Review and activity share typography; the caption explains what the amount means.
+struct WalletAmountHero: View {
+    let amount: String
+    let caption: String
+    let detail: String
+    let symbol: String
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var appeared = false
     var body: some View {
         VStack(spacing: 14) {
-            Image(systemName: "arrow.up.right")
+            Image(systemName: symbol)
                 .font(.system(size: 27, weight: .semibold))
                 .foregroundStyle(PaperclipTheme.orange)
                 .frame(width: 60, height: 60)
@@ -323,7 +334,7 @@ struct PaymentReviewHero: View {
             Text(amount).font(.largeTitle.bold()).monospacedDigit()
                 .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
                 .accessibilityIdentifier("payment-recipient-amount")
-            Text("From \(source)").font(.subheadline).foregroundStyle(PaperclipTheme.muted)
+            Text(detail).font(.subheadline).foregroundStyle(PaperclipTheme.muted)
         }.frame(maxWidth: .infinity).padding(.vertical, 24)
             .onAppear {
                 withAnimation(reduceMotion ? nil : .spring(duration: 0.36, bounce: 0.22)) { appeared = true }

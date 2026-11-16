@@ -1230,6 +1230,7 @@ private fun Lightning(navigate: (String) -> Unit) {
 	}
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun Activity(s: WalletState, model: WalletModel) {
 	val context = LocalContext.current
@@ -1253,8 +1254,8 @@ private fun Activity(s: WalletState, model: WalletModel) {
 			)
 		}
 	for (item in s.activityRecords.filter { filter == "All" || (filter == "Ark") == it.ark }) {
-		OutlinedCard(Modifier.fillMaxWidth()) {
-		 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+		WalletSurface {
+		 Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
 			if (LocalDensity.current.fontScale > 1.3f) {
 				Text(item.kind, style = MaterialTheme.typography.titleMedium)
 				Text(LocalBitcoinUnit.current.display(item.amount), style = MaterialTheme.typography.titleMedium)
@@ -1285,48 +1286,23 @@ private fun Activity(s: WalletState, model: WalletModel) {
 		val receipt =
 			"Paperclip payment receipt\n${item.kind}\nStatus: ${item.status}\nAmount: ${item.amount} sats\nReference: ${item.id}\n" +
 				(item.time?.let { java.time.Instant.ofEpochMilli(it).toString() } ?: "")
-		AlertDialog(
-			onDismissRequest = { detail = null },
-			title = { Text("Payment receipt") },
-			text = { SelectionContainer { Text(receipt) } },
-			confirmButton = {
-				TextButton(
-					onClick = {
-						context.startActivity(
-							android.content.Intent.createChooser(
-								android.content
-									.Intent(android.content.Intent.ACTION_SEND)
-									.setType("text/plain")
-									.putExtra(android.content.Intent.EXTRA_TEXT, receipt),
-								"Share payment receipt",
-							),
-						)
-					},
-				) {
-					Text("Share")
-				}
-			},
-			dismissButton = {
-				Row {
-					if (!item.ark && s.network == "xbt-mainnet")
-						TextButton(
-							onClick = {
-								context.startActivity(
-									android.content.Intent(
-										android.content.Intent.ACTION_VIEW,
-										android.net.Uri.parse(
-											"https://mempool.guide/tx/${item.id}",
-										),
-									),
-								)
-							},
-						) {
-							Text("Explorer")
-						}
-					TextButton(onClick = { detail = null }) { Text("Close") }
-				}
-			},
-		)
+		ModalBottomSheet(onDismissRequest = { detail = null },
+			containerColor = MaterialTheme.colorScheme.background, tonalElevation = 0.dp,
+			sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
+			Box(Modifier.fillMaxHeight(.94f)) {
+				ActivityReceiptPage(item, LocalBitcoinUnit.current, item.time?.let {
+					val date = java.util.Date(it)
+					android.text.format.DateFormat.getMediumDateFormat(context).format(date) + " · " + android.text.format.DateFormat.getTimeFormat(context).format(date)
+				}, onShare = {
+					context.startActivity(android.content.Intent.createChooser(
+						android.content.Intent(android.content.Intent.ACTION_SEND).setType("text/plain")
+							.putExtra(android.content.Intent.EXTRA_TEXT, receipt), "Share payment receipt"))
+				}, onExplorer = if (!item.ark && s.network == "xbt-mainnet" && item.id.matches(Regex("[0-9a-fA-F]{64}"))) ({
+					context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW,
+						android.net.Uri.parse("https://mempool.guide/tx/${item.id}")))
+				}) else null, onClose = { detail = null })
+			}
+		}
 	}
 }
 

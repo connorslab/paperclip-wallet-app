@@ -544,18 +544,18 @@ struct OnchainTransactionView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 22) {
+                WalletAmountHero(amount: unit.signed(current.amountSat), caption: "Balance change", detail: "On-chain transaction",
+                    symbol: current.amountSat > 0 ? "arrow.down.left" : current.amountSat < 0 ? "arrow.up.right" : "arrow.left.arrow.right")
                 WalletSection {
-                    Label("On-chain transaction", systemImage: "bitcoinsign.circle").foregroundStyle(PaperclipTheme.muted)
-                    Text(unit.signed(current.amountSat)).font(.largeTitle.bold()).minimumScaleFactor(0.6).lineLimit(1)
                     Label(current.status, systemImage: current.status == "Confirmed" ? "checkmark.circle.fill" : "clock")
                         .foregroundStyle(current.status == "Confirmed" ? .green : PaperclipTheme.orange)
                     Text("Net change to your wallet balance, including any transaction fee paid by this wallet. Transfers between your own addresses may show only a fee.")
                         .font(.caption).foregroundStyle(PaperclipTheme.muted)
                 }
                 WalletSection("Details") {
-                    LabeledContent("Network", value: store.network == "xbt-mainnet" ? "XBT mainnet" : "Test network")
-                    LabeledContent("Status", value: current.status)
-                    if let date = current.date { LabeledContent("Recorded", value: date.formatted(date: .abbreviated, time: .shortened)) }
+                    WalletReviewDetail(title: "Network", value: store.network == "xbt-mainnet" ? "XBT mainnet" : "Test network")
+                    WalletReviewDetail(title: "Status", value: current.status)
+                    if let date = current.date { WalletReviewDetail(title: "Recorded", value: date.formatted(date: .abbreviated, time: .shortened)) }
                     Text("Status reflects the last wallet synchronization.").font(.caption).foregroundStyle(PaperclipTheme.muted)
                     Divider()
                     Text("Transaction ID").font(.subheadline.bold())
