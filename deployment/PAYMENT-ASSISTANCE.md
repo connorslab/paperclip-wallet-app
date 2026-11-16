@@ -155,6 +155,10 @@ corrected retry at the same destination. Staging data left by an older interrupt
 attempt is preserved separately and is never reused. Existing wallet destinations
 remain protected from replacement.
 
+Backup export likewise uses a private temporary snapshot for each attempt. An
+older interrupted snapshot is preserved without blocking a fresh export. Normal
+completion and errors clean the current attempt's temporary files.
+
 A local save timestamp is not proof of cloud upload. A restore check is not a live
 fund-recovery test and does not establish that an older archive contains recent
 Ark activity. Server editions retain host-managed complete-volume backups; the

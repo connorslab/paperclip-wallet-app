@@ -396,6 +396,29 @@ mod tests {
 	}
 
 	#[test]
+	fn backup_export_preserves_older_snapshot_and_remains_restorable() {
+		let base = tempfile::tempdir().unwrap();
+		let source = base.path().join("source");
+		let restored = base.path().join("restored");
+		let seed = [41;64];
+		let mut state = None;
+		dispatch(&mut state, json!({"op":"create", "network":"xbt-regtest", "directory":source}), seed).unwrap();
+		let first = dispatch(&mut state, json!({"op":"address_onchain"}), seed).unwrap();
+		let old = source.join("snapshot.sqlite");
+		std::fs::write(&old, b"older interrupted snapshot").unwrap();
+		let archive = dispatch(&mut state, json!({"op":"backup"}), seed).unwrap();
+		assert_eq!(std::fs::read(&old).unwrap(), b"older interrupted snapshot");
+		assert!(!std::fs::read_dir(&source).unwrap().any(|entry| entry.unwrap().file_name().to_string_lossy().starts_with("backup-export-")));
+		let second = dispatch(&mut state, json!({"op":"address_onchain"}), seed).unwrap();
+		assert_ne!(first, second);
+		let mut other = None;
+		dispatch(&mut other, json!({"op":"restore", "network":"xbt-regtest", "directory":restored, "database":archive["database"]}), seed).unwrap();
+		dispatch(&mut other, json!({"op":"open", "network":"xbt-regtest", "directory":restored}), seed).unwrap();
+		assert_eq!(dispatch(&mut other, json!({"op":"address_onchain"}), seed).unwrap(), second);
+		assert_eq!(state.as_ref().unwrap().dir, source);
+	}
+
+	#[test]
 	fn failed_restore_cleans_staging_and_allows_corrected_retry() {
 		let base = tempfile::tempdir().unwrap();
 		let source = base.path().join("source");
@@ -610,16 +633,14 @@ pub fn dispatch(state: &mut Option<Session>, request: Value, seed: [u8; 64]) -> 
 	}
 	if op.starts_with("hardware_") { ensure!(session.kind == "hardware", "Choose a QR-signing hardware wallet"); }
 	if op == "backup" {
-		let path = session.dir.join("snapshot.sqlite");
-		ensure!(!path.exists(), "a previous snapshot needs recovery before export");
+		// Keep each export private and independent of older interrupted
+		// snapshots. The guard also cleans partial VACUUM output on failure.
+		let staging = tempfile::Builder::new().prefix("backup-export-").tempdir_in(&session.dir)?;
+		let path = staging.path().join("snapshot.sqlite");
 		let conn = rusqlite::Connection::open(session.dir.join("db.sqlite"))?;
 		conn.execute("VACUUM INTO ?1", [path.to_str().context("invalid path")?])?;
-		let result = (|| {
-			ensure!(std::fs::metadata(&path)?.len() < 32 * 1024 * 1024, "backup exceeds mobile size limit");
-			Ok(json!({"database": STANDARD.encode(std::fs::read(&path)?), "fingerprint": session.fingerprint}))
-		})();
-		std::fs::remove_file(path)?;
-		return result;
+		ensure!(std::fs::metadata(&path)?.len() < 32 * 1024 * 1024, "backup exceeds mobile size limit");
+		return Ok(json!({"database": STANDARD.encode(std::fs::read(&path)?), "fingerprint": session.fingerprint}));
 	}
 	let network = session.network;
 	let Session { runtime, wallet, ark_wallet, db, onchain, quote, onchain_quote, replacement_quote, board_quote, offer_task, receive_task, hardware_request, hardware_board, kind, dir, .. } = session;

@@ -537,3 +537,19 @@ wallet security page. The first run exposed an outdated test route after Setting
 was condensed; the test now enters Security & recovery before Wallet security.
 The corrected test passed. Server Lightning CI `43837023612` passed at `f8bcbb0`.
 Later CI builds remain separate evidence and must be checked before release.
+
+## Mobile export retry: 2026-11-16
+
+The shared iOS/Android backup exporter now uses a unique private directory for
+each SQLite snapshot. An older interrupted `snapshot.sqlite` no longer blocks
+all later exports, and remains untouched for recovery. Temporary files from the
+current attempt are cleaned on success or error.
+
+The regression reproduced the old export refusal, then verified export with a
+leftover snapshot, preservation of that file, cleanup of the new snapshot and
+receive-address continuity after restoring the new archive. All 29 mobile-engine
+tests passed (one live opt-in test skipped), and `just checks` passed.
+
+Android CI `43837023567` passed both native architectures and API 35/36 at
+`f8bcbb0`. This confirms the Ark Bridge/shared invoice guard revision, not the
+later restore/export changes or a physical-device upgrade.
