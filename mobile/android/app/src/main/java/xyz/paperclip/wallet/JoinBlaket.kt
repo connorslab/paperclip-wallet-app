@@ -140,7 +140,12 @@ internal data class JoinBlaketPayment(val id: String, val state: String, val quo
 	val canDiscard: Boolean get() = state in setOf("preparing", "prepared")
 	data class Quote(val wallet: String, val jar: Int, val purpose: String, val destination: String,
 		val txid: String, val amountSat: Long, val feeSat: Long, val totalSat: Long, val coinjoin: Boolean = false, val makerFeeSat: Long? = null,
-		val miningFeeSat: Long? = null, val networkFeeSat: Long? = null, val makerCount: Int? = null, val broadcastPolicy: String? = null)
+		val miningFeeSat: Long? = null, val networkFeeSat: Long? = null, val makerCount: Int? = null, val broadcastPolicy: String? = null, val bondLocktime: Long? = null) {
+		val bondUnlockDescription: String get() = bondLocktime?.let {
+			java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm 'UTC'", java.util.Locale.ROOT)
+				.withZone(java.time.ZoneOffset.UTC).format(Instant.ofEpochSecond(it))
+		} ?: "Unavailable — check your Jam host"
+	}
 	val needsCheck: Boolean get() = state in setOf("submitting", "unknown")
 	val label: String get() = when (state) {
 		"preparing" -> "Review incomplete"
@@ -171,6 +176,8 @@ internal data class JoinBlaketPayment(val id: String, val state: String, val quo
 			require(q.getString("wallet") == wallet) { "The saved payment belongs to a different Jam wallet" }
 			require(jar in 0..4 && purpose in setOf("send", "fund_bond", "withdraw_bond") && validId(txid) &&
 				destination.matches(Regex("[A-Za-z0-9]{14,90}")) && amount > 0 && amount + fee == total) { "Invalid Jam payment details" }
+			val bondTime = if (q.isNull("bond_locktime")) null else integer("bond_locktime")
+			require(bondTime == null || (purpose != "send" && bondTime in 1_577_836_800L..4_099_766_400L)) { "Invalid saved bond unlock date" }
 			val mode = if (q.has("coinjoin")) q.get("coinjoin") else false
 			require(mode is Boolean) { "Invalid Jam payment mode" }
 			if (mode) {
@@ -178,7 +185,7 @@ internal data class JoinBlaketPayment(val id: String, val state: String, val quo
 				require(purpose == "send" && maker + mining == fee && mining <= networkFee && count in 2..20 && q.get("broadcast_policy") == "self") { "Invalid CoinJoin fee review" }
 				return JoinBlaketPayment(id,state,Quote(wallet,jar.toInt(),purpose,destination,txid,amount,fee,total,true,maker,mining,networkFee,count.toInt(),"self"))
 			}
-			return JoinBlaketPayment(id, state, Quote(wallet, jar.toInt(), purpose, destination, txid, amount, fee, total))
+			return JoinBlaketPayment(id, state, Quote(wallet, jar.toInt(), purpose, destination, txid, amount, fee, total, bondLocktime = bondTime))
 		}
 	}
 }

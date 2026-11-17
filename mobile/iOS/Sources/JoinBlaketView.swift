@@ -708,10 +708,15 @@ private struct JoinBlaketRecoveryView: View {
                                     source: "Jar \(Int(quote.jar) + 1)",
                                     caption: quote.purpose == "send" ? "Payment amount" : quote.purpose == "fund_bond" ? "Bond funding" : "Bond withdrawal")
                                 Divider()
-                                WalletReviewDetail(title: "Mining fee", value: unit.display(quote.fee_sat))
+                                WalletReviewDetail(title: quote.coinjoin == true ? "Total fees" : "Mining fee", value: unit.display(quote.fee_sat))
                                 WalletReviewDetail(title: "Total debit", value: unit.display(quote.total_sat), emphasized: true)
                                 DisclosureGroup("Payment details") {
                                     VStack(alignment: .leading, spacing: 12) {
+                                        if quote.purpose != "send" { paymentReference("Bond unlock date", value: quote.bondUnlockDescription) }
+                                        if quote.coinjoin == true {
+                                            WalletReviewDetail(title: "Maker fees", value: unit.display(quote.maker_fee_sat ?? 0))
+                                            WalletReviewDetail(title: "Your mining fee", value: unit.display(quote.mining_fee_sat ?? 0))
+                                        }
                                         paymentReference("Destination", value: quote.destination)
                                         paymentReference("Transaction ID", value: quote.txid)
                                     }.padding(.top, 8).frame(maxWidth: .infinity, alignment: .leading)

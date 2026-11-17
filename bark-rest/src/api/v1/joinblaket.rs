@@ -400,6 +400,10 @@ fn recovery_payment(value: &Value, wallet: &str) -> anyhow::Result<Value> {
 			"destination": destination, "txid": quote["txid"], "amount_sat": amounts[0],
 			"fee_sat": amounts[1], "total_sat": amounts[2]});
 		if quote.get("coinjoin").is_some() { clean["coinjoin"] = mode.into(); }
+		if let Some(stamp) = quote.get("bond_locktime").filter(|value| !value.is_null()) {
+			ensure!(quote["purpose"] != "send" && stamp.as_i64().is_some_and(|v| (1_577_836_800..=4_099_766_400).contains(&v)), "Invalid saved bond unlock date");
+			clean["bond_locktime"] = stamp.clone();
+		}
 		if mode {
 			let fees: Vec<u64> = ["maker_fee_sat", "mining_fee_sat", "network_fee_sat"].iter().map(|key| {
 				quote[key].as_u64().filter(|n| *n <= 2_100_000_000_000_000).context("Invalid CoinJoin fees")
@@ -484,6 +488,10 @@ mod tests {
 		let cases: Value = serde_json::from_str(include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../mobile/Tests/PaperclipMobileTests/Fixtures/jam-recovery.json"))).unwrap();
 		for case in cases.as_array().unwrap() {
 			assert_eq!(recovery_payment(&case["payment"], "fixture.jmdat").is_ok(), case["valid"].as_bool().unwrap(), "{}", case["name"]);
+			if case["valid"] == true {
+				let clean = recovery_payment(&case["payment"], "fixture.jmdat").unwrap();
+				assert_eq!(clean["quote"]["bond_locktime"], case["payment"]["quote"]["bond_locktime"]);
+			}
 		}
 		let mut record = cases[0]["payment"].clone();
 		record["approval"] = "synthetic-approval".into();

@@ -269,6 +269,12 @@
       typeof q.destination !== 'string' || !/^[A-Za-z0-9]{14,90}$/.test(q.destination) ||
       ['amount_sat','fee_sat','total_sat'].some(key => !Number.isSafeInteger(q[key]) || q[key] < 0 || q[key] > 2100000000000000) ||
       q.amount_sat === 0 || q.amount_sat + q.fee_sat !== q.total_sat) throw new Error('Invalid saved Jam payment details.');
+    if (q?.coinjoin !== undefined && typeof q.coinjoin !== 'boolean') throw new Error('Invalid saved payment mode.');
+    if (q?.coinjoin && (q.purpose !== 'send' ||
+        ['maker_fee_sat','mining_fee_sat','network_fee_sat'].some(key => !Number.isSafeInteger(q[key]) || q[key] < 0 || q[key] > 2100000000000000) ||
+        q.maker_fee_sat + q.mining_fee_sat !== q.fee_sat || q.mining_fee_sat > q.network_fee_sat ||
+        !Number.isInteger(q.maker_count) || q.maker_count < 2 || q.maker_count > 20 || q.broadcast_policy !== 'self')) throw new Error('Invalid saved CoinJoin fees.');
+    if (q?.bond_locktime != null && (q.purpose === 'send' || !Number.isSafeInteger(q.bond_locktime) || q.bond_locktime < 1577836800 || q.bond_locktime > 4099766400)) throw new Error('Invalid saved bond unlock date.');
     return value;
   }
   function renderPayments() {
@@ -293,12 +299,20 @@
         subtitle.textContent = 'From Jar ' + (q.jar + 1);
         hero.append(icon, caption, summary, subtitle);
         const costs = document.createElement('dl'); costs.className = 'jam-payment-costs';
-        for (const [label,value] of [['Mining fee',q.fee_sat],['Total debit',q.total_sat]]) {
+        for (const [label,value] of [[q.coinjoin ? 'Total fees' : 'Mining fee',q.fee_sat],['Total debit',q.total_sat]]) {
           const cell = document.createElement('div'), term = document.createElement('dt'), total = document.createElement('dd');
           term.textContent = label; total.textContent = amount(value); cell.append(term,total); costs.append(cell);
         }
         const details = document.createElement('details'), title = document.createElement('summary'); title.textContent = 'Payment details'; details.append(title);
-        for (const text of ['Destination: '+q.destination,'Transaction ID: '+q.txid]) {
+        const references = [];
+        if (q.purpose !== 'send') {
+          const unlock = q.bond_locktime == null ? 'Unavailable — check your Jam host' :
+            new Date(q.bond_locktime*1000).toISOString().replace('T',' ').replace('.000Z',' UTC');
+          references.push('Bond unlock date: '+unlock);
+        }
+        if (q.coinjoin) references.push('Maker fees: '+amount(q.maker_fee_sat),'Your mining fee: '+amount(q.mining_fee_sat));
+        references.push('Destination: '+q.destination,'Transaction ID: '+q.txid);
+        for (const text of references) {
           const line = document.createElement('p'); line.textContent = text; line.style.overflowWrap = 'anywhere'; details.append(line);
         }
         card.append(hero, costs, details);

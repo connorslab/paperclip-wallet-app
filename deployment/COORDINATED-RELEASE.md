@@ -1773,3 +1773,20 @@ simulator tests verify management/payment permission wording and canceled pairin
 All seven Android API 35 Jars UI cases pass, including both permission reviews,
 CoinJoin selection, recovery, maker fees and bond guidance. Native device testing
 here uses synthetic fixtures and makes no payments.
+
+### Bond and CoinJoin recovery details
+
+Saved bond payments now retain their unlock date through the host proxy and
+display it in UTC on iOS, Android and the shared desktop UI. Older saved records
+without a date remain readable and explicitly direct the user to the Jam host.
+Malformed dates and a bond date attached to an ordinary send are rejected. The
+calendar display does not establish chain maturity or enable withdrawal.
+
+CoinJoin history now labels the combined fee as Total fees and separates maker
+fees from the owner's mining fee in payment details. The browser validates these
+components before display, matching native and host validation. Shared fixtures
+cover date preservation, legacy records, incorrect types/ranges and inconsistent
+CoinJoin fees. The same 119 Swift, 96 Android JVM and 13 targeted REST cases pass
+with the expanded fixtures; native ARM64 Apple and Android debug builds pass.
+The expanded browser history checks pass at 390/1280/1440px; screenshots were
+inspected. Bond funding and withdrawal client workflows remain open.

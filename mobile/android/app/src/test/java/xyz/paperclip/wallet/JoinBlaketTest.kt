@@ -232,7 +232,12 @@ class JoinBlaketTest {
 			val item = cases.getJSONObject(index)
 			val result = runCatching { JoinBlaketPayment.parse(item.getJSONObject("payment"), "fixture.jmdat") }
 			assertEquals(item.getString("name"), item.getBoolean("valid"), result.isSuccess)
-			result.getOrNull()?.let { assertFalse(it.label.lowercase().contains("successful")) }
+			result.getOrNull()?.let {
+				assertFalse(it.label.lowercase().contains("successful"))
+				it.quote?.takeIf { q -> q.purpose != "send" }?.let { q ->
+					assertEquals(if (q.bondLocktime == null) "Unavailable — check your Jam host" else "2030-01-01 00:00 UTC",q.bondUnlockDescription)
+				}
+			}
 		}
 	}
 	@Test fun recoveryChecksAreReadOnlyAndFailuresDoNotReplay() = runBlocking {

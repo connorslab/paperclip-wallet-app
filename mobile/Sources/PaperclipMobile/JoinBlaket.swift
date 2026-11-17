@@ -162,6 +162,14 @@ public struct JoinBlaketPayment: Decodable, Identifiable, Sendable {
         public let coinjoin: Bool?
         public let maker_fee_sat: UInt64?, mining_fee_sat: UInt64?, network_fee_sat: UInt64?
         public let maker_count: Int?, broadcast_policy: String?
+        public let bond_locktime: Int64?
+        public var bondUnlockDescription: String {
+            guard let stamp = bond_locktime else { return "Unavailable — check your Jam host" }
+            let format = DateFormatter()
+            format.locale = Locale(identifier: "en_US_POSIX"); format.timeZone = TimeZone(secondsFromGMT: 0)
+            format.dateFormat = "yyyy-MM-dd HH:mm 'UTC'"
+            return format.string(from: Date(timeIntervalSince1970: Double(stamp)))
+        }
     }
     public let id: String
     public let state: State
@@ -184,6 +192,9 @@ public struct JoinBlaketPayment: Decodable, Identifiable, Sendable {
               quote.amount_sat > 0,
               [quote.amount_sat, quote.fee_sat, quote.total_sat].allSatisfy({ $0 <= 2_100_000_000_000_000 }),
               quote.amount_sat + quote.fee_sat == quote.total_sat else { throw JoinBlaketError.invalidResponse }
+        if let stamp = quote.bond_locktime {
+            guard quote.purpose != "send", (1_577_836_800...4_099_766_400).contains(stamp) else { throw JoinBlaketError.invalidResponse }
+        }
         if quote.coinjoin == true {
             guard quote.purpose == "send", let maker = quote.maker_fee_sat, let mining = quote.mining_fee_sat,
                   let networkFee = quote.network_fee_sat, let count = quote.maker_count,

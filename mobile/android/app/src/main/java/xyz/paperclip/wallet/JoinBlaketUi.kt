@@ -508,7 +508,7 @@ internal fun JoinBlaketPage(state: JoinBlaketUiState) {
 							ReviewAmountHero(unit.display(quote.amountSat), "Jar ${quote.jar + 1}",
 								when (quote.purpose) { "send" -> "Payment amount"; "fund_bond" -> "Bond funding"; else -> "Bond withdrawal" })
 							HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-							ReviewDetailRow("Mining fee", unit.display(quote.feeSat))
+							ReviewDetailRow(if (quote.coinjoin) "Total fees" else "Mining fee", unit.display(quote.feeSat))
 							ReviewDetailRow("Total debit", unit.display(quote.totalSat), emphasized = true)
 							var details by remember(payment.id) { mutableStateOf(false) }
 							TextButton(onClick = { details = !details }, modifier = Modifier.fillMaxWidth()) { Text(if (details) "Hide details" else "Payment details") }
@@ -517,6 +517,11 @@ internal fun JoinBlaketPage(state: JoinBlaketUiState) {
 									Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
 										Text("Destination", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 										Text(quote.destination, style = MaterialTheme.typography.bodySmall)
+										if (quote.purpose != "send") ReviewDetailRow("Bond unlock date", quote.bondUnlockDescription)
+										if (quote.coinjoin) {
+											ReviewDetailRow("Maker fees", unit.display(quote.makerFeeSat ?: 0))
+											ReviewDetailRow("Your mining fee", unit.display(quote.miningFeeSat ?: 0))
+										}
 										Text("Transaction ID", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 										Text(quote.txid, style = MaterialTheme.typography.bodySmall)
 									}

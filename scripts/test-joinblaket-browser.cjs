@@ -203,6 +203,21 @@ for (const item of cases) {
    await page.getByRole('heading',{name:'Cancelled'}).waitFor();
    assert.equal(await page.getByRole('button',{name:'Discard review',exact:true}).count(),0);
    recovery.state='submitted';await page.locator('#jam-payments-load').click();
+   for (const item of recoveryCases.filter(x=>x.valid && x.payment.quote && x.payment.quote.purpose !== 'send')) {
+    recovery=structuredClone(item.payment); recovery.quote.wallet='Sample Jars.jmdat';
+    await page.locator('#jam-payments-load').click();
+    await page.getByText(recovery.quote.purpose==='fund_bond'?'Bond funding':'Bond withdrawal',{exact:true}).waitFor();
+    await page.locator('#jam-payments .jam-payment details summary').click();
+    await page.getByText(recovery.quote.bond_locktime ? 'Bond unlock date: 2030-01-01 00:00:00 UTC' : 'Bond unlock date: Unavailable — check your Jam host',{exact:true}).waitFor();
+    if(process.env.SCREENSHOT_DIR && recovery.quote.bond_locktime) await page.locator('#jam-payments').screenshot({path:path.join(process.env.SCREENSHOT_DIR,`bond-history-${width}.png`),animations:'disabled'});
+   }
+   recovery=structuredClone(recoveryCases.find(x=>x.name==='CoinJoin total fee split').payment); recovery.quote.wallet='Sample Jars.jmdat';
+   await page.locator('#jam-payments-load').click();
+   await page.getByText('Total fees',{exact:true}).waitFor();
+   await page.locator('#jam-payments .jam-payment details summary').click();
+   await page.getByText('Maker fees: 40 sats',{exact:true}).waitFor();
+   await page.getByText('Your mining fee: 100 sats',{exact:true}).waitFor();
+   if(process.env.SCREENSHOT_DIR) await page.locator('#jam-payments').screenshot({path:path.join(process.env.SCREENSHOT_DIR,`coinjoin-history-${width}.png`),animations:'disabled'});
    if(width===390) {
     for(const item of recoveryCases.filter(x=>!x.valid)) {
      recovery=structuredClone(item.payment);

@@ -202,6 +202,9 @@ final class JoinBlaketTests: XCTestCase {
                 try payment.validate(wallet: "fixture.jmdat")
                 XCTAssertEqual(item["valid"] as? Bool, true, item["name"] as! String)
                 XCTAssertFalse(payment.state.label.lowercased().contains("successful"))
+                if let quote = payment.quote, quote.purpose != "send" {
+                    XCTAssertEqual(quote.bondUnlockDescription, quote.bond_locktime == nil ? "Unavailable — check your Jam host" : "2030-01-01 00:00 UTC")
+                }
             } catch { XCTAssertEqual(item["valid"] as? Bool, false, item["name"] as! String) }
         }
     }

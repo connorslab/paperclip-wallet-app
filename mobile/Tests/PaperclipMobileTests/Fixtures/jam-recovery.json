@@ -421,5 +421,289 @@
         "total_sat": 2100000000000001
       }
     }
+  },
+  {
+    "name": "fund_bond legacy date unavailable",
+    "valid": true,
+    "payment": {
+      "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "state": "submitted",
+      "quote": {
+        "wallet": "fixture.jmdat",
+        "jar": 0,
+        "purpose": "fund_bond",
+        "destination": "bc1qsyntheticdestination",
+        "txid": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "amount_sat": 20000,
+        "fee_sat": 140,
+        "total_sat": 20140
+      }
+    }
+  },
+  {
+    "name": "fund_bond unlock date",
+    "valid": true,
+    "payment": {
+      "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "state": "submitted",
+      "quote": {
+        "wallet": "fixture.jmdat",
+        "jar": 0,
+        "purpose": "fund_bond",
+        "destination": "bc1qsyntheticdestination",
+        "txid": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "amount_sat": 20000,
+        "fee_sat": 140,
+        "total_sat": 20140,
+        "bond_locktime": 1893456000
+      }
+    }
+  },
+  {
+    "name": "withdraw_bond legacy date unavailable",
+    "valid": true,
+    "payment": {
+      "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "state": "submitted",
+      "quote": {
+        "wallet": "fixture.jmdat",
+        "jar": 0,
+        "purpose": "withdraw_bond",
+        "destination": "bc1qsyntheticdestination",
+        "txid": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "amount_sat": 20000,
+        "fee_sat": 140,
+        "total_sat": 20140
+      }
+    }
+  },
+  {
+    "name": "withdraw_bond unlock date",
+    "valid": true,
+    "payment": {
+      "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "state": "submitted",
+      "quote": {
+        "wallet": "fixture.jmdat",
+        "jar": 0,
+        "purpose": "withdraw_bond",
+        "destination": "bc1qsyntheticdestination",
+        "txid": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "amount_sat": 20000,
+        "fee_sat": 140,
+        "total_sat": 20140,
+        "bond_locktime": 1893456000
+      }
+    }
+  },
+  {
+    "name": "reject bond unlock date 1893456000",
+    "valid": false,
+    "payment": {
+      "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "state": "submitted",
+      "quote": {
+        "wallet": "fixture.jmdat",
+        "jar": 0,
+        "purpose": "fund_bond",
+        "destination": "bc1qsyntheticdestination",
+        "txid": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "amount_sat": 20000,
+        "fee_sat": 140,
+        "total_sat": 20140,
+        "bond_locktime": "1893456000"
+      }
+    }
+  },
+  {
+    "name": "reject bond unlock date True",
+    "valid": false,
+    "payment": {
+      "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "state": "submitted",
+      "quote": {
+        "wallet": "fixture.jmdat",
+        "jar": 0,
+        "purpose": "fund_bond",
+        "destination": "bc1qsyntheticdestination",
+        "txid": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "amount_sat": 20000,
+        "fee_sat": 140,
+        "total_sat": 20140,
+        "bond_locktime": true
+      }
+    }
+  },
+  {
+    "name": "reject bond unlock date 1893456000.5",
+    "valid": false,
+    "payment": {
+      "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "state": "submitted",
+      "quote": {
+        "wallet": "fixture.jmdat",
+        "jar": 0,
+        "purpose": "fund_bond",
+        "destination": "bc1qsyntheticdestination",
+        "txid": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "amount_sat": 20000,
+        "fee_sat": 140,
+        "total_sat": 20140,
+        "bond_locktime": 1893456000.5
+      }
+    }
+  },
+  {
+    "name": "reject bond unlock date -1",
+    "valid": false,
+    "payment": {
+      "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "state": "submitted",
+      "quote": {
+        "wallet": "fixture.jmdat",
+        "jar": 0,
+        "purpose": "fund_bond",
+        "destination": "bc1qsyntheticdestination",
+        "txid": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "amount_sat": 20000,
+        "fee_sat": 140,
+        "total_sat": 20140,
+        "bond_locktime": -1
+      }
+    }
+  },
+  {
+    "name": "reject bond unlock date 4100000000",
+    "valid": false,
+    "payment": {
+      "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "state": "submitted",
+      "quote": {
+        "wallet": "fixture.jmdat",
+        "jar": 0,
+        "purpose": "fund_bond",
+        "destination": "bc1qsyntheticdestination",
+        "txid": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "amount_sat": 20000,
+        "fee_sat": 140,
+        "total_sat": 20140,
+        "bond_locktime": 4100000000
+      }
+    }
+  },
+  {
+    "name": "reject bond date on ordinary send",
+    "valid": false,
+    "payment": {
+      "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "state": "submitted",
+      "quote": {
+        "wallet": "fixture.jmdat",
+        "jar": 0,
+        "purpose": "send",
+        "destination": "bc1qsyntheticdestination",
+        "txid": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "amount_sat": 20000,
+        "fee_sat": 140,
+        "total_sat": 20140,
+        "bond_locktime": 1893456000
+      }
+    }
+  },
+  {
+    "name": "CoinJoin total fee split",
+    "valid": true,
+    "payment": {
+      "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "state": "submitted",
+      "quote": {
+        "wallet": "fixture.jmdat",
+        "jar": 0,
+        "purpose": "send",
+        "destination": "bc1qsyntheticdestination",
+        "txid": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "amount_sat": 20000,
+        "fee_sat": 140,
+        "total_sat": 20140,
+        "coinjoin": true,
+        "maker_fee_sat": 40,
+        "mining_fee_sat": 100,
+        "network_fee_sat": 200,
+        "maker_count": 2,
+        "broadcast_policy": "self"
+      }
+    }
+  },
+  {
+    "name": "reject CoinJoin recovery maker_fee_sat",
+    "valid": false,
+    "payment": {
+      "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "state": "submitted",
+      "quote": {
+        "wallet": "fixture.jmdat",
+        "jar": 0,
+        "purpose": "send",
+        "destination": "bc1qsyntheticdestination",
+        "txid": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "amount_sat": 20000,
+        "fee_sat": 140,
+        "total_sat": 20140,
+        "coinjoin": true,
+        "maker_fee_sat": 41,
+        "mining_fee_sat": 100,
+        "network_fee_sat": 200,
+        "maker_count": 2,
+        "broadcast_policy": "self"
+      }
+    }
+  },
+  {
+    "name": "reject CoinJoin recovery coinjoin",
+    "valid": false,
+    "payment": {
+      "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "state": "submitted",
+      "quote": {
+        "wallet": "fixture.jmdat",
+        "jar": 0,
+        "purpose": "send",
+        "destination": "bc1qsyntheticdestination",
+        "txid": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "amount_sat": 20000,
+        "fee_sat": 140,
+        "total_sat": 20140,
+        "coinjoin": "true",
+        "maker_fee_sat": 40,
+        "mining_fee_sat": 100,
+        "network_fee_sat": 200,
+        "maker_count": 2,
+        "broadcast_policy": "self"
+      }
+    }
+  },
+  {
+    "name": "reject CoinJoin recovery mining_fee_sat",
+    "valid": false,
+    "payment": {
+      "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "state": "submitted",
+      "quote": {
+        "wallet": "fixture.jmdat",
+        "jar": 0,
+        "purpose": "send",
+        "destination": "bc1qsyntheticdestination",
+        "txid": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "amount_sat": 20000,
+        "fee_sat": 140,
+        "total_sat": 20140,
+        "coinjoin": true,
+        "maker_fee_sat": 40,
+        "mining_fee_sat": null,
+        "network_fee_sat": 200,
+        "maker_count": 2,
+        "broadcast_policy": "self"
+      }
+    }
   }
 ]
