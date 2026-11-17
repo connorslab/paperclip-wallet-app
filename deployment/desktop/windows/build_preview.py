@@ -38,10 +38,13 @@ def build(binary, output, work):
         package = Path(temporary) / output.name
         for name, script, console in [('PaperclipLauncher', 'launcher.py', '--windowed'),
                                       ('PaperclipLauncherQA', 'test_launcher_ui.py', '--console')]:
+            # pywin32 imports this from native PyTime.cpp while constructing
+            # GetFileInformationByHandle timestamps; static analysis cannot see it.
             subprocess.run([sys.executable, '-m', 'PyInstaller', '--noconfirm', '--onedir', console,
                 '--name', name, '--distpath', str(package), '--workpath', str(work / 'objects'),
                 '--specpath', str(work), '--paths', str(source.parent),
                 '--hidden-import', 'windows.launcher', '--hidden-import', 'linux.launcher',
+                '--hidden-import', 'win32timezone',
                 str(source / script)], check=True)
         if provenance['source_files'] != fingerprints():
             raise RuntimeError('Source changed during the build; do not use this runtime.')
