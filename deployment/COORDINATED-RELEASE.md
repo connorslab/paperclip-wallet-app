@@ -20,7 +20,7 @@ checks from the required implementation and acceptance work.
 | Area | Verified in the current test pass | Still required |
 | --- | --- | --- |
 | iOS | 123 shared Swift tests; 17 safe UI cases on both regular-phone and open-Duo simulators | Physical signer, camera, accessibility and interrupted/folded payment acceptance; final signed candidate and upgrade |
-| Android | 100 JVM tests (four live cases excluded); 16 isolated API 35 UI cases; authenticated CLN/LND reads and pin rejection | Final release identity, Play/APK upgrade compatibility, physical/foldable acceptance and resolution of the current API 36 CI failure |
+| Android | 100 JVM tests (four live cases excluded); 16 isolated API 35 UI cases; 46 API 36 ARM64 cases (including one visibility negative control); authenticated CLN/LND reads and pin rejection | Final release identity, Play/APK upgrade compatibility, physical/foldable acceptance and resolution of the current API 36 CI failure |
 | Shared desktop UI | All 17 existing browser-flow suites plus entropy, transport and QR checks; phone, foldable and desktop widths where each suite defines them | Installed-host and native desktop acceptance; complete multiple-hot-wallet and hardware-funded Ark workflows |
 | StartOS/Umbrel | Shared REST checks, authenticated CLN/LND reads; both StartOS candidate architectures built and source/checksums checked | Complete backup/restore, candidate installation, bundled Jam pairing/revocation/Tor and upgrades; matching frozen wrappers |
 | Linux/macOS/Windows | Isolated Apple Silicon daemon authentication, duplicate-instance rejection and crash/restart checks | Native launchers and bundled service lifecycle, supported OS matrix, signed installers, notarization where applicable and clean install/upgrade tests |
@@ -1940,3 +1940,9 @@ cases passed after adding the negative control. The successful Gradle run retain
 funding, withdrawal and maker screenshots after app cleanup. This does not replace
 the failed x86_64 CI result or physical-device acceptance. No live payment or
 production app change occurred.
+
+The complete local API 36 ARM64 class sequence subsequently passed all 46 cases
+across 18 classes, including the one negative control. This exercises Jars after
+the preceding recovery and bridge cases, matching the CI ordering. The app was
+absent after Gradle cleanup and fixture images remained available. The x86_64 CI
+run `44017675684` is pending; no failure was retried into a passing result.
