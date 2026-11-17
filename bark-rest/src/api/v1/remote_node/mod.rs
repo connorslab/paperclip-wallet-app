@@ -12,9 +12,10 @@ mod live_tests;
 use std::{collections::HashMap, io::Write, path::{Path, PathBuf}, sync::Arc, time::{Duration, Instant}};
 
 use anyhow::{Context, ensure};
+use ark::mailbox::MailboxIdentifier;
 use axum::{Json, Router, extract::{DefaultBodyLimit, State}, http::{HeaderMap, StatusCode, header}, routing::{get, post}};
 use base64::{Engine, engine::general_purpose::URL_SAFE};
-use bitcoin::{Network, hashes::{Hash, sha256}};
+use bitcoin::{Network, bip32::Fingerprint, hashes::{Hash, sha256}};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
@@ -94,10 +95,24 @@ async fn context(state: &ServerState) -> anyhow::Result<(PathBuf, Network)> {
 	let wallet = state.require_wallet().map_err(|_| anyhow::anyhow!("Unlock your wallet first"))?;
 	let web = state.web.as_ref().context("Node storage is not configured")?;
 	let properties = wallet.properties().await?;
-	let base = web.datadir.join("lightning-nodes"); private_dir(&base)?;
-	let root = base.join(properties.fingerprint.to_string()); private_dir(&root)?;
-	private_dir(&root.join("payments"))?;
+	let root = storage_root(&web.datadir.join("lightning-nodes"), properties.network,
+		wallet.mailbox_identifier(), properties.fingerprint)?;
 	Ok((root, properties.network))
+}
+fn storage_root(base: &Path, network: Network, mailbox: MailboxIdentifier, fingerprint: Fingerprint) -> anyhow::Result<PathBuf> {
+	private_dir(base)?;
+	// Older directories have no full owner binding. Neither matching the short
+	// fingerprint nor re-entering node credentials proves who owns their receipts.
+	// Never hide those records behind a new empty store, even if a v2 store exists.
+	match std::fs::symlink_metadata(base.join(fingerprint.to_string())) {
+		Err(error) if error.kind() == std::io::ErrorKind::NotFound => {},
+		Err(_) => anyhow::bail!("Could not check older Lightning records. Restore access before continuing"),
+		Ok(_) => anyhow::bail!("Older Lightning records need wallet ownership verification before use. Keep a full host backup and check pending payments on the original node. Do not delete these records"),
+	}
+	let identity = sha256::Hash::hash(format!("paperclip-remote-node-v2:{network}:{mailbox}").as_bytes());
+	let root = base.join(format!("v2-{identity}")); private_dir(&root)?;
+	private_dir(&root.join("payments"))?;
+	Ok(root)
 }
 fn node(root: &Path) -> anyhow::Result<Node> {
 	Node::new(load(&root.join("connection.json"))?, std::env::var("BARKD_LIGHTNING_TOR_PROXY").ok().as_deref())
@@ -327,6 +342,65 @@ async fn request(State(state): State<Arc<ServerState>>, Json(input): Json<Reques
 mod storage_tests {
 	use super::*;
 	use super::transport::Implementation;
+	use bitcoin::secp256k1::{PublicKey, Secp256k1, SecretKey};
+
+	fn mailbox(byte: u8) -> MailboxIdentifier {
+		MailboxIdentifier::from_pubkey(PublicKey::from_secret_key(&Secp256k1::new(), &SecretKey::from_slice(&[byte; 32]).unwrap()))
+	}
+	#[test]
+	fn node_storage_separates_full_identity_and_network_and_preserves_unknowns() {
+		let dir = tempfile::tempdir().unwrap();
+		let base = dir.path().join("lightning-nodes");
+		// The caller may supply the same short fingerprint for distinct wallets.
+		let fingerprint = Fingerprint::from([1, 2, 3, 4]);
+		let first = storage_root(&base, Network::Regtest, mailbox(1), fingerprint).unwrap();
+		let hash = "01".repeat(32);
+		let path = record_path(&first, &hash, false).unwrap();
+		let record = Record { node_id:"node".into(),payment_hash:hash,invoice:"invoice".into(),amount_msat:"1000".into(),maximum_fee_sat:1,receive:false,state:"unknown".into() };
+		save(&path, &record).unwrap();
+		let connection = Connection { implementation:Implementation::Lnd, endpoint:"https://node.example".into(),credential:"fixture-only".into(),certificate_sha256:String::new(),use_tor:false,receive_only:true,node_id:"node".into() };
+		save(&first.join("connection.json"), &connection).unwrap();
+		let original = std::fs::read(&path).unwrap();
+		for (network, owner) in [(Network::Regtest, mailbox(2)), (Network::Signet, mailbox(1))] {
+			let other = storage_root(&base, network, owner, fingerprint).unwrap();
+			assert_ne!(other, first, "A fingerprint must not select another wallet's node state");
+			assert!(records(&other).unwrap().is_empty());
+			assert!(!other.join("connection.json").exists());
+		}
+		let reopened = storage_root(&base, Network::Regtest, mailbox(1), fingerprint).unwrap();
+		assert_eq!(reopened, first);
+		assert_eq!(records(&reopened).unwrap()[0].state, "unknown");
+		assert_eq!(std::fs::read(&path).unwrap(), original);
+		assert_eq!(load::<Connection>(&reopened.join("connection.json")).unwrap().node_id, "node");
+	}
+	#[test]
+	fn legacy_node_storage_is_not_adopted_or_hidden_by_an_empty_new_store() {
+		let dir = tempfile::tempdir().unwrap();
+		let fingerprint = Fingerprint::from([1, 2, 3, 4]);
+		let root = storage_root(dir.path(), Network::Regtest, mailbox(1), fingerprint).unwrap();
+		let legacy = dir.path().join(fingerprint.to_string());
+		private_dir(&legacy).unwrap();
+		let receipt = legacy.join("old-unknown.json");
+		let original = b"unresolved legacy receipt: never discard or assign automatically";
+		std::fs::write(&receipt, original).unwrap();
+		for owner in [mailbox(1), mailbox(2)] {
+			let error = storage_root(dir.path(), Network::Regtest, owner, fingerprint).unwrap_err();
+			assert!(error.to_string().contains("ownership verification"));
+		}
+		assert_eq!(std::fs::read(receipt).unwrap(), original);
+		assert!(records(&root).unwrap().is_empty());
+	}
+	#[cfg(unix)]
+	#[test]
+	fn dangling_legacy_link_does_not_bypass_recovery_guard() {
+		let dir = tempfile::tempdir().unwrap();
+		let fingerprint = Fingerprint::from([1, 2, 3, 4]);
+		let legacy = dir.path().join(fingerprint.to_string());
+		std::os::unix::fs::symlink(dir.path().join("absent"), &legacy).unwrap();
+		assert!(storage_root(dir.path(), Network::Regtest, mailbox(1), fingerprint).unwrap_err().to_string().contains("ownership verification"));
+		assert!(legacy.is_symlink());
+		assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
+	}
 	#[test]
 	fn durable_intent_is_private_and_reloaded_after_restart() {
 		let dir = tempfile::tempdir().unwrap(); private_dir(&dir.path().join("payments")).unwrap();

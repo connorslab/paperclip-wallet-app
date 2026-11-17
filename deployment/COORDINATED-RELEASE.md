@@ -22,7 +22,7 @@ checks and their limits.
 | Area | Verified in the current test pass | Still required |
 | --- | --- | --- |
 | iOS | 123 shared Swift tests; 17 safe UI cases on both regular-phone and open-Duo simulators | Physical signer, camera, accessibility and interrupted/folded payment acceptance; final signed candidate and upgrade |
-| Android | 100 JVM tests (four live cases excluded); 16 isolated API 35 UI cases; 46 API 36 ARM64 cases (including one visibility negative control); authenticated CLN/LND reads and pin rejection; API 35/36 CI passed at `98a1116` | Final release identity, Play/APK upgrade compatibility and physical/foldable acceptance |
+| Android | 100 JVM tests (four live cases excluded); 47 instrumentation cases across 18 classes on local API 35 ARM64 and API 35/36 CI at `4454086`, including visibility and emulator-health checks; authenticated CLN/LND reads and pin rejection | Final release identity, Play/APK upgrade compatibility and physical/foldable acceptance |
 | Shared desktop UI | All 17 existing browser-flow suites plus entropy, transport and QR checks; phone, foldable and desktop widths where each suite defines them | Installed-host and native desktop acceptance; complete multiple-hot-wallet and hardware-funded Ark workflows |
 | StartOS/Umbrel | Shared REST checks, authenticated CLN/LND reads; both StartOS candidate architectures built and source/checksums checked | Complete backup/restore, candidate installation, bundled Jam pairing/revocation/Tor and upgrades; matching frozen wrappers |
 | Linux/macOS/Windows | Isolated Apple Silicon and Linux daemon authentication, duplicate-instance rejection and crash/restart; macOS development shell inspected; packaged Linux shell exercised under Xvfb | Windows shell and private storage; installed browser/accessibility acceptance; bundled Jam/Tor and runtime delivery; supported OS matrix, signed installers, notarization and clean install/upgrade tests |
@@ -2739,5 +2739,33 @@ check rejected that same boot before dispatching any instrumentation. After a fr
 isolated boot with the build already complete, all 47 cases across 18 classes passed
 on API 35 ARM64, including the Jars visibility negative control. Nine Python runner
 checks and repository checks pass. This does not prove the root cause of the cloud
-Quickstep ANR or permanent emulator stability. New API 35/36 cloud acceptance remains
-pending; no production service or funded device was changed.
+Quickstep ANR or permanent emulator stability. Android run `44123423227` at
+`4454086` subsequently passed both native architectures and API 35/36 jobs, with
+all 47 instrumentation cases across 18 classes passing in each emulator job.
+The earlier failures remain recorded. No production service or funded device
+was changed.
+
+## Remote-node wallet isolation: 2026-11-17
+
+The desktop/StartOS/Umbrel CLN/LND adapter stored node credentials, payment records
+and review scopes under a four-byte wallet fingerprint. Distinct wallets sharing
+that value selected the same storage; it also lacked a separate network binding.
+New storage uses a domain-bound hash of the full public mailbox identity and
+network. Reopening the same wallet preserves unknown receipts, while different
+wallets or networks cannot inherit its connection or history. Bridge node funding
+and status use the same storage check.
+
+Old short-fingerprint directories lack ownership proof. The adapter refuses all
+node operations when one exists for the current fingerprint, even if a new store
+also exists. It leaves the older records intact rather than hiding unknown payments
+behind empty history or automatically adopting credentials. Dangling legacy links
+also block access. A reviewed legacy migration and installed-host upgrade test
+are explicit release blockers; users must not delete or rename records to bypass
+this check. This change must not be deployed to existing hosts yet.
+
+Both the isolation and legacy-adoption regressions fail with the previous storage
+rule. The corrected shared REST suite passes 96 tests with one opt-in live test
+ignored; repository checks pass on the native Apple host. These synthetic storage
+checks do not demonstrate a remote unauthenticated attack, live settlement,
+portable backup recovery or a completed upgrade. Mobile node adapters and their
+ABI are unchanged; this shared server fix is mirrored to the Android branch.

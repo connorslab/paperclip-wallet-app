@@ -21,13 +21,25 @@ SOCKS access. Administrators can instead set `BARKD_LIGHTNING_TOR_PROXY` to a
 `socks5h://host:port` proxy. The adapter never falls back to a direct connection.
 Container build/startup and host packaging remain separate acceptance checks.
 
-Credentials are stored in the private server wallet data directory, scoped by the
-wallet fingerprint. Directories use mode 0700 and atomic credential/record files
+Credentials are stored in the private server wallet data directory, scoped by a
+domain-bound SHA-256 digest of the full public mailbox identity and network.
+The four-byte display fingerprint does not select credentials, reviews or payment
+history. Directories use mode 0700 and atomic credential/record files
 use mode 0600. Credentials are omitted from browser responses and cleared from the
 form after submission or locking. Re-verification can reuse a saved credential only
 for the same endpoint and implementation; the saved node identity must still match.
 The browser does not persist credentials. Receive-only mode also blocks sends on
 the server; it does not create a restricted rune or macaroon on the node.
+
+Older candidates used only the short fingerprint for storage. Those directories
+do not prove ownership and are never adopted, renamed or hidden behind a fresh
+empty history. If one exists for the current fingerprint, all node operations,
+including Bridge funding and reconciliation, stop with an ownership-verification
+error. Keep a complete host backup and check unresolved payments on the original
+node. Do not delete or manually rename the directory to dismiss the error.
+A reviewed migration and installed-upgrade acceptance are required before
+releasing this change to hosts with existing node connections. No automated
+migration is provided yet, even when the older directory appears empty.
 
 ## Payment review and recovery
 
