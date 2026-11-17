@@ -135,6 +135,11 @@ import PaperclipMobile
 }
 
 struct JoinBlaketView: View {
+    private enum MakerPage: String, Hashable {
+        case settings = "Maker settings", market = "Market fees", bond = "Fidelity bond", guide = "How earning works"
+    }
+    @State private var makerPage: MakerPage?
+
     @StateObject private var model = JoinBlaketModel()
     @State private var password = ""
     @State private var passphrase = ""
@@ -176,9 +181,11 @@ struct JoinBlaketView: View {
             }.walletPageContent()
         }.walletPageBackground().navigationTitle("Jars").navigationBarTitleDisplayMode(.inline)
             .onChange(of: comparisonAmount) { _, _ in market = nil; marketUnavailable = false }
-            .onChange(of: model.connection.endpoint) { _, _ in market = nil; marketUnavailable = false }
-            .onChange(of: model.selectedWallet) { _, _ in market = nil; marketUnavailable = false }
+            .onChange(of: model.connection.endpoint) { _, _ in makerPage = nil; market = nil; marketUnavailable = false }
+            .onChange(of: model.selectedWallet) { _, _ in makerPage = nil; market = nil; marketUnavailable = false }
+            .onChange(of: makerPage) { _, _ in confirmMaker = false; confirmBond = false }
             .disabled(model.busy)
+            .navigationDestination(item: $makerPage) { toolPage($0) }
             .sheet(isPresented: $showPayments) {
                 JoinBlaketRecoveryView(load: model.payments, check: model.checkPayment, discard: discardAction)
             }
@@ -195,22 +202,7 @@ struct JoinBlaketView: View {
                 }
             }
 #endif
-            .confirmationDialog(model.session?.maker_running == true ? "Stop your server’s maker?" : "Start making on your Jam server?", isPresented: $confirmMaker) {
-                Button(model.session?.maker_running == true ? "Stop maker" : "Start maker") {
-                    model.perform { try await model.maker(start: model.session?.maker_running != true, minimum: UInt64(minimum) ?? 0, fee: relativeMode ? 0 : (UInt64(makerFee) ?? 0), relativeFee: relativeMode ? relativeRate : nil) }
-                }
-            } message: {
-                Text(model.session?.maker_running == true ? "Existing CoinJoins may need to finish before the maker stops." : "Minimum CoinJoin: \(minimum) sats. Your fee: \(relativeMode ? JoinBlaketMakerFee.label(relativeRate) + " of the CoinJoin amount" : makerFee + " sats per CoinJoin"). Mining fee contribution: 0 sats. The maker uses eligible Jam jars and keeps running when Paperclip closes.")
-            }
-            .alert("Create bond address?", isPresented: $confirmBond) {
-                Button("Create address") {
-                    let month = reviewedBondMonth
-                    model.perform { try await model.prepareBond(month: month) }
-                }
-                Button("Cancel", role: .cancel) {}
-            } message: {
-                Text("Wallet: \(model.selectedWallet). Coins sent here will be locked until \(reviewedBondMonth)-01 at 00:00 UTC. Creating the address sends no funds. Review the amount and mining fee separately when funding. Earnings are not guaranteed.")
-            }
+
     }
     private var discardAction: ((String) async throws -> JoinBlaketPayment)? {
         guard !model.paired else { return nil }
@@ -260,25 +252,88 @@ struct JoinBlaketView: View {
         }
     }
     private var makerSection: some View {
-        WalletSection("Earn as a maker") {
-            Label(model.session?.maker_running == true ? "Running on your server" : "Not running", systemImage: model.session?.maker_running == true ? "checkmark.circle.fill" : "pause.circle")
-            Text("Your server can keep making while Paperclip is closed.").font(.subheadline).foregroundStyle(PaperclipTheme.muted)
+        WalletSection("Earn with your jars") {
+            HStack {
+                Label(model.session?.maker_running == true ? "Maker running" : "Maker paused", systemImage: model.session?.maker_running == true ? "checkmark.circle.fill" : "pause.circle")
+                Spacer()
+                Text("Server").font(.caption).foregroundStyle(PaperclipTheme.muted)
+            }
             if model.session?.maker_running != true {
-                LabeledContent("Minimum CoinJoin (sats)") {
-                    TextField("Minimum CoinJoin (sats)", text: $minimum).keyboardType(.numberPad).multilineTextAlignment(.trailing)
+                Text(makerReadiness.nextStep).font(.subheadline).foregroundStyle(PaperclipTheme.muted)
+            }
+            makerRoute(.settings, subtitle: "Your fee and minimum amount", icon: "slider.horizontal.3")
+            Divider()
+            makerRoute(.market, subtitle: "Compare current maker fees", icon: "chart.bar")
+            Divider()
+            makerRoute(.bond, subtitle: "Lock date and bond address", icon: "lock.shield")
+            Divider()
+            makerRoute(.guide, subtitle: "A short guide to earning", icon: "questionmark.circle")
+        }
+    }
+    private func makerRoute(_ page: MakerPage, subtitle: String, icon: String) -> some View {
+        Button { makerPage = page } label: {
+            HStack(spacing: 12) {
+                Image(systemName: icon).frame(width: 28).foregroundStyle(PaperclipTheme.orange)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(page.rawValue).font(.headline).foregroundStyle(.primary)
+                    Text(subtitle).font(.caption).foregroundStyle(PaperclipTheme.muted)
                 }
+                Spacer()
+                Image(systemName: "chevron.right").font(.caption).foregroundStyle(PaperclipTheme.muted)
+            }.frame(minHeight: 44).contentShape(Rectangle())
+        }.buttonStyle(WalletNavigationButtonStyle()).accessibilityIdentifier("jars-tool-" + String(describing: page))
+    }
+    private func toolPage(_ page: MakerPage) -> some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                switch page {
+                case .settings: makerSettings
+                case .market: marketSettings
+                case .bond: bondSetup
+                case .guide: makerGuide
+                }
+                if model.busy { ProgressView().frame(maxWidth: .infinity) }
+                if let message = model.message { Text(message).font(.subheadline) }
+            }.walletPageContent()
+        }.walletPageBackground().navigationTitle(page.rawValue).navigationBarTitleDisplayMode(.inline)
+            .disabled(model.busy)
+            .confirmationDialog(model.session?.maker_running == true ? "Stop your server’s maker?" : "Start making on your Jam server?", isPresented: $confirmMaker) {
+                Button(model.session?.maker_running == true ? "Stop maker" : "Start maker") {
+                    model.perform { try await model.maker(start: model.session?.maker_running != true, minimum: UInt64(minimum) ?? 0, fee: relativeMode ? 0 : (UInt64(makerFee) ?? 0), relativeFee: relativeMode ? relativeRate : nil) }
+                }
+            } message: {
+                Text(model.session?.maker_running == true ? "Existing CoinJoins may need to finish before the maker stops." : "Minimum CoinJoin: \(minimum) sats. Your fee: \(relativeMode ? JoinBlaketMakerFee.label(relativeRate) + " of the CoinJoin amount" : makerFee + " sats per CoinJoin"). Mining fee contribution: 0 sats. The maker uses eligible Jam jars and keeps running when Paperclip closes.")
+            }
+            .alert("Create bond address?", isPresented: $confirmBond) {
+                Button("Create address") {
+                    let month = reviewedBondMonth
+                    model.perform { try await model.prepareBond(month: month) }
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Wallet: \(model.selectedWallet). Coins sent here will be locked until \(reviewedBondMonth)-01 at 00:00 UTC. Creating the address sends no funds. Review the amount and mining fee separately when funding. Earnings are not guaranteed.")
+            }
+    }
+    private var makerSettings: some View {
+        WalletSection("Your maker offer") {
+            if model.session?.maker_running != true {
+                amountField("Minimum CoinJoin", text: $minimum, accessibility: "Minimum CoinJoin (sats)")
                 Picker("Maker fee type", selection: $relativeMode) {
                     Text("Fixed sats").tag(false); Text("Percentage").tag(true)
                 }.pickerStyle(.segmented)
                 if relativeMode {
-                    Picker("Your fee", selection: $relativeRate) {
-                        ForEach(JoinBlaketMakerFee.rates, id: \.self) { Text(JoinBlaketMakerFee.label($0)).tag($0) }
-                    }.pickerStyle(.menu)
+                    LabeledContent("Your fee") {
+                        Picker("Your fee", selection: $relativeRate) {
+                            ForEach(JoinBlaketMakerFee.rates, id: \.self) { Text(JoinBlaketMakerFee.label($0)).tag($0) }
+                        }.pickerStyle(.menu).labelsHidden()
+                    }
                     Text(JoinBlaketMakerFee.example(relativeRate)).font(.caption).foregroundStyle(PaperclipTheme.muted)
                 } else {
-                    Picker("Your fee per CoinJoin", selection: $makerFee) {
-                        ForEach(JoinBlaketMakerFee.fixed, id: \.self) { Text("\($0) sats").tag(String($0)) }
-                    }.pickerStyle(.menu)
+                    LabeledContent("Your fee") {
+                        Picker("Your fee per CoinJoin", selection: $makerFee) {
+                            ForEach(JoinBlaketMakerFee.fixed, id: \.self) { Text("\($0) sats").tag(String($0)) }
+                        }.pickerStyle(.menu).labelsHidden()
+                    }
                 }
                 Text("Your fee is paid to you when selected. Earnings are not guaranteed.").font(.caption).foregroundStyle(PaperclipTheme.muted)
                 Text(makerReadiness.nextStep).font(.subheadline).foregroundStyle(makerReadiness.canStart ? PaperclipTheme.muted : PaperclipTheme.orange)
@@ -288,30 +343,41 @@ struct JoinBlaketView: View {
             Button(model.session?.maker_running == true ? "Stop maker" : "Review maker setup") { confirmMaker = true }
             .buttonStyle(WalletPrimaryButtonStyle())
             .disabled(model.previewOnly || model.needsRefresh || (model.session?.maker_running != true && !makerReadiness.canStart))
-            DisclosureGroup("Compare order book fees") {
-                LabeledContent("Compare amount (sats)") {
-                    TextField("Compare CoinJoin amount (sats)", text: $comparisonAmount).keyboardType(.numberPad).multilineTextAlignment(.trailing)
-                }
-                Text("Compare at this CoinJoin amount. One lowest supported offer per verified bonded maker; mining fees are excluded.").font(.caption)
-                TimelineView(.periodic(from: .now, by: 15)) { context in
-                    if let market { Text(market.summary(now: context.date)).font(.subheadline) }
-                }
-                if let market { Text("Fetched \(Date(timeIntervalSince1970: Double(market.fetched_at)), style: .time)").font(.caption).foregroundStyle(PaperclipTheme.muted) }
-                if marketUnavailable { Text("Order book unavailable. Your selected fee is unchanged.").font(.caption) }
-                Button("Refresh market fees") { model.perform {
-                    market = nil; marketUnavailable = false
-                    do { market = try await model.market(UInt64(comparisonAmount) ?? 0) } catch { marketUnavailable = true }
-                } }.disabled(model.previewOnly)
-                Text("A market snapshot is not a forecast. Your fee changes only when you select it.").font(.caption).foregroundStyle(PaperclipTheme.muted)
+        }
+    }
+    private var marketSettings: some View {
+        WalletSection("Order book") {
+            amountField("CoinJoin amount", text: $comparisonAmount, accessibility: "Compare CoinJoin amount (sats)")
+            Text("Compare at this CoinJoin amount. One lowest supported offer per verified bonded maker; mining fees are excluded.").font(.caption)
+            TimelineView(.periodic(from: .now, by: 15)) { context in
+                if let market { Text(market.summary(now: context.date)).font(.subheadline) }
             }
-            DisclosureGroup("How earning and bonds work") {
-                Text("Higher fees can reduce selection. Mining fee contribution: 0 sats.").font(.caption).foregroundStyle(PaperclipTheme.muted)
-                Text("A maker offers coins for other people’s CoinJoins and can earn a fee when selected. Keep spendable coins in a jar and your server online. Your phone can close.").font(.subheadline)
-                Text("JoinBlaket’s default takers require a fidelity bond. Bond coins remain yours but cannot be spent before the unlock date. They are separate from the coins your maker offers.").font(.subheadline)
-                Text("Bond funding is public and can link back to its source. Back up your Jam wallet first; lock only coins you can leave untouched. A bond does not guarantee earnings.").font(.caption).foregroundStyle(PaperclipTheme.muted)
-                Text("1. Fund a jar and wait for confirmation. 2. Register a bond address, fund it separately and wait for confirmation. 3. Refresh and review your maker terms.").font(.subheadline)
-            }
-            bondSetup
+            if let market { Text("Fetched \(Date(timeIntervalSince1970: Double(market.fetched_at)), style: .time)").font(.caption).foregroundStyle(PaperclipTheme.muted) }
+            if marketUnavailable { Text("Order book unavailable. Your selected fee is unchanged.").font(.caption) }
+            Button("Refresh market fees") { model.perform {
+                market = nil; marketUnavailable = false
+                do { market = try await model.market(UInt64(comparisonAmount) ?? 0) } catch { marketUnavailable = true }
+            } }.disabled(model.previewOnly)
+            Text("A market snapshot is not a forecast. Your fee changes only when you select it.").font(.caption).foregroundStyle(PaperclipTheme.muted)
+        }
+    }
+    private var makerGuide: some View {
+        WalletSection("How earning works") {
+            Text("Higher fees can reduce selection. Mining fee contribution: 0 sats.").font(.caption).foregroundStyle(PaperclipTheme.muted)
+            Text("A maker offers coins for other people’s CoinJoins and can earn a fee when selected. Keep spendable coins in a jar and your server online. Your phone can close.").font(.subheadline)
+            Text("JoinBlaket’s default takers require a fidelity bond. Bond coins remain yours but cannot be spent before the unlock date. They are separate from the coins your maker offers.").font(.subheadline)
+            Text("Bond funding is public and can link back to its source. Back up your Jam wallet first; lock only coins you can leave untouched. A bond does not guarantee earnings.").font(.caption).foregroundStyle(PaperclipTheme.muted)
+            Text("1. Fund a jar and wait for confirmation. 2. Register a bond address, fund it separately and wait for confirmation. 3. Refresh and review your maker terms.").font(.subheadline)
+        }
+    }
+    private func amountField(_ title: String, text: Binding<String>, accessibility: String) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title).font(.subheadline.weight(.medium)).foregroundStyle(PaperclipTheme.muted)
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                TextField("Amount", text: text).keyboardType(.numberPad).font(.title2.weight(.semibold)).monospacedDigit().accessibilityLabel(accessibility)
+                Text("sats").font(.subheadline).foregroundStyle(PaperclipTheme.muted)
+            }.padding(16).background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 16))
+                .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.primary.opacity(0.1)))
         }
     }
     private var jarPicker: some View {
@@ -408,7 +474,7 @@ struct JoinBlaketView: View {
         }
     }
     private var bondSetup: some View {
-        DisclosureGroup("Set up a fidelity bond") {
+        WalletSection("Set up a fidelity bond") {
             Text("A bond locks coins until your chosen month. It may help your maker get selected; earnings are not guaranteed.").font(.subheadline)
             LabeledContent("Unlock month") {
                 Picker("Unlock month", selection: $bondNumber) {

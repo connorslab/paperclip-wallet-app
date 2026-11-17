@@ -2,6 +2,23 @@
 (() => {
   let authorization = null, jars = [], session = null, selected = 0, busy = false, generation = 0, needsRefresh = false;
   const panel = document.querySelector('[data-screen="coinjoin"]');
+  const toolsDialog = $('jam-tools-dialog');
+  const toolTitles = {settings:'Maker settings',market:'Market fees',bond:'Fidelity bond',guide:'How earning works'};
+  panel.querySelectorAll('[data-jam-tool-open]').forEach(button => {
+    button.onclick = () => {
+      if (busy || !authorization) return;
+      const key = button.dataset.jamToolOpen;
+      $('jam-tool-title').textContent = toolTitles[key];
+      toolsDialog.querySelectorAll('[data-jam-tool]').forEach(section => { section.hidden = section.dataset.jamTool !== key; });
+      toolsDialog.showModal();
+      $('jam-tool-close').focus();
+    };
+  });
+  $('jam-tool-close').onclick = () => toolsDialog.close();
+  new MutationObserver(() => { if (panel.hidden) toolsDialog.close(); }).observe(panel, {attributes:true,attributeFilter:['hidden']});
+  new MutationObserver(() => { $('jam-tool-status').textContent = $('jam-status').textContent; })
+    .observe($('jam-status'), {childList:true,subtree:true,characterData:true});
+
   const colors = ['#ff9e54', '#7aabff', '#ff777b', '#ca9a75', '#bf98f4'];
   const amount = value => Number.isSafeInteger(value) && value >= 0 ? value.toLocaleString() + ' sats' : 'Unavailable';
   async function call(operation, fields = {}) {
@@ -327,7 +344,7 @@
       }
     }
     const running = session?.maker_running === true;
-    $('jam-maker-status').textContent = running ? 'Running on your server' : 'Not running';
+    $('jam-maker-status').textContent = running ? 'Maker running' : 'Maker paused';
     $('jam-maker-fields').hidden = running; $('jam-maker').textContent = running ? 'Stop maker' : 'Review maker setup';
     const relative = $('jam-fee-mode').value === 'relative', rate = relative ? $('jam-fee').value : null;
     const rateIndex = PaperclipMakerReadiness.rates.indexOf(rate);
@@ -344,12 +361,14 @@
       const item=document.createElement('li');item.dataset.ready=String(readiness[key]);
       item.textContent=(readiness[key]?'Ready: ':'Needed: ')+(readiness[key]?complete:needed);checklist.append(item);
     }
+    $('jam-maker-next').textContent = running ? 'Your server keeps making while Paperclip is closed.' : PaperclipMakerReadiness.nextStep(readiness);
     $('jam-maker-checks').hidden = running;
     $('jam-maker-readiness').dataset.ready = String(readiness.canStart);
     $('jam-maker-checks-title').textContent = 'Setup checks · '+PaperclipMakerReadiness.completed(readiness)+' of 5';
     $('jam-maker-readiness').textContent = running ? (needsRefresh ? 'Refresh maker status before continuing.' : '') : PaperclipMakerReadiness.nextStep(readiness);
     panel.querySelectorAll('button, input, select').forEach(control => { control.disabled = busy; });
     $('jam-backup-close').disabled = false;
+    $('jam-tool-close').disabled = false;
     $('jam-create').disabled = busy || (!!pendingSetup && !creationRetry);
     $('jam-create-name').disabled = busy || !!pendingSetup;
     $('jam-backup-finish').disabled = busy || !backupWords.length || [...$('jam-backup-challenges').querySelectorAll('input')].length !== 3 || [...$('jam-backup-challenges').querySelectorAll('input')].some(field => field.value.trim().toLowerCase() !== backupWords[Number(field.dataset.position)]);
@@ -443,6 +462,7 @@
   });
   new MutationObserver(() => {
     if (!$('wallet').hidden) return;
+    toolsDialog.close();
     closeBackup(); $('jam-create-password').value = ''; $('jam-create-confirm').value = '';
     clearPairingCode(); $('jam-pairing-list').replaceChildren(); $('jam-pairing-panel').open = false;
     market = null; renderMarket();

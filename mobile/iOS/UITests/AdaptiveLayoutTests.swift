@@ -111,8 +111,13 @@ final class AdaptiveLayoutTests: XCTestCase {
 		app.launchArguments = ["-build61-preview", "-joinblaket-preview", "-appearance", "dark"]
 		app.launch()
 		XCTAssertTrue(app.navigationBars["Jars"].waitForExistence(timeout: 15))
+		XCTAssertFalse(app.buttons["Percentage"].exists)
+		let guide = app.buttons["jars-tool-guide"]
+		for _ in 0..<10 { if guide.isHittable { break }; app.scrollViews.firstMatch.swipeUp() }
+		XCTAssertTrue(guide.isHittable)
+		capture(app, "Jars earning overview")
+		openJarsTool(app, "settings", "Maker settings")
 		let percentage = app.buttons["Percentage"].firstMatch
-		for _ in 0..<10 { if percentage.isHittable { break }; app.scrollViews.firstMatch.swipeUp() }
 		XCTAssertTrue(percentage.isHittable); percentage.tap()
 		XCTAssertTrue(app.staticTexts["At 1,000,000 sats, your fee is 50 sats."].exists)
 		let checks = app.buttons["Setup checks · 4 of 5"].firstMatch
@@ -120,20 +125,24 @@ final class AdaptiveLayoutTests: XCTestCase {
 		XCTAssertTrue(checks.isHittable); checks.tap()
 		XCTAssertTrue(app.otherElements["Maker setup"].exists)
 		checks.tap()
-
-		let compare = app.buttons["Compare order book fees"].firstMatch
-		for _ in 0..<8 { if compare.isHittable { break }; app.scrollViews.firstMatch.swipeUp() }
-		XCTAssertTrue(compare.isHittable); compare.tap()
+		capture(app, "Maker settings page")
+		app.navigationBars["Maker settings"].buttons.firstMatch.tap()
+		openJarsTool(app, "market", "Market fees")
 		XCTAssertTrue(app.textFields["Compare CoinJoin amount (sats)"].exists)
-		let refresh = app.buttons["Refresh market fees"].firstMatch
-		for _ in 0..<6 { if refresh.isHittable { break }; app.scrollViews.firstMatch.swipeUp() }
-		XCTAssertTrue(refresh.exists)
-		XCTAssertFalse(refresh.isEnabled, "Preview must not contact a live watcher")
-		capture(app, "Maker fees and market comparison")
-		let guide = app.buttons["How earning and bonds work"].firstMatch
-		for _ in 0..<6 { if guide.isHittable { break }; app.scrollViews.firstMatch.swipeUp() }
-		XCTAssertTrue(guide.isHittable); guide.tap()
+		XCTAssertFalse(app.buttons["Refresh market fees"].isEnabled, "Preview cannot contact a live watcher")
+		capture(app, "Market comparison page")
+		app.navigationBars["Market fees"].buttons.firstMatch.tap()
+		openJarsTool(app, "settings", "Maker settings")
+		XCTAssertTrue(app.staticTexts["At 1,000,000 sats, your fee is 50 sats."].exists, "Fee draft survives navigation")
+		app.navigationBars["Maker settings"].buttons.firstMatch.tap()
+		openJarsTool(app, "guide", "How earning works")
 		XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label BEGINSWITH %@", "JoinBlaket’s default takers require a fidelity bond.")).firstMatch.exists)
+	}
+	private func openJarsTool(_ app: XCUIApplication, _ key: String, _ title: String) {
+		let row = app.buttons["jars-tool-" + key]
+		for _ in 0..<10 { if row.isHittable { break }; app.scrollViews.firstMatch.swipeUp() }
+		XCTAssertTrue(row.isHittable); row.tap()
+		XCTAssertTrue(app.navigationBars[title].waitForExistence(timeout: 5))
 	}
 
 	func testBondSetupKeepsLockDateAndNoFundingExplanationVisible() {
@@ -143,9 +152,7 @@ final class AdaptiveLayoutTests: XCTestCase {
 		app.launchArguments = ["-build61-preview", "-joinblaket-preview", "-appearance", "dark"]
 		app.launch()
 		XCTAssertTrue(app.navigationBars["Jars"].waitForExistence(timeout: 15))
-		let setup = app.buttons["Set up a fidelity bond"].firstMatch
-		for _ in 0..<10 { if setup.isHittable { break }; app.scrollViews.firstMatch.swipeUp() }
-		XCTAssertTrue(setup.isHittable); setup.tap()
+		openJarsTool(app, "bond", "Fidelity bond")
 		let review = app.buttons["Review bond address"].firstMatch
 		for _ in 0..<8 { if review.isHittable { break }; app.scrollViews.firstMatch.swipeUp() }
 		XCTAssertTrue(review.exists)

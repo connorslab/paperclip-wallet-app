@@ -130,7 +130,7 @@ class JoinBlaketLayoutTest {
 		compose.setContent { MaterialTheme { Surface {
 			Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp)) { JoinBlaketPage(state) }
 		} } }
-		compose.onNodeWithText("Set up a fidelity bond").performScrollTo().performClick()
+		compose.onNodeWithText("Fidelity bond").performScrollTo().performClick()
 		compose.onNodeWithText("Review bond address").performScrollTo().performClick()
 		compose.onNodeWithText("Create bond address?").assertIsDisplayed()
 		compose.onNodeWithText("Wallet: Fixture Jars wallet. Coins sent here will be locked until 2099-12-01 at 00:00 UTC. Creating the address sends no funds. Review the amount and mining fee separately when funding. Earnings are not guaranteed.").assertIsDisplayed()
@@ -168,6 +168,8 @@ class JoinBlaketLayoutTest {
 		compose.setContent { MaterialTheme(colorScheme = paperclipColors(true)) { Surface {
 			Column(Modifier.fillMaxSize().safeDrawingPadding().verticalScroll(rememberScrollState()).padding(16.dp)) { JoinBlaketPage(state) }
 		} } }
+		compose.onNodeWithText("Percentage").assertDoesNotExist()
+		compose.onNodeWithText("Maker settings").performScrollTo().performClick()
 		compose.onNodeWithText("Percentage").performScrollTo().performClick()
 		compose.onNodeWithText("Your fee: 0.005%").performScrollTo().assertIsDisplayed()
 		compose.onNodeWithText("At 1,000,000 sats, your fee is 50 sats.").assertExists()
@@ -176,13 +178,18 @@ class JoinBlaketLayoutTest {
 		compose.onNodeWithText("Ready: Amount and fee valid").performScrollTo().assertIsDisplayed()
 		compose.onNodeWithText("Setup checks ·",substring=true).performScrollTo().performClick()
 
-		compose.onNodeWithText("Compare order book fees").performScrollTo().performClick()
+		capture("android-maker-settings")
+		compose.onNodeWithText("Done").performClick()
+		compose.onNodeWithText("Market fees").performScrollTo().performClick()
 		compose.onNodeWithText("Refresh market fees").performScrollTo().performClick()
 		compose.waitUntil(10000) { compose.onAllNodesWithText("Median maker fee: 75.5 sats",substring=true).fetchSemanticsNodes().isNotEmpty() }
 		compose.onNodeWithText("Median maker fee: 75.5 sats",substring=true).performScrollTo().assertIsDisplayed()
 		capture("android-maker-market")
+		compose.onNodeWithText("Done").performClick()
+		compose.onNodeWithText("Maker settings").performScrollTo().performClick()
 		compose.onNodeWithText("Your fee: 0.005%").performScrollTo().assertIsDisplayed()
-		compose.onNodeWithText("How earning and bonds work").performScrollTo().performClick()
+		compose.onNodeWithText("Done").performClick()
+		compose.onNodeWithText("How earning works").performScrollTo().performClick()
 		compose.onNodeWithText("JoinBlaket’s default takers require a fidelity bond.",substring=true).performScrollTo().assertIsDisplayed()
 		assertEquals(listOf("/api/v1/session","/api/v1/paperclip/market/100000"),paths.toList())
 	}

@@ -14,6 +14,17 @@ for (const item of cases) {
   for(const width of [390,1280,1440]) {
    const page=await browser.newPage({viewport:{width,height:1000}}),errors=[],actions=[];
    page.setDefaultTimeout(15000);
+   const closeTool = async () => {
+    if(await page.locator('#jam-tools-dialog').evaluate(el=>el.open)) await page.locator('#jam-tool-close').click();
+   };
+   const openTool = async key => {
+    await closeTool();
+    await page.locator(`[data-jam-tool-open="${key}"]`).click();
+    await page.locator('#jam-tools-dialog').waitFor({state:'visible'});
+    assert.equal(await page.locator('[data-jam-tool]:visible').count(),1,'Show only the selected task');
+    assert.equal(await page.locator('[data-jam-tool]:visible').getAttribute('data-jam-tool'),key);
+   };
+
    page.on('pageerror',error=>errors.push(error.message));
    let failStatus=false, failBond=false, failRecovery=false, recoveryState='unknown', marketStatus='fresh', failCancel=false;
    const recoveryCases=JSON.parse(fs.readFileSync(path.join(__dirname,'../mobile/Tests/PaperclipMobileTests/Fixtures/jam-recovery.json')));
@@ -99,10 +110,13 @@ for (const item of cases) {
    assert.equal(await page.locator('#jam-password').inputValue(),'');
    assert.equal(await page.locator('#jam-passphrase').inputValue(),'');
    assert.equal(await page.locator('.jam-jar').count(),5);
+   assert(await page.locator('#jam-minimum').isHidden(),'Maker form is not on the overview');
+   if(process.env.SCREENSHOT_DIR) await page.screenshot({path:path.join(process.env.SCREENSHOT_DIR,`jars-overview-clean-${width}.png`),fullPage:true,animations:'disabled'});
+   await openTool('settings');
    await page.locator('#jam-fee-mode').selectOption('relative');
    assert.equal(await page.locator('#jam-fee').inputValue(),'0.00005');
    await page.getByText('At 1,000,000 sats, your fee is 50 sats.',{exact:true}).waitFor();
-   await page.locator('#jam-market-panel summary').click();
+   await openTool('market');
    for(const status of ['fresh','stale','empty','unavailable']) {
     marketStatus=status;await page.locator('#jam-market-refresh').click();
     await page.waitForFunction(status=>document.querySelector('#jam-market-summary').textContent.includes({fresh:'Median maker fee: 75.5 sats',stale:'stale',empty:'No verified bonded offers',unavailable:'unavailable'}[status]),status);
@@ -117,8 +131,11 @@ for (const item of cases) {
    await page.waitForFunction(()=>document.querySelector('#jam-market-summary').textContent.includes('200,000 sats'));
    assert.equal(await page.locator('#jam-minimum').inputValue(),'100000','Comparison must not change maker minimum');
    assert.equal(await page.locator('#jam-fee').inputValue(),'0.00005','Comparison must not change maker fee');
-   await page.locator('#jam-market-panel summary').click();
+   await openTool('settings');
+   assert.equal(await page.locator('#jam-fee').inputValue(),'0.00005','Fee draft survives page navigation');
+   if(process.env.SCREENSHOT_DIR) await page.locator('#jam-tools-dialog').screenshot({path:path.join(process.env.SCREENSHOT_DIR,`maker-settings-${width}.png`),animations:'disabled'});
    await page.locator('#jam-fee-mode').selectOption('fixed');
+   await closeTool();
    await page.locator('#jam-pairing-panel summary').click();
    await page.locator('#jam-pairing-label').fill('Fixture phone');
    await page.locator('#jam-pairing-create').click();
@@ -222,15 +239,17 @@ for (const item of cases) {
    assert.equal(await page.locator('#jam-maker-checklist li').count(),5);
    assert.equal(await page.locator('#jam-maker-checks').evaluate(el=>el.open),false,'Detailed setup checks start collapsed');
    assert.match(await page.locator('#jam-maker-readiness').textContent(),/Set up and fund a fidelity bond/);
+   await openTool('settings');
    await page.locator('#jam-maker-checks summary').click();
    await page.getByText('Ready: Amount and fee valid',{exact:true}).waitFor();
    await page.locator('#jam-maker-checks summary').click();
    assert(await page.locator('#jam-maker').evaluate(el=>Boolean(el.compareDocumentPosition(document.querySelector('#jam-market-panel')) & Node.DOCUMENT_POSITION_FOLLOWING)),'Review action precedes optional market help');
    assert.match(await page.locator('#jam-maker-checklist').textContent(),/Needed: Set up and fund a fidelity bond/);
+   await closeTool();
    assert(!actions.includes('start_maker'),'Opening jars must not start a maker');
    assert(!(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth)),'No horizontal overflow');
    assert.deepEqual(errors,[]);
-   await page.locator('#jam-bond-setup summary').click();
+   await openTool('bond');
    await page.locator('#jam-bond-month').fill('2020-01');
    await page.locator('#jam-bond-review').click();
    await page.locator('#jam-status').filter({hasText:'future month'}).waitFor();
@@ -259,20 +278,22 @@ for (const item of cases) {
    }
    // An uncertain maker response requires reconciliation before another start.
    jars[0].bond_sat=100000; jars[0].total_sat=300000;
-   await page.locator('#jam-refresh').click();
+   await closeTool();await page.locator('#jam-refresh').click();
    await page.waitForFunction(()=>!document.querySelector('#jam-maker').disabled);
-   failStatus=true;await page.locator('#jam-refresh').click();
+   failStatus=true;await closeTool();await page.locator('#jam-refresh').click();
    await page.waitForFunction(()=>document.querySelector('#jam-status').textContent.includes('stale'));
    assert(await page.locator('#jam-maker').isDisabled(),'Failed refresh invalidates earlier readiness');
    assert.match(await page.locator('#jam-maker-checklist').textContent(),/Needed: Refresh wallet status/);
-   failStatus=false;await page.locator('#jam-refresh').click();await page.waitForFunction(()=>!document.querySelector('#jam-maker').disabled);
+   failStatus=false;await closeTool();await page.locator('#jam-refresh').click();await page.waitForFunction(()=>!document.querySelector('#jam-maker').disabled);
+   await openTool('settings');
    await page.locator('#jam-maker').click();
    await page.getByRole('button',{name:'Confirm',exact:true}).click();
    await page.waitForFunction(()=>document.querySelector('#jam-status').textContent.includes('Synthetic'));
    assert.equal(actions.filter(action=>action==='start_maker').length,1);
    assert(await page.locator('#jam-maker').isDisabled(),'Unknown maker outcome requires refresh');
    assert.match(await page.locator('#jam-maker-readiness').textContent(),/Refresh maker status/);
-   await page.locator('#jam-refresh').click();await page.waitForFunction(()=>!document.querySelector('#jam-maker').disabled);
+   await closeTool();await page.locator('#jam-refresh').click();await page.waitForFunction(()=>!document.querySelector('#jam-maker').disabled);
+   await openTool('settings');
    await page.locator('#jam-maker').click();
    await page.evaluate(()=>{document.querySelector('#wallet').hidden=true;});
    await page.getByRole('button',{name:'Confirm',exact:true}).waitFor({state:'hidden'});

@@ -322,3 +322,19 @@ button,a,summary {touch-action:manipulation}
 #jam-maker-fields input,#jam-maker-fields select{margin:6px 0 0;min-width:0}
 #jam-maker-readiness[data-ready=true]{color:var(--muted)}
 @media(min-width:700px){#jam-maker-fields{grid-template-columns:1fr 1fr}#jam-maker-fields>label:first-child,#jam-maker-fields>.hint{grid-column:1/-1}}
+
+/* Jars tools are task screens, not an inline settings form. */
+.jam-tool-menu{display:grid;gap:4px;margin:12px 0}
+.jam-tool-row{display:flex;align-items:center;justify-content:space-between;gap:14px;width:100%;min-height:64px;text-align:left;background:transparent;border:0;border-radius:14px;padding:12px}
+.jam-tool-row strong,.jam-tool-row small{display:block}
+.jam-tool-row strong{color:var(--text,#eef2f8);font-size:15px}.jam-tool-row small{color:var(--muted);font-size:12px;font-weight:400;margin-top:4px}
+.jam-tools-sheet{width:min(600px,calc(100% - 28px));max-height:88dvh;padding:0;border:1px solid var(--stroke);border-radius:26px;background:#152238;color:#eef2f8;box-shadow:0 28px 100px #0008;overflow:auto}
+.jam-tools-sheet::backdrop{background:#080f1dcc;backdrop-filter:blur(5px)}
+.jam-tools-sheet[open]{animation:wallet-view-in .2s ease-out}
+.jam-tool-header{position:sticky;top:0;z-index:1;background:#152238;display:flex;align-items:center;justify-content:space-between;gap:16px;padding:20px 24px;border-bottom:1px solid var(--stroke)}
+.jam-tool-header h2{margin:0;font-size:22px}.jam-tool-header button{margin:0}
+.jam-tool-body{padding:24px}.jam-tool-body section{padding:0;margin:0;background:transparent;border:0;box-shadow:none}
+.jam-tool-body [hidden]{display:none!important}
+#jam-tool-status:empty{display:none}
+@media(max-width:640px){.jam-tools-sheet{margin:auto auto max(12px,env(safe-area-inset-bottom));max-height:92dvh}.jam-tool-header,.jam-tool-body{padding:20px}}
+@media(prefers-reduced-motion:reduce){.jam-tools-sheet[open]{animation:none}}

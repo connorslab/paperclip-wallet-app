@@ -85,13 +85,15 @@ revision. These results precede the following Jars changes.
 
 ### Jars fees, market comparison and unsent review recovery
 
-The maker screen now uses the same sequence on every client: status, fee settings,
-next required step, expandable setup checks, and the review action. Market
-comparison, earning guidance and bond setup follow as optional sections. Checks
-start collapsed, but the current blocker stays visible and the same safety gates
-still disable submission. Android uses the shared wallet surface and a short
-content-size transition; iOS uses its primary payment button and native disclosures.
-Desktop form spacing is reduced without shrinking touch targets.
+The Jars overview now separates four tasks: Maker settings, Market fees, Fidelity
+bond, and How earning works. iOS opens native navigation pages; Android opens a
+focused sheet; the shared desktop UI uses a keyboard-accessible dialog. The long
+inline form no longer pushes market comparison and bond setup down the overview.
+Maker settings keeps the next required step, expandable checks and review action
+together. iOS amount inputs have persistent labels and a separate sats unit.
+Fee drafts survive moving between these pages; comparison never changes the offer.
+Changing the wallet/session closes the task screen and pending confirmations.
+The existing readiness and review requirements remain in place.
 
 Fixed-sat and percentage maker fees now use the pinned JoinBlaket grid on iOS,
 Android and the shared desktop/StartOS/Umbrel UI. Percentages include a worked
@@ -128,7 +130,16 @@ actions disabled. These checks do not replace live host, physical signer, settle
 fold transitions or signed-release acceptance.
 Bundled Jam CI run `43987338446` at source `dc6b9e4` passes all 53 tests on both
 Linux architectures, including the new order book reader in the pinned container.
-Current-source Android, backend and full browser CI remain pending at this checkpoint.
+Backend and full browser CI also pass at `dc6b9e4`; Android CI remains in progress
+at this checkpoint. These runs precede the task-screen redesign.
+
+The task-screen redesign passes three regular iPhone simulator UI cases and all
+five Android API 35 Jars cases. Checks cover separate destinations, retained fee
+drafts, canceled reviews and portrait/landscape bond guidance. Browser Jars tests
+pass at 390/1280/1440px, interrupted setup/backup tests at 390/1280px, and the shared
+web contract suite passes. Native screenshots were inspected. These are synthetic
+checks, not live maker, payment or installed-host acceptance. No physical device,
+funded host or published candidate was changed.
 
 ## Source and artifacts
 
