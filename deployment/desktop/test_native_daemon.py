@@ -27,12 +27,22 @@ def check(binary):
             # Match the installer's private creation boundary, including an
             # explicit user owner when QA runs under an elevated Windows token.
             sys.path.insert(0, str(Path(__file__).parent / 'windows'))
-            from private_storage import private_directory, validate_handle
+            from private_storage import private_directory, validate_handle, read_private_file
             import win32con
             import win32file
             private_directory(data)
         else:
             data.mkdir(mode=0o700)
+        def saved_text(name):
+            # Python's CRT reader omits delete sharing and can race the native
+            # atomic writer while its renamed staging handle is still open.
+            # Match the launcher's checked native reader instead of retrying
+            # permission failures or weakening the writer's handle protection.
+            if os.name == 'nt':
+                with read_private_file(data / name) as file:
+                    return file.read().decode('utf-8')
+            return (data / name).read_text()
+
         endpoint = None
         # Do not inherit real node/Jam credentials, platform overrides or proxies.
         env = {key: os.environ[key] for key in
@@ -67,8 +77,8 @@ def check(binary):
                         if process.poll() is not None:
                             raise AssertionError('Native daemon exited before readiness; logs remain private')
                         try:
-                            token = (data / 'auth_token').read_text()
-                            endpoint = (data / 'barkd.url').read_text()
+                            token = saved_text('auth_token')
+                            endpoint = saved_text('barkd.url')
                             address = urlsplit(endpoint)
                             assert address.scheme == 'http' and address.hostname == '127.0.0.1', 'Unexpected discovery host'
                             assert address.port and address.port > 0, 'Discovery did not report the OS-assigned listen port'
@@ -89,7 +99,7 @@ def check(binary):
                     else:
                         for name in ('auth_token', 'barkd.url'):
                             handle = win32file.CreateFile(str(data / name), win32con.READ_CONTROL,
-                                win32con.FILE_SHARE_READ | win32con.FILE_SHARE_WRITE, None,
+                                win32con.FILE_SHARE_READ | win32con.FILE_SHARE_WRITE | win32con.FILE_SHARE_DELETE, None,
                                 win32con.OPEN_EXISTING, win32file.FILE_FLAG_OPEN_REPARSE_POINT, None)
                             try:
                                 validate_handle(handle, directory=False)
@@ -152,8 +162,8 @@ def check(binary):
                             if duplicate.poll() is None:
                                 duplicate.kill(); duplicate.wait(timeout=5)
                     assert b'another barkd is already running' in (root / f'private-duplicate-{run}.log').read_bytes(), 'Duplicate failed for a reason other than the instance lock'
-                    assert (data / 'barkd.url').read_text() == endpoint, 'Duplicate launch replaced discovery address'
-                    assert (data / 'auth_token').read_text() == token, 'Duplicate launch replaced authentication'
+                    assert saved_text('barkd.url') == endpoint, 'Duplicate launch replaced discovery address'
+                    assert saved_text('auth_token') == token, 'Duplicate launch replaced authentication'
                     assert json.loads(request('/api/v1/wallet', token)[0]) == {'fingerprint':None}
                     # Exercise OS lock release, not just graceful cleanup. The
                     # following iteration must recover without deleting files.
@@ -190,8 +200,8 @@ def check(binary):
                 finally:
                     if rejected.poll() is None:
                         rejected.kill(); rejected.wait(timeout=5)
-            assert (data / 'barkd.url').read_text() == endpoint, 'Failed bind replaced discovery address'
-            assert (data / 'auth_token').read_text() == initial_token, 'Failed bind replaced authentication'
+            assert saved_text('barkd.url') == endpoint, 'Failed bind replaced discovery address'
+            assert saved_text('auth_token') == initial_token, 'Failed bind replaced authentication'
 
         # A malformed existing credential must fail closed. Never silently
         # rotate it and strand the user's already-paired clients.
@@ -204,7 +214,7 @@ def check(binary):
             finally:
                 if rejected.poll() is None:
                     rejected.kill(); rejected.wait(timeout=5)
-        assert (data / 'auth_token').read_text() == damaged, 'Malformed authentication was silently replaced'
+        assert saved_text('auth_token') == damaged, 'Malformed authentication was silently replaced'
         assert not (data / 'mnemonic').exists(), 'Failure path created wallet keys'
     print('PASS native daemon: isolated first launch, OS-assigned port discovery, authenticated shared UI, entropy rejection, origin boundary, private files, duplicate-instance rejection, crash recovery and fail-closed authentication; no wallet or payment created')
 
