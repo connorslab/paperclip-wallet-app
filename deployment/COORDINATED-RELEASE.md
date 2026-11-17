@@ -20,7 +20,7 @@ checks from the required implementation and acceptance work.
 | Area | Verified in the current test pass | Still required |
 | --- | --- | --- |
 | iOS | 123 shared Swift tests; 17 safe UI cases on both regular-phone and open-Duo simulators | Physical signer, camera, accessibility and interrupted/folded payment acceptance; final signed candidate and upgrade |
-| Android | 100 JVM tests (four live cases excluded); 16 isolated API 35 UI cases; authenticated CLN/LND reads and pin rejection | Final release identity, Play/APK upgrade compatibility, physical/foldable acceptance and current CI completion |
+| Android | 100 JVM tests (four live cases excluded); 16 isolated API 35 UI cases; authenticated CLN/LND reads and pin rejection | Final release identity, Play/APK upgrade compatibility, physical/foldable acceptance and resolution of the current API 36 CI failure |
 | Shared desktop UI | All 17 existing browser-flow suites plus entropy, transport and QR checks; phone, foldable and desktop widths where each suite defines them | Installed-host and native desktop acceptance; complete multiple-hot-wallet and hardware-funded Ark workflows |
 | StartOS/Umbrel | Shared REST checks, authenticated CLN/LND reads; both StartOS candidate architectures built and source/checksums checked | Complete backup/restore, candidate installation, bundled Jam pairing/revocation/Tor and upgrades; matching frozen wrappers |
 | Linux/macOS/Windows | Isolated Apple Silicon daemon authentication, duplicate-instance rejection and crash/restart checks | Native launchers and bundled service lifecycle, supported OS matrix, signed installers, notarization where applicable and clean install/upgrade tests |
@@ -1911,9 +1911,32 @@ without deleting stale lock files. A malformed saved credential fails closed and
 is not silently regenerated. The expanded checks passed, together with shared UI
 asset/entropy checks and `just checks`. No wallet keys or payments were created.
 
-The Linux backend workflow now builds and runs this same prerequisite; that new
-CI step is pending its first run. This does not close native launcher, bundled
+The Linux backend workflow now builds and runs this same prerequisite; run
+`44013947112` passed at `ab609bc`, including the new native daemon smoke test. This does not close native launcher, bundled
 Jam/Tor lifecycle, Windows ACL/runtime, signing, installer, upgrade or funded
 backup/recovery gates. The earlier bond-withdrawal revision b1a92db also passed
-bundled Jam CI on AMD64 and ARM64 and the full browser workflow; Android and
-backend completion for that revision were still pending at this checkpoint.
+bundled Jam CI on AMD64 and ARM64, the full browser workflow and backend CI.
+Android API 35 passed, while API 36 failed as detailed below.
+
+
+## Android API 36 visibility evidence — 2026-11-16
+
+Android run `44013095502` at `b1a92db` passed native builds for both architectures
+and the API 35 app job. API 36 failed nine Jars cases at the active-window check,
+after their Compose assertions. The available artifacts do not establish which
+window covered the fixture. This is an unresolved failed gate, not evidence of
+successful visible UI or a confirmed app crash.
+
+The Jars screenshot helper previously wrote to app-specific storage, which the
+Gradle runner removes and the CI artifact collector does not retrieve. Fixture
+screenshots now use the existing public test-image directory. A blocked capture
+records the screen plus package/window metadata and fixed system-dialog categories,
+then fails with the original timeout as its cause. It does not dismiss dialogs,
+retry cases or accept hidden Compose content. A negative-control test covers the
+fixture with the launcher and verifies that capture fails and preserves evidence.
+
+The ten existing Jars cases passed on the local ARM64 API 36 emulator; all eleven
+cases passed after adding the negative control. The successful Gradle run retained
+funding, withdrawal and maker screenshots after app cleanup. This does not replace
+the failed x86_64 CI result or physical-device acceptance. No live payment or
+production app change occurred.

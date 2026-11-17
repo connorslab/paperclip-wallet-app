@@ -1,8 +1,10 @@
 package xyz.paperclip.wallet
 
+import android.content.ContentValues
+import android.content.Intent
 import android.graphics.Bitmap
+import android.provider.MediaStore
 import androidx.test.platform.app.InstrumentationRegistry
-import java.io.File
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -273,19 +275,89 @@ class JoinBlaketLayoutTest {
 		assertEquals(listOf("/api/v1/session","/api/v1/paperclip/market/100000"),paths.toList())
 	}
 
+	@Test fun visibilityGuardRejectsCoveredFixtureAndPreservesEvidence() {
+		compose.setContent { androidx.compose.material3.Text("Synthetic visibility fixture") }
+		compose.onNodeWithText("Synthetic visibility fixture").assertIsDisplayed()
+		val instrumentation = InstrumentationRegistry.getInstrumentation()
+		instrumentation.targetContext.startActivity(Intent(Intent.ACTION_MAIN).apply {
+			addCategory(Intent.CATEGORY_HOME)
+			addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+		})
+		compose.waitUntil(10_000) {
+			val visible = instrumentation.uiAutomation.rootInActiveWindow?.packageName?.toString()
+			visible != null && visible != instrumentation.targetContext.packageName
+		}
+		val captureName = "android-visibility-negative-control-${System.nanoTime()}"
+		val failure = runCatching { capture(captureName) }.exceptionOrNull()
+		assertTrue("Covered fixtures must fail the visibility gate", failure is AssertionError)
+		assertTrue(failure?.cause is ComposeTimeoutException)
+		assertTrue(failure?.message?.contains("expected_package") == true)
+		instrumentation.targetContext.contentResolver.query(
+			MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+			arrayOf(MediaStore.Images.Media.SIZE),
+			"${MediaStore.Images.Media.DISPLAY_NAME} = ? AND ${MediaStore.Images.Media.IS_PENDING} = 0",
+			arrayOf("$captureName-blocked.png"), null,
+		).use { result ->
+			assertTrue("Blocked fixture screenshot must survive app removal", result != null && result.moveToFirst() && result.getLong(0) > 0)
+		}
+	}
+
 	private fun capture(name: String) {
 		val instrumentation = InstrumentationRegistry.getInstrumentation()
 		// A passing Compose assertion does not prove the page is visible: an
 		// emulator system dialog can cover it without blocking semantics actions.
-		compose.waitUntil(10_000) {
-			instrumentation.uiAutomation.rootInActiveWindow?.packageName?.toString() == instrumentation.targetContext.packageName
+		try {
+			compose.waitUntil(10_000) {
+				instrumentation.uiAutomation.rootInActiveWindow?.packageName?.toString() == instrumentation.targetContext.packageName
+			}
+		} catch (failure: ComposeTimeoutException) {
+			// Synthetic fixture screens only. Do not log arbitrary dialog text,
+			// node data or credentials, and never hide the original failure.
+			val root = instrumentation.uiAutomation.rootInActiveWindow
+			val report = runCatching {
+				val systemDialog = root?.packageName?.toString() == "android"
+				val notResponding = systemDialog && listOf("isn't responding", "isn’t responding", "not responding")
+					.any { root?.findAccessibilityNodeInfosByText(it)?.isNotEmpty() == true }
+				val subject = if (!notResponding) "none" else
+					listOf("System UI" to "system-ui", "Process system" to "system-process", "Pixel Launcher" to "launcher")
+						.firstOrNull { root?.findAccessibilityNodeInfosByText(it.first)?.isNotEmpty() == true }?.second ?: "unknown"
+				JSONObject().put("expected_package", instrumentation.targetContext.packageName)
+					.put("active_package", root?.packageName?.toString() ?: JSONObject.NULL)
+					.put("not_responding", notResponding).put("system_subject", subject)
+					.put("windows", org.json.JSONArray().apply {
+						instrumentation.uiAutomation.windows.forEach { window -> put(JSONObject()
+							.put("type",window.type).put("active",window.isActive).put("focused",window.isFocused)
+							.put("package",window.root?.packageName?.toString() ?: JSONObject.NULL)) }
+					}).toString()
+			}.getOrDefault("window metadata unavailable")
+			runCatching { saveScreenshot("$name-blocked") }
+			throw AssertionError("Cannot capture $name: $report", failure)
 		}
 		compose.waitForIdle()
 		instrumentation.waitForIdleSync()
+		saveScreenshot(name)
+	}
+
+	private fun saveScreenshot(name: String) {
+		val instrumentation = InstrumentationRegistry.getInstrumentation()
 		val image = checkNotNull(instrumentation.uiAutomation.takeScreenshot())
-		File(instrumentation.targetContext.getExternalFilesDir(null), "$name.png").outputStream().use {
-			image.compress(Bitmap.CompressFormat.PNG, 100, it)
+		try {
+			// Gradle uninstalls the test app. Publish fixture evidence to the same
+			// test-only directory the emulator runner collects, so it survives.
+			val resolver = instrumentation.targetContext.contentResolver
+			val values = ContentValues().apply {
+				put(MediaStore.Images.Media.DISPLAY_NAME, "$name.png")
+				put(MediaStore.Images.Media.MIME_TYPE, "image/png")
+				put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/PaperclipPreview")
+				put(MediaStore.Images.Media.IS_PENDING, 1)
+			}
+			val uri = checkNotNull(resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values))
+			checkNotNull(resolver.openOutputStream(uri)).use {
+				check(image.compress(Bitmap.CompressFormat.PNG, 100, it))
+			}
+			resolver.update(uri, ContentValues().apply { put(MediaStore.Images.Media.IS_PENDING, 0) }, null, null)
+		} finally {
+			image.recycle()
 		}
-		image.recycle()
 	}
 }
