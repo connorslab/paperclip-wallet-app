@@ -3,16 +3,23 @@
 //! A datadir holds secrets such as the seed, wallet state, config and
 //! credentials. These helpers lock those paths to the owning user and write
 //! secrets atomically so they're never momentarily readable by other users.
-//! They are unix-only; on other targets they degrade to plain writes / no-ops
-//! (Windows would need ACLs instead).
+//! Unix uses owner-only modes. Windows uses protected user/SYSTEM ACLs and
+//! native replacement; non-filesystem targets retain their existing fallback.
 
+#[cfg(not(windows))]
 use std::io::Write;
 use std::path::Path;
 #[cfg(unix)]
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 
+#[cfg(not(windows))]
 use anyhow::Context;
 use tracing::warn;
+
+#[cfg(windows)]
+mod windows;
+#[cfg(windows)]
+pub use windows::{harden, refuse_if_loose, create_new_owner_only, write_atomic_owner_only};
 
 /// `chmod` `path` to `mode` so other (non-root) users can't reach it.
 ///
@@ -23,7 +30,7 @@ pub fn harden(path: &Path, mode: u32) -> anyhow::Result<()> {
 	std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode))
 		.with_context(|| format!("failed to harden permissions on {}", path.display()))
 }
-#[cfg(not(unix))]
+#[cfg(not(any(unix, windows)))]
 pub fn harden(_path: &Path, _mode: u32) -> anyhow::Result<()> {
 	Ok(())
 }
@@ -52,7 +59,13 @@ pub fn warn_if_loose(path: &Path, recommended: u32) {
 		}
 	}
 }
-#[cfg(not(unix))]
+#[cfg(windows)]
+pub fn warn_if_loose(path: &Path, recommended: u32) {
+	if let Err(error) = refuse_if_loose(path, recommended) {
+		warn!("private storage check failed for {}: {}", path.display(), error);
+	}
+}
+#[cfg(not(any(unix, windows)))]
 pub fn warn_if_loose(_path: &Path, _recommended: u32) {}
 
 /// Fail if `path` is accessible by group or other users.
@@ -72,7 +85,7 @@ pub fn refuse_if_loose(path: &Path, recommended: u32) -> anyhow::Result<()> {
 	}
 	Ok(())
 }
-#[cfg(not(unix))]
+#[cfg(not(any(unix, windows)))]
 pub fn refuse_if_loose(_path: &Path, _recommended: u32) -> anyhow::Result<()> {
 	Ok(())
 }
@@ -90,7 +103,7 @@ pub fn create_new_owner_only(path: &Path, contents: &[u8]) -> anyhow::Result<()>
 		.with_context(|| format!("failed to create {}", path.display()))?;
 	write_or_unlink(&mut f, path, contents)
 }
-#[cfg(not(unix))]
+#[cfg(not(any(unix, windows)))]
 pub fn create_new_owner_only(path: &Path, contents: &[u8]) -> anyhow::Result<()> {
 	let mut f = std::fs::OpenOptions::new()
 		.write(true).create_new(true)
@@ -102,6 +115,7 @@ pub fn create_new_owner_only(path: &Path, contents: &[u8]) -> anyhow::Result<()>
 /// Write `contents` to a freshly-created `f`, removing `path` if the write
 /// fails — a leftover empty/partial file would make the next `create_new`
 /// fail (or yield a corrupt read), poisoning retries.
+#[cfg(not(windows))]
 fn write_or_unlink(f: &mut std::fs::File, path: &Path, contents: &[u8]) -> anyhow::Result<()> {
 	f.write_all(contents).map_err(|e| {
 		let _ = std::fs::remove_file(path);
@@ -165,7 +179,7 @@ pub fn write_atomic_owner_only(path: &Path, contents: &[u8]) -> anyhow::Result<(
 	}
 	anyhow::bail!("failed to create a unique temp file for {}", path.display())
 }
-#[cfg(not(unix))]
+#[cfg(not(any(unix, windows)))]
 pub fn write_atomic_owner_only(path: &Path, contents: &[u8]) -> anyhow::Result<()> {
 	std::fs::write(path, contents)
 		.with_context(|| format!("failed to write {}", path.display()))

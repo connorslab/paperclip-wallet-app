@@ -3004,3 +3004,20 @@ The fingerprinted Mac package passes all 13 relocated isolated-runtime cases and
 post-run signature verification; its daemon hash matches the manifest. This is
 still a development preview with explicitly recorded mixed inputs, not a new
 release candidate. Linux CI now checks the same binary/manifest binding.
+
+
+## Native Windows wallet storage: 2026-11-17
+
+The shared Rust filesystem helpers now use protected current-user/SYSTEM ACLs on
+Windows, validate file handles before writing secret bytes, reject linked or
+ambiguous storage paths, and replace state through flushed private staging files.
+Ancestor handles prevent directory relocation during each operation. Existing
+ACLs are checked without repair; explicit hardening remains a separate operation.
+Nine native Windows regression cases cover these guarantees. Their runtime result
+is pending; Windows cross-compilation and all six macOS filesystem cases pass,
+as do repository checks.
+
+The earlier Windows PID-lock correction has now passed native execution in run
+`44162895477`: eight lock cases and four daemon-discovery cases pass. The daemon
+also builds and starts its version command on Windows. No wallet was funded or
+production installation changed.
