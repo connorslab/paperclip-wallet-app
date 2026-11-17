@@ -11,7 +11,7 @@ import win32con
 import win32file
 import win32security
 
-from private_storage import UnsafeStorage, exclusive_file, private_directory, local_path, user_sid, ancestors
+from private_storage import UnsafeStorage, exclusive_file, private_directory, local_path, user_sid, ancestors, read_private_file, SessionRecord
 
 
 class PrivateStorage(unittest.TestCase):
@@ -112,6 +112,60 @@ class PrivateStorage(unittest.TestCase):
         for path in ('relative', r'\\server\share\wallet', r'C:\wallet\..\other', r'C:\wallet:secret', r'C:\wallet.'):
             with self.subTest(path=path), self.assertRaises(UnsafeStorage):
                 local_path(path)
+
+    def record(self, path=None):
+        record = SessionRecord(path or self.root / 'session.state')
+        self.addCleanup(record.close)
+        return record
+
+    def test_clean_and_unclean_sessions_survive_reopen(self):
+        first = self.record()
+        self.assertFalse(first.begin())
+        with read_private_file(self.root / 'session.state') as file:
+            self.assertEqual(file.read(), SessionRecord.ACTIVE)
+        first.close()  # No finish: equivalent to process death releasing handles.
+        second = self.record()
+        self.assertTrue(second.begin())
+        second.finish(); second.close()
+        third = self.record()
+        self.assertFalse(third.begin())
+        third.finish()
+
+    def test_session_handle_prevents_replacement_or_relocation(self):
+        record = self.record(); record.begin()
+        with self.assertRaises(OSError):
+            (self.root / 'session.state').rename(self.root / 'moved.state')
+        with self.assertRaises(OSError):
+            self.root.rename(self.root.with_name('moved'))
+        record.finish()
+
+    def test_partial_session_record_is_not_silently_reset(self):
+        record = self.record(); record.begin(); record.close()
+        path = self.root / 'session.state'
+        path.write_bytes(b'incomplete fixture')
+        second = self.record()
+        with self.assertRaises(UnsafeStorage):
+            second.begin()
+        second.close()
+        self.assertEqual(path.read_bytes(), b'incomplete fixture')
+
+    def test_checked_reader_survives_atomic_file_replacement(self):
+        first = self.record(); first.begin(); first.finish(); first.close()
+        other_path = self.root / 'other.state'
+        second = self.record(other_path); second.begin(); second.close()
+        with read_private_file(self.root / 'session.state') as file:
+            os.replace(other_path, self.root / 'session.state')
+            self.assertEqual(file.read(), SessionRecord.CLOSED)
+        with read_private_file(self.root / 'session.state') as file:
+            self.assertEqual(file.read(), SessionRecord.ACTIVE)
+
+    def test_reader_rejects_missing_or_hard_linked_metadata(self):
+        with self.assertRaises(FileNotFoundError), read_private_file(self.root / 'missing'):
+            self.fail('Missing metadata must not be opened')
+        record = self.record(); record.begin(); record.close()
+        os.link(self.root / 'session.state', self.root / 'alias.state')
+        with self.assertRaises(UnsafeStorage), read_private_file(self.root / 'session.state'):
+            self.fail('Shared metadata must not be read')
 
 
 if __name__ == '__main__':

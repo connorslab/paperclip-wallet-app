@@ -1,9 +1,9 @@
-"""POSIX daemon ownership and one-use browser handoff for a future desktop shell.
+"""Native daemon ownership and one-use browser handoff for desktop shells.
 
 This module never selects an installed wallet or starts anything on import.
 Callers supply the packaged executable and an application data root explicitly.
-Windows needs native ACL and locking support before using an equivalent runner.
 """
+from contextlib import ExitStack
 import json
 import os
 from pathlib import Path
@@ -21,6 +21,9 @@ try:
 except ImportError:
     fcntl = None
 
+if os.name == 'nt':
+    from windows import private_storage as windows_storage
+
 
 SESSION_MARKER = b'paperclip-desktop-session-v1\n'
 
@@ -36,6 +39,8 @@ class NoRedirects(HTTPRedirectHandler):
 
 
 def default_data_root():
+    if os.name == 'nt':
+        return windows_storage.default_data_root()
     if sys.platform == 'darwin':
         return Path.home() / 'Library' / 'Application Support' / 'Paperclip'
     if sys.platform.startswith('linux'):
@@ -47,6 +52,8 @@ def default_data_root():
 
 
 def private_directory(path):
+    if os.name == 'nt':
+        return windows_storage.private_directory(path)
     # Do not silently adopt shared or symlinked wallet storage or change its mode.
     path.mkdir(mode=0o700, parents=True, exist_ok=True)
     info = path.lstat()
@@ -56,6 +63,10 @@ def private_directory(path):
 
 
 def private_file(path, flags=os.O_RDONLY, public_metadata=False):
+    if os.name == 'nt':
+        if flags != os.O_RDONLY:
+            raise StartupError('Use the native Windows writer for desktop state.')
+        return windows_storage.read_private_file(path)
     fd = os.open(path, flags | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600)
     try:
         info = os.fstat(fd)
@@ -89,7 +100,8 @@ class ManagedDaemon:
 
     def __init__(self, binary, root, startup_timeout=30, shutdown_timeout=20, jam_runtime=None):
         self.binary = Path(binary).resolve(strict=True)
-        self.root = Path(root).absolute()
+        # Validate Windows spelling before normalization can hide an alias.
+        self.root = windows_storage.local_path(root) if os.name == 'nt' else Path(root).absolute()
         self.data = self.root / 'wallet'
         self.startup_timeout = startup_timeout
         self.shutdown_timeout = shutdown_timeout
@@ -98,10 +110,15 @@ class ManagedDaemon:
         self.endpoint = None
         self.recovery_required = False
         self._marker_identity = None
+        self._windows_session = None
         self.jam_runtime = jam_runtime
         self.jam = None
 
     def _mark_session(self):
+        if os.name == 'nt':
+            self._windows_session = windows_storage.SessionRecord(self.root / 'session.state')
+            self.recovery_required = self._windows_session.begin()
+            return
         marker = self.root / 'session.active'
         try:
             with private_file(marker) as file:
@@ -127,6 +144,12 @@ class ManagedDaemon:
             os.close(fd)
 
     def _clear_session(self):
+        if os.name == 'nt':
+            try:
+                self._windows_session.finish()
+            except Exception:
+                raise StartupError('The wallet closed, but its recovery warning could not be cleared.') from None
+            return
         marker = self.root / 'session.active'
         try:
             with private_file(marker) as file:
@@ -141,19 +164,25 @@ class ManagedDaemon:
             raise StartupError('The wallet closed, but its recovery warning could not be cleared.') from None
 
     def start(self):
-        if os.name != 'posix' or not (sys.platform == 'darwin' or sys.platform.startswith('linux')):
-            raise StartupError('This desktop runner requires Linux or macOS.')
+        if os.name != 'nt' and not (sys.platform == 'darwin' or sys.platform.startswith('linux')):
+            raise StartupError('This desktop platform is unsupported.')
+        if os.name == 'nt' and self.jam_runtime is not None:
+            raise StartupError('The native Windows Jars runtime is not available in this preview.')
         if self.process is not None or self._lock is not None:
             raise StartupError('This desktop session has already been started.')
         try:
             private_directory(self.root)
             private_directory(self.data)
             # Outside wallet/: deleting a wallet must not remove the launcher lock.
-            self._lock = private_file(self.root / 'launcher.lock', os.O_RDWR | os.O_CREAT)
-            try:
-                fcntl.flock(self._lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            except BlockingIOError:
-                raise StartupError('Paperclip is already open for this data directory.') from None
+            if os.name == 'nt':
+                self._lock = ExitStack()
+                self._lock.enter_context(windows_storage.exclusive_file(self.root / 'launcher.lock'))
+            else:
+                self._lock = private_file(self.root / 'launcher.lock', os.O_RDWR | os.O_CREAT)
+                try:
+                    fcntl.flock(self._lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except BlockingIOError:
+                    raise StartupError('Paperclip is already open for this data directory.') from None
             # Write before launch, clear only after an observed clean close.
             # Launcher death and forced daemon shutdown leave this public marker.
             self._mark_session()
@@ -165,6 +194,8 @@ class ManagedDaemon:
             # Inherited auth, bind, node, TLS, loader and proxy overrides must not
             # alter the packaged daemon. Persisted wallet settings remain intact.
             env = {key: os.environ[key] for key in ('PATH', 'HOME', 'TMPDIR', 'LANG') if key in os.environ}
+            if os.name == 'nt':
+                env.update({key: os.environ[key] for key in ('SystemRoot', 'TEMP', 'TMP') if key in os.environ})
             if self.jam_runtime is not None:
                 from managed_jam import ManagedJam
                 self.jam = ManagedJam(*self.jam_runtime, self.root / 'jars')
@@ -173,7 +204,8 @@ class ManagedDaemon:
                 str(self.binary), '--quiet', '--no-logfile', '--datadir', str(self.data),
                 '--host', '127.0.0.1', '--port', '0', '--exit-on-stdin-close', '--desktop-handoff',
             ], env=env, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL, close_fds=True)
+                stderr=subprocess.DEVNULL, close_fds=True,
+                creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0)
             http = build_opener(ProxyHandler({}), NoRedirects())
             deadline = time.monotonic() + self.startup_timeout
             while time.monotonic() < deadline:
@@ -277,9 +309,14 @@ class ManagedDaemon:
                 self._clear_session()
         finally:
             self.endpoint = None
-            if self._lock is not None:
-                self._lock.close()
-                self._lock = None
+            try:
+                if self._windows_session is not None:
+                    self._windows_session.close()
+                    self._windows_session = None
+            finally:
+                if self._lock is not None:
+                    self._lock.close()
+                    self._lock = None
 
     def __enter__(self):
         self.start()

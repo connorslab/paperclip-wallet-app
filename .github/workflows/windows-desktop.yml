@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
   push:
     branches: ['codex/cross-platform-parity']
-    paths: ['.github/workflows/windows-desktop.yml', 'deployment/desktop/windows/**', 'deployment/desktop/pipe_io.py', 'deployment/desktop/test_pipe_io.py', 'bark/src/lock_manager/**', 'bark/Cargo.toml', 'bark-common/**', 'Cargo.lock']
+    paths: ['.github/workflows/windows-desktop.yml', 'deployment/desktop/windows/**', 'deployment/desktop/managed_daemon.py', 'deployment/desktop/pipe_io.py', 'deployment/desktop/test_pipe_io.py', 'bark/src/lock_manager/**', 'bark/Cargo.toml', 'bark-common/**', 'Cargo.lock']
 permissions:
   contents: read
 jobs:
@@ -62,6 +62,9 @@ jobs:
         run: ./target/debug/paperclip-walletd.exe --version
       - name: Verify unfunded authenticated startup and crash recovery
         run: python deployment/desktop/test_native_daemon.py --binary target/debug/paperclip-walletd.exe
+      - name: Verify owned Windows launcher lifecycle and crash records
+        timeout-minutes: 5
+        run: python deployment/desktop/windows/test_managed_daemon.py --binary target/debug/paperclip-walletd.exe -v
       - name: Verify Windows PID ownership and readable discovery
         run: |
           cargo +1.91.0 test --locked -p bark-wallet --features onchain-bdk,sqlite-bundled --lib lock_manager::pid_flock
