@@ -20,10 +20,10 @@ checks from the required implementation and acceptance work.
 | Area | Verified in the current test pass | Still required |
 | --- | --- | --- |
 | iOS | 123 shared Swift tests; 17 safe UI cases on both regular-phone and open-Duo simulators | Physical signer, camera, accessibility and interrupted/folded payment acceptance; final signed candidate and upgrade |
-| Android | 100 JVM tests (four live cases excluded); 16 isolated API 35 UI cases; 46 API 36 ARM64 cases (including one visibility negative control); authenticated CLN/LND reads and pin rejection | Final release identity, Play/APK upgrade compatibility, physical/foldable acceptance and resolution of the current API 35 launcher failure |
+| Android | 100 JVM tests (four live cases excluded); 16 isolated API 35 UI cases; 46 API 36 ARM64 cases (including one visibility negative control); authenticated CLN/LND reads and pin rejection; API 35/36 CI passed at `98a1116` | Final release identity, Play/APK upgrade compatibility and physical/foldable acceptance |
 | Shared desktop UI | All 17 existing browser-flow suites plus entropy, transport and QR checks; phone, foldable and desktop widths where each suite defines them | Installed-host and native desktop acceptance; complete multiple-hot-wallet and hardware-funded Ark workflows |
 | StartOS/Umbrel | Shared REST checks, authenticated CLN/LND reads; both StartOS candidate architectures built and source/checksums checked | Complete backup/restore, candidate installation, bundled Jam pairing/revocation/Tor and upgrades; matching frozen wrappers |
-| Linux/macOS/Windows | Isolated Apple Silicon daemon authentication, duplicate-instance rejection and crash/restart checks | Native launchers and bundled service lifecycle, supported OS matrix, signed installers, notarization where applicable and clean install/upgrade tests |
+| Linux/macOS/Windows | Isolated Apple Silicon and Linux daemon authentication, duplicate-instance rejection and crash/restart checks | Native launchers and bundled service lifecycle, supported OS matrix, signed installers, notarization where applicable and clean install/upgrade tests |
 | Jars | Reviewed direct/CoinJoin toggle and bond funding/withdrawal clients; pinned signer, API, bond and interrupted-submission checks; encrypted Jam volume restore on a synthetic chain | Live CoinJoin, direct-send and bond-funding/withdrawal acceptance, installed payment-pairing acceptance, live maker and physical QR signer acceptance |
 | Payments and recovery | 291 shared wallet tests, exact-cost/RBF/unknown-outcome checks; unified-signature and Electrum-header checks | Live BOLT12/Ark/Bridge settlement, portable recovery/restore and current-source XBT consensus acceptance |
 
@@ -2014,3 +2014,17 @@ skipped. `just checks` passed. Chain reads/broadcasts and background sync are
 synthetic; wallet encryption, file loading, signer, HTTP authorization and journal
 persistence are real. This is a Jam component prerequisite, not full StartOS/Umbrel
 four-volume backup, live chain rescan, power-loss or installed-package acceptance.
+
+
+## CI acceptance follow-up — 2026-11-16
+
+Android run `44020561208` at `98a1116` passed both native architectures and the
+complete API 35/36 app jobs with the supported renderer. The earlier Quickstep
+failure remains in the evidence; no assertions or failure dialogs were suppressed.
+This resolves the outstanding CI run failure, not physical/foldable or sustained
+emulator reliability acceptance.
+
+Bundled Jam run `44023055068` at `2d43c43` passed on Linux AMD64 and ARM64,
+including the encrypted-volume restore regression. No package was deployed or
+published. The live, installed-host, physical signer, backup/rescan and signed
+native distribution gates listed above remain open.
