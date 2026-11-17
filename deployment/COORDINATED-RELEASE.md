@@ -2882,3 +2882,26 @@ encryption, completeness, installed host backup/restore, filesystem power loss o
 downgrade safety. In particular, a seed-only restore cannot replace the node
 credentials and payment records, and an older binary does not enforce the new
 owner manifest. Those release gates remain open.
+
+## Native Jam child lifecycle: 2026-11-17
+
+Backend CI `44149049987` passed the relocated-node checks at `70eba7c`.
+The native Jars runtime now has an explicit Linux/macOS child entry point with
+private-root ownership before initialization, verified loopback TLS, preserved
+certificate identity, sanitized inherited configuration and stdin lifetime
+shutdown. Readiness exposes only a public endpoint after application startup.
+Incomplete TLS state is refused without automatic regeneration.
+
+Seven new real-process tests cover verified HTTPS and untrusted-certificate
+rejection, duplicate ownership, restart identity, early parent closure, signal
+shutdown with the parent pipe still open, killed-child recovery, abrupt launcher
+death and linked/shared storage rejection. The complete native Apple companion
+suite ran 80 tests: 79 passed and one container-only test was skipped. No wallet or payment
+was created by the new lifecycle checks. Existing signer tests use their synthetic
+chain fixtures. Repository checks pass. Linux companion CI is pending.
+
+This establishes a child-process prerequisite, not complete bundled hosting. The
+desktop shells do not yet automatically launch this child. Native Python/runtime
+delivery, Tor, restricted node RPC wiring, combined shell supervision and recovery,
+mobile pairing, installed backup/restore, Windows ownership, signed packages and
+live settlement remain open.

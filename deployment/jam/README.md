@@ -178,3 +178,43 @@ interface used by StartOS/Umbrel and standalone packaging. Automated tests use
 synthetic chain data and the real pinned signer; installed-host/live acceptance
 remains separate. This spends from the server's Jam wallet. It does not enable
 Krux/SeedSigner CLTV signing or import a QR signer's seed into Jam.
+
+## Native desktop child prerequisite
+
+`desktop-entry.py` runs the patched, pinned Jam API as an owned Linux/macOS child.
+It requires an explicit private data directory and the reviewed runtime's Python
+interpreter in isolated mode. It binds an OS-assigned IPv4 loopback port with TLS
+and reports a public readiness object only after application startup completes.
+The caller must verify the exported endpoint against `ssl/cert.pem`; there is no
+plaintext option or certificate-verification bypass.
+
+A dedicated lock is acquired before certificate generation, journal loading or
+startup reconciliation. Competing children cannot mutate the running instance's
+files. Existing TLS identities are reused; incomplete, linked or nonprivate
+identity files are refused without rotation. The child strips inherited node,
+proxy, data-path and logging overrides before loading upstream settings. Private
+configuration remains under the explicit root. No wallet is created or unlocked
+at startup. Logs and exception details are suppressed; readiness contains no
+credential, key or wallet response.
+
+A private stdin pipe ties the child to its launcher. Closing that pipe, including
+when the launcher dies, requests graceful server shutdown. The child also handles
+normal termination signals; a killed child releases its locks and preserves its
+TLS identity for restart. This is not proof of active-payment or maker settlement
+during termination.
+
+Native Apple tests exercise the real pinned runtime with verified HTTPS, default
+trust rejection, duplicate launches, signal and pipe shutdown, abrupt launcher
+death, killed-child restart, incomplete TLS identity and unsafe directories. Run:
+
+```sh
+PYTHONPATH="$PWD/deployment/jam" /absolute/pinned-runtime/bin/python -m unittest discover -s deployment/jam -p 'test_*.py'
+```
+
+The existing companion CI runs the same tests inside both pinned Linux container
+architectures. This entry point is a prerequisite, not yet the desktop shell's
+automatic Jam integration. Native runtime bundling, Tor and restricted node RPC
+wiring, shell supervision/configuration, pairing, installed backup/restore,
+Windows support and signed installers remain release gates. An external Python
+environment is used only for development validation, not proposed as the release
+installation experience.
