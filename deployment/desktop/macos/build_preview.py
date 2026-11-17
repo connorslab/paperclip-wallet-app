@@ -4,6 +4,7 @@ The preview uses bundled helpers or explicitly selected development interpreters
 It is not a Developer ID release or notarized distribution candidate.
 """
 import argparse
+import hashlib
 import json
 from pathlib import Path
 import platform
@@ -33,13 +34,23 @@ def build(binary, python, output, jam_python=None, helpers=None):
         architecture = platform.machine()
         if architecture not in ('arm64', 'x86_64'):
             raise RuntimeError('Unsupported native Mac architecture.')
+        swift_source = Path(temporary) / 'Launcher.swift'
+        shutil.copy2(source / 'Launcher.swift', swift_source)
         subprocess.run(['xcrun', 'swiftc', '-swift-version', '5', '-target', architecture + '-apple-macosx13.0',
-            '-framework', 'AppKit', str(source / 'Launcher.swift'), '-o', str(executable / 'PaperclipLauncher')], check=True)
+            '-framework', 'AppKit', str(swift_source), '-o', str(executable / 'PaperclipLauncher')], check=True)
         shutil.copy2(binary, executable / 'paperclip-walletd')
         for name in ('launcher_entry.py', 'launcher_bridge.py', 'managed_daemon.py', 'managed_jam.py'):
             shutil.copy2(source.parent / name, resources / name)
         configuration = {}
+        provenance = {'format':1, 'architecture':architecture,
+            'builder_sha256':hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+            'launcher_source_sha256':hashlib.sha256(swift_source.read_bytes()).hexdigest(),
+            'daemon_version':subprocess.run([str(executable / 'paperclip-walletd'), '--version'], check=True, capture_output=True, text=True).stdout.strip()}
         if helpers is not None:
+            helper_inputs = json.loads((helpers / 'build-inputs.json').read_text())
+            if helper_inputs.get('format') != 1 or not helper_inputs.get('source_files'):
+                raise RuntimeError('Rebuild helpers with source fingerprints before packaging.')
+            provenance['helpers'] = helper_inputs
             for name in ('PaperclipHelper', 'PaperclipJars'):
                 bundle = helpers / (name + '.app')
                 if not (bundle / 'Contents' / 'MacOS' / name).is_file():
@@ -70,6 +81,8 @@ def build(binary, python, output, jam_python=None, helpers=None):
                 'NSHighResolutionCapable':True,
             }, file)
         subprocess.run(['codesign', '--force', '--sign', '-', str(executable / 'paperclip-walletd')], check=True)
+        provenance['daemon_sha256'] = hashlib.sha256((executable / 'paperclip-walletd').read_bytes()).hexdigest()
+        (resources / 'build-info.json').write_text(json.dumps(provenance, indent=2, sort_keys=True) + '\n')
         subprocess.run(['codesign', '--force', '--sign', '-', str(app)], check=True)
         subprocess.run(['codesign', '--verify', '--deep', '--strict', str(app)], check=True)
         app.rename(output)

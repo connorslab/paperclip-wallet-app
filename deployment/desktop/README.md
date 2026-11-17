@@ -301,3 +301,21 @@ hard-link rejection and competing/killed processes. This module is not wired
 into the POSIX runner; Windows launcher, daemon ACL integration and durability
 require their own native acceptance. The Windows workflow also builds the shared
 daemon with pinned native dependencies and invokes only `--version`.
+
+
+## Preview build records
+
+Bundled Linux/macOS previews include `build-info.json` with the copied daemon's
+own version and SHA-256, builder fingerprint, and helper dependency/source record.
+The helper record includes its checkout revision and individual runtime-source
+hashes. Builds abort if those source files change during helper assembly. The
+Mac launcher is compiled from a captured Swift source copy and its fingerprint
+is recorded; the manifest is inside the signed app resources. Records omit the
+build machine's absolute source path.
+
+The helper checkout revision does not imply that a supplied daemon came from
+that revision or that local files were clean. The separate binary version/hash
+and source fingerprints retain that distinction. These development previews can
+identify mixed inputs; a release candidate still requires one reviewed revision.
+The relocated Mac test and Linux packaging CI compare the copied daemon against
+its manifest before exercising the packaged runtime.

@@ -4,6 +4,7 @@ Uses only disposable unfunded directories. No GUI, wallet creation or payment.
 The system Python drives tests; all application code runs in the bundled helpers.
 """
 import argparse
+import hashlib
 import json
 from pathlib import Path
 import shutil
@@ -21,6 +22,11 @@ def check(app):
         if configuration != {'bundledHelpers': True}:
             raise RuntimeError('This check requires bundled helpers without external interpreters.')
         executable = contents / 'MacOS/paperclip-walletd'
+        provenance = json.loads((contents / 'Resources/build-info.json').read_text())
+        if provenance.get('format') != 1 or provenance.get('daemon_sha256') != hashlib.sha256(executable.read_bytes()).hexdigest():
+            raise RuntimeError('The packaged daemon does not match its source record.')
+        if not provenance.get('helpers', {}).get('source_files'):
+            raise RuntimeError('The packaged helpers have no source fingerprints.')
         helpers = contents / 'Helpers'
         jam = helpers / 'PaperclipJars.app/Contents/MacOS/PaperclipJars'
         helper = helpers / 'PaperclipHelper.app/Contents/MacOS/PaperclipHelper'

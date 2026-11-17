@@ -23,6 +23,11 @@ def build(source, secp, output, work):
     import PyInstaller
     if PyInstaller.__version__ != '6.22.3':
         raise RuntimeError('Use the reviewed PyInstaller 6.22.3 toolchain.')
+    inputs = [source / 'desktop' / name for name in ('launcher_entry.py', 'launcher_bridge.py', 'managed_daemon.py', 'managed_jam.py')]
+    inputs += [source / 'jam/desktop-entry.py', Path(__file__).resolve()]
+    inputs += sorted((source / 'jam/paperclip_jam').rglob('*.py'))
+    source_hashes = {str(path.relative_to(source)):hashlib.sha256(path.read_bytes()).hexdigest() for path in inputs}
+    revision = subprocess.run(['git', '-C', str(source), 'rev-parse', 'HEAD'], check=True, capture_output=True, text=True).stdout.strip()
     bundled_secp = work / 'libsecp256k1.dylib'
     shutil.copy2(secp, bundled_secp)
     license_file = secp.parent.parent / 'COPYING'
@@ -56,8 +61,10 @@ app = BUNDLE(collection, name=''' + repr(name + '.app') + ''', bundle_identifier
         subprocess.run([sys.executable, '-m', 'PyInstaller', '--noconfirm', '--distpath', str(output),
                         '--workpath', str(work / 'objects'), str(spec)], check=True)
         subprocess.run(['codesign', '--verify', '--deep', '--strict', str(output / (name + '.app'))], check=True)
-    (output / 'build-inputs.json').write_text(json.dumps({'pyinstaller':PyInstaller.__version__,
-        'python':sys.version, 'source':str(source),
+    if source_hashes != {str(path.relative_to(source)):hashlib.sha256(path.read_bytes()).hexdigest() for path in inputs}:
+        raise RuntimeError('Source changed during the build; do not use these helpers.')
+    (output / 'build-inputs.json').write_text(json.dumps({'format':1, 'pyinstaller':PyInstaller.__version__,
+        'python':sys.version, 'git_revision':revision, 'source_files':source_hashes,
         'packages':{item.metadata['Name']:item.version for item in importlib.metadata.distributions() if item.metadata['Name']}, 'secp256k1_sha256':hashlib.sha256(secp.read_bytes()).hexdigest()}, indent=2) + '\n')
 
 

@@ -2989,3 +2989,18 @@ and elevated-fixture ownership mistakes; neither permission validation nor
 link rejection was relaxed. Native daemon compilation remains in progress at
 this checkpoint. No storage, credentials or accounts outside disposable CI
 fixtures were touched.
+
+
+## Desktop artifact traceability: 2026-11-17
+
+The native preview builders now retain the actual copied daemon version/hash,
+helper runtime dependency versions, checkout revision and individual source
+fingerprints. Source mutation during helper assembly aborts packaging. The Mac
+manifest is sealed by the app signature, and the Swift launcher uses a captured
+source copy. The manifest separates helper and daemon provenance instead of
+assuming they share a revision. Absolute build-machine source paths are omitted.
+
+The fingerprinted Mac package passes all 13 relocated isolated-runtime cases and
+post-run signature verification; its daemon hash matches the manifest. This is
+still a development preview with explicitly recorded mixed inputs, not a new
+release candidate. Linux CI now checks the same binary/manifest binding.

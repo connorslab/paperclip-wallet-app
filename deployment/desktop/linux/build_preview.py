@@ -1,8 +1,11 @@
 """Package an unsigned Linux development preview with bundled or development Python/Tk."""
 import argparse
+import hashlib
+import json
 from pathlib import Path
 import shlex
 import shutil
+import subprocess
 import sys
 import tempfile
 
@@ -22,6 +25,9 @@ def build(binary, python, output, jam_python=None, helper=None):
         shutil.copy2(source / 'launcher.py', package / 'lib' / 'launcher.py')
         shutil.copy2(source.parent / 'managed_daemon.py', package / 'lib' / 'managed_daemon.py')
         shutil.copy2(source.parent / 'managed_jam.py', package / 'lib' / 'managed_jam.py')
+        provenance = {'format':1, 'builder_sha256':hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+            'daemon_sha256':hashlib.sha256((package / 'bin/paperclip-walletd').read_bytes()).hexdigest(),
+            'daemon_version':subprocess.run([str(package / 'bin/paperclip-walletd'), '--version'], check=True, capture_output=True, text=True).stdout.strip()}
         jam_arguments = ''
         if jam_python is not None:
             if not jam_python.is_file():
@@ -31,6 +37,10 @@ def build(binary, python, output, jam_python=None, helper=None):
             shutil.copytree(source.parent.parent / 'jam' / 'paperclip_jam', jam / 'paperclip_jam', ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
             jam_arguments = '--jam-python ' + shlex.quote(str(jam_python)) + ' --jam-entry "$bundle/lib/jam-runtime/desktop-entry.py" '
         if helper is not None:
+            inputs = json.loads((helper / 'build-inputs.json').read_text())
+            if inputs.get('format') != 1 or not inputs.get('source_files'):
+                raise RuntimeError('Rebuild the helper with source fingerprints before packaging.')
+            provenance['helper'] = inputs
             if not (helper / 'PaperclipLauncher').is_file():
                 raise RuntimeError('Missing frozen Linux launcher.')
             if any(p.is_symlink() and not p.resolve().is_relative_to(helper.resolve()) for p in helper.rglob('*')):
@@ -48,6 +58,7 @@ def build(binary, python, output, jam_python=None, helper=None):
         launcher.chmod(0o755)
         (package / 'PREVIEW.txt').write_text('Development preview: unsigned. '
             'Bundled Jam/Tor, signed installation and upgrades remain release gates.\n')
+        (package / 'build-info.json').write_text(json.dumps(provenance, indent=2, sort_keys=True) + '\n')
         package.rename(output)
     print('Built unsigned Linux development preview; signed installation remains required.')
 
