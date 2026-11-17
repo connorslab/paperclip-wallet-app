@@ -200,6 +200,13 @@ async fn root(state: &ServerState) -> anyhow::Result<PathBuf> {
 	let root = base.join(identity); private_dir(&root)?;
 	Ok(root)
 }
+/// A Lightning call can find a previously paid invoice or an existing send
+/// before this request's observer runs. Its missing marker is not evidence that
+/// the payment was never submitted. Keep it for exact-hash reconciliation.
+fn can_reject_unstarted(record: &Record) -> bool {
+	!record.initiated && record.operation != "lightning/pay"
+}
+
 fn needs_review(record: &Record) -> bool {
 	record.state == "unconfirmed" || (!record.acknowledged && matches!(record.state.as_str(), "received" | "recorded"))
 }
@@ -242,7 +249,7 @@ where F: FnOnce(Receipt) -> Fut, Fut: Future<Output = anyhow::Result<Value>> {
 	record = load(&file)?;
 	match result {
 		Ok(Ok(value)) => { record.state = "received".into(); record.result = Some(value); },
-		_ if !record.initiated => {
+		_ if can_reject_unstarted(&record) => {
 			record.state = "rejected".into();
 			record.result = Some(json!({"message":"This attempt did not submit a payment. Check the amount, available funds and connection, then review again."}));
 		},
@@ -299,9 +306,9 @@ async fn check(State(state): State<Arc<ServerState>>, Json(request): Json<Check>
 		let _file_lock = bark::lock_manager::platform_default(Some(&root), None)?;
 		let mut record = load_or_close_unused(&root, &request.id)?;
 		if record.state == "unconfirmed" {
-			if !record.initiated {
-				// The submission mutex excludes a still-running handler. Without the
-				// pre-submit marker, this operation never reached a spending checkpoint.
+			if can_reject_unstarted(&record) {
+				// The submission mutex excludes a still-running handler. These fresh
+				// operations cannot reach a spending checkpoint without the marker.
 				record.state = "rejected".into();
 				record.result = Some(json!({"message":"The interrupted request was not submitted. Review again when ready."}));
 			} else if let Some(id) = record.movement_id {
@@ -408,6 +415,32 @@ mod tests {
 		assert_eq!(result["state"], "rejected");
 		assert_eq!(once(dir.path(), &request(1), (None,None), |_| async { panic!("must not replay") }).await.unwrap(), result);
 		assert!(once(dir.path(), &request(2), (None,None), |_| async { Ok(json!({})) }).await.is_ok());
+	}
+
+	#[tokio::test]
+	async fn lightning_error_before_observer_is_not_proof_of_nonpayment() {
+		// BOLT11 has an initial exact hash; an offer may not have one yet. A
+		// resume can reject changed terms or an already paid invoice before
+		// the observer. Neither response may authorize a new payment.
+		for hash in [None, Some("ab".repeat(32))] {
+			let dir = tempfile::tempdir().unwrap();
+			let mut req = request(1); req.operation = "lightning/pay".into();
+			assert!(once(dir.path(), &req, (None, hash.clone()), |_| async {
+				anyhow::bail!("existing payment has different terms")
+			}).await.is_err());
+			let file = path(dir.path(), &req.id).unwrap();
+			let saved = load(&file).unwrap();
+			assert_eq!(saved.state, "unconfirmed");
+			assert!(!saved.initiated);
+			assert_eq!(saved.payment_hash, hash);
+			assert!(needs_review(&saved));
+			assert!(!can_reject_unstarted(&saved), "status checks must not clear this receipt after a restart");
+			for retry in [&req, &request(2)] {
+				assert!(once(dir.path(), retry, (None, None), |_| async {
+					panic!("an unresolved Lightning result must not allow another payment")
+				}).await.is_err());
+			}
+		}
 	}
 
 	#[tokio::test]

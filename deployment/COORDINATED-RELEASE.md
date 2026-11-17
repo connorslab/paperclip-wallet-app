@@ -2653,3 +2653,23 @@ tests on the unfunded API 35 emulator passed; the iOS bundle verifier passed.
 These tests do not establish live settlement. Linux CI now includes the mobile
 Rust suite and the direct-Ark boundary regression; current remote results remain
 pending. No funded device, production service or payment changed.
+
+## Lightning receipt recovery on shared hosts: 2026-11-17
+
+The shared desktop/StartOS/Umbrel submission wrapper already handles a fresh
+Ark rejection before submission. Its equivalent rule was too broad for Lightning:
+a resumed or previously paid invoice can fail before the current request's
+observer runs. The host could then label the payment unsent and unblock a new
+review. Lightning errors now remain unconfirmed until exact saved payment status
+resolves them, both immediately and when checking a receipt after restart.
+The original hash is retained; neither the original request nor a new send is
+executed while unresolved. Mobile already preserves this uncertainty.
+
+The regression fails with the original policy and passes with the fix, covering
+receipts with and without an initial invoice hash and rejection of replay/new
+requests. All 93 REST tests pass (one existing ignored test), along with repository
+checks. Existing core tests exercise changed terms before the observer while
+preserving the original checkpoint. These are offline checks, not live settlement.
+A Lightning error without an exact hash can still require manual recovery; typed
+proof of a fresh rejection and recovery of older receipts remain release work.
+Previously stored `rejected` receipts are not retroactively reclassified.
