@@ -44,6 +44,13 @@ class NativeBridgeTest {
         try {
             call("close")
             call("create", JSONObject().put("network", "xbt-regtest").put("directory", File(base, "first").absolutePath))
+            for (operation in listOf("send", "send_onchain")) {
+                // A consumed/missing quote cannot prove an earlier send failed.
+                assertThrows(IllegalStateException::class.java) {
+                    call(operation, JSONObject().put("destination", "unreviewed recipient")
+                        .put("amount_sat", 1000).put("total_sat", 1100))
+                }
+            }
             val address = call("address_onchain").getString("address")
             assertTrue(address.startsWith("bcrt1"))
             val backup = call("backup")

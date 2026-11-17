@@ -33,6 +33,16 @@ struct HardwareBoardRequest {
 	backend: Arc<bark::chain::ChainSource>,
 }
 
+// These checks have no spending side effects. A rejection here is safe to
+// report as not_sent; errors after signing/submission must remain uncertain.
+fn validate_send_review(request: &Value, review: Option<(&str, u64, u64, Instant)>) -> anyhow::Result<()> {
+	let (destination, amount, total, time) = review.context("Review a new quote before sending")?;
+	ensure!(time.elapsed() < Duration::from_secs(60), "Quote expired; review again");
+	ensure!(text(request, "destination")? == destination && request["amount_sat"].as_u64() == Some(amount)
+		&& request["total_sat"].as_u64() == Some(total), "Payment changed; review a new quote");
+	Ok(())
+}
+
 async fn prepare_payment(wallet: &mut OnchainWallet, address: bitcoin::Address, request: &Value, rate: bitcoin::FeeRate) -> anyhow::Result<(bitcoin::Psbt,u64)> {
 	if request["send_max"] == true {
 		ensure!(!wallet.inner.is_mine(address.script_pubkey()), "Send Max needs a destination outside this account");
@@ -112,6 +122,48 @@ fn arkoor_review_issue(issue: &bark::ArkoorAmountError, fixed_amount: bool) -> V
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn send_review_rejections_are_not_uncertain_submissions() {
+		let base = tempfile::tempdir().unwrap();
+		let seed = [21; 64];
+		let mut state = None;
+		dispatch(&mut state, json!({"op":"create", "network":"xbt-regtest", "directory":base.path().join("wallet")}), seed).unwrap();
+		let mut psbt = bitcoin::Psbt::from_unsigned_tx(bitcoin::Transaction {
+			version: bitcoin::transaction::Version::TWO, lock_time: bitcoin::absolute::LockTime::ZERO,
+			input: vec![bitcoin::TxIn::default()],
+			output: vec![bitcoin::TxOut { value: Amount::from_sat(1000), script_pubkey: bitcoin::ScriptBuf::new() }],
+		}).unwrap();
+		psbt.inputs[0].witness_utxo = Some(bitcoin::TxOut { value: Amount::from_sat(1100), script_pubkey: bitcoin::ScriptBuf::new() });
+		for op in ["send", "send_onchain"] {
+			let request = json!({"op":op, "destination":"reviewed recipient", "amount_sat":1000, "total_sat":1100});
+			assert!(dispatch(&mut state, request.clone(), seed).is_err(), "Missing approval may mean a previous reply was lost");
+			assert!(dispatch(&mut state, request.clone(), [22;64]).is_err(), "Key mismatch is not a payment receipt");
+			for field in ["expired", "destination", "amount_sat", "total_sat", "disconnected"] {
+				let time = Instant::now() - Duration::from_secs(if field == "expired" { 60 } else { 0 });
+				let session = state.as_mut().unwrap();
+				if op == "send" { session.quote = Some(("reviewed recipient".into(), 1000, 1100, time, None)); }
+				else { session.onchain_quote = Some(("reviewed recipient".into(), 1000, psbt.clone(), time)); }
+				let mut changed = request.clone();
+				match field {
+					"destination" => changed[field] = json!("another recipient"),
+					"amount_sat" | "total_sat" => changed[field] = json!(999),
+					_ => {},
+				}
+				let rejected = dispatch(&mut state, changed, seed).unwrap();
+				assert_eq!(rejected["state"], "not_sent", "{op}/{field}");
+				assert!(rejected.get("txid").is_none());
+				assert!(rejected.get("payment_hash").is_none());
+				let session = state.as_ref().unwrap();
+				assert!(if op == "send" { session.quote.is_none() } else { session.onchain_quote.is_none() });
+				// Rejection consumes the approval, never creates a reusable send.
+				assert!(dispatch(&mut state, request.clone(), seed).is_err());
+				assert_eq!(dispatch(&mut state, json!({"op":"overview_onchain"}), seed).unwrap()["total_sat"], 0);
+			}
+		}
+		assert!(validate_send_review(&json!({"destination":"recipient", "amount_sat":1, "total_sat":2}),
+			Some(("recipient", 1, 2, Instant::now()))).is_ok());
+	}
 
 	// Deterministic, unfunded fixtures with the same four-byte Ark fingerprint.
 	fn colliding_fixture_seeds() -> ([u8; 64], [u8; 64]) {
@@ -768,6 +820,26 @@ pub fn dispatch(state: &mut Option<Session>, request: Value, seed: [u8; 64]) -> 
 		if op.starts_with("coinjoin_") {
 			return crate::coinjoin::dispatch(dir, seed, network, wallet.as_ref(), ark_wallet.as_ref().or(wallet.as_ref()), &request).await;
 		}
+		if op == "send" || op == "send_onchain" {
+			// An absent quote could have been consumed by an earlier submission
+			// whose response was lost. Do not turn that ambiguity into not_sent.
+			ensure!(if op == "send" { quote.is_some() } else { onchain_quote.is_some() },
+				"No usable quote remains. Check any earlier payment before reviewing another send");
+			let preflight = (|| {
+				let review = if op == "send" {
+					quote.as_ref().map(|(destination, amount, total, time, _)| (destination.as_str(), *amount, *total, *time))
+				} else if let Some((destination, amount, psbt, time)) = onchain_quote.as_ref() {
+					Some((destination.as_str(), *amount, amount.checked_add(psbt.fee()?.to_sat()).context("Amount overflow")?, *time))
+				} else { None };
+				validate_send_review(&request, review)?;
+				wallet.as_ref().context("Connect to a backend and review again")?;
+				Ok::<_, anyhow::Error>(())
+			})();
+			if let Err(error) = preflight {
+				if op == "send" { *quote = None; } else { *onchain_quote = None; }
+				return Ok(json!({"state":"not_sent", "reason":error.to_string()}));
+			}
+		}
 		let chain_wallet = wallet.as_ref().context("connect to a backend first")?;
 		let w = if matches!(op, "chain_health" | "replacement_prepare" | "replacement_commit" | "sync_onchain" | "quote_onchain" | "send_onchain" | "activity" | "hardware_prepare" | "hardware_import" | "hardware_broadcast") {
 			chain_wallet
@@ -1120,13 +1192,12 @@ pub fn dispatch(state: &mut Option<Session>, request: Value, seed: [u8; 64]) -> 
 				Ok(json!({"amount_sat": amount, "fee_sat": fee, "total_sat": amount.checked_add(fee).context("amount overflow")?}))
 			},
 			"send_onchain" => {
-				let (destination, amount, psbt, time) = onchain_quote.take().context("review a new on-chain quote")?;
-				ensure!(time.elapsed() < Duration::from_secs(60), "quote expired");
-				ensure!(text(&request, "destination")? == destination && request["amount_sat"].as_u64() == Some(amount)
-					&& request["total_sat"].as_u64() == amount.checked_add(psbt.fee()?.to_sat()), "payment changed");
+				let (destination, amount, psbt, _) = onchain_quote.take().context("review a new on-chain quote")?;
 				let mut onchain = onchain.write().await;
 				let unspent: std::collections::HashSet<_> = onchain.list_unspent().iter().map(|u| u.outpoint).collect();
-				ensure!(psbt.unsigned_tx.input.iter().all(|input| unspent.contains(&input.previous_output)), "inputs changed; review a new quote");
+				if !psbt.unsigned_tx.input.iter().all(|input| unspent.contains(&input.previous_output)) {
+					return Ok(json!({"state":"not_sent", "reason":"Inputs changed; review a new quote"}));
+				}
 				let address = destination.parse::<bitcoin::Address<_>>()?.require_network(network)?;
 				let tx = onchain.finish_reviewed_send(psbt, &[(address, Amount::from_sat(amount))]).await?;
 				let txid = tx.compute_txid();
@@ -1167,10 +1238,7 @@ pub fn dispatch(state: &mut Option<Session>, request: Value, seed: [u8; 64]) -> 
 				Ok(json!({"amount_sat": estimate.net_amount.to_sat(), "total_sat": estimate.gross_amount.to_sat(), "fee_sat": estimate.fee.to_sat()}))
 			},
 			"send" => {
-				let (destination, amount, total, time, offboard_inputs) = quote.take().context("review a new quote before sending")?;
-				ensure!(time.elapsed() < Duration::from_secs(60), "quote expired");
-				ensure!(text(&request, "destination")? == destination && request["amount_sat"].as_u64() == Some(amount)
-					&& request["total_sat"].as_u64() == Some(total), "payment changed; review a new quote");
+				let (destination, amount, total, _, offboard_inputs) = quote.take().context("review a new quote before sending")?;
 				// Nothing has been submitted during this preflight. Return a distinct
 				// outcome so the UI can safely allow a new review after rejection.
 				let preflight = async {

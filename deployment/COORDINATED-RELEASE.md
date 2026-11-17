@@ -2199,3 +2199,34 @@ The portable app-recovery envelope described above remains an open release gate.
 It must bind native-wallet and remote-node records separately, preserve uncertain
 outcomes and references, and never restore a spending approval or replay a send.
 These validation checks do not establish complete cross-platform recovery.
+
+
+## Mobile send rejection versus uncertain submission: 2026-11-17
+
+An expired or changed Ark/on-chain quote previously surfaced as a generic
+send error. Android could persist an unknown outcome for a request that never
+reached signing or submission; iOS also told the user to check an uncertain
+payment. The shared mobile engine now returns `not_sent` for these side-effect-
+free review failures, a disconnected reviewed session, and an on-chain review
+whose inputs are no longer available. Rejection consumes the affected approval,
+so another send still requires a new review. Existing iOS and Android callers
+already handle `not_sent` separately from uncertain outcomes.
+
+A missing or consumed quote remains uncertain: an earlier submission may have
+consumed it and lost its reply. Seed/session authorization also remains outside
+the conversion. Errors at or after transaction signing, payment submission or
+broadcast retain their existing
+uncertain/pending behavior. This change does not retry anything, infer failure
+from a missing receiver record, or make an earlier uncertain attempt safe to send
+again. Persistent app-level warnings and portable recovery remain separate open
+gates; in particular iOS ordinary Send still keeps its submitted flag in view
+state and requires durable recovery work.
+
+Validation: the shared mobile Rust suite passed 32 tests with one existing
+ignored case. New unfunded dispatch cases cover expired/changed reviews, disconnected
+sessions and wrong-seed rejection, while keeping missing/consumed approvals
+uncertain. Rebuilt ARM64 libraries passed one isolated native iOS simulator
+bridge case and two Android API 35 JNI boundary/recovery cases, including the
+missing-review negative control. Native Xcode compilation, simulator bundle
+verification and just checks passed. No physical-device or live payment test was
+performed; no funded wallet or production service changed.
