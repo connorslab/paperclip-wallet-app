@@ -71,18 +71,23 @@ Keep keys, SDK installs and native build artifacts outside version control.
 
 ## Emulator and screenshots
 
-CI checks API 35 and 36 x86_64 emulators with hardware acceleration. The app targets API 36. Start from empty app
-storage, set dark mode, then run:
+CI checks API 35 and 36 x86_64 emulators with hardware acceleration. Build the
+preview and test APKs before starting a disposable emulator (choose its ABI):
 
 ```sh
-adb shell cmd uimode night yes
-for test in NativeBridgeTest WalletScreensTest; do
-  ./gradlew -Pabis=x86_64 \
-    "-Pandroid.testInstrumentationRunnerArguments.class=xyz.paperclip.wallet.$test" \
-    connectedDebugAndroidTest
-done
-adb pull /sdcard/Pictures/PaperclipPreview ./screenshots
+bash gradlew -Pabis=x86_64 assembleDebug assembleDebugAndroidTest
+PAPERCLIP_TEST_SERIAL=emulator-5554 bash scripts/test-emulator.sh
 ```
+
+The runner rejects physical-device serials, installs the APKs once and clears only
+the two preview packages' data between classes. It runs each class directly and
+verifies named test starts/completions, declared totals, class identity and a
+successful final instrumentation result. Zero, skipped-only, partial, crashed or
+failed runs cannot pass. Reports have a new directory per run under
+`app/build/reports/instrumentation`; screenshots remain under `screenshots`.
+The runner checks emulator ANR events before and after each class and saves failure
+logs and a screenshot. It never clears ANR history, dismisses dialogs or retries a
+failed class. These checks apply only to isolated synthetic test installations.
 
 The navigation test creates a disposable wallet through the real Rust engine and
 captures onboarding, wallet, send, receive QR, Lightning, activity, connections,

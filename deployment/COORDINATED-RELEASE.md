@@ -2713,3 +2713,31 @@ the native Apple host. Repository checks pass. The cases use synthetic records
 and never submit a payment. This verifies process-crash persistence, not storage
 power loss, physical iOS/Android termination or live settlement. Device and
 portable remote-node/Bridge recovery acceptance remain open.
+
+
+## Android emulator acceptance reliability: 2026-11-17
+
+Backend run `44116104738` passed at `9d0cae9`, including the forced-termination
+journal cases. Android run `44116105323` built both native architectures and the
+app formats, but both API 35/36 UI jobs failed nine Jars captures. Saved screenshots
+and visibility metadata identify a Quickstep ANR covering the app. Those failures
+remain recorded; they are not passing UI acceptance.
+
+The emulator runner now installs prebuilt APKs once and invokes each test class
+directly, clearing only preview-package data between classes. This removes repeated
+Gradle processes and package installation/removal from the UI run. It retains the
+same classes, ordering, synthetic data isolation and visibility assertions.
+A strict result parser checks class/name identity, start/finish pairing, totals,
+unique cases and final completion; partial, failed, crashed or skipped-only runs
+fail. Each run gets fresh reports. There are no automatic retries or dialog dismissal.
+
+ANR event checks before and after every class reject an unhealthy emulator even
+when semantic assertions pass. Failure artifacts include instrumentation output,
+ANR events, last-ANR details, memory information and a screenshot. An initial local
+run encountered a System UI startup ANR; its evidence is preserved. The new health
+check rejected that same boot before dispatching any instrumentation. After a fresh
+isolated boot with the build already complete, all 47 cases across 18 classes passed
+on API 35 ARM64, including the Jars visibility negative control. Nine Python runner
+checks and repository checks pass. This does not prove the root cause of the cloud
+Quickstep ANR or permanent emulator stability. New API 35/36 cloud acceptance remains
+pending; no production service or funded device was changed.
