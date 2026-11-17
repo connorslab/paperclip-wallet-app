@@ -81,7 +81,8 @@ def ancestors(path):
     handles = []
     try:
         for parent in reversed(path.parents):
-            handle = win32file.CreateFile(str(parent), win32con.READ_CONTROL | ntsecuritycon.FILE_READ_ATTRIBUTES,
+            # Metadata-only handles do not enforce Windows delete sharing.
+            handle = win32file.CreateFile(str(parent), win32con.READ_CONTROL | ntsecuritycon.FILE_READ_ATTRIBUTES | ntsecuritycon.FILE_LIST_DIRECTORY,
                 win32con.FILE_SHARE_READ | win32con.FILE_SHARE_WRITE, None, win32con.OPEN_EXISTING,
                 win32file.FILE_FLAG_OPEN_REPARSE_POINT | win32con.FILE_FLAG_BACKUP_SEMANTICS, None)
             handles.append(handle)

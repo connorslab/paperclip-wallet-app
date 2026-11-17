@@ -12,7 +12,7 @@ use windows_sys::Win32::{
 	Security::{Authorization::*, *},
 	Storage::FileSystem::*,
 	System::{SystemServices::ACCESS_ALLOWED_ACE_TYPE, Threading::{GetCurrentProcess, OpenProcessToken},
-		WindowsProgramming::{DRIVE_FIXED, DRIVE_REMOVABLE}},
+		WindowsProgramming::{DRIVE_FIXED, DRIVE_REMOVABLE, FILE_RENAME_FLAG_POSIX_SEMANTICS, FILE_RENAME_FLAG_REPLACE_IF_EXISTS}},
 };
 
 struct LocalMemory(*mut c_void);
@@ -118,21 +118,24 @@ fn private_handle(file: &File) -> anyhow::Result<()> {
 
 fn guarded_path(path: &Path) -> anyhow::Result<(PathBuf, Vec<File>)> {
 	ensure!(!path.components().any(|p| p == Component::ParentDir), "parent traversal is not supported");
-	let path = std::path::absolute(path)?;
-	ensure!(matches!(path.components().next(), Some(Component::Prefix(p)) if matches!(p.kind(), Prefix::Disk(_) | Prefix::VerbatimDisk(_))),
-		"private storage requires a local drive");
-	let root = path.ancestors().last().context("missing local drive")?;
-	let drive = unsafe { GetDriveTypeW(wide(root)?.as_ptr()) };
-	ensure!(drive == DRIVE_FIXED || drive == DRIVE_REMOVABLE, "private storage requires a local disk");
+	// Validate the caller's spelling before Windows absolute-path normalization
+	// can remove trailing spaces or dots and turn it into a different file name.
 	for part in path.components() {
 		if let Component::Normal(part) = part {
 			let text = part.to_string_lossy();
 			ensure!(!text.contains(':') && !text.ends_with(['.', ' ']), "ambiguous storage path");
 		}
 	}
+	let path = std::path::absolute(path)?;
+	ensure!(matches!(path.components().next(), Some(Component::Prefix(p)) if matches!(p.kind(), Prefix::Disk(_) | Prefix::VerbatimDisk(_))),
+		"private storage requires a local drive");
+	let root = path.ancestors().last().context("missing local drive")?;
+	let drive = unsafe { GetDriveTypeW(wide(root)?.as_ptr()) };
+	ensure!(drive == DRIVE_FIXED || drive == DRIVE_REMOVABLE, "private storage requires a local disk");
 	let mut handles = Vec::new();
 	for parent in path.ancestors().skip(1).collect::<Vec<_>>().into_iter().rev() {
-		let handle = open(parent, READ_CONTROL | FILE_READ_ATTRIBUTES, OPEN_EXISTING, null())?;
+		// Metadata-only access does not enforce Windows sharing restrictions.
+		let handle = open(parent, READ_CONTROL | FILE_READ_ATTRIBUTES | FILE_LIST_DIRECTORY, OPEN_EXISTING, null())?;
 		regular_handle(&handle)?;
 		handles.push(handle);
 	}
@@ -170,7 +173,7 @@ fn create(path: &Path) -> anyhow::Result<File> {
 	let sd = descriptor()?;
 	let attributes = SECURITY_ATTRIBUTES { nLength: std::mem::size_of::<SECURITY_ATTRIBUTES>() as u32,
 		lpSecurityDescriptor: sd.0, bInheritHandle: 0 };
-	let file = open(path, GENERIC_READ | GENERIC_WRITE | READ_CONTROL, CREATE_NEW, &attributes)?;
+	let file = open(path, GENERIC_READ | GENERIC_WRITE | READ_CONTROL | DELETE, CREATE_NEW, &attributes)?;
 	if let Err(error) = private_handle(&file) {
 		drop(file);
 		let _ = std::fs::remove_file(path);
@@ -199,15 +202,34 @@ pub fn write_atomic_owner_only(path: &Path, contents: &[u8]) -> anyhow::Result<(
 			Err(error) if error.downcast_ref::<std::io::Error>().is_some_and(|e| e.kind() == std::io::ErrorKind::AlreadyExists) => continue,
 			Err(error) => return Err(error),
 		};
-		let result = file.write_all(contents).and_then(|_| file.sync_all());
-		drop(file); // Windows rename must not retain our non-delete-sharing handle.
-		let result = result.map_err(anyhow::Error::from).and_then(|_| {
-			unsafe { check(MoveFileExW(wide(&temporary)?.as_ptr(), wide(&path)?.as_ptr(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) }
-		});
+		let result = (|| -> anyhow::Result<()> {
+			file.write_all(contents)?;
+			file.sync_all()?;
+			rename_private_file(&file, &path)?;
+			file.sync_all()?;
+			Ok(())
+		})();
+		drop(file);
 		if result.is_err() { let _ = std::fs::remove_file(&temporary); }
 		return result;
 	}
 	anyhow::bail!("failed to reserve a private temporary file")
+}
+
+fn rename_private_file(file: &File, destination: &Path) -> anyhow::Result<()> {
+	let name = wide(destination)?;
+	let bytes = std::mem::size_of::<FILE_RENAME_INFO>() + name.len() * 2;
+	// The variable-sized Win32 structure contains a HANDLE and must be aligned.
+	let mut storage = vec![0usize; bytes.div_ceil(std::mem::size_of::<usize>())];
+	let info = storage.as_mut_ptr().cast::<FILE_RENAME_INFO>();
+	unsafe {
+		// Windows 10+ POSIX replacement keeps existing readers on the old file.
+		// Rename the still-open private handle, never a reopened staging path.
+		(*info).Anonymous.Flags = FILE_RENAME_FLAG_REPLACE_IF_EXISTS | FILE_RENAME_FLAG_POSIX_SEMANTICS;
+		(*info).FileNameLength = ((name.len() - 1) * 2).try_into()?;
+		std::ptr::copy_nonoverlapping(name.as_ptr(), std::ptr::addr_of_mut!((*info).FileName).cast(), name.len());
+		check(SetFileInformationByHandle(file.as_raw_handle(), FileRenameInfoEx, info.cast(), bytes.try_into()?))
+	}
 }
 
 #[cfg(test)]
@@ -313,7 +335,8 @@ mod tests {
 	fn ambiguous_paths_are_rejected_without_creating_storage() {
 		let dir = tempfile::tempdir().unwrap();
 		for name in ["secret:stream", "secret.", "secret ", "..\\secret"] {
-			assert!(create_new_owner_only(&dir.path().join(name), b"synthetic").is_err());
+			let path = PathBuf::from(format!("{}\\{name}", dir.path().display()));
+			assert!(create_new_owner_only(&path, b"synthetic").is_err(), "accepted {name}");
 		}
 		assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0);
 	}

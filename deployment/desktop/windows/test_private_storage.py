@@ -11,7 +11,7 @@ import win32con
 import win32file
 import win32security
 
-from private_storage import UnsafeStorage, exclusive_file, private_directory, local_path, user_sid
+from private_storage import UnsafeStorage, exclusive_file, private_directory, local_path, user_sid, ancestors
 
 
 class PrivateStorage(unittest.TestCase):
@@ -52,6 +52,14 @@ class PrivateStorage(unittest.TestCase):
         os.link(path, self.root / 'alias.lock')
         with self.assertRaises(UnsafeStorage), exclusive_file(path):
             self.fail('A shared file must never acquire ownership')
+
+    def test_ancestor_handles_prevent_relocation(self):
+        destination = self.root.with_name('moved')
+        with ancestors(self.root / 'secret'):
+            with self.assertRaises(OSError):
+                self.root.rename(destination)
+        self.root.rename(destination)
+        destination.rename(self.root)
 
     def test_unrestricted_descriptor_is_rejected(self):
         win32security.SetNamedSecurityInfo(str(self.root), win32security.SE_FILE_OBJECT,
