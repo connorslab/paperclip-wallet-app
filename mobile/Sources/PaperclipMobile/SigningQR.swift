@@ -66,6 +66,7 @@ public enum SigningQR {
     }
     public static func binary(_ value: String) throws -> Data {
         let value = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty else { throw SigningQRError.invalid }
         guard value.utf8.count <= maximumBytes * 2 else { throw SigningQRError.tooLarge }
         if value.lowercased().hasPrefix("ur:") { throw SigningQRError.unsupported }
         if value.count % 2 == 0, value.utf8.allSatisfy({ (48...57).contains($0) || (65...70).contains($0) || (97...102).contains($0) }) {
@@ -84,11 +85,24 @@ public struct SigningQRCollector {
     private var ur: SigningURCollector?
     private var parts: [Int: String] = [:]
     private var size = 0
+    private var finished = false
+    private var publicWalletMode: Bool?
     public private(set) var total = 0
     public var received: Int { ur?.received ?? parts.count }
     public init() {}
     // The caller decides whether the completed bytes are a public wallet, PSBT, or transaction.
     public mutating func accept(_ frame: String, publicWallet: Bool = false) throws -> Data? {
+        guard !finished else { return nil }
+        guard publicWalletMode == nil || publicWalletMode == publicWallet else { throw SigningQRError.mixed }
+        publicWalletMode = publicWallet
+        let result = try collect(frame, publicWallet: publicWallet)
+        if let result {
+            guard !result.isEmpty, result.count <= SigningQR.maximumBytes else { throw SigningQRError.invalid }
+            finished = true
+        }
+        return result
+    }
+    private mutating func collect(_ frame: String, publicWallet: Bool) throws -> Data? {
         guard frame.utf8.count <= 4096 else { throw SigningQRError.tooLarge }
         if frame.lowercased().hasPrefix("ur:") {
             guard !publicWallet else { throw SigningQRError.unsupported }
@@ -102,6 +116,7 @@ public struct SigningQRCollector {
         let bytes = Array(frame.utf8)
         if frame.hasPrefix("B$") {
             guard bytes.count > 8, [72, 50, 90].contains(bytes[2]), (publicWallet ? [85, 74] : [80, 84]).contains(Int(bytes[3])),
+                  bytes[4..<8].allSatisfy({ (48...57).contains($0) || (65...90).contains($0) }),
                   let count = Int(String(decoding: bytes[4..<6], as: UTF8.self), radix: 36), count > 0, count <= 1295,
                   let index = Int(String(decoding: bytes[6..<8], as: UTF8.self), radix: 36), index >= 0, index < count else { throw SigningQRError.invalid }
             let header = String(decoding: bytes[0..<6], as: UTF8.self)

@@ -2,6 +2,8 @@ const {chromium}=require(process.env.PLAYWRIGHT_MODULE||'playwright');
 const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict');
 const fixtures=JSON.parse(fs.readFileSync(path.join(__dirname,'../mobile/Tests/PaperclipMobileTests/Fixtures/krux.json')));
 const urFixtures=JSON.parse(fs.readFileSync(path.join(__dirname,'../mobile/Tests/PaperclipMobileTests/Fixtures/seedsigner.json')));
+const jarFixtures=['krux-jam','seedsigner-jam'].flatMap(name=>JSON.parse(fs.readFileSync(path.join(__dirname,`../mobile/Tests/PaperclipMobileTests/Fixtures/${name}.json`))));
+const qrParity=JSON.parse(fs.readFileSync(path.join(__dirname,'../mobile/Tests/PaperclipMobileTests/Fixtures/signing-qr-parity.json')));
 (async()=>{
  const browser=await chromium.launch({headless:true,...(process.env.BROWSER_CHANNEL?{channel:process.env.BROWSER_CHANNEL}:{})});
  try{
@@ -40,16 +42,20 @@ const urFixtures=JSON.parse(fs.readFileSync(path.join(__dirname,'../mobile/Tests
    await page.goto('http://wallet.test/');
    assert.equal(await page.locator('#wallet #cold-send').count(),1,'Cold-wallet controls must be inside the authenticated container');
    if(width===390){
-    const result=await page.evaluate(async({fixtures,urFixtures})=>{
+    const result=await page.evaluate(async({fixtures,urFixtures,jarFixtures,qrParity})=>{
      const {Collector,frames,binary,toBase64}=PaperclipSigningQR;let checked=0;
-     for(const fixture of fixtures){const parts=frames(binary(fixture.signed)),collector=new Collector();let result=null;for(const frame of parts.reverse()){const next=await collector.accept(frame);if(next)result=next;}if(toBase64(result)!==fixture.signed)throw Error('BBQr mismatch');checked++;}
+     for(const fixture of [...fixtures,...jarFixtures]){const parts=frames(binary(fixture.signed)),collector=new Collector();let result=null;for(const frame of parts.reverse()){const next=await collector.accept(frame);if(next)result=next;}if(toBase64(result)!==fixture.signed)throw Error('BBQr mismatch');if(await collector.accept(parts[0])!==null)throw Error('Duplicate completed transfer');checked++;}
      for(const fixture of urFixtures){const collector=new Collector();let result=null;for(const frame of fixture.ur){const next=await collector.accept(frame);if(next)result=next;if(result)break;}if(!result||toBase64(result)!==fixture.signed)throw Error('UR mismatch');checked++;}
      let rejected=0;for(const value of ['ur:crypto-account/abcd','B$2P0000AAAA','B$2P0100A','B$2P0100AAAAAAAA!']){try{await new Collector().accept(value);}catch{rejected++;}}
      const mixed=new Collector();await mixed.accept('B$2P0200AAAAAAAA');try{await mixed.accept('B$2P0301AAAAAAAA');}catch{rejected++;}
      try{await new Collector().accept(Array(12).fill('synthetic').join(' '),true);}catch{rejected++;}
+     for(const item of qrParity){const collector=new Collector();let result=null,accepted=true;try{for(const frame of item.frames){const next=await collector.accept(frame);if(next)result=next;}}catch{accepted=false;}
+      if(accepted!==item.valid||(accepted&&toBase64(result)!==item.decoded))throw Error('QR parity: '+item.name);
+      if(accepted&&await collector.accept('B$HP010070736274FF')!==null)throw Error('Repeated transfer');}
+     const switched=new Collector();await switched.accept('p1of2 public',true);let mixedMode=false;try{await switched.accept('p2of2 account',false);}catch{mixedMode=true;}if(!mixedMode)throw Error('Changed scanner mode');
      return {checked,rejected};
-    },{fixtures,urFixtures});
-    assert.deepEqual(result,{checked:8,rejected:6});
+    },{fixtures,urFixtures,jarFixtures,qrParity});
+    assert.deepEqual(result,{checked:22,rejected:6});
    }
    await page.locator('#token').fill('synthetic-token');await page.getByRole('button',{name:'Unlock wallet',exact:true}).click();await page.locator('#wallet').waitFor({state:'visible'});
    await page.waitForFunction(()=>document.querySelector('#wallet-select').options.length===3);

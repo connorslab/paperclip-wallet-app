@@ -63,7 +63,10 @@ internal object SigningQr {
 		val bytes =
 			if (s.length % 2 == 0 && s.matches(Regex("[0-9a-fA-F]+")))
 				s.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
-			else Base64.getDecoder().decode(s)
+			else {
+				require(s.matches(Regex("(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?")))
+				Base64.getDecoder().decode(s)
+			}
 		require(bytes.isNotEmpty() && bytes.size <= MAX)
 		return bytes
 	}
@@ -86,6 +89,8 @@ internal class SigningQrCollector {
 	private var identity: String? = null
 	private val parts = mutableMapOf<Int, String>()
 	private var size = 0
+	private var finished = false
+	private var publicWalletMode: Boolean? = null
 	private var decoder: URDecoder? = null
 	private val seen = mutableSetOf<String>()
 	var total = 0
@@ -95,7 +100,17 @@ internal class SigningQrCollector {
 		get() = decoder?.receivedPartIndexes?.size ?: parts.size
 
 	fun accept(frame: String, publicWallet: Boolean = false): ByteArray? {
-		require(frame.length <= 4096) { "QR frame too large" }
+		if (finished) return null
+		require(publicWalletMode == null || publicWalletMode == publicWallet) { "Mixed QR requests" }
+		publicWalletMode = publicWallet
+		return collect(frame, publicWallet)?.also {
+			require(it.isNotEmpty() && it.size <= SigningQr.MAX)
+			finished = true
+		}
+	}
+
+	private fun collect(frame: String, publicWallet: Boolean): ByteArray? {
+		require(frame.length <= 4096 && frame.toByteArray(Charsets.UTF_8).size <= 4096) { "QR frame too large" }
 		if (frame.lowercase().startsWith("ur:")) {
 			require(!publicWallet && parts.isEmpty()) { "Unsupported or mixed QR request" }
 			return ur(frame)
@@ -104,6 +119,7 @@ internal class SigningQrCollector {
 		if (frame.startsWith("B\$")) {
 			require(
 				frame.length > 8 &&
+					frame.substring(4, 8).matches(Regex("[0-9A-Z]{4}")) &&
 					frame[2] in "H2Z" &&
 					frame[3] in if (publicWallet) "UJ" else "PT",
 			)
@@ -113,10 +129,11 @@ internal class SigningQrCollector {
 			insert(frame.substring(8), index, count, frame.take(6))
 			if (parts.size != total) return null
 			val out = ByteArrayOutputStream()
-			for (i in 0 until total) out.write(
-				if (frame[2] == 'H') SigningQr.binary(parts.getValue(i))
-				else SigningQr.decode32(parts.getValue(i)),
-			)
+			for (i in 0 until total) {
+				val part = parts.getValue(i)
+				if (frame[2] == 'H') require(part.matches(Regex("(?:[0-9A-F]{2})+"))) { "Invalid hexadecimal BBQr frame" }
+				out.write(if (frame[2] == 'H') SigningQr.binary(part) else SigningQr.decode32(part))
+			}
 			val raw = out.toByteArray()
 			val result = if (frame[2] == 'Z') SigningQr.inflate(raw) else raw
 			require(result.size <= SigningQr.MAX)

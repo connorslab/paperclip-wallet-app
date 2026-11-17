@@ -1827,3 +1827,29 @@ the app thread was idle and no app exit was recorded. This does not establish
 current Android 16 acceptance; a complete clean run is still required.
 After rebooting only the isolated local emulator, all nine Jars tests passed
 again with the active-window capture guard. The clean bond review was inspected.
+
+### QR signer consistency across clients
+
+The iOS, Android and shared desktop collectors now deliver a completed scan only
+once and bind a scan to either public-account import or signed-transaction input.
+Switching that purpose requires a fresh collector. All three reject malformed
+BBQr headers, base64 disguised as hexadecimal, lowercase hexadecimal and partial
+hexadecimal bytes. Desktop decodes each BBQr fragment at its byte boundary, as
+the native clients do, and applies the same 4096-byte frame limit. Empty binary
+input is rejected on iOS as well. These checks do not replace PSBT validation.
+
+Fourteen shared transport fixtures exercise valid, compressed, mixed, malformed
+and conflicting inputs. The source-generated Krux and SeedSigner vectors now
+also exercise each client's transport for all five Jars paths and bond funding.
+The shared Rust verifier continues to enforce the reviewed transaction, change
+and unified signatures. Physical camera/signing acceptance and hardware bond
+withdrawal remain open; a supported QR encoding alone does not establish signer
+support for a bond script. Jam's server wallet and a selected Krux wallet retain
+separate keys, balances and authorization.
+
+Validation passes: 121 Swift tests plus the final eight QR cases after adding the
+unpadded-base64 rejection; 98 Android JVM tests with four live cases skipped;
+seven shared Rust signer checks; and the hardware browser suite at 390/840/1280px.
+The browser suite includes 22 source-generated signer/transport vectors and the
+shared malformed-input cases. This pass made no physical-device or live-payment
+claim. `just checks` also passes.

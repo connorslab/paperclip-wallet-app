@@ -1,0 +1,118 @@
+[
+  {
+    "name": "uppercase hex",
+    "frames": [
+      "B$HP010070736274FF"
+    ],
+    "valid": true,
+    "decoded": "cHNidP8="
+  },
+  {
+    "name": "base32",
+    "frames": [
+      "B$2P0100OBZWE5H7"
+    ],
+    "valid": true,
+    "decoded": "cHNidP8="
+  },
+  {
+    "name": "out-of-order hex",
+    "frames": [
+      "B$HP020174FF",
+      "B$HP0200707362"
+    ],
+    "valid": true,
+    "decoded": "cHNidP8="
+  },
+  {
+    "name": "compressed BBQr",
+    "frames": [
+      "B$ZP0100FMUE4KXZL6IFREC2SSOJGWJQZIMGLDBSA2CACAA"
+    ],
+    "valid": true,
+    "decoded": "cHNidP9wYXBlcmNsaXBwYXBlcmNsaXBwYXBlcmNsaXBwYXBlcmNsaXBwYXBlcmNsaXBwYXBlcmNsaXBwYXBlcmNsaXBwYXBlcmNsaXBwYXBlcmNsaXBwYXBlcmNsaXBwYXBlcmNsaXBwYXBlcmNsaXBwYXBlcmNsaXBwYXBlcmNsaXBwYXBlcmNsaXBwYXBlcmNsaXBwYXBlcmNsaXBwYXBlcmNsaXBwYXBlcmNsaXBwYXBlcmNsaXBwYXBlcmNsaXBwYXBlcmNsaXBwYXBlcmNsaXBwYXBlcmNsaXBwYXBlcmNsaXBwYXBlcmNsaXBwYXBlcmNsaXBwYXBlcmNsaXBwYXBlcmNsaXBwYXBlcmNsaXBwYXBlcmNsaXBwYXBlcmNsaXBwYXBlcmNsaXBwYXBlcmNsaXBwYXBlcmNsaXBwYXBlcmNsaXBwYXBlcmNsaXBwYXBlcmNsaXBwYXBlcmNsaXBwYXBlcmNsaXBwYXBlcmNsaXBwYXBlcmNsaXBwYXBlcmNsaXBwYXBlcmNsaXBwYXBlcmNsaXBwYXBlcmNsaXBwYXBlcmNsaXBwYXBlcmNsaXBwYXBlcmNsaXBwYXBlcmNsaXBwYXBlcmNsaXBwYXBlcmNsaXBwYXBlcmNsaXBwYXBlcmNsaXBwYXBlcmNsaXBwYXBlcmNsaXBwYXBlcmNsaXBwYXBlcmNsaXBwYXBlcmNsaXBwYXBlcmNsaXBwYXBlcmNsaXBwYXBlcmNsaXBwYXBlcmNsaXBwYXBlcmNsaXBwYXBlcmNsaXBwYXBlcmNsaXBwYXBlcmNsaXBwYXBlcmNsaXBwYXBlcmNsaXBwYXBlcmNsaXBwYXBlcmNsaXBwYXBlcmNsaXBwYXBlcmNsaXBwYXBlcmNsaXBwYXBlcmNsaXBwYXBlcmNsaXBwYXBlcmNsaXBwYXBlcmNsaXBwYXBlcmNsaXBwYXBlcmNsaXBwYXBlcmNsaXBwYXBlcmNsaXBwYXBlcmNsaXBwYXBlcmNsaXBwYXBlcmNsaXBwYXBlcmNsaXBwYXBlcmNsaXBwYXBlcmNsaXBwYXBlcmNsaXBwYXBlcmNsaXBwYXBlcmNsaXBwYXBlcmNsaXBwYXBlcmNsaXBwYXBlcmNsaXBwYXBlcmNsaXBwYXBlcmNsaXBwYXBlcmNsaXBwYXBlcmNsaXBwYXBlcmNsaXBwYXBlcmNsaXA="
+  },
+  {
+    "name": "empty",
+    "frames": [
+      ""
+    ],
+    "valid": false,
+    "decoded": null
+  },
+  {
+    "name": "base64 disguised as hex",
+    "frames": [
+      "B$HP0100cHNidP8="
+    ],
+    "valid": false,
+    "decoded": null
+  },
+  {
+    "name": "lowercase hex",
+    "frames": [
+      "B$HP010070736274ff"
+    ],
+    "valid": false,
+    "decoded": null
+  },
+  {
+    "name": "signed count",
+    "frames": [
+      "B$HP+10070"
+    ],
+    "valid": false,
+    "decoded": null
+  },
+  {
+    "name": "negative index",
+    "frames": [
+      "B$HP01-170"
+    ],
+    "valid": false,
+    "decoded": null
+  },
+  {
+    "name": "odd hex fragments",
+    "frames": [
+      "B$HP0200707",
+      "B$HP020136274FF"
+    ],
+    "valid": false,
+    "decoded": null
+  },
+  {
+    "name": "nonzero base32 padding",
+    "frames": [
+      "B$2P0100AB"
+    ],
+    "valid": false,
+    "decoded": null
+  },
+  {
+    "name": "conflicting duplicate",
+    "frames": [
+      "B$2P0200MFRGGZDF",
+      "B$2P0200NFRGGZDF"
+    ],
+    "valid": false,
+    "decoded": null
+  },
+  {
+    "name": "mixed format",
+    "frames": [
+      "B$2P0200MFRGGZDF",
+      "p2of2 cHNidP8="
+    ],
+    "valid": false,
+    "decoded": null
+  },
+  {
+    "name": "unpadded base64",
+    "frames": [
+      "cHNidP8"
+    ],
+    "valid": false,
+    "decoded": null
+  }
+]

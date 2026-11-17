@@ -50,7 +50,8 @@
     constructor(){this.identity=null;this.parts=new Map();this.seen=new Set();this.total=0;this.received=0;this.size=0;this.ur=new PaperclipQRVendor.URDecoder();this.finished=false;}
     async accept(raw, publicKey=false) {
       if(this.finished)return null;
-      if(typeof raw!=='string'||raw.length>MAX*2)fail();const text=raw.trim();let output;
+      if(this.publicWalletMode!==undefined&&this.publicWalletMode!==publicKey)fail('Mixed QR requests. Reset the scanner.');this.publicWalletMode=publicKey;
+      if(typeof raw!=='string'||new TextEncoder().encode(raw).length>4096)fail();const text=raw.trim();let output;
       if(text.toLowerCase().startsWith('ur:')) {
         const fields=text.toLowerCase().split('/');
         if(publicKey||fields[0]!=='ur:crypto-psbt'||![2,3].includes(fields.length)||text.length>8192)fail('Export the public account as plain QR or BBQr. Signed PSBT URs are supported.');
@@ -67,12 +68,13 @@
         if(!this.ur.receivePart(normalized))fail();this.received=this.ur.receivedPartIndexes().length;
         if(!this.ur.isComplete())return null;if(!this.ur.isSuccess())fail();output=cbor(this.ur.resultUR().cbor,false);
       } else if(text.startsWith('B$')) {
-        if(text.length<9||text.length>2056||!['H','2','Z'].includes(text[2])||!(publicKey?['U','J']:['P','T']).includes(text[3])||!/^[0-9A-Z]{4}$/.test(text.slice(4,8)))fail();
+        if(text.length<9||!['H','2','Z'].includes(text[2])||!(publicKey?['U','J']:['P','T']).includes(text[3])||!/^[0-9A-Z]{4}$/.test(text.slice(4,8)))fail();
         const count=parseInt(text.slice(4,6),36),index=parseInt(text.slice(6,8),36),identity=text.slice(0,6),part=text.slice(8);
         if(!count||count>1295||index>=count)fail();if(this.identity&&this.identity!==identity)fail('Mixed QR requests. Reset the scanner.');this.identity=identity;this.total=count;
         if(this.parts.has(index)){if(this.parts.get(index)!==part)fail('Conflicting QR frames.');return null;}
         this.size+=part.length;if(this.size>MAX*2)fail();this.parts.set(index,part);this.received=this.parts.size;if(this.received!==count)return null;
-        const joined=Array.from({length:count},(_,i)=>this.parts.get(i)).join('');output=text[2]==='H'?binary(joined):decode32(joined);if(text[2]==='Z')output=await inflate(output);
+        const decoded=Array.from({length:count},(_,i)=>{const part=this.parts.get(i);if(text[2]==='H'&&!/^(?:[0-9A-F]{2})+$/.test(part))fail();return text[2]==='H'?binary(part):decode32(part);});
+        output=new Uint8Array(decoded.reduce((n,part)=>n+part.length,0));let offset=0;for(const part of decoded){output.set(part,offset);offset+=part.length;}if(text[2]==='Z')output=await inflate(output);
       } else if(/^p\d+of\d+ /i.test(text)) {
         const match=/^p(\d+)of(\d+) (.+)$/i.exec(text);if(!match)fail();const index=Number(match[1]),count=Number(match[2]),identity='parts:'+count;
         if(!count||count>1295||index<1||index>count||match[3].length>2048)fail();if(this.identity&&this.identity!==identity)fail();this.identity=identity;this.total=count;

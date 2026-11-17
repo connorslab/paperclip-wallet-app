@@ -3,6 +3,37 @@ import URKit
 @testable import PaperclipMobile
 
 final class SigningQRTests: XCTestCase {
+    func testSharedQrAcceptanceAndCompletedTransferIsOneShot() throws {
+        let url = Bundle.module.url(forResource: "signing-qr-parity", withExtension: "json", subdirectory: "Fixtures")!
+        let cases = try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as! [[String: Any]]
+        for item in cases {
+            var collector = SigningQRCollector()
+            do {
+                var result: Data?
+                for frame in item["frames"] as! [String] { if let next = try collector.accept(frame) { result = next } }
+                XCTAssertEqual(item["valid"] as? Bool, true, item["name"] as! String)
+                XCTAssertEqual(result?.base64EncodedString(), item["decoded"] as? String, item["name"] as! String)
+                XCTAssertNil(try collector.accept("B$HP010070736274FF"), "Completed scanner cannot deliver a second request")
+            } catch { XCTAssertEqual(item["valid"] as? Bool, false, item["name"] as! String) }
+        }
+        var switched = SigningQRCollector()
+        XCTAssertNil(try switched.accept("p1of2 public", publicWallet: true))
+        XCTAssertThrowsError(try switched.accept("p2of2 account", publicWallet: false))
+        XCTAssertThrowsError(try SigningQR.binary(""))
+    }
+    func testKruxAndSeedSignerWalletAndJarTransfers() throws {
+        for name in ["krux", "seedsigner", "krux-jam", "seedsigner-jam"] {
+            let url = Bundle.module.url(forResource: name, withExtension: "json", subdirectory: "Fixtures")!
+            for item in try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as! [[String: Any]] {
+                let signed = Data(base64Encoded: item["signed"] as! String)!
+                var collector = SigningQRCollector(), result: Data?
+                let frames = try SigningQR.frames(signed)
+                for frame in frames.reversed() { if let next = try collector.accept(frame) { result = next } }
+                XCTAssertEqual(result, signed, name)
+                XCTAssertNil(try collector.accept(frames[0]))
+            }
+        }
+    }
     func testSeedSignerAnimatedReturns() throws {
         let url = Bundle.module.url(forResource: "seedsigner", withExtension: "json", subdirectory: "Fixtures")!
         let fixtures = try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as! [[String: Any]]
