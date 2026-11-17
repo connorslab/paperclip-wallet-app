@@ -3956,6 +3956,65 @@
         }
       }
     },
+    "/api/v1/withdrawals/commit": {
+      "post": {
+        "tags": [
+          "withdrawals"
+        ],
+        "description": "Consume a review once after checking wallet identity, expiry, exact inputs, recipient and costs. Browser clients use the durable submissions endpoint. After an uncertain response, check the saved submission; do not repeat with a new review.",
+        "operationId": "commit",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WithdrawalApproval"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Withdrawal submitted; confirmation is still pending",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/withdrawals/prepare": {
+      "post": {
+        "tags": [
+          "withdrawals"
+        ],
+        "operationId": "prepare",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WithdrawalPrepare"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "A 60-second withdrawal review; no funds are committed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WithdrawalReview"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/ping": {
       "get": {
         "tags": [],
@@ -8864,6 +8923,72 @@
           }
         ],
         "description": "A VTXO together with its current wallet state."
+      },
+      "WithdrawalApproval": {
+        "type": "object",
+        "required": [
+          "request_id",
+          "net_sat",
+          "total_sat"
+        ],
+        "properties": {
+          "net_sat": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "request_id": {
+            "type": "string"
+          },
+          "total_sat": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "WithdrawalPrepare": {
+        "type": "object",
+        "additionalProperties": false
+      },
+      "WithdrawalReview": {
+        "type": "object",
+        "required": [
+          "request_id",
+          "destination",
+          "net_sat",
+          "fee_sat",
+          "total_sat",
+          "input_count"
+        ],
+        "properties": {
+          "destination": {
+            "type": "string"
+          },
+          "fee_sat": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "input_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "net_sat": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "request_id": {
+            "type": "string"
+          },
+          "total_sat": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
       }
     },
     "securitySchemes": {
@@ -8884,6 +9009,10 @@
     {
       "name": "boards",
       "description": "Move on-chain bitcoin onto the Ark protocol."
+    },
+    {
+      "name": "withdrawals",
+      "description": "Review Ark withdrawals before committing funds."
     },
     {
       "name": "exits",

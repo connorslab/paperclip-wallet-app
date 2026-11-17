@@ -16,13 +16,34 @@ window.PaperclipReview = (() => {
   approve.onclick = () => finish(true);
   dialog.addEventListener('cancel', event => { event.preventDefault(); finish(false); });
   dialog.addEventListener('close', () => { if (pending) finish(false); });
-  return { ask(message) {
+  function open(content, heading = 'Review and confirm') {
     if (pending) return Promise.resolve(false);
     const session = token;
-    text.textContent = message;
+    title.textContent = heading; text.replaceChildren(content);
     return new Promise(resolve => {
       pending = value => resolve(value && session === token && !!token);
       dialog.showModal(); cancel.focus();
     });
-  }, cancel: () => finish(false) };
+  }
+  function element(tag, value, className) {
+    const node = document.createElement(tag); node.textContent = value;
+    if (className) node.className = className;
+    return node;
+  }
+  return { ask: message => open(document.createTextNode(message)),
+    withdrawal(quote) {
+      const content = element('div', '', 'withdrawal-review');
+      const amount = element('div', '', 'withdrawal-review-amount');
+      amount.append(element('span', 'You receive'), element('strong', quote.net_sat.toLocaleString() + ' sats'));
+      const details = element('dl', '');
+      for (const [label, value] of [['Withdrawal fee', quote.fee_sat.toLocaleString() + ' sats'],
+          ['Total Ark debit', quote.total_sat.toLocaleString() + ' sats'], ['Selected Ark inputs', String(quote.input_count)]]) {
+        const row = element('div', ''); row.append(element('dt', label), element('dd', value)); details.append(row);
+      }
+      const destination = element('div', '', 'withdrawal-review-destination');
+      destination.append(element('span', 'To your on-chain wallet'), element('code', quote.destination));
+      content.append(element('p', 'Ark → On-chain', 'withdrawal-review-route'), amount, details, destination,
+        element('p', 'Review valid for 60 seconds. Your withdrawal needs on-chain confirmation.', 'withdrawal-review-note'));
+      return open(content, 'Review withdrawal');
+    }, cancel: () => finish(false) };
 })();

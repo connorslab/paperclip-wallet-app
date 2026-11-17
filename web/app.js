@@ -293,7 +293,7 @@ $('refresh').onclick = event => run(event.target, async () => {
 
 // Persisted on the server so closing a tab cannot erase an uncertain payment.
 const journalOperations = new Set(['wallet/send','lightning/pay','onchain/send/commit',
-  'onchain/replacement/commit','boards/commit','wallet/offboard/all','wallet/refresh/all',
+  'onchain/replacement/commit','boards/commit','withdrawals/commit','wallet/offboard/all','wallet/refresh/all',
   'exits/start/all','exits/progress','exits/claim/all']);
 function submissionWarning(uncertain) {
   uncertainMutation = uncertain; sessionWrite('paperclip.uncertain', uncertain ? '1' : null);
@@ -553,8 +553,22 @@ $('board').onsubmit = event => { event.preventDefault(); run(event.submitter, as
   await update(); status('Boarding submitted. Wait for confirmations; do not submit again.');
 }); };
 $('withdraw').onclick = event => run(event.target, async () => {
-  if (!await PaperclipReview.ask('Withdraw all Ark funds to your on-chain wallet? Fees apply.')) return;
-  await mutate('wallet/offboard/all', {}); await update(); status('Withdrawal submitted.');
+  const context = walletContext();
+  const quote = await api('withdrawals/prepare', {});
+  const unchanged = () => currentWallet(context) && token && !$('wallet').hidden;
+  if (!unchanged()) return;
+  if (!quote || !/^[0-9a-f]{64}$/.test(quote.request_id) || typeof quote.destination !== 'string' ||
+      !quote.destination || quote.destination.length > 128 ||
+      ['net_sat','fee_sat','total_sat','input_count'].some(key => !Number.isSafeInteger(quote[key]) || quote[key] < 0) ||
+      quote.net_sat <= 0 || quote.input_count <= 0 || quote.net_sat + quote.fee_sat !== quote.total_sat) {
+    throw new Error('Could not verify the withdrawal amount and fees. Nothing was submitted.');
+  }
+  if (!await PaperclipReview.withdrawal(quote)) return;
+  if (!unchanged()) throw new Error('Wallet changed. Review the withdrawal again.');
+  const result = await mutate('withdrawals/commit', {request_id:quote.request_id, net_sat:quote.net_sat, total_sat:quote.total_sat});
+  if (!unchanged()) return;
+  transactionResult('pending', 'Withdrawal submitted', 'Waiting for on-chain confirmation. Check Activity before trying again.', result.txid || '');
+  await update(); status('Withdrawal submitted. Waiting for on-chain confirmation.');
 });
 $('exit-start').onclick = event => run(event.target, async () => {
   if (!await PaperclipReview.ask('Start emergency recovery of all Ark funds? This requires on-chain fees and a timelock. Continue only after backing up your complete wallet.')) return;

@@ -121,6 +121,8 @@ Class | Method | HTTP request | Description
 *WalletApi* | [**vtxos**](docs/WalletApi.md#vtxos) | **GET** /api/v1/wallet/vtxos | List VTXOs
 *WalletApi* | [**wallet_delete**](docs/WalletApi.md#wallet_delete) | **DELETE** /api/v1/wallet | Delete the wallet
 *WalletApi* | [**wallet_exists**](docs/WalletApi.md#wallet_exists) | **GET** /api/v1/wallet |
+*WithdrawalsApi* | [**commit**](docs/WithdrawalsApi.md#commit) | **POST** /api/v1/withdrawals/commit |
+*WithdrawalsApi* | [**prepare**](docs/WithdrawalsApi.md#prepare) | **POST** /api/v1/withdrawals/prepare |
 
 
 ## Documentation For Models
@@ -349,6 +351,8 @@ Class | Method | HTTP request | Description
  - [WalletNotificationOneOf2](docs/WalletNotificationOneOf2.md)
  - [WalletTxInfo](docs/WalletTxInfo.md)
  - [WalletVtxoInfo](docs/WalletVtxoInfo.md)
+ - [WithdrawalApproval](docs/WithdrawalApproval.md)
+ - [WithdrawalReview](docs/WithdrawalReview.md)
 
 
 To get access to the crate's generated documentation, use:

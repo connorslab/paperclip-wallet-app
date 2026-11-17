@@ -122,5 +122,6 @@ pub mod message_api;
 pub mod notifications_api;
 pub mod onchain_api;
 pub mod wallet_api;
+pub mod withdrawals_api;
 
 pub mod configuration;

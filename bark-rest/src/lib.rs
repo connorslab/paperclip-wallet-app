@@ -72,6 +72,7 @@ All endpoints return JSON. Amounts are denominated in satoshis.";
 	),
 	nest(
 		(path = "/api/v1/boards", api = api::v1::boards::BoardsApiDoc),
+		(path = "/api/v1/withdrawals", api = api::v1::withdrawals::WithdrawalsApiDoc),
 		(path = "/api/v1/exits", api = api::v1::exits::ExitsApiDoc),
 		(path = "/api/v1/fees", api = api::v1::fees::FeesApiDoc),
 		(path = "/api/v1/history", api = api::v1::history::HistoryApiDoc),
@@ -186,6 +187,7 @@ impl std::ops::Deref for ServerWallet {
 pub struct ServerState {
 	#[cfg(feature = "web-ui")]
 	pub(crate) jam_pairings: tokio::sync::Mutex<()>,
+	pub(crate) withdrawal_review: tokio::sync::Mutex<Option<api::v1::withdrawals::PreparedWithdrawal>>,
 	pub(crate) board_review: tokio::sync::Mutex<Option<api::v1::boards::PreparedBoard>>,
 	pub(crate) send_review: tokio::sync::Mutex<Option<api::v1::onchain::PreparedSend>>,
 	pub(crate) replacement: tokio::sync::Mutex<Option<(Arc<tokio::sync::RwLock<dyn OnchainWalletTrait>>, bark::onchain::replacement::PreparedReplacement)>>,
@@ -302,6 +304,7 @@ impl ServerStateBuilder {
 			jam_pairings: tokio::sync::Mutex::new(()),
 			replacement: tokio::sync::Mutex::new(None),
 			board_review: tokio::sync::Mutex::new(None),
+			withdrawal_review: tokio::sync::Mutex::new(None),
 			send_review: tokio::sync::Mutex::new(None),
 			#[cfg(feature = "web-ui")]
 			hardware: tokio::sync::Mutex::new(Default::default()),

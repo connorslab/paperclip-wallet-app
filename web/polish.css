@@ -346,3 +346,14 @@ button,a,summary {touch-action:manipulation}
 #jam-send-dialog input[type=checkbox]{width:22px;height:22px;accent-color:var(--orange);flex-shrink:0}
 #jam-send-destination{font-size:13px;overflow-wrap:anywhere}
 #jam-send-commit,#jam-send-prepare,#jam-send-activity{width:100%;min-height:48px}
+.withdrawal-review{display:grid;gap:18px;white-space:normal;line-height:1.5}
+.withdrawal-review p,.withdrawal-review dl,.withdrawal-review dd{margin:0}
+.withdrawal-review-route{color:var(--orange);font-weight:600;font-size:12px;letter-spacing:.04em}
+.withdrawal-review-amount{display:grid;gap:4px}
+.withdrawal-review-amount strong{font-size:clamp(28px,5vw,40px);line-height:1.2;letter-spacing:-.025em;color:#eef2f8;font-variant-numeric:tabular-nums}
+.withdrawal-review dl{display:grid;gap:10px;padding-block:16px;border-block:1px solid var(--stroke)}
+.withdrawal-review dl>div{display:flex;justify-content:space-between;align-items:baseline;gap:16px}
+.withdrawal-review dd{font-weight:600;text-align:right;color:#eef2f8;font-variant-numeric:tabular-nums}
+.withdrawal-review-destination{display:grid;gap:6px}
+.withdrawal-review-destination code{font-size:12px;overflow-wrap:anywhere;color:#eef2f8}
+.withdrawal-review-note{font-size:12px;color:var(--muted)}

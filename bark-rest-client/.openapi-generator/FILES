@@ -238,6 +238,9 @@ docs/WalletNotificationOneOf1.md
 docs/WalletNotificationOneOf2.md
 docs/WalletTxInfo.md
 docs/WalletVtxoInfo.md
+docs/WithdrawalApproval.md
+docs/WithdrawalReview.md
+docs/WithdrawalsApi.md
 git_push.sh
 src/apis/bitcoin_api.rs
 src/apis/boards_api.rs
@@ -252,6 +255,7 @@ src/apis/mod.rs
 src/apis/notifications_api.rs
 src/apis/onchain_api.rs
 src/apis/wallet_api.rs
+src/apis/withdrawals_api.rs
 src/lib.rs
 src/models/address.rs
 src/models/ark_address_response.rs
@@ -478,3 +482,5 @@ src/models/wallet_notification_one_of_1.rs
 src/models/wallet_notification_one_of_2.rs
 src/models/wallet_tx_info.rs
 src/models/wallet_vtxo_info.rs
+src/models/withdrawal_approval.rs
+src/models/withdrawal_review.rs

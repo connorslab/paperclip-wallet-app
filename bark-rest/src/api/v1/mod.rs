@@ -6,6 +6,7 @@ pub mod message;
 pub mod notifications;
 pub mod onchain;
 pub mod boards;
+pub mod withdrawals;
 pub mod wallet;
 pub mod bitcoin;
 #[cfg(feature = "web-ui")]
@@ -31,6 +32,7 @@ pub fn router(state: &Arc<ServerState>) -> Router<Arc<ServerState>> {
 		.nest("/lightning", authed_router(state, lightning::router()))
 		.nest("/onchain", authed_router(state, onchain::router()))
 		.nest("/boards", authed_router(state, boards::router()))
+		.nest("/withdrawals", authed_router(state, withdrawals::router()))
 		.nest("/exits", authed_router(state, exits::router()))
 		.nest("/fees", authed_router(state, fees::router()))
 		.nest("/history", authed_router(state, history::router()))

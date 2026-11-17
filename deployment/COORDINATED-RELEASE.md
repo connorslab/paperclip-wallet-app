@@ -2432,3 +2432,38 @@ the selected inputs. Do not treat the mobile guard as fixing that desktop flow.
 Portable node/Bridge recovery, installed-host/Jam lifecycle, physical signers,
 current-source consensus and signed installers remain required. No funded device,
 production service or release candidate was changed in this pass.
+
+
+## Desktop withdrawal approval and recovery: 2026-11-17
+
+The desktop withdrawal review gap identified above is fixed in source. The shared
+StartOS, Umbrel and desktop web UI now obtains a 60-second quote with an exact
+receive amount, withdrawal fee, total Ark debit, selected input count and its own
+on-chain destination. A structured review keeps these details and confirmation
+controls visible at the tested phone, foldable and desktop viewport sizes. An
+older host cannot fall back to the unreviewed withdraw-all endpoint.
+
+The new authenticated prepare/commit contract binds approval to one loaded wallet,
+one quote and the exact selected VTXOs. Approval is consumed once. Immediately
+before the initial checkpoint, it rechecks expiry, destination, amount, fee,
+recovery reserve and input identity against the constructed action. A weak wallet
+reference prevents a pending quote from retaining an unloaded wallet. Browser
+commits use the durable submission journal, saving the action ID before the
+checkpoint. A lost reply retains an unresolved receipt and cannot automatically
+repeat the withdrawal. Submission is explicitly shown as pending confirmation.
+Legacy offboard APIs retain compatibility; they are not used by this new UI.
+
+Validation: 89 REST tests passed with one existing ignored test. The new browser
+suite passed at 390 x 844, 840 x 1000 and 1280 x 1000, covering review contents,
+cancellation, malformed quotes, old hosts, wallet locking, submitted-versus-
+confirmed status and lost replies without replay. Screenshots were visually
+inspected at compact and desktop sizes. Existing boarding and saved-submission
+browser regressions passed. The OpenAPI contract and Rust client were regenerated;
+repository checks passed. These tests use unfunded fixtures, not installed hosts
+or live settlement. Backend and both Android API 35/36 CI jobs passed at the
+preceding revision `27e0296`; this patch still needs current-revision CI.
+
+Live withdrawal settlement and installed-host acceptance remain open, along with
+pre-observer/rejected-review recovery, portable node/Bridge recovery, Jam lifecycle
+and pairing, physical signers/foldables, current-source consensus and signed
+installers. No production service, funded device or release candidate was changed.

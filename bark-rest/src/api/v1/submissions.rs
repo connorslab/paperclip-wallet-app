@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use crate::ServerState;
-use super::{boards, exits, lightning, onchain, wallet};
+use super::{boards, exits, lightning, onchain, wallet, withdrawals};
 
 const MAX_RECORD_BYTES: u64 = 2 * 1024 * 1024;
 
@@ -52,6 +52,7 @@ enum Action {
 	#[serde(rename = "onchain/send/commit")] Onchain(onchain::SendApproval),
 	#[serde(rename = "onchain/replacement/commit")] Replacement(onchain::ReplacementApproval),
 	#[serde(rename = "boards/commit")] Board(boards::BoardApproval),
+	#[serde(rename = "withdrawals/commit")] Withdrawal(withdrawals::WithdrawalApproval),
 	#[serde(rename = "wallet/offboard/all")] Offboard(bark_json::web::OffboardAllRequest),
 	#[serde(rename = "wallet/refresh/all")] Refresh(Empty),
 	#[serde(rename = "exits/start/all")] Exit(Empty),
@@ -96,6 +97,7 @@ impl Action {
 			Self::Onchain(v) => call!(onchain::send_commit_tracked(state, v, || receipt.started(None, None)).await),
 			Self::Replacement(v) => call!(onchain::replacement_commit_tracked(state, v, || receipt.started(None, None)).await),
 			Self::Board(v) => call!(boards::commit_review_tracked(state, v, || receipt.started(None, None)).await),
+			Self::Withdrawal(v) => call!(withdrawals::commit_tracked(state, v, |id| receipt.started(Some(id.to_owned()), None)).await),
 			Self::Offboard(v) => call!(wallet::offboard_all_tracked(state, v, |id| receipt.started(Some(id.to_owned()), None)).await),
 			Self::Claim(v) => call!(exits::exit_claim_all_tracked(state, v, |txid| receipt.transaction(txid)).await),
 			Self::Refresh(_) => call!(wallet::refresh_all_tracked(state, |id| receipt.movement(id)).await),
@@ -464,6 +466,24 @@ mod tests {
 			assert_eq!(response.status(),StatusCode::CONFLICT);
 			assert_eq!(response.headers()[header::CACHE_CONTROL],"no-store");
 		}
+	}
+
+	#[tokio::test]
+	async fn withdrawal_lost_reply_retains_action_and_never_replays_approval() {
+		let dir = tempfile::tempdir().unwrap();
+		let req = Request { id: "01".repeat(32), operation: "withdrawals/commit".into(),
+			body: json!({"request_id":"ab".repeat(32), "net_sat":1000, "total_sat":1100}) };
+		let parsed = Action::parse(&req).unwrap();
+		assert!(matches!(parsed, Action::Withdrawal(_)));
+		assert_eq!(parsed.references(), (None, None), "A review ID is not a transaction ID");
+		assert!(once(dir.path(), &req, parsed.references(), |receipt| async move {
+			receipt.started(Some("cd".repeat(16)), None)?;
+			anyhow::bail!("synthetic lost withdrawal reply")
+		}).await.is_err());
+		let saved = load(&path(dir.path(), &req.id).unwrap()).unwrap();
+		assert_eq!(saved.action_id, Some("cd".repeat(16)));
+		assert!(saved.initiated && needs_review(&saved));
+		assert!(once(dir.path(), &req, (None, None), |_| async { panic!("An uncertain withdrawal must not run again") }).await.is_err());
 	}
 
 	#[cfg(unix)]
