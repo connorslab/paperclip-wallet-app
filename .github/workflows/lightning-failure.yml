@@ -54,13 +54,22 @@ jobs:
       - name: Install isolated Linux window-test dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y python3-tk xvfb xauth imagemagick
+          sudo apt-get install -y python3-tk python3-venv xvfb xauth imagemagick
       - name: Test Linux development shell and package
         run: |
           python3 deployment/desktop/linux/test_launcher.py --binary "$PWD/target/debug/paperclip-walletd" -v
           python3 deployment/desktop/linux/build_preview.py --binary "$PWD/target/debug/paperclip-walletd" --python /usr/bin/python3 --output "$RUNNER_TEMP/Paperclip Linux Preview"
           "$RUNNER_TEMP/Paperclip Linux Preview/bin/paperclip-preview" --help
           xvfb-run -a python3 deployment/desktop/linux/test_launcher_ui.py --binary "$RUNNER_TEMP/Paperclip Linux Preview/bin/paperclip-walletd" --launcher "$RUNNER_TEMP/Paperclip Linux Preview/lib/launcher.py" --screenshots "$RUNNER_TEMP/linux-preview-screenshots" -v
+      - name: Build and test bundled Linux Python and Tk
+        run: |
+          /usr/bin/python3 -m venv "$RUNNER_TEMP/freeze-toolchain"
+          "$RUNNER_TEMP/freeze-toolchain/bin/python" -m pip install pyinstaller==6.22.3
+          "$RUNNER_TEMP/freeze-toolchain/bin/python" deployment/desktop/linux/build_helpers.py --output "$RUNNER_TEMP/Frozen Linux Helpers" --work "$RUNNER_TEMP/linux-freeze-work"
+          python3 deployment/desktop/linux/build_preview.py --binary "$PWD/target/debug/paperclip-walletd" --helper "$RUNNER_TEMP/Frozen Linux Helpers/PaperclipLauncher" --output "$RUNNER_TEMP/Standalone Linux Preview"
+          "$RUNNER_TEMP/Standalone Linux Preview/bin/paperclip-preview" --help
+          mv "$RUNNER_TEMP/Standalone Linux Preview" "$RUNNER_TEMP/Relocated Linux Preview"
+          xvfb-run -a "$RUNNER_TEMP/Frozen Linux Helpers/PaperclipLauncherQA/PaperclipLauncherQA" --binary "$RUNNER_TEMP/Relocated Linux Preview/bin/paperclip-walletd" --screenshots "$RUNNER_TEMP/linux-frozen-screenshots" -v
       - uses: actions/upload-artifact@v4
         if: always()
         with:

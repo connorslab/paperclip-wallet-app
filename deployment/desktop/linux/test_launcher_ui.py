@@ -32,9 +32,12 @@ class PreviewWindow(unittest.TestCase):
             subprocess.run(['import', '-window', str(self.root.winfo_id()), str(SCREENSHOTS / name)], check=True)
 
     def test_packaged_preview_opens_once_recovers_and_closes_cleanly(self):
-        spec = importlib.util.spec_from_file_location('packaged_linux_launcher', LAUNCHER)
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
+        if LAUNCHER is None:
+            import launcher as module
+        else:
+            spec = importlib.util.spec_from_file_location('packaged_linux_launcher', LAUNCHER)
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
         with tempfile.TemporaryDirectory(prefix='paperclip-linux-window-qa-') as temporary:
             data = Path(temporary) / 'app'
             self.root = tk.Tk()
@@ -80,9 +83,9 @@ class PreviewWindow(unittest.TestCase):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--binary', type=Path, required=True)
-    parser.add_argument('--launcher', type=Path, required=True)
+    parser.add_argument('--launcher', type=Path)
     parser.add_argument('--screenshots', type=Path)
     args, remaining = parser.parse_known_args()
-    BINARY, LAUNCHER = args.binary.resolve(strict=True), args.launcher.resolve(strict=True)
+    BINARY, LAUNCHER = args.binary.resolve(strict=True), args.launcher.resolve(strict=True) if args.launcher else None
     SCREENSHOTS = args.screenshots
     unittest.main(argv=[sys.argv[0]] + remaining)

@@ -1,9 +1,11 @@
 """Linux development shell for the shared wallet daemon; no wallet opens on import."""
 import argparse
+import os
 from pathlib import Path
 import queue
 import re
 import sys
+import subprocess
 import threading
 import webbrowser
 
@@ -13,6 +15,21 @@ sys.dont_write_bytecode = True
 resources = Path(__file__).resolve().parent
 sys.path.insert(0, str(resources if (resources / 'managed_daemon.py').is_file() else resources.parent))
 from managed_daemon import ManagedDaemon, StartupError, default_data_root
+
+
+def open_default_browser(url):
+    if not getattr(sys, 'frozen', False):
+        return webbrowser.open(url)
+    # The frozen loader's library search path belongs to our bundled runtime,
+    # not the user's desktop browser or its xdg-open helper.
+    environment = os.environ.copy()
+    original = environment.pop('LD_LIBRARY_PATH_ORIG', None)
+    if original is None:
+        environment.pop('LD_LIBRARY_PATH', None)
+    else:
+        environment['LD_LIBRARY_PATH'] = original
+    return subprocess.run(['xdg-open', url], env=environment, stdout=subprocess.DEVNULL,
+                          stderr=subprocess.DEVNULL, timeout=10).returncode == 0
 
 
 def valid_handoff(value):
@@ -77,7 +94,7 @@ class Session:
 
 
 class Window:
-    def __init__(self, root, binary, data_root, opener=webbrowser.open, jam_runtime=None):
+    def __init__(self, root, binary, data_root, opener=open_default_browser, jam_runtime=None):
         import tkinter as tk
         from tkinter import ttk
         self.root, self.binary, self.data_root, self.opener = root, binary, data_root, opener
@@ -222,7 +239,10 @@ def main():
     parser.add_argument('--qa-root', type=Path)
     parser.add_argument('--jam-python', type=Path)
     parser.add_argument('--jam-entry', type=Path)
+    parser.add_argument('--jam-executable', type=Path)
     args = parser.parse_args()
+    if args.jam_executable and (args.jam_python or args.jam_entry):
+        parser.error('Choose bundled Jars or development Python paths')
     if bool(args.jam_python) != bool(args.jam_entry):
         parser.error('Supply both packaged Jars runtime paths')
     if args.qa_root is not None and not args.qa_root.is_absolute():
@@ -230,7 +250,7 @@ def main():
     import tkinter as tk
     root = tk.Tk()
     Window(root, args.binary.resolve(strict=True), args.qa_root or default_data_root(),
-           jam_runtime=(args.jam_python, args.jam_entry) if args.jam_python else None)
+           jam_runtime=(args.jam_executable, None) if args.jam_executable else ((args.jam_python, args.jam_entry) if args.jam_python else None))
     root.mainloop()
 
 

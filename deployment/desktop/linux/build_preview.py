@@ -1,4 +1,4 @@
-"""Package an unsigned Linux development preview with an explicit external Python/Tk runtime."""
+"""Package an unsigned Linux development preview with bundled or development Python/Tk."""
 import argparse
 from pathlib import Path
 import shlex
@@ -7,7 +7,7 @@ import sys
 import tempfile
 
 
-def build(binary, python, output, jam_python=None):
+def build(binary, python, output, jam_python=None, helper=None):
     if not sys.platform.startswith('linux'):
         raise RuntimeError('Build this development preview on Linux.')
     if output.exists() or output.is_symlink():
@@ -30,23 +30,36 @@ def build(binary, python, output, jam_python=None):
             shutil.copy2(source.parent.parent / 'jam' / 'desktop-entry.py', jam)
             shutil.copytree(source.parent.parent / 'jam' / 'paperclip_jam', jam / 'paperclip_jam', ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
             jam_arguments = '--jam-python ' + shlex.quote(str(jam_python)) + ' --jam-entry "$bundle/lib/jam-runtime/desktop-entry.py" '
+        if helper is not None:
+            if not (helper / 'PaperclipLauncher').is_file():
+                raise RuntimeError('Missing frozen Linux launcher.')
+            if any(p.is_symlink() and not p.resolve().is_relative_to(helper.resolve()) for p in helper.rglob('*')):
+                raise RuntimeError('Helper link escapes the bundled runtime.')
+            shutil.copytree(helper, package / 'lib' / 'PaperclipLauncher', symlinks=True)
+        elif python is None:
+            raise RuntimeError('Supply a frozen helper or development Python.')
+        invocation = ('"$bundle/lib/PaperclipLauncher/PaperclipLauncher" ' if helper is not None
+                      else shlex.quote(str(python)) + ' -I -B "$bundle/lib/launcher.py" ')
         launcher = package / 'bin' / 'paperclip-preview'
         launcher.write_text('#!/bin/sh\nset -eu\n'
                             'bundle=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)\n'
-                            'exec ' + shlex.quote(str(python)) + ' -I -B "$bundle/lib/launcher.py" '
+                            'exec ' + invocation +
                             '--binary "$bundle/bin/paperclip-walletd" ' + jam_arguments + '"$@"\n')
         launcher.chmod(0o755)
-        (package / 'PREVIEW.txt').write_text('Development preview: unsigned, external Python/Tk runtime required. '
+        (package / 'PREVIEW.txt').write_text('Development preview: unsigned. '
             'Bundled Jam/Tor, signed installation and upgrades remain release gates.\n')
         package.rename(output)
-    print('Built unsigned Linux development preview; runtime bundling and signed installation remain required.')
+    print('Built unsigned Linux development preview; signed installation remains required.')
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--binary', required=True, type=Path)
-    parser.add_argument('--python', required=True, type=Path)
+    parser.add_argument('--python', type=Path)
+    parser.add_argument('--helper', type=Path)
     parser.add_argument('--output', required=True, type=Path)
     parser.add_argument('--jam-python', type=Path)
     args = parser.parse_args()
-    build(args.binary.resolve(strict=True), args.python.resolve(strict=True), args.output.absolute(), args.jam_python.absolute() if args.jam_python else None)
+    if args.python and args.helper:
+        parser.error('Choose a frozen launcher or development Python')
+    build(args.binary.resolve(strict=True), args.python.resolve(strict=True) if args.python else None, args.output.absolute(), args.jam_python.absolute() if args.jam_python else None, args.helper.resolve(strict=True) if args.helper else None)

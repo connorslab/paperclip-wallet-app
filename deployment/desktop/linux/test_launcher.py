@@ -7,14 +7,27 @@ import os
 import sys
 import tempfile
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
-from launcher import Session, Window, valid_handoff
+from launcher import Session, Window, valid_handoff, open_default_browser
 
 BINARY = None
 
 
 class HandoffPolicy(unittest.TestCase):
+    def test_frozen_browser_does_not_inherit_bundled_loader_paths(self):
+        for original in (None, '/user/selected/lib'):
+            environment = {'LD_LIBRARY_PATH':'/bundled/runtime', 'PATH':'/usr/bin'}
+            if original is not None:
+                environment['LD_LIBRARY_PATH_ORIG'] = original
+            with patch.object(sys, 'frozen', True, create=True), patch.dict(os.environ, environment, clear=True), patch('launcher.subprocess.run') as run:
+                run.return_value.returncode = 0
+                self.assertTrue(open_default_browser('http://127.0.0.1:1234/#desktop-handoff=' + 'a' * 44))
+                child = run.call_args.kwargs['env']
+                self.assertEqual(child.get('LD_LIBRARY_PATH'), original)
+                self.assertNotIn('LD_LIBRARY_PATH_ORIG', child)
+                self.assertEqual(os.environ['LD_LIBRARY_PATH'], '/bundled/runtime')
+
     def test_only_exact_local_single_use_urls_reach_the_browser(self):
         good = 'http://127.0.0.1:1234/#desktop-handoff=' + 'a' * 44
         self.assertTrue(valid_handoff(good))

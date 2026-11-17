@@ -2953,3 +2953,19 @@ Repository checks pass. The prior `113b86d` backend, Jam and native-shell CI run
 all passed. These checks establish a bundled Apple Silicon development runtime;
 they do not establish Developer ID/notarization, Intel/older-OS installs or live
 settlement acceptance.
+
+
+## Linux launcher runtime packaging: 2026-11-17
+
+The Linux preview builder now accepts a frozen Python/Tk launcher instead of
+requiring a user-installed interpreter. Its native build script also emits a
+separate frozen QA runner for the same window code. CI builds with pinned
+PyInstaller 6.22.3, relocates the package, checks its wrapper, and exercises the
+frozen window under Xvfb. The QA runner is excluded from the installed package.
+The application restores the system library search path for its explicit
+`xdg-open` child without mutating the launcher's environment.
+
+Five local controller checks pass, including the frozen browser environment and
+real owned-daemon crash/retry. Script syntax and repository checks pass. Native
+Linux frozen execution is pending CI, so this is implementation rather than
+accepted installed Linux packaging. Jars/Tor and signing are separate work.

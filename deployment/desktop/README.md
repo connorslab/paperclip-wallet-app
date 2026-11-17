@@ -258,3 +258,26 @@ close and released process locks. These checks create no wallet or payment.
 The result is an ad-hoc development preview. It is not Developer ID signed or
 notarized, and the isolation test does not substitute for supported macOS/Intel
 installation, upgrades or live payment acceptance.
+
+
+## Bundled Linux launcher verification
+
+`linux/build_helpers.py` accepts a native Linux Python environment with Tk and
+PyInstaller 6.22.3. It produces `PaperclipLauncher` and a separate
+`PaperclipLauncherQA` directory. Pass the first directory to
+`linux/build_preview.py --helper` instead of `--python`; only the application
+helper is copied into the preview. The QA executable freezes the same window code
+with its unfunded GUI tests and is never installed into the app package.
+
+The backend Linux workflow builds both helpers in an isolated tool environment,
+checks the packaged wrapper, relocates the package into a path with spaces, and
+runs the frozen QA window under Xvfb. That verifies included Tk startup, explicit
+browser opening through a captured test callback, crash/retry, compact layout,
+credential preservation and clean close. It does not open the user's browser.
+The frozen application uses `xdg-open` with its original system library path;
+PyInstaller's private loader path cannot leak into the browser child. A controller
+test checks both absent and explicitly supplied original paths without changing
+the launcher's process environment.
+
+This packages Python/Tk, not the Linux Jars/Tor services or a signed installer.
+Native Linux execution must pass in CI before accepting the runtime packaging.
