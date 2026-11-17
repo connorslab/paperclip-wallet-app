@@ -25,7 +25,7 @@ checks and their limits.
 | Android | 100 JVM tests (four live cases excluded); 47 instrumentation cases across 18 classes on local API 35 ARM64; 48 cases on each of API 35/36 CI at `a04a3e4`, including the new large-text Jars navigation case, visibility and emulator-health checks; authenticated CLN/LND reads and pin rejection | Final release identity, Play/APK upgrade compatibility and physical/foldable acceptance |
 | Shared desktop UI | All 17 existing browser-flow suites plus entropy, transport and QR checks; phone, foldable and desktop widths where each suite defines them | Installed-host and native desktop acceptance; complete multiple-hot-wallet and hardware-funded Ark workflows |
 | StartOS/Umbrel | Shared REST checks, authenticated CLN/LND reads; both StartOS candidate architectures built and source/checksums checked | Complete backup/restore, candidate installation, bundled Jam pairing/revocation/Tor and upgrades; matching frozen wrappers |
-| Linux/macOS/Windows | Isolated Apple Silicon and Linux daemon authentication, duplicate-instance rejection and crash/restart; macOS bundled Jars/helper runtime passes 13 relocated isolation cases; Linux bundled Jars passes TLS/proxy and frozen-window recovery checks; 58 native Windows storage/browser-policy/pipe/ownership/discovery/window cases and authenticated daemon lifecycle pass at `82387db` | Installed browser/accessibility acceptance; bundled Jam/Tor and runtime delivery; supported OS matrix, signed installers, notarization and clean install/upgrade tests |
+| Linux/macOS/Windows | Isolated Apple Silicon and Linux daemon authentication, duplicate-instance rejection and crash/restart; macOS bundled Jars/helper runtime passes 13 relocated isolation cases; Linux bundled Jars passes TLS/proxy and frozen-window recovery checks; 73 native Windows storage/browser-policy/pipe/ownership/discovery/window/journal cases and authenticated daemon lifecycle pass at `dfab5c0` | Installed browser/accessibility acceptance; bundled Jam/Tor and runtime delivery; supported OS matrix, signed installers, notarization and clean install/upgrade tests |
 | Jars | Reviewed direct/CoinJoin toggle and bond funding/withdrawal clients; pinned signer, API, bond and interrupted-submission checks; encrypted Jam volume restore on a synthetic chain | Live CoinJoin, direct-send and bond-funding/withdrawal acceptance, installed payment-pairing acceptance, live maker and physical QR signer acceptance |
 | Payments and recovery | 293 shared wallet tests and 51 mobile Rust tests, exact-cost/RBF/unknown-outcome checks; unified-signature and Electrum-header checks | Live BOLT12/Ark/Bridge settlement, portable recovery/restore and current-source XBT consensus acceptance |
 
@@ -3163,3 +3163,34 @@ native development binary, so this is helper regression evidence rather than a
 same-revision release candidate. Changes are mirrored to `feature/android-wallet`.
 Windows bundled Jars remains disabled until the rest of its runtime and packaging
 has equivalent native validation.
+
+## Windows private writes and Jars runtime admission: 2026-11-17
+
+The native storage adapter now creates private files without replacing existing
+state and replaces existing files through an open Windows handle. It validates
+ownership and access before use, rejects hard links, flushes before replacement
+and again afterward, and keeps existing readers on the original file. A flush
+failure is reported even if replacement already happened; callers cannot infer
+that a failed write left the old state untouched. Failed exclusive creation
+leaves partial state for explicit recovery instead of enabling silent overwrite.
+
+Jars runtime admission now uses the native kernel lock on Windows. A competing
+instance cannot enter upstream state, and failed startup releases ownership for
+an explicit retry. The public-certificate handoff uses checked native storage and
+rejects malformed, oversized or private-key-bearing input before changing the
+handoff. Desktop certificate access remains limited to the current user/SYSTEM.
+POSIX hosting retains its existing certificate permissions and locking behavior.
+
+At `4c70d23`, Windows run `44190107459` passes the 20 private-storage cases and
+all 20 journal/runtime-lock/certificate cases. The full desktop run was still in
+progress when these step results were recorded. Mac passes 85 source cases with
+five platform-specific cases skipped, plus all 13 relocated package checks with
+valid signatures before and after use. Bundled Jam run `44190107534` passes on
+AMD64 and ARM64: 86 runtime and four supervisor cases per architecture, with four
+Windows-only runtime cases and three daemon-dependent supervisor cases skipped.
+
+Both implementation commits are mirrored to `feature/android-wallet`. These
+checks use disposable data and certificate identities. They do not enable the
+Windows Jam runtime: the pinned upstream wallet/history/metadata storage and
+crypto packaging still need their native adapters and acceptance tests. Hardware
+power-loss, installed-host and live-payment acceptance are not inferred here.
