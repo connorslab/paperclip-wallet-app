@@ -24,7 +24,7 @@ checks from the required implementation and acceptance work.
 | Shared desktop UI | All 17 existing browser-flow suites plus entropy, transport and QR checks; phone, foldable and desktop widths where each suite defines them | Installed-host and native desktop acceptance; complete multiple-hot-wallet and hardware-funded Ark workflows |
 | StartOS/Umbrel | Shared REST checks, authenticated CLN/LND reads; both StartOS candidate architectures built and source/checksums checked | Complete backup/restore, candidate installation, bundled Jam pairing/revocation/Tor and upgrades; matching frozen wrappers |
 | Linux/macOS/Windows | Isolated Apple Silicon daemon authentication, duplicate-instance rejection and crash/restart checks | Native launchers and bundled service lifecycle, supported OS matrix, signed installers, notarization where applicable and clean install/upgrade tests |
-| Jars | Reviewed direct/CoinJoin toggle and bond funding/withdrawal clients; pinned signer, API, bond and interrupted-submission checks | Live CoinJoin, direct-send and bond-funding/withdrawal acceptance, installed payment-pairing acceptance, live maker and physical QR signer acceptance |
+| Jars | Reviewed direct/CoinJoin toggle and bond funding/withdrawal clients; pinned signer, API, bond and interrupted-submission checks; encrypted Jam volume restore on a synthetic chain | Live CoinJoin, direct-send and bond-funding/withdrawal acceptance, installed payment-pairing acceptance, live maker and physical QR signer acceptance |
 | Payments and recovery | 291 shared wallet tests, exact-cost/RBF/unknown-outcome checks; unified-signature and Electrum-header checks | Live BOLT12/Ark/Bridge settlement, portable recovery/restore and current-source XBT consensus acceptance |
 
 The saved uncertain Ark attempt remains reserved in the private payment ledger.
@@ -1990,3 +1990,27 @@ The regression failed before the fix and passes afterward. The complete pinned
 Jam suite passes 71 tests with one container-only skip (72 total), using synthetic
 chain data and the real signer. Live chain reorganization, installed-host withdrawal
 and confirmed settlement acceptance remain open; no funds were moved.
+
+
+## Encrypted Jam volume restore prerequisite — 2026-11-16
+
+A new pinned-runtime test copies a quiescent Jam data directory containing a real
+encrypted wallet, registered fidelity bond, TLS files, wallet history and SQLite
+payment journal into a fresh directory. The original wallet and journal are closed
+before the copy. The restored daemon rejects the original owner token and phone
+payment delegation, checks the wallet password, and derives the same wallet
+identity by decrypting the saved file rather than injecting a wallet object.
+
+An uncertain bond withdrawal survives the restore with the same reviewed outpoint
+and wallet identity. Repeated commit remains observation-only; cancellation and a
+replacement preparation are rejected. Observing the exact original transaction
+resolves the record to submitted without a second broadcast. The encrypted file
+remains unchanged, the bond registry and TLS certificate survive, and private key
+and wallet file modes remain restricted. Old pairing credentials remain invalid
+after unlocking. No secret values are printed by test assertions.
+
+All 73 Jam cases completed locally: 72 passed and one container-only case was
+skipped. `just checks` passed. Chain reads/broadcasts and background sync are
+synthetic; wallet encryption, file loading, signer, HTTP authorization and journal
+persistence are real. This is a Jam component prerequisite, not full StartOS/Umbrel
+four-volume backup, live chain rescan, power-loss or installed-package acceptance.

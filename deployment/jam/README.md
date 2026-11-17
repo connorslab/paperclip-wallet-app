@@ -127,6 +127,11 @@ Live watcher, maker and bond acceptance remains required on the packaged host.
 The `Bundled Jam integration` workflow builds both native Linux architectures
 without publication and runs the journal, real signer and HTTP API tests with
 network access disabled. Synthetic chain tests do not establish live settlement.
+The runtime suite also restores a quiescent Jam data volume with an encrypted
+wallet, bond registry, TLS files and an uncertain withdrawal journal. It verifies
+password recovery, unchanged wallet identity, revoked old sessions and no repeated
+broadcast. Node observations remain synthetic; this does not replace the full
+host's four-volume backup/restore and live rescan acceptance.
 
 For a native development run, install the pinned upstream requirements with
 `--require-hashes`, install its source packages without resolving new dependencies,

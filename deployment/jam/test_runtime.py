@@ -6,10 +6,11 @@ production credentials or externally funded wallet is accessed by these tests.
 import asyncio
 from datetime import datetime, timezone
 from pathlib import Path
+import shutil
 import tempfile
 from types import SimpleNamespace
 import unittest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 from fastapi.testclient import TestClient
 from loguru import logger
@@ -18,11 +19,13 @@ from jmcore.bitcoin import get_txid, parse_transaction
 from jmcore.timenumber import timestamp_to_timenumber
 from jmwallet.backends.base import Transaction, UTXO
 from jmwallet.wallet.address import pubkey_to_p2wpkh_script, script_to_p2wsh_scriptpubkey
-from jmwallet.wallet.bond_registry import BondRegistry, create_bond_info, save_registry
+from jmwallet.wallet.bond_registry import BondRegistry, create_bond_info, load_registry, save_registry
 from jmwallet.wallet.models import UTXOInfo
 from jmwallet.wallet.service import WalletService
 from jmwalletd.app import create_app
 from jmwalletd.deps import get_daemon_state
+from jmwalletd.cli import _generate_self_signed_cert
+from jmwalletd.wallet_ops import _save_wallet_file
 
 from paperclip_jam.adapter import JamAdapter
 
@@ -503,6 +506,84 @@ class RuntimeTest(unittest.TestCase):
         self.backend.get_transaction.return_value = Transaction(review['quote']['txid'], captured[0], 0)
         self.assertEqual(self.client.get(target).json()['state'], 'submitted')
         self.backend.broadcast_transaction.assert_awaited_once()
+
+    def test_restored_jam_volume_preserves_bond_recovery_and_revokes_old_sessions(self):
+        # Real encrypted wallet, bond registry, TLS files and durable journal;
+        # all chain observations and broadcasts remain isolated synthetic data.
+        bond, _ = self.bond_withdrawal()
+        self.backend.get_median_time_past.return_value = bond.locktime + 1
+        password = 'synthetic-restore-password'
+        wallet_file = self.state.wallets_dir / self.state.wallet_name
+        _save_wallet_file(wallet_path=wallet_file,
+            mnemonic=Mnemonic('english').to_mnemonic(bytes(32)), password=password,
+            wallet_type='sw-fb', creation_height=1, bip39_passphrase='')
+        _generate_self_signed_cert(self.directory / 'ssl')
+        encrypted = wallet_file.read_bytes()
+        certificate = (self.directory / 'ssl' / 'cert.pem').read_bytes()
+        paired = self.client.post(self.base.replace('/payments', '/pairing-session'),
+            json={'scope': 'jars_pay_v1'})
+        self.assertEqual(paired.status_code, 200)
+        old_pairing = paired.json()['token']
+        review = self.prepare()
+        self.backend.broadcast_transaction.side_effect = TimeoutError('Synthetic lost withdrawal reply')
+        target = self.base + '/' + self.body['id']
+        self.assertEqual(self.client.post(target + '/commit', json={'approval': review['approval']}).status_code, 504)
+        signed = self.backend.broadcast_transaction.await_args.args[0]
+        self.client.close()
+        self.app.state.paperclip_payments.journal.close()
+        asyncio.run(self.wallet.close())
+
+        restored_root = tempfile.TemporaryDirectory()
+        self.addCleanup(restored_root.cleanup)
+        restored = Path(restored_root.name).resolve() / 'jam'
+        shutil.copytree(self.directory, restored)
+        self.app = create_app(data_dir=restored)
+        self.state = get_daemon_state()
+        self.client = TestClient(self.app, raise_server_exceptions=True)
+        self.assertTrue((restored / 'wallets' / 'fixture.jmdat').read_bytes() == encrypted)
+        self.assertTrue((restored / 'ssl' / 'cert.pem').read_bytes() == certificate)
+        for credential in (self.token, old_pairing):
+            self.client.headers['Authorization'] = 'Bearer ' + credential
+            self.assertEqual(self.client.get(target).status_code, 401)
+        self.client.headers.pop('Authorization', None)
+        # Opening the actual encrypted file derives the recovered identity;
+        # no restored wallet object or session is injected into the daemon.
+        self.backend.set_wallet_creation_height = Mock()
+        with patch('jmwalletd._backend.get_backend', AsyncMock(return_value=self.backend)), \
+                patch('jmwalletd.wallet_ops._get_network', return_value='regtest'), \
+                patch('jmwalletd.routers.wallet._background_wallet_sync', AsyncMock()), \
+                patch.object(WalletService, 'sync_with_registered_bonds', AsyncMock()), \
+                patch.object(self.state, 'start_tx_monitor'), \
+                patch.object(self.state, 'wait_tx_monitor_ready', AsyncMock(return_value=True)):
+            unlock = '/api/v1/wallet/fixture.jmdat/unlock'
+            self.assertNotEqual(self.client.post(unlock, json={'password': 'wrong-fixture'}).status_code, 200)
+            with patch.object(self.state, 'unlock_retry_delay', return_value=0):
+                opened = self.client.post(unlock, json={'password': password})
+            self.assertEqual(opened.status_code, 200)
+        recovered = self.state.wallet_service
+        registered = load_registry(restored, recovered.wallet_fingerprint, allow_legacy_fallback=False)
+        self.assertEqual(registered.get_bond_by_address(bond.address).locktime, bond.locktime)
+        self.assertEqual((restored / 'ssl' / 'key.pem').stat().st_mode & 0o777, 0o600)
+        self.assertEqual((restored / 'wallets' / 'fixture.jmdat').stat().st_mode & 0o777, 0o600)
+        self.client.headers['Authorization'] = 'Bearer ' + opened.json()['token']
+        self.backend.get_transaction.return_value = None
+        saved = self.client.get(target)
+        self.assertEqual(saved.status_code, 200)
+        self.assertEqual(saved.json()['state'], 'unknown')
+        self.assertEqual(saved.json()['quote']['wallet_identity'], review['quote']['wallet_identity'])
+        self.assertEqual(saved.json()['quote']['bond_outpoint'], self.coin.outpoint)
+        self.assertEqual(self.client.post(target + '/commit', json={'approval': review['approval']}).json()['state'], 'unknown')
+        self.assertEqual(self.client.post(target + '/cancel').status_code, 409)
+        self.assertEqual(self.client.post(self.base, json={**self.body, 'id': 'b' * 64}).status_code, 409)
+        self.backend.broadcast_transaction.assert_awaited_once()
+        self.backend.get_transaction.return_value = Transaction(review['quote']['txid'], signed, 1)
+        self.assertEqual(self.client.get(target).json()['state'], 'submitted')
+        self.assertEqual(self.client.post(target + '/commit', json={'approval': review['approval']}).json()['state'], 'submitted')
+        self.backend.broadcast_transaction.assert_awaited_once()
+        # Full data restore does not resurrect a phone's old delegation.
+        self.client.headers['Authorization'] = 'Bearer ' + old_pairing
+        self.assertEqual(self.client.get(target).status_code, 401)
+        self.assertTrue((restored / 'wallets' / 'fixture.jmdat').read_bytes() == encrypted)
 
     def test_revoked_session_after_input_lookup_cannot_broadcast(self):
         review = self.prepare()
