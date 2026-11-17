@@ -22,10 +22,10 @@ checks and their limits.
 | Area | Verified in the current test pass | Still required |
 | --- | --- | --- |
 | iOS | 123 shared Swift tests; 17 safe UI cases on both regular-phone and open-Duo simulators | Physical signer, camera, accessibility and interrupted/folded payment acceptance; final signed candidate and upgrade |
-| Android | 100 JVM tests (four live cases excluded); 47 instrumentation cases across 18 classes on local API 35 ARM64 and API 35/36 CI at `740d480`, including visibility and emulator-health checks; authenticated CLN/LND reads and pin rejection | Final release identity, Play/APK upgrade compatibility and physical/foldable acceptance |
+| Android | 100 JVM tests (four live cases excluded); 47 instrumentation cases across 18 classes on local API 35 ARM64 and API 35/36 CI at `a120889`, including visibility and emulator-health checks; authenticated CLN/LND reads and pin rejection | Final release identity, Play/APK upgrade compatibility and physical/foldable acceptance |
 | Shared desktop UI | All 17 existing browser-flow suites plus entropy, transport and QR checks; phone, foldable and desktop widths where each suite defines them | Installed-host and native desktop acceptance; complete multiple-hot-wallet and hardware-funded Ark workflows |
 | StartOS/Umbrel | Shared REST checks, authenticated CLN/LND reads; both StartOS candidate architectures built and source/checksums checked | Complete backup/restore, candidate installation, bundled Jam pairing/revocation/Tor and upgrades; matching frozen wrappers |
-| Linux/macOS/Windows | Isolated Apple Silicon and Linux daemon authentication, duplicate-instance rejection and crash/restart; macOS bundled Jars/helper runtime passes 13 relocated isolation cases; Linux frozen Python/Tk shell passes Xvfb; 30 native Windows storage/locking/discovery cases and authenticated daemon lifecycle pass | Windows shell; installed browser/accessibility acceptance; bundled Jam/Tor and runtime delivery; supported OS matrix, signed installers, notarization and clean install/upgrade tests |
+| Linux/macOS/Windows | Isolated Apple Silicon and Linux daemon authentication, duplicate-instance rejection and crash/restart; macOS bundled Jars/helper runtime passes 13 relocated isolation cases; Linux bundled Jars passes TLS/proxy and frozen-window recovery checks; 38 native Windows storage/pipe/locking/discovery cases and authenticated daemon lifecycle pass | Windows shell; installed browser/accessibility acceptance; bundled Jam/Tor and runtime delivery; supported OS matrix, signed installers, notarization and clean install/upgrade tests |
 | Jars | Reviewed direct/CoinJoin toggle and bond funding/withdrawal clients; pinned signer, API, bond and interrupted-submission checks; encrypted Jam volume restore on a synthetic chain | Live CoinJoin, direct-send and bond-funding/withdrawal acceptance, installed payment-pairing acceptance, live maker and physical QR signer acceptance |
 | Payments and recovery | 293 shared wallet tests and 51 mobile Rust tests, exact-cost/RBF/unknown-outcome checks; unified-signature and Electrum-header checks | Live BOLT12/Ark/Bridge settlement, portable recovery/restore and current-source XBT consensus acceptance |
 
@@ -3069,3 +3069,27 @@ package through verified TLS, authenticated wallet proxy requests and the real
 window's crash/retry/close flow. This native Linux result is pending; local Python
 syntax and seven source-runtime Mac regression cases pass. No production service,
 funded wallet or distribution was changed.
+
+The full Windows run `44170342993` subsequently passed, including native daemon
+lifecycle checks. Android diagnostic run `44168312445` also passed all 47
+instrumentation cases across 18 classes on each of API 35 and API 36, including
+all 11 Jars cases. The earlier intermittent bond-review timeout did not recur;
+its cause remains unconfirmed and failure-boundary diagnostics remain enabled.
+Native Mac compilation passed in `44170342670`; bundled companion checks passed
+on both Linux architectures in `44171458209`. Native Linux run `44171458136` also passed the new frozen Jars package's
+acceptance on Ubuntu 24.04 x86_64: seven owned-service/TLS/wallet-proxy cases
+and the frozen window's crash/retry/close case after package relocation and
+removal of original interpreter, runtime and upstream-source paths. The full
+backend workflow, including real Chromium handoff, passed. This is an unsigned
+development package, not installed or signed distribution acceptance.
+
+### Android Jars large-text navigation
+
+A new 320dp-wide fixture at 200% text size reproduced a missing Close control on
+the bond-funding page. The header now reserves the control's width and allows the
+title to wrap, matching the existing maker-settings header behavior. The same
+header serves jar sends and bond withdrawals. The original UI failed the new
+visibility check; the corrected UI passes all 12 local Jars instrumentation cases,
+including rendered text bounds and tapping Close. Normal-size API 36 review and
+maker-setting screenshots were also inspected. These fixtures use no live
+transport, wallet keys or payments.

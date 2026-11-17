@@ -308,13 +308,17 @@ exclude delete-sharing during creation and acquisition. Kernel locks survive
 neither normal handle close nor process death, so stale files cannot establish
 ownership.
 
-`windows/test_private_storage.py` runs eight real Windows cases in temporary,
+`windows/test_private_storage.py` runs nine real Windows cases in temporary,
 unfunded directories. It includes ACL inheritance with explicit ownership (the
 hosted CI token is elevated), shared/null ACL rejection, junction protection,
 hard-link rejection and competing/killed processes. This module is not wired
-into the POSIX runner; Windows launcher, daemon ACL integration and durability
-require their own native acceptance. The Windows workflow also builds the shared
-daemon with pinned native dependencies and invokes only `--version`.
+into the POSIX runner; Windows launcher and installed-runtime acceptance remain
+separate work. The shared Rust daemon now has native private ACL and atomic-write
+support. Windows CI builds it with pinned dependencies and exercises authenticated
+unfunded startup, duplicate-instance rejection, malformed-authentication rejection,
+crash/restart, graceful shutdown and preservation of saved authentication. It also
+runs nine Rust filesystem, eight PID-lock and four discovery cases. The desktop
+pipe adapter has eight native cases for bounded partial reads, deadlines and EOF.
 
 
 ## Preview build records
