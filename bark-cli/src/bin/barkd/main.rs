@@ -94,7 +94,7 @@ struct Cli {
 	#[command(subcommand)]
 	command: Option<Command>,
 
-	/// The port to listen on
+	/// The port to listen on. Zero lets the OS choose an available port.
 	#[arg(long, env = "BARKD_BIND_PORT")]
 	port: Option<u16>,
 	/// The host to listen on. Defaults to loopback; any other value may expose
@@ -194,10 +194,6 @@ impl Cli {
 	fn to_config(&self) -> anyhow::Result<Config> {
 		let mut cfg = Config::default();
 		if let Some(port) = &self.port {
-			if *port == 0 {
-				bail!("--port 0 is not supported; barkd listens on a fixed \
-					port (default {})", cfg.port);
-			}
 			cfg.port = *port;
 		}
 		if let Some(host) = &self.host {
@@ -437,17 +433,6 @@ async fn main() -> anyhow::Result<()>{
 
 	let _barkd_lock = connection::acquire_barkd_lock(&datadir)?;
 
-	// Server can bind to 0.0.0.0 (unspecified)
-	// If that happens client must connect to 127.0.0.1
-	let mut connect_addr = config.socket_addr();
-	if connect_addr.ip().is_unspecified() {
-		connect_addr.set_ip(match connect_addr.ip() {
-			IpAddr::V4(_) => IpAddr::V4(Ipv4Addr::LOCALHOST),
-			IpAddr::V6(_) => IpAddr::V6(Ipv6Addr::LOCALHOST),
-		});
-	}
-	connection::store_barkd_url(&datadir, &format!("http://{}", connect_addr))?;
-
 	let auth_token = if cli.auth_disabled() {
 		check_remote_no_auth(config.host, cli.dangerously_allow_remote_no_auth)?;
 		if cli.allowed_origins.is_empty() {
@@ -550,6 +535,24 @@ async fn main() -> anyhow::Result<()>{
 	let state = builder.build(shutdown.clone());
 	let server = RestServer::start(&config, Arc::new(state), shutdown.clone()).await?;
 
+	// Publish discovery only after a successful bind; failed starts must not
+	// replace an existing address or advertise an unusable port zero.
+	// Map an unspecified listener address to loopback for local clients.
+	let mut connect_addr = server.local_addr();
+	if connect_addr.ip().is_unspecified() {
+		connect_addr.set_ip(match connect_addr.ip() {
+			IpAddr::V4(_) => IpAddr::V4(Ipv4Addr::LOCALHOST),
+			IpAddr::V6(_) => IpAddr::V6(Ipv6Addr::LOCALHOST),
+		});
+	}
+	if let Err(error) = connection::store_barkd_url(&datadir, &format!("http://{}", connect_addr)) {
+		if let Some(wallet) = inner_wallet {
+			wallet.stop_daemon();
+		}
+		let _ = server.stop_wait().await;
+		return Err(error.context("Failed to publish the listener address"));
+	}
+
 	run_shutdown_signal_listener(shutdown.clone()).await;
 
 	if let Some(wallet) = inner_wallet {
@@ -590,17 +593,11 @@ mod test {
 		assert!(cli.expose_mnemonic, "--expose-mnemonic must enable exposure");
 	}
 
-	/// Nothing reports the actually bound address, so an OS-assigned port
-	/// would leave the daemon unreachable by convention.
 	#[test]
-	fn to_config_rejects_port_zero() {
+	fn to_config_supports_os_assigned_and_fixed_ports() {
 		let cli = Cli::try_parse_from(["barkd", "--port", "0"])
 			.expect("--port 0 should parse");
-		let err = cli.to_config().unwrap_err();
-		assert!(
-			err.to_string().contains("--port 0 is not supported"),
-			"unexpected error: {}", err,
-		);
+		assert_eq!(cli.to_config().unwrap().port, 0);
 
 		let cli = Cli::try_parse_from(["barkd", "--port", "3001"])
 			.expect("--port 3001 should parse");

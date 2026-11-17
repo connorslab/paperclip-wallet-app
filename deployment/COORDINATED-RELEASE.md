@@ -2045,3 +2045,22 @@ along with `just checks` and workflow YAML parsing. The backend CI now runs thes
 checks without invoking package publication. This does not establish installed
 StartOS/Umbrel upgrade behavior, actual Tor recovery, Jam service lifecycle or
 Windows supervisor support; those acceptance gates remain open.
+
+## Native desktop listener discovery prerequisite — 2026-11-16
+
+The daemon now accepts `--port 0` (or `BARKD_BIND_PORT=0`) and reports the actual
+OS-assigned listener address. This lets a future native launcher avoid reserving
+and releasing a port before starting its child. Fixed ports remain supported.
+The local discovery file is published only after binding succeeds; a bind failure
+preserves the previous address and authentication. Unix updates replace that file
+atomically, so a restarting daemon does not expose partial discovery contents.
+
+The unfunded native harness exercises this through real HTTP requests across
+graceful and forced restarts, plus a deliberately occupied fixed port. It retains
+authentication, origin and duplicate-instance checks. The native Apple Silicon
+harness, five daemon and four connection tests, and 82 REST tests passed (one
+existing REST test ignored), along with `just checks`. The connection test fixtures
+now distinguish concurrent calls within a clock tick after their previous
+timestamp-only names collided during validation. Native launcher/browser
+handoff, Windows atomic discovery/ACLs, bundled runtimes and signed OS installers
+remain required; this prerequisite does not close those gates.

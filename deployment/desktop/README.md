@@ -12,6 +12,11 @@ python3 deployment/desktop/test_native_daemon.py --binary /absolute/path/to/pape
 ```
 
 This check creates an isolated, unfunded data directory and binds only loopback.
+It requests port zero so the OS assigns an available port, then discovers the
+actual address in `barkd.url`. The daemon publishes that address only after a
+successful bind; an occupied fixed port must leave the last discovery address
+unchanged. Unix discovery updates use atomic replacement. Windows atomic
+discovery and ACL acceptance remain separate packaging work.
 It checks shared UI assets, owner authentication, cross-origin preflight denial,
 Unix file permissions, graceful shutdown and authentication preservation across
 restart. A competing process uses a different port to verify that the data-directory

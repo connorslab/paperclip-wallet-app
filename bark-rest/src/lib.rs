@@ -21,6 +21,7 @@ use crate::auth::AuthToken;
 use crate::error::{ErrorResponse, unprocessable};
 
 use std::collections::HashMap;
+use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::Arc;
 
@@ -132,6 +133,7 @@ async fn shutdown_signal(shutdown: CancellationToken) {
 
 /// A server that serves a REST API for the bark [Wallet]
 pub struct RestServer {
+	local_addr: SocketAddr,
 	shutdown: CancellationToken,
 	jh: JoinHandle<()>,
 }
@@ -376,7 +378,9 @@ impl RestServer {
 		let (router, _api) = OpenApiRouter::with_openapi(ApiDoc::openapi())
 			.split_for_parts();
 
-		let socket_addr = config.socket_addr();
+		let listener = tokio::net::TcpListener::bind(config.socket_addr()).await
+			.context("Failed to bind to address")?;
+		let socket_addr = listener.local_addr().context("Failed to read listener address")?;
 
 		if state.auth_token().is_none() {
 			warn!("No auth token configured — all authentication is disabled");
@@ -397,9 +401,6 @@ impl RestServer {
 
 		#[cfg(not(feature = "web-ui"))]
 		let (router, web_ui_attached) = (router.fallback(error::route_not_found), false);
-
-		let listener = tokio::net::TcpListener::bind(socket_addr).await
-			.context("Failed to bind to address")?;
 
 		log::info!("Server starting on http://{}", socket_addr);
 
@@ -424,7 +425,12 @@ impl RestServer {
 			}
 		});
 
-		Ok(RestServer { shutdown, jh })
+		Ok(RestServer { local_addr: socket_addr, shutdown, jh })
+	}
+
+	/// The bound listener address, including the OS-assigned port when configured with zero.
+	pub fn local_addr(&self) -> SocketAddr {
+		self.local_addr
 	}
 
 	/// Stop the REST server

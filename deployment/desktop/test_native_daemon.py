@@ -14,6 +14,7 @@ import subprocess
 import tempfile
 import time
 from urllib.error import HTTPError, URLError
+from urllib.parse import urlsplit
 from urllib.request import Request, build_opener, ProxyHandler
 
 
@@ -22,15 +23,12 @@ def check(binary):
         root = Path(temporary)
         data = root / 'wallet'
         data.mkdir(mode=0o700)
-        with socket.socket() as sock:
-            sock.bind(('127.0.0.1', 0))
-            port = sock.getsockname()[1]
-        endpoint = f'http://127.0.0.1:{port}'
+        endpoint = None
         # Do not inherit real node/Jam credentials, platform overrides or proxies.
         env = {key: os.environ[key] for key in
                ('PATH', 'HOME', 'SYSTEMROOT', 'WINDIR', 'TEMP', 'TMP', 'TMPDIR') if key in os.environ}
         env.update(BARKD_DATADIR=str(data), BARKD_BIND_HOST='127.0.0.1',
-                   BARKD_BIND_PORT=str(port), BARKD_UI_DEFAULT_NETWORK='regtest',
+                   BARKD_BIND_PORT='0', BARKD_UI_DEFAULT_NETWORK='regtest',
                    BARKD_UI_DEFAULT_ARK_SERVER='http://127.0.0.1:1',
                    BARKD_UI_DEFAULT_CHAIN_SOURCE='http://127.0.0.1:1')
         http = build_opener(ProxyHandler({}))
@@ -60,6 +58,11 @@ def check(binary):
                             raise AssertionError('Native daemon exited before readiness; logs remain private')
                         try:
                             token = (data / 'auth_token').read_text()
+                            endpoint = (data / 'barkd.url').read_text()
+                            address = urlsplit(endpoint)
+                            assert address.scheme == 'http' and address.hostname == '127.0.0.1', 'Unexpected discovery host'
+                            assert address.port and address.port > 0, 'Discovery did not report the OS-assigned listen port'
+                            assert not address.username and not address.password and not address.query and not address.fragment
                             body, _ = request('/api/v1/wallet', token)
                             assert json.loads(body) == {'fingerprint': None}, 'QA unexpectedly loaded a wallet'
                             break
@@ -149,6 +152,22 @@ def check(binary):
                 else:
                     assert process.returncode == 0, 'Native shutdown failed'
 
+        # A fixed-port bind failure must not replace the last valid discovery
+        # address. The bound socket belongs only to this unfunded fixture.
+        with socket.socket() as occupied:
+            occupied.bind(('127.0.0.1', 0))
+            occupied.listen()
+            with (root / 'private-bind-failure.log').open('wb') as log:
+                rejected = subprocess.Popen([str(binary), '--quiet', '--no-logfile'],
+                    env={**env, 'BARKD_BIND_PORT':str(occupied.getsockname()[1])}, stdout=log, stderr=log)
+                try:
+                    assert rejected.wait(timeout=10) != 0, 'Daemon accepted an occupied listen port'
+                finally:
+                    if rejected.poll() is None:
+                        rejected.kill(); rejected.wait(timeout=5)
+            assert (data / 'barkd.url').read_text() == endpoint, 'Failed bind replaced discovery address'
+            assert (data / 'auth_token').read_text() == initial_token, 'Failed bind replaced authentication'
+
         # A malformed existing credential must fail closed. Never silently
         # rotate it and strand the user's already-paired clients.
         damaged = 'synthetic-invalid-authentication'
@@ -162,7 +181,7 @@ def check(binary):
                     rejected.kill(); rejected.wait(timeout=5)
         assert (data / 'auth_token').read_text() == damaged, 'Malformed authentication was silently replaced'
         assert not (data / 'mnemonic').exists(), 'Failure path created wallet keys'
-    print('PASS native daemon: isolated first launch, authenticated shared UI, entropy rejection, origin boundary, private files, duplicate-instance rejection, crash recovery and fail-closed authentication; no wallet or payment created')
+    print('PASS native daemon: isolated first launch, OS-assigned port discovery, authenticated shared UI, entropy rejection, origin boundary, private files, duplicate-instance rejection, crash recovery and fail-closed authentication; no wallet or payment created')
 
 
 if __name__ == '__main__':

@@ -32,6 +32,7 @@ jobs:
       - run: nix develop .#build --command just unit-wallet onchain::qr
       - run: nix develop .#build --command just unit-wallet onchain::replacement
       - run: nix develop .#build --command just unit-rest
+      - run: nix develop .#build --command just unit-daemon
       - run: nix develop .#build --command just unit-creation
       - run: nix develop .#build --command just unit-support
       - run: nix develop .#build --command just unit funded_lightning

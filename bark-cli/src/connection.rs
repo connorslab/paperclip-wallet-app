@@ -22,9 +22,10 @@ pub const BARKD_URL_FILE: &str = "barkd.url";
 
 /// Record the base URL this barkd listens on, so that clients on the same
 /// datadir connect to it instead of the default listen address.
+/// The caller must hold the daemon lock. Unix readers see a complete replacement.
 pub fn store_barkd_url(datadir: &Path, url: &str) -> anyhow::Result<()> {
 	let path = datadir.join(BARKD_URL_FILE);
-	fs::write(&path, url).with_context(|| format!("failed to write {}", path.display()))
+	bark::fs_perms::write_atomic_owner_only(&path, url.as_bytes())
 }
 
 /// The base URL recorded by the barkd on this datadir, if any.
@@ -112,13 +113,18 @@ pub fn acquire_barkd_lock(datadir: &Path) -> anyhow::Result<FlockPidLockManager>
 
 #[cfg(test)]
 mod test {
+	use std::sync::atomic::{AtomicUsize, Ordering};
+
 	use super::*;
 
 	fn tmp_dir() -> std::path::PathBuf {
+		// Concurrent tests can observe the same clock tick, including on macOS.
+		static NEXT_DIR: AtomicUsize = AtomicUsize::new(0);
 		let dir = std::env::temp_dir()
 			.join(format!("bark-connection-{}", std::process::id()))
-			.join(format!("{}", std::time::SystemTime::now()
-				.duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+			.join(format!("{}-{}", std::time::SystemTime::now()
+				.duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos(),
+				NEXT_DIR.fetch_add(1, Ordering::Relaxed)));
 		fs::create_dir_all(&dir).unwrap();
 		dir
 	}
@@ -147,10 +153,13 @@ mod test {
 	#[test]
 	fn barkd_url_roundtrip() {
 		let dir = tmp_dir();
+		let _lock = acquire_barkd_lock(&dir).unwrap();
 		assert_eq!(barkd_url(&dir).unwrap(), None, "no url file yet");
 
 		store_barkd_url(&dir, "http://127.0.0.1:3001").unwrap();
 		assert_eq!(barkd_url(&dir).unwrap().as_deref(), Some("http://127.0.0.1:3001"));
+		store_barkd_url(&dir, "http://127.0.0.1:49152").unwrap();
+		assert_eq!(barkd_url(&dir).unwrap().as_deref(), Some("http://127.0.0.1:49152"));
 
 		let _ = fs::remove_dir_all(&dir);
 	}

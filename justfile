@@ -18,6 +18,10 @@ unit-rest filter="":
 unit-support filter="":
 	cargo test --locked -p bark-common -p bark-json -p bark-runtime -p bip321 -p bark-nwc --lib {{filter}}
 
+unit-daemon filter="":
+	cargo test --locked -p bark-cli --bin paperclip-walletd --features barkd-web-ui {{filter}}
+	cargo test --locked -p bark-cli --lib connection::test
+
 unit-creation:
 	cargo test --locked -p bark-cli --lib seed::tests
 
