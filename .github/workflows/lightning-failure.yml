@@ -49,6 +49,7 @@ jobs:
           nix develop .#build --command cargo build --locked -p bark-cli --bin paperclip-walletd --features barkd-web-ui,sqlite-bundled
           python3 deployment/desktop/test_native_daemon.py --binary "$PWD/target/debug/paperclip-walletd"
           python3 deployment/desktop/test_managed_daemon.py --binary "$PWD/target/debug/paperclip-walletd" -v
+          python3 deployment/desktop/test_managed_shutdown.py --binary "$PWD/target/debug/paperclip-walletd" -v
           python3 deployment/desktop/test_launcher_bridge.py --binary "$PWD/target/debug/paperclip-walletd" -v
       - name: Install isolated Linux window-test dependencies
         run: |

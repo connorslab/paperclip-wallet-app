@@ -107,8 +107,19 @@ Handlers that already consumed their requests retain the existing graceful-shutd
 behavior. A real-child regression keeps an unfinished authenticated upload open
 while closing the launcher, checks a clean exit without wallet creation, and then
 checks restart with the original authentication.
-Abrupt launcher-death tests cover an unfunded idle daemon: active payment
-and long-running handler shutdown still require acceptance. First-run service/network configuration,
+`test_managed_shutdown.py --binary /absolute/path/to/paperclip-walletd -v` exercises
+an already-dispatched request against an isolated HTTPS Jam fixture. It generates
+temporary TLS material with OpenSSL and uses an explicit local trust anchor;
+verification stays enabled. Normal close stops accepting connections, lets the
+read finish, and clears the session marker only after successful child exit. A
+shortened shutdown deadline forces termination, retains the marker and warns on
+restart. A launcher-crash case verifies that the orphaned daemon drains its
+active read, releases its lock and retains the warning for the replacement owner.
+All three paths preserve authentication and do not replay the request. No
+wallet or payment is created. Linux CI runs these checks alongside the native
+Apple validation. This does not prove active-payment persistence, settlement or
+real Jam hosting. Launcher death during a funded payment remains unverified.
+First-run service/network configuration,
 packaged interpreter/runtime delivery, full OS ACL acceptance, Windows ownership
 support and installed shell acceptance remain release gates. Do not distribute this module
 as a complete desktop app or point its acceptance tests at funded storage.

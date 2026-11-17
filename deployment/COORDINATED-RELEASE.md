@@ -2651,8 +2651,9 @@ Local validation: 50 mobile Rust tests passed (one existing ignored test), all
 built for iOS Simulator and Android. Six isolated native iOS tests and two JNI
 tests on the unfunded API 35 emulator passed; the iOS bundle verifier passed.
 These tests do not establish live settlement. Linux CI now includes the mobile
-Rust suite and the direct-Ark boundary regression; current remote results remain
-pending. No funded device, production service or payment changed.
+Rust suite and the direct-Ark boundary regression. Backend run `44106015465`
+and Android API 35/36 run `44106015546` passed at `cf6214d`.
+No funded device, production service or payment changed.
 
 ## Lightning receipt recovery on shared hosts: 2026-11-17
 
@@ -2673,3 +2674,24 @@ preserving the original checkpoint. These are offline checks, not live settlemen
 A Lightning error without an exact hash can still require manual recovery; typed
 proof of a fresh rejection and recovery of older receipts remain release work.
 Previously stored `rejected` receipts are not retroactively reclassified.
+
+
+## Active read shutdown acceptance: 2026-11-17
+
+Backend CI run `44107194048` passed at `339e465`, including the shared-host
+Lightning receipt correction above. The native Apple-built daemon now also passes
+three real-process checks with an isolated HTTPS Jam fixture: graceful shutdown
+allows an already-dispatched read to finish, while a forced shutdown preserves
+the recovery warning. A launcher crash also lets the read finish, releases the
+orphaned daemon's lock and preserves the warning. All restart paths preserve
+authentication, create no wallet and do not replay the request. The normal case observes the listener
+closing while the handler remains active, rather than relying on an arbitrary
+sleep. The forced case uses a shortened test-only deadline.
+
+The first test attempt used an invalid TLS fixture (a CA certificate as the server
+leaf) and failed before the request reached its handler. A server leaf certificate
+with an explicit temporary trust anchor fixes the fixture without weakening TLS.
+The corrected native tests pass. Linux CI now includes this check; its result is
+pending. This closes part of the long-running read acceptance, not active payment,
+shutdown during settlement, launcher death during a funded operation, installed
+Jam hosting or signed-distribution acceptance. Those release gates remain open.
