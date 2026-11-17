@@ -123,7 +123,7 @@ def private_directory(path):
 
 
 @contextmanager
-def exclusive_file(path):
+def exclusive_file(path, *, nonblocking=True):
     path = local_path(path)
     with ancestors(path):
         handle = win32file.CreateFile(str(path), win32con.GENERIC_READ | win32con.GENERIC_WRITE | win32con.READ_CONTROL,
@@ -133,7 +133,7 @@ def exclusive_file(path):
             validate_handle(handle, directory=False)
             overlap = pywintypes.OVERLAPPED()
             try:
-                win32file.LockFileEx(handle, win32con.LOCKFILE_EXCLUSIVE_LOCK | win32con.LOCKFILE_FAIL_IMMEDIATELY, 1, 0, overlap)
+                win32file.LockFileEx(handle, win32con.LOCKFILE_EXCLUSIVE_LOCK | (win32con.LOCKFILE_FAIL_IMMEDIATELY if nonblocking else 0), 1, 0, overlap)
             except pywintypes.error as error:
                 if error.winerror == 33:  # ERROR_LOCK_VIOLATION
                     raise BlockingIOError('Application storage is already in use.') from None

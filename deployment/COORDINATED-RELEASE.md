@@ -3366,7 +3366,20 @@ keeps the kernel lock until the lifecycle exits. Writer cancellation still uses
 the upstream shielded worker so an active file writer cannot lose ownership.
 Eight native Windows cases cover contention, process death, cancellation, errors,
 existing wallets, ACL and junction rejection, and the source checksum gate.
-They are wired to native CI; acceptance requires that run to pass. Local macOS
+All eight pass in native Windows CI at `fd1b79b`; the broader native run is
+still pending. Local macOS
 import and POSIX ownership/retry passed with the actual pinned module.
 This is not full Windows wallet creation or crypto/runtime acceptance. Jars
 remains disabled in Windows preview packages until the complete runtime passes.
+
+### Windows Jars identity metadata adapter
+
+The pinned identity API now uses checked native reads, private atomic writes and
+stable sidecar locks on Windows. Recovery reservations remain nonblocking; normal
+metadata writers wait for their current owner. Registration keeps the selected
+identity, unknown fields and recovery markers. Corrupt or unsafe metadata cannot
+be replaced by a new registration. The source patch is checksum-gated and keeps
+POSIX behavior. Native tests cover selection, legacy identity adoption, corruption,
+ACL rejection and both lock modes; native CI acceptance is pending. The upstream
+metadata unit cases pass on macOS against the patched module. This does not close
+the remaining Windows Jars history, crypto or packaged-runtime requirements.

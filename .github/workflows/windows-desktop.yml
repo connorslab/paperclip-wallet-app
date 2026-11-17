@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
   push:
     branches: ['codex/cross-platform-parity']
-    paths: ['.github/workflows/windows-desktop.yml', 'deployment/desktop/windows/**', 'deployment/desktop/linux/launcher.py', 'deployment/desktop/managed_daemon.py', 'deployment/desktop/pipe_io.py', 'deployment/desktop/test_pipe_io.py', 'deployment/desktop/test_native_daemon.py', 'deployment/jam/paperclip_jam/journal.py', 'deployment/jam/test_journal.py', 'deployment/jam/paperclip_jam/hosting.py', 'deployment/jam/test_runtime_lock.py', 'deployment/jam/test_certificate_handoff.py', 'deployment/jam/install_windows_storage.py', 'deployment/jam/install_windows_wallet_ops.py', 'deployment/jam/paperclip_jam/windows_wallet_ops.py', 'deployment/jam/paperclip_jam/windows_storage.py', 'bark/src/lock_manager/**', 'bark/Cargo.toml', 'bark-common/**', 'bark-cli/**', 'bark-rest/src/profiles.rs', 'bark-rest/src/lib.rs', 'scripts/test-hot-profiles-daemon.py', 'Cargo.lock']
+    paths: ['.github/workflows/windows-desktop.yml', 'deployment/desktop/windows/**', 'deployment/desktop/linux/launcher.py', 'deployment/desktop/managed_daemon.py', 'deployment/desktop/pipe_io.py', 'deployment/desktop/test_pipe_io.py', 'deployment/desktop/test_native_daemon.py', 'deployment/jam/paperclip_jam/journal.py', 'deployment/jam/test_journal.py', 'deployment/jam/paperclip_jam/hosting.py', 'deployment/jam/test_runtime_lock.py', 'deployment/jam/test_certificate_handoff.py', 'deployment/jam/install_windows_storage.py', 'deployment/jam/install_windows_wallet_ops.py', 'deployment/jam/install_windows_metadata.py', 'deployment/jam/paperclip_jam/windows_metadata.py', 'deployment/jam/paperclip_jam/windows_wallet_ops.py', 'deployment/jam/paperclip_jam/windows_storage.py', 'bark/src/lock_manager/**', 'bark/Cargo.toml', 'bark-common/**', 'bark-cli/**', 'bark-rest/src/profiles.rs', 'bark-rest/src/lib.rs', 'scripts/test-hot-profiles-daemon.py', 'Cargo.lock']
 permissions:
   contents: read
 jobs:
@@ -59,6 +59,15 @@ jobs:
           python -c "import os, subprocess; from pathlib import Path; blob = subprocess.check_output(['git', '-C', '.native-jam-source', 'show', '40a29ae4f34930687f0c6be3e9e5bf14a44cc0f3:jmwalletd/src/jmwalletd/wallet_ops.py']); Path(os.environ['RUNNER_TEMP'], 'reviewed-wallet-ops.py').write_bytes(blob)"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python deployment/desktop/windows/test_jam_wallet_ops.py --upstream "$env:RUNNER_TEMP/reviewed-wallet-ops.py" -v
+      - name: Verify pinned Jars identity metadata and selection
+        timeout-minutes: 3
+        run: |
+          $env:PYTHONPATH = "$env:GITHUB_WORKSPACE/deployment/jam;$env:GITHUB_WORKSPACE/deployment/desktop"
+          python -m pip install pydantic==2.14.2 loguru==0.7.3
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -c "import os, subprocess; from pathlib import Path; blob = subprocess.check_output(['git', '-C', '.native-jam-source', 'show', '40a29ae4f34930687f0c6be3e9e5bf14a44cc0f3:jmcore/src/jmcore/wallet_metadata.py']); Path(os.environ['RUNNER_TEMP'], 'reviewed-wallet-metadata.py').write_bytes(blob)"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python deployment/desktop/windows/test_jam_metadata.py --upstream "$env:RUNNER_TEMP/reviewed-wallet-metadata.py" -v
       - name: Select the reviewed Rust toolchain
         run: rustup toolchain install 1.91.0 --profile minimal
       - name: Prepare native build dependencies
