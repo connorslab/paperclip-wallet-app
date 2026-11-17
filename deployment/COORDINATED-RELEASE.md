@@ -23,7 +23,7 @@ checks from the required implementation and acceptance work.
 | Android | 100 JVM tests (four live cases excluded); 16 isolated API 35 UI cases; authenticated CLN/LND reads and pin rejection | Final release identity, Play/APK upgrade compatibility, physical/foldable acceptance and current CI completion |
 | Shared desktop UI | All 17 existing browser-flow suites plus entropy, transport and QR checks; phone, foldable and desktop widths where each suite defines them | Installed-host and native desktop acceptance; complete multiple-hot-wallet and hardware-funded Ark workflows |
 | StartOS/Umbrel | Shared REST checks, authenticated CLN/LND reads; both StartOS candidate architectures built and source/checksums checked | Complete backup/restore, candidate installation, bundled Jam pairing/revocation/Tor and upgrades; matching frozen wrappers |
-| Linux/macOS/Windows | Isolated native Apple Silicon daemon authentication and restart smoke | Native launchers and bundled service lifecycle, supported OS matrix, signed installers, notarization where applicable and clean install/upgrade tests |
+| Linux/macOS/Windows | Isolated Apple Silicon daemon authentication, duplicate-instance rejection and crash/restart checks | Native launchers and bundled service lifecycle, supported OS matrix, signed installers, notarization where applicable and clean install/upgrade tests |
 | Jars | Reviewed direct/CoinJoin toggle and bond funding/withdrawal clients; pinned signer, API, bond and interrupted-submission checks | Live CoinJoin, direct-send and bond-funding/withdrawal acceptance, installed payment-pairing acceptance, live maker and physical QR signer acceptance |
 | Payments and recovery | 291 shared wallet tests, exact-cost/RBF/unknown-outcome checks; unified-signature and Electrum-header checks | Live BOLT12/Ark/Bridge settlement, portable recovery/restore and current-source XBT consensus acceptance |
 
@@ -1899,3 +1899,21 @@ pairing, a live matured-bond withdrawal and confirmation/recovery acceptance rem
 open. No production wallet was changed and no test payment was made. Krux and
 SeedSigner remain separate signing wallets: this flow neither imports their keys
 nor claims support for their unresolved CLTV withdrawal review/signing gates.
+
+
+## Native daemon lifecycle prerequisite — 2026-11-16
+
+The current native Apple Silicon binary was rebuilt with the shared embedded web
+UI and bundled SQLite. Its unfunded acceptance harness now rejects a competing
+instance on a different port, verifies that the live instance's discovery address
+and owner authentication remain intact, kills only the test child, and restarts
+without deleting stale lock files. A malformed saved credential fails closed and
+is not silently regenerated. The expanded checks passed, together with shared UI
+asset/entropy checks and `just checks`. No wallet keys or payments were created.
+
+The Linux backend workflow now builds and runs this same prerequisite; that new
+CI step is pending its first run. This does not close native launcher, bundled
+Jam/Tor lifecycle, Windows ACL/runtime, signing, installer, upgrade or funded
+backup/recovery gates. The earlier bond-withdrawal revision b1a92db also passed
+bundled Jam CI on AMD64 and ARM64 and the full browser workflow; Android and
+backend completion for that revision were still pending at this checkpoint.

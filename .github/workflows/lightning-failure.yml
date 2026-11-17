@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
   push:
     branches: ['fix/lightning-failed-payment-costs', 'codex/cross-platform-parity']
-    paths: ['bark/**', 'bark-cli/**', 'bark-json/**', 'bark-rest/**', 'mobile/rust/**', 'Cargo.lock', 'justfile', '.github/workflows/lightning-failure.yml']
+    paths: ['bark/**', 'bark-cli/**', 'bark-json/**', 'bark-rest/**', 'mobile/rust/**', 'Cargo.lock', 'deployment/desktop/**', 'justfile', '.github/workflows/lightning-failure.yml']
 permissions:
   contents: read
 jobs:
@@ -36,6 +36,11 @@ jobs:
       - run: nix develop .#build --command just unit-support
       - run: nix develop .#build --command just unit funded_lightning
       - run: nix develop .#build --command just unit lightning_send_lifetime
+      - name: Unfunded native daemon lifecycle prerequisite
+        run: |
+          export BARK_WEB_DIST="$PWD/web"
+          nix develop .#build --command cargo build --locked -p bark-cli --bin paperclip-walletd --features barkd-web-ui,sqlite-bundled
+          python3 deployment/desktop/test_native_daemon.py --binary "$PWD/target/debug/paperclip-walletd"
       - name: Generate API documentation
         run: nix develop .#build --command cargo run --locked -p bark-rest --example dump_api_docs > bark-rest/openapi.json
       - uses: actions/upload-artifact@v4

@@ -49,7 +49,7 @@ def check(binary):
                 return response.read(), response.headers
 
         initial_token = None
-        for run in range(2):
+        for run in range(3):
             with (root / f'private-daemon-{run}.log').open('wb') as log:
                 process = subprocess.Popen([str(binary), '--quiet', '--no-logfile'], env=env,
                     stdout=log, stderr=log,
@@ -81,7 +81,9 @@ def check(binary):
                             assert error.code == 401, 'Unexpected authentication response'
                     assert json.loads(request('/api/ui-platform')[0]) == {'platform':'standalone'}
                     assert b'id="jam-create"' in request('/')[0], 'Shared Jars setup UI missing'
-                    assert b"call('backup_wallet'" in request('/joinblaket.js')[0], 'Shared backup flow missing'
+                    jars_script = request('/joinblaket.js')[0]
+                    assert b"call('backup_wallet'" in jars_script, 'Shared backup flow missing'
+                    assert b"call('bonds')" in jars_script, 'Shared bond withdrawal flow missing'
                     assert json.loads(request('/api/v1/joinblaket/connection', token)[0])['configured'] is False
                     options = json.loads(request('/api/v1/wallet/creation-options', token)[0])
                     assert options['version'] == 1 and options['methods'] == ['system', 'dice']
@@ -107,6 +109,29 @@ def check(binary):
                     except HTTPError as error:
                         assert error.code in (401, 403, 405), 'Unexpected preflight response'
                     assert not (data / 'mnemonic').exists(), 'First launch unexpectedly created wallet keys'
+                    # A different listen port must not bypass the datadir lock or
+                    # overwrite the running service's discovery/authentication.
+                    with socket.socket() as sock:
+                        sock.bind(('127.0.0.1', 0))
+                        other_port = sock.getsockname()[1]
+                    with (root / f'private-duplicate-{run}.log').open('wb') as duplicate_log:
+                        duplicate = subprocess.Popen([str(binary), '--quiet', '--no-logfile'],
+                            env={**env, 'BARKD_BIND_PORT':str(other_port)},
+                            stdout=duplicate_log, stderr=duplicate_log)
+                        try:
+                            assert duplicate.wait(timeout=10) != 0, 'A second daemon accepted the same data directory'
+                        finally:
+                            if duplicate.poll() is None:
+                                duplicate.kill(); duplicate.wait(timeout=5)
+                    assert b'another barkd is already running' in (root / f'private-duplicate-{run}.log').read_bytes(), 'Duplicate failed for a reason other than the instance lock'
+                    assert (data / 'barkd.url').read_text() == endpoint, 'Duplicate launch replaced discovery address'
+                    assert (data / 'auth_token').read_text() == token, 'Duplicate launch replaced authentication'
+                    assert json.loads(request('/api/v1/wallet', token)[0]) == {'fingerprint':None}
+                    # Exercise OS lock release, not just graceful cleanup. The
+                    # following iteration must recover without deleting files.
+                    if run == 1:
+                        process.kill()
+                        process.wait(timeout=10)
                 finally:
                     if process.poll() is None:
                         if os.name == 'nt':
@@ -119,8 +144,25 @@ def check(binary):
                             process.kill()
                             process.wait(timeout=5)
                             raise AssertionError('Native daemon did not shut down gracefully') from None
-                assert process.returncode == 0, 'Native shutdown failed'
-    print('PASS native daemon: isolated first launch, authenticated shared UI, entropy rejection, origin boundary, private files and restart preservation; no wallet or payment created')
+                if run == 1:
+                    assert process.returncode != 0, 'Crash simulation did not terminate the process'
+                else:
+                    assert process.returncode == 0, 'Native shutdown failed'
+
+        # A malformed existing credential must fail closed. Never silently
+        # rotate it and strand the user's already-paired clients.
+        damaged = 'synthetic-invalid-authentication'
+        (data / 'auth_token').write_text(damaged)
+        with (root / 'private-invalid-auth.log').open('wb') as log:
+            rejected = subprocess.Popen([str(binary), '--quiet', '--no-logfile'],env=env,stdout=log,stderr=log)
+            try:
+                assert rejected.wait(timeout=10) != 0, 'Daemon accepted malformed saved authentication'
+            finally:
+                if rejected.poll() is None:
+                    rejected.kill(); rejected.wait(timeout=5)
+        assert (data / 'auth_token').read_text() == damaged, 'Malformed authentication was silently replaced'
+        assert not (data / 'mnemonic').exists(), 'Failure path created wallet keys'
+    print('PASS native daemon: isolated first launch, authenticated shared UI, entropy rejection, origin boundary, private files, duplicate-instance rejection, crash recovery and fail-closed authentication; no wallet or payment created')
 
 
 if __name__ == '__main__':

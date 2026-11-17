@@ -14,8 +14,13 @@ python3 deployment/desktop/test_native_daemon.py --binary /absolute/path/to/pape
 This check creates an isolated, unfunded data directory and binds only loopback.
 It checks shared UI assets, owner authentication, cross-origin preflight denial,
 Unix file permissions, graceful shutdown and authentication preservation across
-restart. It also checks advertised entropy choices and rejects invalid generation
-requests before wallet creation. It does not create wallet keys, use real
+restart. A competing process uses a different port to verify that the data-directory
+lock, rather than a port collision, protects the running instance and its discovery
+address. It then kills only its own unfunded child, restarts without deleting lock
+files, and verifies that malformed saved authentication fails closed instead of
+silently rotating. The Linux backend CI runs this prerequisite too; it is not a
+signed-installation test. It also checks advertised entropy choices and rejects
+invalid generation requests before wallet creation. It does not create wallet keys, use real
 credentials or contact nodes.
 Windows ACL acceptance remains separate from the Unix mode checks.
 
