@@ -70,8 +70,10 @@ extension JoinBlaketClient {
         let identity = try await sendIdentity(authorization)
         struct Features: Decodable { let version: Int; let reviewed_direct_send: Bool; let coinjoin_payments: Bool? }
         let features = try JSONDecoder().decode(Features.self, from: await request(["paperclip", "capabilities"], authorization: authorization))
-        guard [1, 2].contains(features.version), features.reviewed_direct_send,
-              !draft.coinjoin || (features.version == 2 && features.coinjoin_payments == true) else { throw JoinBlaketError.invalidResponse }
+        guard [1, 2].contains(features.version), features.reviewed_direct_send else { throw JoinBlaketError.invalidResponse }
+        if draft.coinjoin && !(features.version == 2 && features.coinjoin_payments == true) {
+            throw JoinBlaketError.coinJoinUnavailable
+        }
         let review = try JoinBlaketSendReview(data: await request(["wallet", authorization.wallet, "paperclip", "payments"], authorization: authorization, jsonBody: draft.body(), preparingCoinJoin: draft.coinjoin))
         try review.validate(draft: draft, wallet: authorization.wallet, identity: identity)
         return review

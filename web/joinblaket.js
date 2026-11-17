@@ -20,11 +20,14 @@
     .observe($('jam-status'), {childList:true,subtree:true,characterData:true});
 
   const sendDialog = $('jam-send-dialog');
-  let sendDraft = null, sendReview = null, sendAttempted = false, sendJar = 0, sendTicket = 0;
+  let sendDraft = null, sendReview = null, sendAttempted = false, sendJar = 0, sendTicket = 0, sendSubmitting = false;
   function renderSend() {
     $('jam-send-form').hidden = sendAttempted;
     $('jam-send-review').hidden = !sendReview;
-    $('jam-send-recovery').hidden = !sendAttempted || !!sendReview;
+    $('jam-send-recovery').hidden = busy || !sendAttempted || !!sendReview;
+    $('jam-send-progress').hidden = !busy || !sendAttempted || !!sendReview;
+    $('jam-send-progress-title').textContent = sendSubmitting ? 'Submitting payment' : sendDraft?.terms.coinjoin ? 'Preparing CoinJoin' : 'Preparing payment';
+    $('jam-send-progress-detail').textContent = sendSubmitting ? 'Waiting for your Jam node. Keep this screen open; the payment will not be sent again automatically.' : sendDraft?.terms.coinjoin ? 'Finding participants and checking the exact fees. This can take up to three minutes. Nothing is broadcast until you review and send.' : 'Checking the recipient, coins and fees before review.';
     $('jam-send-mode').textContent = $('jam-send-coinjoin').checked ?
       'Pay with other participants. Review maker and mining fees before sending. If CoinJoin is unavailable, no direct payment is made.' : 'Direct payment. This transaction will not use CoinJoin.';
     sendDialog.querySelectorAll('button,input').forEach(el=>el.disabled=busy);
@@ -34,7 +37,7 @@
   $('jam-send-coinjoin').onchange = renderSend;
   $('jam-send').onclick = () => {
     if (busy || !authorization) return;
-    sendTicket++; sendDraft=null; sendReview=null; sendAttempted=false; sendJar=selected;
+    sendTicket++; sendDraft=null; sendReview=null; sendAttempted=false; sendSubmitting=false; sendJar=selected;
     $('jam-send-result').textContent='Check payment activity'; $('jam-send-status').textContent='';
     $('jam-send-title').textContent='Send from '+jars.find(jar=>jar.id===sendJar).name;
     renderSend(); sendDialog.showModal(); $('jam-send-address').focus();
@@ -57,6 +60,7 @@
       const group=document.createElement('div'), dt=document.createElement('dt'), dd=document.createElement('dd'); dt.textContent=label;dd.textContent=value;group.append(dt,dd);$('jam-send-costs').append(group);
     }
     $('jam-send-destination').textContent=row.quote.destination;
+    sendDialog.querySelector('.jam-tool-body').scrollTop=0;
     $('jam-send-expiry').textContent='Review expires '+new Date(row.expires*1000).toLocaleTimeString()+(terms.coinjoin?'. Discarding may leave coins reserved briefly.':'');
   });
   $('jam-send-commit').onclick = () => work(async()=>{
@@ -64,7 +68,7 @@
     const {id,wallet,terms}=sendDraft, row=sendReview, ticket=sendTicket;
     PaperclipJarSend.validate(row,id,wallet,terms);
     if(authorization?.wallet!==wallet) throw new Error('Jam wallet changed since review.');
-    sendReview=null; renderSend();
+    sendSubmitting=true; sendReview=null; renderSend();
     const result=await call('commit_payment',{payment_id:id,approval:row.approval,wallet_identity:row.quote.wallet_identity});
     if(ticket!==sendTicket || !sendDialog.open) return;
     if(result.id!==id || !['submitted','submitting','unknown'].includes(result.state) || !['wallet','jar','purpose','destination','txid','amount_sat','fee_sat','total_sat','coinjoin','maker_fee_sat','mining_fee_sat','network_fee_sat','maker_count','broadcast_policy'].every(key=>result.quote?.[key]===row.quote[key])) throw new Error('Check Jars payment activity before another action.');

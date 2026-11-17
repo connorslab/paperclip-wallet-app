@@ -36,6 +36,7 @@ for(const item of fixtures) {
        if(body.operation==='status')value={session:true,wallet_name:'fixture.jmdat',maker_running:false,coinjoin_in_process:false,rescanning:false};
        else if(body.operation==='coins')value={jars};
        else if(body.operation==='prepare_payment') {
+        await new Promise(resolve=>setTimeout(resolve,500));
         assert.deepEqual(body.send,{jar:0,destination:'bcrt1qsyntheticrecipient',amount_sat:20000,fee_rate_millisat_vb:1000,max_fee_sat:1000,coinjoin});
         saved=structuredClone((coinjoin?fixtures.find(v=>v.name==='reviewed CoinJoin'):fixtures[0]).review);saved.id=body.payment_id;saved.expires=Math.floor(Date.now()/1000)+200;
         if(badQuote)saved.quote.destination='bcrt1qdifferentrecipient';value=saved;
@@ -57,7 +58,9 @@ for(const item of fixtures) {
    await page.locator('#jam-dashboard').waitFor({state:'visible'});await page.locator('#jam-send').click();
    await page.locator('#jam-send-coinjoin').check();assert(await page.locator('#jam-send-prepare').isEnabled());assert(!actions.includes('prepare_payment'));
    if (!coinjoin) await page.locator('#jam-send-coinjoin').uncheck();await page.locator('#jam-send-address').fill('bcrt1qsyntheticrecipient');await page.locator('#jam-send-amount').fill('20000');
-   await page.locator('#jam-send-prepare').click();await page.locator('#jam-send-review').waitFor({state:'visible'});
+   await page.locator('#jam-send-prepare').click();await page.locator('#jam-send-progress').waitFor({state:'visible'});
+   assert.equal(await page.locator('#jam-send-progress-title').textContent(),coinjoin?'Preparing CoinJoin':'Preparing payment');
+   assert(await page.locator('#jam-send-recovery').isHidden());await page.locator('#jam-send-review').waitFor({state:'visible'});
    assert.match(await page.locator('#jam-send-costs').textContent(),coinjoin?/Maker fees.*100 sats.*Your mining fee.*100 sats/:/Direct · no CoinJoin/);
    assert.equal(await page.locator('#jam-send-destination').textContent(),'bcrt1qsyntheticrecipient');
    if(process.env.SCREENSHOT_DIR){fs.mkdirSync(process.env.SCREENSHOT_DIR,{recursive:true});await page.screenshot({path:path.join(process.env.SCREENSHOT_DIR,`jar-send-${coinjoin?"coinjoin":"direct"}-review-${width}.png`)});}

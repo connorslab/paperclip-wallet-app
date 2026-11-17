@@ -20,10 +20,13 @@ import kotlinx.coroutines.launch
 	var destination by remember { mutableStateOf("") }; var amount by remember { mutableStateOf("") }
 	var rate by remember { mutableStateOf("1") }; var feeLimit by remember { mutableStateOf("1000") }
 	var coinjoin by remember { mutableStateOf(false) }; var busy by remember { mutableStateOf(false) }
+	var submitting by remember { mutableStateOf(false) }
 	var attempted by remember { mutableStateOf(false) }; var message by remember { mutableStateOf<String?>(null) }
 	var draft by remember { mutableStateOf<JoinBlaketSendDraft?>(null) }
 	var review by remember { mutableStateOf<JoinBlaketSendReview?>(null) }
 	var result by remember { mutableStateOf<JoinBlaketPayment?>(null) }
+	val scroll = rememberScrollState()
+	LaunchedEffect(review?.payment?.id, result?.state, attempted) { scroll.scrollTo(0) }
 	val scope = rememberCoroutineScope()
 	val focus = LocalFocusManager.current
 	val keyboard = LocalSoftwareKeyboardController.current
@@ -43,7 +46,7 @@ import kotlinx.coroutines.launch
 			Text("Jar payment", style = MaterialTheme.typography.headlineSmall)
 			TextButton(onClick = close) { Text("Close") }
 		}
-		Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+		Column(Modifier.weight(1f).verticalScroll(scroll).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
 			WalletSurface {
 				Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
 					val saved = review; val terms = draft; val receipt = result
@@ -62,13 +65,17 @@ import kotlinx.coroutines.launch
 							Text(terms.destination, style = MaterialTheme.typography.bodySmall)
 							Text("Wallet: ${auth.wallet}", style = MaterialTheme.typography.bodySmall)
 							Text("Review expires " + java.time.Instant.ofEpochSecond(saved.expires).atZone(java.time.ZoneId.systemDefault()).toLocalTime().withNano(0), style = MaterialTheme.typography.bodySmall)
-							WalletPrimaryButton(enabled = !busy, modifier = Modifier.fillMaxWidth(), onClick = { run { review = null; result = client.commitSend(saved,terms,auth) } }) { Text("Send payment") }
+							WalletPrimaryButton(enabled = !busy, modifier = Modifier.fillMaxWidth(), onClick = { run { submitting = true; review = null; result = client.commitSend(saved,terms,auth) } }) { Text("Send payment") }
 							TextButton(enabled = !busy, onClick = { run { client.discardPayment(terms.id,auth); review = null; draft = null; attempted = false } }) { Text("Discard unsent review") }
 						}
 						receipt != null -> {
 							Text(receipt.label, style = MaterialTheme.typography.titleLarge)
 							Text(if (receipt.state == "submitted") "The transaction was submitted. Confirmation is still pending." else "The payment may have reached the network. Check its status before another action.")
 							WalletPrimaryButton(onClick = activity, modifier = Modifier.fillMaxWidth()) { Text("View payment activity") }
+						}
+						busy && attempted -> {
+							Text(if (submitting) "Submitting payment" else if (terms?.coinjoin == true) "Preparing CoinJoin" else "Preparing payment", style = MaterialTheme.typography.titleLarge)
+							Text(if (submitting) "Waiting for your Jam node. Keep this screen open; the payment will not be sent again automatically." else if (terms?.coinjoin == true) "Finding participants and checking the exact fees. This can take up to three minutes. Nothing is broadcast until you review and send." else "Checking the recipient, coins and fees before review.")
 						}
 						attempted -> {
 							Text("Check payment activity", style = MaterialTheme.typography.titleLarge)
@@ -86,7 +93,7 @@ import kotlinx.coroutines.launch
 							WalletPrimaryButton(enabled = !busy, modifier = Modifier.fillMaxWidth(), onClick = { run {
 								val feeRate = rate.toLong(); require(feeRate in 1..10000)
 								val value = JoinBlaketSendDraft(jar,destination.trim(),amount.toLong(),feeRate*1000,feeLimit.toLong(), coinjoin = coinjoin)
-								draft = value; attempted = true; review = client.prepareSend(value,auth)
+								submitting = false; draft = value; attempted = true; review = client.prepareSend(value,auth)
 							} }) { Text("Review payment") }
 						}
 					}

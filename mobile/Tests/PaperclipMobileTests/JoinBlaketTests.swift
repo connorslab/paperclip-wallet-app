@@ -94,7 +94,7 @@ final class JoinBlaketTests: XCTestCase {
             return (200, String(decoding: try! JSONSerialization.data(withJSONObject: saved), as: UTF8.self))
         }
         let c = try client()
-        do { _ = try await c.prepareSend(draft, authorization: auth); XCTFail("Unsupported CoinJoin cannot use direct sends") } catch {}
+        do { _ = try await c.prepareSend(draft, authorization: auth); XCTFail("Unsupported CoinJoin cannot use direct sends") } catch { XCTAssertTrue(error.localizedDescription.contains("No direct payment was requested")) }
         XCTAssertFalse(JamStub.requests.contains { $0.httpMethod == "POST" })
         supported = true
         let review = try await c.prepareSend(draft, authorization: auth)

@@ -17,70 +17,78 @@ private struct JarsSendView: View {
     @State private var coinjoin = false
     @State private var busy = false
     @State private var attempted = false
+    @State private var submitting = false
     @State private var draft: JoinBlaketSendDraft?
     @State private var review: JoinBlaketSendReview?
     @State private var result: JoinBlaketPayment?
     @State private var message: String?
     @State private var task: Task<Void, Never>?
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                if let review, let draft, result == nil {
-                    WalletSection("Review jar payment") {
-                        PaymentReviewHero(amount: "\(draft.amountSat.formatted()) sats", source: jar.name)
-                        LabeledContent("From", value: jar.name)
-                        LabeledContent("Payment type", value: draft.coinjoin ? "CoinJoin" : "Direct · no CoinJoin")
-                        if let q = review.payment.quote {
-                            if draft.coinjoin {
-                                WalletReviewDetail(title: "Maker fees", value: "\((q.maker_fee_sat ?? 0).formatted()) sats")
-                                WalletReviewDetail(title: "Your mining fee", value: "\((q.mining_fee_sat ?? 0).formatted()) sats")
-                                Text("With \(q.maker_count ?? 0) makers · sent through your Jam node").font(.caption)
-                                Text("CoinJoin does not use RBF. Discarding a review may leave coins reserved briefly.").font(.caption).foregroundStyle(PaperclipTheme.muted)
-                            } else { WalletReviewDetail(title: "Mining fee", value: "\(q.fee_sat.formatted()) sats") }
-                            WalletReviewDetail(title: "Total debit", value: "\(q.total_sat.formatted()) sats", emphasized: true)
-                        }
-                        Text(draft.destination).font(.footnote.monospaced()).textSelection(.enabled)
-                        Text("Wallet: \(wallet)").font(.caption).foregroundStyle(PaperclipTheme.muted)
-                        Text("Review expires \(Date(timeIntervalSince1970: Double(review.expires)), style: .time)").font(.caption)
-                        Button("Send payment") { run { self.review = nil; result = try await commit(review, draft) } }
-                            .buttonStyle(WalletPrimaryButtonStyle())
-                        Button("Discard unsent review", role: .cancel) { run { _ = try await discard(draft.id); self.review = nil; self.draft = nil; attempted = false } }
-                    }
-                } else if let result {
-                    WalletSection(result.state.label) {
-                        Text(result.state == .submitted ? "The transaction was submitted. Confirmation is still pending." : "The payment may have reached the network. Check its status before another action.")
-                        Button("View payment activity", action: activity).buttonStyle(WalletPrimaryButtonStyle())
-                    }
-                } else if attempted {
-                    WalletSection("Check payment activity") {
-                        Text("A request was started. Its saved state must be checked before creating another payment.")
-                        Button("View payment activity", action: activity).buttonStyle(WalletPrimaryButtonStyle())
-                    }
-                } else {
-                    WalletSection("Send from \(jar.name)") {
-                        TextField("XBT address", text: $destination).textInputAutocapitalization(.never).autocorrectionDisabled()
-                        TextField("Amount (sats)", text: $amount).keyboardType(.numberPad)
-                        Toggle("CoinJoin", isOn: $coinjoin).accessibilityIdentifier("jars-send-coinjoin")
-                        Text(coinjoin ? "Pay with other participants. Review maker and mining fees before sending. If CoinJoin is unavailable, no direct payment is made." : "Direct payment. This transaction will not use CoinJoin.")
-                            .font(.caption).foregroundStyle(PaperclipTheme.muted)
-                        LabeledContent("Mining rate (sat/vB)") { TextField("1", text: $rate).keyboardType(.numberPad).multilineTextAlignment(.trailing) }
-                        LabeledContent("Maximum total fees (sats)") { TextField("1000", text: $feeLimit).keyboardType(.numberPad).multilineTextAlignment(.trailing) }
-                        Button("Review payment") {
-                            run {
-                                guard let sats = UInt64(amount), let rate = UInt64(rate), rate <= 10000, let maxFee = UInt64(feeLimit) else { throw JoinBlaketError.invalidResponse }
-                                let value = try JoinBlaketSendDraft(jar: jar.id, destination: destination.trimmingCharacters(in: .whitespacesAndNewlines), amountSat: sats, feeRateMillisatVb: rate * 1000, maxFeeSat: maxFee, coinjoin: coinjoin)
-                                draft = value; attempted = true
-                                review = try await prepare(value)
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    if let review, let draft, result == nil {
+                        WalletSection("Review jar payment") {
+                            PaymentReviewHero(amount: "\(draft.amountSat.formatted()) sats", source: jar.name)
+                            LabeledContent("From", value: jar.name)
+                            LabeledContent("Payment type", value: draft.coinjoin ? "CoinJoin" : "Direct · no CoinJoin")
+                            if let q = review.payment.quote {
+                                if draft.coinjoin {
+                                    WalletReviewDetail(title: "Maker fees", value: "\((q.maker_fee_sat ?? 0).formatted()) sats")
+                                    WalletReviewDetail(title: "Your mining fee", value: "\((q.mining_fee_sat ?? 0).formatted()) sats")
+                                    Text("With \(q.maker_count ?? 0) makers · sent through your Jam node").font(.caption)
+                                    Text("CoinJoin does not use RBF. Discarding a review may leave coins reserved briefly.").font(.caption).foregroundStyle(PaperclipTheme.muted)
+                                } else { WalletReviewDetail(title: "Mining fee", value: "\(q.fee_sat.formatted()) sats") }
+                                WalletReviewDetail(title: "Total debit", value: "\(q.total_sat.formatted()) sats", emphasized: true)
                             }
-                        }.buttonStyle(WalletPrimaryButtonStyle()).disabled(previewOnly)
+                            Text(draft.destination).font(.footnote.monospaced()).textSelection(.enabled)
+                            Text("Wallet: \(wallet)").font(.caption).foregroundStyle(PaperclipTheme.muted)
+                            Text("Review expires \(Date(timeIntervalSince1970: Double(review.expires)), style: .time)").font(.caption)
+                            Button("Send payment") { run { submitting = true; self.review = nil; result = try await commit(review, draft) } }
+                                .buttonStyle(WalletPrimaryButtonStyle())
+                            Button("Discard unsent review", role: .cancel) { run { _ = try await discard(draft.id); self.review = nil; self.draft = nil; attempted = false } }
+                        }
+                    } else if let result {
+                        WalletSection(result.state.label) {
+                            Text(result.state == .submitted ? "The transaction was submitted. Confirmation is still pending." : "The payment may have reached the network. Check its status before another action.")
+                            Button("View payment activity", action: activity).buttonStyle(WalletPrimaryButtonStyle())
+                        }
+                    } else if busy && attempted {
+                        WalletSection(submitting ? "Submitting payment" : draft?.coinjoin == true ? "Preparing CoinJoin" : "Preparing payment") {
+                            Text(submitting ? "Waiting for your Jam node. Keep this screen open; the payment will not be sent again automatically." : draft?.coinjoin == true ? "Finding participants and checking the exact fees. This can take up to three minutes. Nothing is broadcast until you review and send." : "Checking the recipient, coins and fees before review.")
+                        }
+                    } else if attempted {
+                        WalletSection("Check payment activity") {
+                            Text("A request was started. Its saved state must be checked before creating another payment.")
+                            Button("View payment activity", action: activity).buttonStyle(WalletPrimaryButtonStyle())
+                        }
+                    } else {
+                        WalletSection("Send from \(jar.name)") {
+                            TextField("XBT address", text: $destination).textInputAutocapitalization(.never).autocorrectionDisabled()
+                            TextField("Amount (sats)", text: $amount).keyboardType(.numberPad)
+                            Toggle("CoinJoin", isOn: $coinjoin).accessibilityIdentifier("jars-send-coinjoin")
+                            Text(coinjoin ? "Pay with other participants. Review maker and mining fees before sending. If CoinJoin is unavailable, no direct payment is made." : "Direct payment. This transaction will not use CoinJoin.")
+                                .font(.caption).foregroundStyle(PaperclipTheme.muted)
+                            LabeledContent("Mining rate (sat/vB)") { TextField("1", text: $rate).keyboardType(.numberPad).multilineTextAlignment(.trailing) }
+                            LabeledContent("Maximum total fees (sats)") { TextField("1000", text: $feeLimit).keyboardType(.numberPad).multilineTextAlignment(.trailing) }
+                            Button("Review payment") {
+                                run {
+                                    guard let sats = UInt64(amount), let rate = UInt64(rate), rate <= 10000, let maxFee = UInt64(feeLimit) else { throw JoinBlaketError.invalidResponse }
+                                    let value = try JoinBlaketSendDraft(jar: jar.id, destination: destination.trimmingCharacters(in: .whitespacesAndNewlines), amountSat: sats, feeRateMillisatVb: rate * 1000, maxFeeSat: maxFee, coinjoin: coinjoin)
+                                    submitting = false; draft = value; attempted = true
+                                    review = try await prepare(value)
+                                }
+                            }.buttonStyle(WalletPrimaryButtonStyle()).disabled(previewOnly)
+                        }
                     }
-                }
-                if busy { ProgressView().frame(maxWidth: .infinity) }
-                if let message { Text(message).font(.subheadline) }
-            }.walletPageContent().textFieldStyle(WalletInputStyle()).disabled(busy)
-        }.walletPageBackground().navigationTitle("Jar payment").navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } } }
-            .onDisappear { task?.cancel() }
+                    if busy { ProgressView().frame(maxWidth: .infinity) }
+                    if let message { Text(message).font(.subheadline) }
+                }.walletPageContent().id("jar-send-content").textFieldStyle(WalletInputStyle()).disabled(busy)
+            }.walletPageBackground().navigationTitle("Jar payment").navigationBarTitleDisplayMode(.inline)
+                .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } } }
+                .onDisappear { task?.cancel() }
+                .onChange(of: review?.payment.id) { _, _ in proxy.scrollTo("jar-send-content", anchor: .top) }
+        }
     }
     private func run(_ action: @escaping @MainActor () async throws -> Void) {
         guard !busy else { return }; busy = true; message = nil

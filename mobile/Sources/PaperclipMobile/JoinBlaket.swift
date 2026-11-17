@@ -76,11 +76,12 @@ public struct JoinBlaketConnection: Codable, Equatable, Sendable {
 }
 
 public enum JoinBlaketError: LocalizedError {
-    case sessionExpired, pairingUnavailable, invalidResponse, wrongWallet, invalidBondMonth, requestFailed(Int)
+    case sessionExpired, pairingUnavailable, coinJoinUnavailable, invalidResponse, wrongWallet, invalidBondMonth, requestFailed(Int)
     public var errorDescription: String? {
         switch self {
         case .sessionExpired: return "Unlock your JoinBlaket wallet again to continue."
         case .pairingUnavailable: return "Check Jars on your Paperclip host. If Jam locked or restarted, unlock it there and create a new pairing. Check status before retrying an action."
+        case .coinJoinUnavailable: return "Update your Jam server to use reviewed CoinJoin sends. No direct payment was requested."
         case .invalidResponse: return "JoinBlaket returned an unreadable response. Refresh before continuing."
         case .wrongWallet: return "The active JoinBlaket wallet changed. Reconnect before continuing."
         case .invalidBondMonth: return "Choose a future month in YYYY-MM format, before 2100. Bonds unlock on its first day at 00:00 UTC."

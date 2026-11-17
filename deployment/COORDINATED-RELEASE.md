@@ -188,9 +188,15 @@ resolved it. A REST compatibility assertion initially caught an added field in
 legacy recovery records; preserving their original shape fixed it.
 
 These are synthetic and local checks. Live CoinJoin/direct settlement, mobile
-spending pairing, bond payment flows, installed-host acceptance, current Linux
-container CI and signed packaging remain release gates. No payment, funded-device
+spending pairing, bond payment flows, installed-host acceptance and signed
+packaging remain release gates. No payment, funded-device
 installation, production service change or publication occurred in this pass.
+
+Both Linux architectures subsequently passed all 65 companion cases in bundled
+Jam CI run `43997362986` at `9031c81`, including the pinned taker source guard.
+The follow-up client polish shows explicit preparation/submission progress and
+resets the review to its top after leaving a scrolled form. These visual changes
+do not alter the tested companion or submission contract.
 
 ## Source and artifacts
 
