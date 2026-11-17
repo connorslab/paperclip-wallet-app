@@ -48,7 +48,10 @@ jobs:
         timeout-minutes: 3
         run: |
           $env:PYTHONPATH = "$env:GITHUB_WORKSPACE/deployment/jam;$env:GITHUB_WORKSPACE/deployment/desktop"
-          python deployment/desktop/windows/test_jam_storage.py --upstream .native-jam-source/jmcore/src/jmcore/secure_files.py -v
+          # Read immutable Git bytes; Windows checkout can rewrite LF as CRLF.
+          python -c "import os, subprocess; from pathlib import Path; blob = subprocess.check_output(['git', '-C', '.native-jam-source', 'show', '40a29ae4f34930687f0c6be3e9e5bf14a44cc0f3:jmcore/src/jmcore/secure_files.py']); checked = Path('.native-jam-source/jmcore/src/jmcore/secure_files.py').read_bytes(); print('Checkout newline conversion:', checked != blob and checked.replace(bytes([13,10]), bytes([10])) == blob); Path(os.environ['RUNNER_TEMP'], 'reviewed-secure-files.py').write_bytes(blob)"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python deployment/desktop/windows/test_jam_storage.py --upstream "$env:RUNNER_TEMP/reviewed-secure-files.py" -v
       - name: Select the reviewed Rust toolchain
         run: rustup toolchain install 1.91.0 --profile minimal
       - name: Prepare native build dependencies
