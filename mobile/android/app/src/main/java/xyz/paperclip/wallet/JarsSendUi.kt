@@ -42,8 +42,8 @@ import kotlinx.coroutines.launch
 		}
 	}
 	Column(Modifier.fillMaxHeight(0.94f).fillMaxWidth().padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-		Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-			Text(if(withdrawal != null) "Withdraw bond" else if(bond == null) "Jar payment" else "Fund fidelity bond", style = MaterialTheme.typography.headlineSmall)
+		Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+			Text(if(withdrawal != null) "Withdraw bond" else if(bond == null) "Jar payment" else "Fund fidelity bond", modifier = Modifier.weight(1f), style = MaterialTheme.typography.headlineSmall)
 			TextButton(onClick = close) { Text("Close") }
 		}
 		Column(Modifier.weight(1f).verticalScroll(scroll).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {

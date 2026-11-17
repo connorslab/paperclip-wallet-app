@@ -8,13 +8,19 @@ import androidx.test.platform.app.InstrumentationRegistry
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.background
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.unit.dp
@@ -26,6 +32,45 @@ import org.junit.Test
 /** Synthetic session only: no transport, wallet keys or funds. */
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 class JoinBlaketLayoutTest {
+	@Test fun bondHeaderKeepsCloseVisibleWithLargeText() {
+		var closed = false
+		compose.setContent { MaterialTheme(colorScheme = paperclipColors(true)) {
+			val density = androidx.compose.ui.platform.LocalDensity.current
+			androidx.compose.runtime.CompositionLocalProvider(
+				androidx.compose.ui.platform.LocalDensity provides androidx.compose.ui.unit.Density(density.density, 2f),
+				LocalContentColor provides MaterialTheme.colorScheme.onBackground,
+			) {
+				Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+					Box(Modifier.width(320.dp).fillMaxHeight().align(androidx.compose.ui.Alignment.TopCenter).safeDrawingPadding().testTag("large-jars-page")) {
+						JarsSendPage(JoinBlaketClient(JoinBlaketConnection("https://jam.example.invalid"),
+							okhttp3.OkHttpClient.Builder().addInterceptor { throw java.io.IOException("No transport in layout fixture") }.build()),
+							JoinBlaketAuthorization("fixture.jmdat","synthetic-token"),0,"Apricot",close={closed=true},activity={},bond=Pair("bcrt1qsyntheticrecipient","2099-12"))
+					}
+				}
+			}
+		} }
+		val page = compose.onNodeWithTag("large-jars-page").fetchSemanticsNode().boundsInRoot
+		for (label in listOf("Fund fidelity bond", "Close")) {
+			val node = compose.onNodeWithText(label).assertIsDisplayed()
+			val bounds = node.fetchSemanticsNode().boundsInRoot
+			assertTrue(bounds.left >= page.left && bounds.right <= page.right)
+			val layouts = mutableListOf<androidx.compose.ui.text.TextLayoutResult>()
+			node.performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.GetTextLayoutResult) { it(layouts) }
+			assertTrue(layouts.isNotEmpty())
+			for (layout in layouts) {
+				assertFalse("$label is clipped vertically", layout.didOverflowHeight)
+				// Layout size is rounded to pixels; compare the rendered line extents.
+				for (line in 0 until layout.lineCount) {
+					assertTrue("$label is clipped on the left", layout.getLineLeft(line) >= -1f)
+					assertTrue("$label is clipped on the right: ${layout.getLineRight(line)} > ${layout.size.width}", layout.getLineRight(line) <= layout.size.width + 1f)
+				}
+			}
+		}
+		compose.waitForIdle()
+		capture("android-jars-large-text-header")
+		compose.onNodeWithText("Close").performClick()
+		assertTrue(closed)
+	}
 	@Test fun jarSendPreservesCoinJoinChoiceAndRecoversLostCommit() = reviewedPayment(false)
 	@Test fun bondFundingKeepsDateAndRecoversLostCommit() = reviewedPayment(true)
 	@Test fun bondWithdrawalReviewsNetValueAndNeverRepeatsLostCommit() = reviewedPayment(false, true)
