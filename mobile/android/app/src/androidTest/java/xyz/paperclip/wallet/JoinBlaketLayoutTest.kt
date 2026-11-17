@@ -64,7 +64,16 @@ class JoinBlaketLayoutTest {
 		if(bond) compose.onNodeWithText("XBT address").assertDoesNotExist() else compose.onNodeWithText("XBT address").performScrollTo().performTextInput("bcrt1qsyntheticrecipient")
 		if(withdrawal) compose.onNodeWithText("Amount (sats)").assertDoesNotExist() else compose.onNodeWithText("Amount (sats)").performScrollTo().performTextInput("20000")
 		compose.onNodeWithText("Review payment").performScrollTo().performClick()
-		compose.waitUntil(10000) { compose.onAllNodes(hasText(if(withdrawal) "Withdraw bond" else if(bond) "Fund bond" else "Send payment") and hasClickAction()).fetchSemanticsNodes().isNotEmpty() }
+		try {
+			compose.waitUntil(10000) { compose.onAllNodes(hasText(if(withdrawal) "Withdraw bond" else if(bond) "Fund bond" else "Send payment") and hasClickAction()).fetchSemanticsNodes().isNotEmpty() }
+		} catch (failure: ComposeTimeoutException) {
+			// Preserve the actual failed page before later tests replace the window.
+			// This fixture has only synthetic values and no live transport or keys.
+			runCatching { saveScreenshot("android-jars-review-timeout") }
+			val routeCounts = synchronized(paths) { paths.groupingBy { it.substringAfterLast('/') }.eachCount() }
+			throw AssertionError("Synthetic review did not appear; requests=$routeCounts; " +
+				runCatching { compose.onRoot(useUnmergedTree = true).printToString().take(12000) }.getOrDefault("UI unavailable"), failure)
+		}
 		if(withdrawal) compose.onNodeWithText("19,800 sats").assertExists() else if(bond) compose.onNodeWithText("2099-12-01 00:00 UTC").assertExists() else { compose.onNodeWithText("Maker fees").assertExists(); compose.onNodeWithText("Your mining fee").assertExists() }
 		compose.waitUntil(5000) {
 			InstrumentationRegistry.getInstrumentation().uiAutomation.windows.none { it.type == android.view.accessibility.AccessibilityWindowInfo.TYPE_INPUT_METHOD }
