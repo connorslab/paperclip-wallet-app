@@ -458,6 +458,7 @@ dependencies = [
  "parking_lot",
  "reqwest 0.12.28",
  "rust-embed",
+ "rustix",
  "rustls",
  "serde",
  "serde_json",

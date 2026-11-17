@@ -56,9 +56,14 @@ linked records block recovery rather than being merged or skipped.
 
 If the reply is lost, use **Check saved connection** to read the binding and
 original history. Assignment is never retried automatically. Cancellation or
-restart before assignment requires a new review. Interrupted filesystem writes
-that leave unexpected files require recovery from the complete host backup;
-the app does not guess that these files are safe to delete. Older binaries do
+restart before assignment requires a new review. Temporary owner records are
+written in a separate private staging directory, outside node payment history.
+An interrupted writer may leave a file there; it never grants ownership and is
+neither adopted nor deleted during recovery. A new explicit review can proceed.
+Linux and Apple platforms require atomic no-replace rename for publication;
+unsupported filesystems fail safely rather than using a link-and-unlink fallback.
+Unexpected files within actual payment history still require manual backup
+recovery; the app does not guess that they are safe to delete. Older binaries do
 not enforce the new manifest: do not downgrade to an earlier candidate. Complete
 installed-host backup/restore, interrupted-write and upgrade/downgrade acceptance
 remain release gates before deploying this change to existing funded hosts.

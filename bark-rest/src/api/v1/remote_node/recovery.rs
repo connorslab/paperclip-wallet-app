@@ -4,6 +4,7 @@ use super::*;
 use std::io::Read;
 
 const BINDING: &str = "paperclip-owner-v2.json";
+const STAGING: &str = ".node-owner-staging";
 const NEEDS_REVIEW: &str = "Older Lightning records need wallet ownership verification before use. Review the older connection after backing up this host. Do not delete these records";
 
 #[derive(Serialize, Deserialize)]
@@ -114,7 +115,40 @@ fn prepare(scope: &StorageScope, sessions: &mut Sessions) -> anyhow::Result<Valu
 	sessions.recovery = Some(Review { id, owner, root, digest:data.digest, created:Instant::now() });
 	Ok(value)
 }
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum AssignmentStage { Created, Staged, Published, Durable }
+
+fn publish_binding(file: tempfile::NamedTempFile, target: &Path) -> anyhow::Result<()> {
+	#[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
+	{
+		// tempfile's no-clobber fallback can create a hard link before unlinking
+		// its source. A crash between those steps would leave an ambiguous linked
+		// owner record. Require the native atomic operation instead; unsupported
+		// filesystems fail closed. Unpublished staging files are never authority.
+		let (_file, source) = file.keep().map_err(|_| anyhow::anyhow!("Could not retain the staged owner record"))?;
+		rustix::fs::renameat_with(rustix::fs::CWD, &source, rustix::fs::CWD, target, rustix::fs::RenameFlags::NOREPLACE)
+			.map_err(|_| anyhow::anyhow!("Owner assignment could not be confirmed safely. Check the saved connection before another review and keep your complete host backup"))?;
+	}
+	#[cfg(target_os = "windows")]
+	{
+		// tempfile uses MoveFileExW without MOVEFILE_REPLACE_EXISTING here.
+		// Windows private-directory and durable-directory acceptance is separate.
+		file.persist_noclobber(target).map_err(|_| anyhow::anyhow!("Owner assignment was not confirmed. Check the saved connection before another review"))?;
+	}
+	#[cfg(not(any(target_os = "linux", target_os = "android", target_vendor = "apple", target_os = "windows")))]
+	{
+		let _ = (file, target);
+		anyhow::bail!("Atomic node-owner assignment is not supported on this platform");
+	}
+	Ok(())
+}
+
 fn commit(scope: &StorageScope, sessions: &mut Sessions, input: Approval) -> anyhow::Result<Value> {
+	commit_with_checkpoint(scope, sessions, input, |_| {})
+}
+fn commit_with_checkpoint(scope: &StorageScope, sessions: &mut Sessions, input: Approval,
+	checkpoint: impl Fn(AssignmentStage),
+) -> anyhow::Result<Value> {
 	let review = sessions.recovery.take().context("Review the older connection first. An interrupted assignment is never retried automatically")?;
 	let owner = storage_identity(scope.network, scope.mailbox);
 	ensure!(input.owner_confirmed && input.backup_confirmed, "Confirm the original wallet and complete host backup first");
@@ -126,10 +160,20 @@ fn commit(scope: &StorageScope, sessions: &mut Sessions, input: Approval) -> any
 	// Publish only the binding, with no-clobber semantics. All original bytes stay
 	// in place, so an interrupted response cannot lose or duplicate payment history.
 	let binding = Binding {version:2, owner, reviewed_digest:review.digest};
-	let mut file = tempfile::NamedTempFile::new_in(&root)?;
+	// Outside every wallet's node-history directory. A killed writer may leave
+	// an empty or partial file here; never read it as a binding or delete history
+	// to unblock recovery. A fresh explicit review can stage a new candidate.
+	let staging = scope.base.join(STAGING); private_dir(&staging)?;
+	std::fs::File::open(&scope.base)?.sync_all()?;
+	let mut file = tempfile::NamedTempFile::new_in(&staging)?;
+	checkpoint(AssignmentStage::Created);
 	file.write_all(&serde_json::to_vec(&binding)?)?; file.as_file().sync_all()?;
-	file.persist_noclobber(root.join(BINDING)).map_err(|_| anyhow::anyhow!("Owner assignment was not confirmed. Reopen the connection before another review"))?;
+	checkpoint(AssignmentStage::Staged);
+	publish_binding(file, &root.join(BINDING))?;
+	checkpoint(AssignmentStage::Published);
 	std::fs::File::open(&root)?.sync_all()?;
+	std::fs::File::open(&staging)?.sync_all()?;
+	checkpoint(AssignmentStage::Durable);
 	sessions.reviews.remove(&root);
 	Ok(json!({"assigned":true}))
 }
@@ -162,6 +206,96 @@ mod tests {
 	}
 	fn approval(review: &Value) -> Approval {
 		Approval { request_id:review["request_id"].as_str().unwrap().into(), owner_confirmed:true, backup_confirmed:true }
+	}
+	#[test]
+	fn killed_owner_assignment_preserves_records_and_allows_explicit_recovery() {
+		const CHILD: &str = "PAPERCLIP_OWNER_ASSIGNMENT_TEST_CHILD";
+		const CASE: &str = "PAPERCLIP_OWNER_ASSIGNMENT_TEST_STAGE";
+		if let Some(base) = std::env::var_os(CHILD) {
+			let scope = StorageScope {base:base.into(), network:Network::Regtest, mailbox:mailbox(1), fingerprint:Fingerprint::from([1,2,3,4])};
+			let target = match std::env::var(CASE).unwrap().as_str() {
+				"created" => AssignmentStage::Created, "staged" => AssignmentStage::Staged,
+				"published" => AssignmentStage::Published, "durable" => AssignmentStage::Durable,
+				_ => panic!("unknown assignment fixture"),
+			};
+			let mut sessions = Sessions::default(); let review = prepare(&scope, &mut sessions).unwrap();
+			commit_with_checkpoint(&scope, &mut sessions, approval(&review), |stage| {
+				if stage == target {
+					std::fs::write(scope.base.join("ready"), b"boundary reached").unwrap();
+					loop { std::thread::park(); }
+				}
+			}).unwrap();
+			panic!("fixture did not stop at its boundary");
+		}
+		struct OwnedChild(std::process::Child);
+		impl Drop for OwnedChild {
+			fn drop(&mut self) { let _ = self.0.kill(); let _ = self.0.wait(); }
+		}
+		for stage in ["created", "staged", "published", "durable"] {
+			let (_dir, scope, root) = fixture();
+			let connection = std::fs::read(root.join("connection.json")).unwrap();
+			let receipt = record_path(&root, &"01".repeat(32), false).unwrap();
+			let original = std::fs::read(&receipt).unwrap();
+			let mut child = OwnedChild(std::process::Command::new(std::env::current_exe().unwrap())
+				.args(["--exact", "api::v1::remote_node::recovery::tests::killed_owner_assignment_preserves_records_and_allows_explicit_recovery"])
+				.env(CHILD, &scope.base).env(CASE, stage)
+				.stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).spawn().unwrap());
+			let deadline = Instant::now() + Duration::from_secs(15);
+			while !scope.base.join("ready").exists() {
+				assert!(child.0.try_wait().unwrap().is_none(), "{stage}: child exited before checkpoint");
+				assert!(Instant::now() < deadline, "{stage}: child did not reach checkpoint");
+				std::thread::sleep(Duration::from_millis(10));
+			}
+			child.0.kill().unwrap(); assert!(!child.0.wait().unwrap().success());
+			let mut restarted = Sessions::default();
+			if matches!(stage, "created" | "staged") {
+				assert!(!root.join(BINDING).exists());
+				let staged = std::fs::read_dir(scope.base.join(STAGING)).unwrap().map(|entry| entry.unwrap().path()).collect::<Vec<_>>();
+				assert_eq!(staged.len(), 1);
+				let unpublished = std::fs::read(&staged[0]).unwrap();
+				assert_eq!(unpublished.is_empty(), stage == "created");
+				assert!(storage_root(&scope.base, scope.network, scope.mailbox, scope.fingerprint).is_err());
+				let review = prepare(&scope, &mut restarted).expect("Interrupted staging must allow a fresh explicit review");
+				assert_eq!(review["unresolved_sends"], 1);
+				assert!(!root.join(BINDING).exists(), "Review must not assign automatically");
+				commit(&scope, &mut restarted, approval(&review)).unwrap();
+				assert_eq!(std::fs::read(&staged[0]).unwrap(), unpublished, "Recovery must not adopt or delete an orphan");
+			} else {
+				assert!(prepare(&scope, &mut restarted).is_err(), "Published ownership cannot be reassigned");
+			}
+			assert_eq!(storage_root(&scope.base, scope.network, scope.mailbox, scope.fingerprint).unwrap(), root);
+			assert!(storage_root(&scope.base, scope.network, mailbox(3), scope.fingerprint).is_err());
+			assert_eq!(std::fs::read(receipt).unwrap(), original);
+			assert_eq!(std::fs::read(root.join("connection.json")).unwrap(), connection);
+			assert_eq!(records(&root).unwrap()[0].state, "unknown");
+		}
+	}
+	#[test]
+	fn binding_publication_never_replaces_an_existing_owner() {
+		let dir = tempfile::tempdir().unwrap();
+		let target = dir.path().join(BINDING); std::fs::write(&target, b"existing owner").unwrap();
+		let mut staged = tempfile::NamedTempFile::new_in(dir.path()).unwrap();
+		staged.write_all(b"another owner").unwrap(); staged.as_file().sync_all().unwrap();
+		assert!(publish_binding(staged, &target).is_err());
+		assert_eq!(std::fs::read(target).unwrap(), b"existing owner");
+	}
+	#[cfg(unix)]
+	#[test]
+	fn linked_staging_and_linked_publication_target_are_rejected() {
+		let (_dir, scope, root) = fixture();
+		let outside = tempfile::tempdir().unwrap();
+		std::os::unix::fs::symlink(outside.path(), scope.base.join(STAGING)).unwrap();
+		let mut sessions = Sessions::default(); let review = prepare(&scope, &mut sessions).unwrap();
+		assert!(commit(&scope, &mut sessions, approval(&review)).is_err());
+		assert!(!root.join(BINDING).exists());
+		assert_eq!(std::fs::read_dir(outside.path()).unwrap().count(), 0);
+		let target = outside.path().join("original"); std::fs::write(&target, b"keep").unwrap();
+		std::os::unix::fs::symlink(&target, root.join(BINDING)).unwrap();
+		let mut staged = tempfile::NamedTempFile::new_in(scope.base.as_path()).unwrap();
+		staged.write_all(b"replace").unwrap();
+		assert!(publish_binding(staged, &root.join(BINDING)).is_err());
+		assert_eq!(std::fs::read(&target).unwrap(), b"keep");
+		assert!(root.join(BINDING).is_symlink());
 	}
 	#[test]
 	fn explicit_assignment_survives_lost_reply_without_rewriting_unknown_receipts() {

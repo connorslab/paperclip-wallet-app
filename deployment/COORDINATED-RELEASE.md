@@ -2802,3 +2802,33 @@ temporary files; those require backup recovery rather than automatic deletion.
 Older binaries ignore the owner manifest, so installed upgrade/downgrade policy,
 full host backup/restore and interrupted-write acceptance remain release blockers.
 No funded host was upgraded or assigned in this test pass.
+
+## Node-owner assignment after process termination: 2026-11-17
+
+Backend run `44135005990` and browser run `44135005997` passed at `6f23374`.
+A new process-kill regression then reproduced a recovery defect at that revision:
+termination before owner publication left a temporary file among node records,
+which blocked a fresh recovery review as an unrecognized history file.
+
+Owner records are now staged in a separate private directory outside payment
+history. Interrupted staging never grants ownership; its files remain untouched
+and a fresh explicit review can proceed. Linux and Apple publication requires
+native atomic no-replace rename, with no hard-link fallback. Existing owner
+records cannot be overwritten, and unsupported filesystems fail safely. The file
+and affected directories are synced before successful completion. The direct
+`rustix` dependency uses the already-locked version; no package version changed.
+
+All 104 shared REST tests pass on the native Apple host, including four child
+processes terminated without cleanup: after staging creation, after the staged
+file is synced, after publication and after directory sync. Before publication,
+ownership stays unset until a fresh explicit review is confirmed. After publication,
+the same owner can reopen while reassignment is refused. Every case preserves the
+original credential and unknown-payment bytes; another owner cannot access them.
+Separate regressions reject existing publication targets and linked staging or
+target paths. The old staging behavior fails the process-kill regression.
+
+This is process-termination acceptance, not storage power-loss or installed-host
+backup/restore acceptance. Unexpected files already in payment history still need
+manual backup recovery. Windows ACL/durability acceptance, upgrade/downgrade policy
+and the other coordinated release gates remain open. No funded host, physical
+device, live payment or published package changed.
