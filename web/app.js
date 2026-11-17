@@ -299,6 +299,10 @@ $('refresh').onclick = event => run(event.target, async () => {
 const journalOperations = new Set(['wallet/send','lightning/pay','onchain/send/commit',
   'onchain/replacement/commit','boards/commit','withdrawals/commit','wallet/offboard/all','wallet/refresh/all',
   'exits/start/all','exits/progress','exits/claim/all']);
+function submissionKey() {
+  const profile=globalThis.PaperclipAccounts?.hotProfileId;
+  return profile ? 'paperclip.submission.'+profile : 'paperclip.submission';
+}
 function uncertainKey() {
   const profile=globalThis.PaperclipAccounts?.hotProfileId;
   return profile ? 'paperclip.uncertain.'+profile : 'paperclip.uncertain';
@@ -318,8 +322,8 @@ async function syncSubmissions(check = false) {
   const history = await api('submissions');
   if (!currentWallet(context) || !token) return;
   if (history?.version !== 1 || !Array.isArray(history.pending) || !Array.isArray(history.recent)) throw new Error('Saved payment status is unavailable. Try checking again before sending.');
-  const localId = sessionRead('paperclip.submission');
-  if (!localId && history.pending.length) sessionWrite('paperclip.submission', history.pending[0].id);
+  const localId = sessionRead(submissionKey());
+  if (!localId && history.pending.length) sessionWrite(submissionKey(), history.pending[0].id);
   const ids = new Set(history.pending.map(record => record.id));
   if (localId) ids.add(localId);
   let unresolved = false, recovered = null;
@@ -341,7 +345,7 @@ async function syncSubmissions(check = false) {
     if (!currentWallet(context) || !token) return;
   }
   submissionWarning(unresolved);
-  if (!unresolved) sessionWrite('paperclip.submission', null);
+  if (!unresolved) sessionWrite(submissionKey(), null);
   if (check) status(unresolved ? 'Still awaiting a confirmed result. Check again later; no payment was resent.' : 'Saved results checked. No payment was resent.');
 }
 
@@ -355,7 +359,7 @@ async function mutate(path, body) {
   let id;
   if (journal) {
     id = Array.from(crypto.getRandomValues(new Uint8Array(32)), byte => byte.toString(16).padStart(2,'0')).join('');
-    sessionWrite('paperclip.submission', id);
+    sessionWrite(submissionKey(), id);
   }
   submissionWarning(true);
   let result;
@@ -369,7 +373,7 @@ async function mutate(path, body) {
         await acknowledgeSubmission(id);
       }
       if (!currentWallet(context) || !token) throw new Error('Wallet changed while receiving the result. Check saved status after signing in again.');
-      submissionWarning(false); sessionWrite('paperclip.submission', null);
+      submissionWarning(false); sessionWrite(submissionKey(), null);
       if (result.state === 'rejected') throw Object.assign(new Error(result.result?.message || 'No payment was submitted. Review again.'), {notSubmitted:true});
       result = result.result;
     }
