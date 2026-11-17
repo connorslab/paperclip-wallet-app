@@ -120,12 +120,12 @@ wallet or payment is created. Linux CI runs these checks alongside the native
 Apple validation. This does not prove active-payment persistence, settlement or
 real Jam hosting. Launcher death during a funded payment remains unverified.
 First-run service/network configuration,
-packaged interpreter/runtime delivery, full OS ACL acceptance, Windows ownership
-support and installed shell acceptance remain release gates. Do not distribute this module
+packaged interpreter/runtime delivery, full OS ACL acceptance
+and installed shell acceptance remain release gates. Do not distribute this module
 as a complete desktop app or point its acceptance tests at funded storage.
 
-Open work includes the Windows visible launcher and installed browser handoff
-acceptance, full private data/ACL checks, bundled Tor/Jam,
+Open work includes installed browser handoff acceptance, full private data/ACL
+checks, bundled Tor/Jam,
 signing/notarization, installer upgrades, wallet migrations and full backup/restore.
 The pinned Jam runtime and companion currently use POSIX `fcntl` locks; Windows
 needs a reviewed equivalent or an explicitly managed packaged runtime before it
@@ -297,7 +297,7 @@ before accepting this packaging; Tor/RPC setup and signed installation are
 separate acceptance requirements.
 
 
-## Windows storage prerequisite
+## Native Windows ownership and development preview
 
 `windows/private_storage.py` uses native Windows ACL and kernel-lock APIs through
 pinned pywin32 311. It accepts only local, unambiguous paths; creates directories
@@ -308,17 +308,66 @@ exclude delete-sharing during creation and acquisition. Kernel locks survive
 neither normal handle close nor process death, so stale files cannot establish
 ownership.
 
-`windows/test_private_storage.py` runs nine real Windows cases in temporary,
-unfunded directories. It includes ACL inheritance with explicit ownership (the
+`windows/test_private_storage.py` now defines 14 native cases in temporary,
+unfunded directories. These include ACL inheritance with explicit ownership (the
 hosted CI token is elevated), shared/null ACL rejection, junction protection,
-hard-link rejection and competing/killed processes. This module is not wired
-into the POSIX runner; Windows launcher and installed-runtime acceptance remain
-separate work. The shared Rust daemon now has native private ACL and atomic-write
-support. Windows CI builds it with pinned dependencies and exercises authenticated
-unfunded startup, duplicate-instance rejection, malformed-authentication rejection,
-crash/restart, graceful shutdown and preservation of saved authentication. It also
-runs nine Rust filesystem, eight PID-lock and four discovery cases. The desktop
-pipe adapter has eight native cases for bounded partial reads, deadlines and EOF.
+hard-link rejection, competing/killed processes, recovery records and checked
+reader identity. The shared runner uses these native handles on Windows. Its six
+owned-daemon checks cover normal close, handoff, duplicate launch, daemon death,
+launcher death and malformed recovery state. Supplying a Windows Jars runtime
+fails explicitly before storage creation; the POSIX Jam runtime is not portable
+merely because the launcher is.
+
+A local NTFS session record is held open under the launcher's lock. Before starting
+the child it writes and flushes a fixed active state; only an observed clean close
+writes and flushes the equal-length closed state. Malformed records fail closed
+without starting a child or rewriting the record. A crash preserves the warning.
+This public record never authorizes or replays a payment and does not replace the
+wallet's payment journal. Tests do not establish physical power-loss durability.
+
+The native Rust daemon has private ACL and atomic-write support. PID files also
+use explicit user ownership and protected ACLs at creation, including when the
+process runs with an elevated token. Existing files are validated without
+truncation or permission repair before acquiring the PID lock. Windows CI builds
+it with pinned dependencies and exercises authenticated unfunded startup,
+duplicate-instance rejection, malformed-authentication rejection, crash/restart,
+graceful shutdown and preservation of saved authentication. It also runs eleven
+Rust filesystem, eight PID-lock and four discovery cases. The desktop pipe adapter
+has eight native cases for bounded partial reads, deadlines and EOF. Python reads
+use the checked native reader with delete sharing so they remain compatible with
+the writer's still-open renamed staging handle.
+
+Build the unsigned preview on Windows with Python 3.13, pywin32 311, Tk and
+PyInstaller 6.22.3:
+
+```
+python deployment/desktop/windows/build_preview.py --binary C:/build/paperclip-walletd.exe --output C:/build/preview --work C:/build/preview-work
+C:/build/preview/PaperclipLauncher/PaperclipLauncher.exe
+```
+
+The launcher bundles Python/Tk and selects its adjacent daemon. It uses the current
+user's Local AppData folder by default; `--qa-root` selects explicit isolated
+storage for testing. Its shared window has bounded startup, visible failure,
+explicit retry and a recovery warning. Closing the window closes only its owned
+child. The browser receives only a validated expiring handoff URL. A separate
+short-lived helper resets the frozen loader's DLL path before asking Windows to
+open the default browser, following
+[PyInstaller's Windows guidance](https://pyinstaller.org/en/stable/common-issues-and-pitfalls.html#windows).
+The UI process keeps its loader state throughout.
+
+The builder records source fingerprints, package versions and the copied daemon's
+actual version/hash. CI relocates both the app and separate QA runner into a path
+with spaces, removes the original desktop sources, then checks the frozen window's
+handoff, crash/retry, compact layout, missing-executable error and native window
+close against empty storage. `PaperclipLauncherQA` is test tooling and must not be
+included in a final installation. Native Windows run `44182029312` passes all three frozen-window cases at
+`82387db`, including the separate windowed executable's normal close. Its full
+native run passes 58 checks plus the authenticated daemon lifecycle script. The freezer
+explicitly includes `win32timezone`, which pywin32 imports from native code while
+constructing file metadata timestamps. The negative package failed at that import;
+the corrected relocated package starts and recovers successfully. This preview is
+unsigned and is not an installer or a complete Windows release.
+
 
 
 ## Preview build records

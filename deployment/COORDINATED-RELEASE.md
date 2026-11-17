@@ -22,10 +22,10 @@ checks and their limits.
 | Area | Verified in the current test pass | Still required |
 | --- | --- | --- |
 | iOS | 123 shared Swift tests; 17 safe UI cases on both regular-phone and open-Duo simulators | Physical signer, camera, accessibility and interrupted/folded payment acceptance; final signed candidate and upgrade |
-| Android | 100 JVM tests (four live cases excluded); 47 instrumentation cases across 18 classes on local API 35 ARM64 and API 35/36 CI at `a120889`, including visibility and emulator-health checks; authenticated CLN/LND reads and pin rejection | Final release identity, Play/APK upgrade compatibility and physical/foldable acceptance |
+| Android | 100 JVM tests (four live cases excluded); 47 instrumentation cases across 18 classes on local API 35 ARM64; 48 cases on each of API 35/36 CI at `a04a3e4`, including the new large-text Jars navigation case, visibility and emulator-health checks; authenticated CLN/LND reads and pin rejection | Final release identity, Play/APK upgrade compatibility and physical/foldable acceptance |
 | Shared desktop UI | All 17 existing browser-flow suites plus entropy, transport and QR checks; phone, foldable and desktop widths where each suite defines them | Installed-host and native desktop acceptance; complete multiple-hot-wallet and hardware-funded Ark workflows |
 | StartOS/Umbrel | Shared REST checks, authenticated CLN/LND reads; both StartOS candidate architectures built and source/checksums checked | Complete backup/restore, candidate installation, bundled Jam pairing/revocation/Tor and upgrades; matching frozen wrappers |
-| Linux/macOS/Windows | Isolated Apple Silicon and Linux daemon authentication, duplicate-instance rejection and crash/restart; macOS bundled Jars/helper runtime passes 13 relocated isolation cases; Linux bundled Jars passes TLS/proxy and frozen-window recovery checks; 38 native Windows storage/pipe/locking/discovery cases and authenticated daemon lifecycle pass | Windows shell; installed browser/accessibility acceptance; bundled Jam/Tor and runtime delivery; supported OS matrix, signed installers, notarization and clean install/upgrade tests |
+| Linux/macOS/Windows | Isolated Apple Silicon and Linux daemon authentication, duplicate-instance rejection and crash/restart; macOS bundled Jars/helper runtime passes 13 relocated isolation cases; Linux bundled Jars passes TLS/proxy and frozen-window recovery checks; 58 native Windows storage/browser-policy/pipe/ownership/discovery/window cases and authenticated daemon lifecycle pass at `82387db` | Installed browser/accessibility acceptance; bundled Jam/Tor and runtime delivery; supported OS matrix, signed installers, notarization and clean install/upgrade tests |
 | Jars | Reviewed direct/CoinJoin toggle and bond funding/withdrawal clients; pinned signer, API, bond and interrupted-submission checks; encrypted Jam volume restore on a synthetic chain | Live CoinJoin, direct-send and bond-funding/withdrawal acceptance, installed payment-pairing acceptance, live maker and physical QR signer acceptance |
 | Payments and recovery | 293 shared wallet tests and 51 mobile Rust tests, exact-cost/RBF/unknown-outcome checks; unified-signature and Electrum-header checks | Live BOLT12/Ark/Bridge settlement, portable recovery/restore and current-source XBT consensus acceptance |
 
@@ -3093,3 +3093,46 @@ visibility check; the corrected UI passes all 12 local Jars instrumentation case
 including rendered text bounds and tapping Close. Normal-size API 36 review and
 maker-setting screenshots were also inspected. These fixtures use no live
 transport, wallet keys or payments.
+
+## Windows owned launcher and packaged preview: 2026-11-17
+
+The shared runner now has native Windows ownership, checked private-file reads
+and a persistent NTFS recovery record. It never adopts an existing daemon. Its
+visible development window reuses the Linux Open Wallet, failure and explicit
+retry flow. The Windows builder freezes Python/Tk and a separate QA runner,
+records input fingerprints and packages the daemon beside the launcher.
+
+Native testing found and corrected two startup failures. PID files created with
+Windows defaults could have group ownership under an elevated token; they now use
+explicit current-user ownership and protected user/SYSTEM access. Existing files
+are validated without truncation or permission repair before taking the kernel
+lock. Frozen builds omitted `win32timezone`, which pywin32 loads from native code
+while reading file metadata. The builder now includes that dependency explicitly.
+Source execution alone did not expose the frozen failure.
+
+Run `44182029312` at `82387db` passes all six owned-daemon cases and all three
+frozen-window cases: explicit handoff, child/parent death, competing launch,
+crash/retry with preserved authentication and no automatic replay, compact layout,
+missing-executable error and native window close. The package is relocated into
+a path with spaces and original desktop sources are removed before GUI tests.
+The native file suite passes 11 cases; eight Mac PID-lock regressions also pass.
+Rebuilt Mac helpers pass all 13 relocated isolation checks and retain valid
+signatures after use. The complete Windows run passes: 58 checks plus the authenticated native daemon
+lifecycle script, including all eight PID-lock and four discovery cases.
+
+These are development previews. Windows Jars remains explicitly unavailable,
+and installed browser behavior, accessibility, signed installation, upgrades and
+payment acceptance are not established by these tests. The shared-source manifest
+was refreshed for the two changed permission helpers after its checksum gate
+caught stale entries; CI now watches those helper and manifest paths directly.
+
+Android run `44175642185` at `568a6e5` passes both distribution-format builds and
+all 48 instrumentation cases across 18 classes on each of API 35 and API 36.
+That includes all 12 Jars cases with the new 320dp/200% text Close-button check.
+The prior intermittent bond-review timeout did not recur; its original cause
+remains unconfirmed, and failure-boundary diagnostics remain enabled.
+
+Android run `44180236505` also passes at `a04a3e4`, after the Windows ownership
+change: both native ABI builds, both app distribution formats and all 48 cases on
+each of API 35 and 36. The Windows backend changes are mirrored to the Android
+branch and do not replace Android's own native build and instrumentation checks.
