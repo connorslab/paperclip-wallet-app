@@ -22,7 +22,7 @@ checks and their limits.
 | Area | Verified in the current test pass | Still required |
 | --- | --- | --- |
 | iOS | 123 shared Swift tests; 17 safe UI cases on both regular-phone and open-Duo simulators | Physical signer, camera, accessibility and interrupted/folded payment acceptance; final signed candidate and upgrade |
-| Android | 100 JVM tests (four live cases excluded); 47 instrumentation cases across 18 classes on local API 35 ARM64 and API 35/36 CI at `4454086`, including visibility and emulator-health checks; authenticated CLN/LND reads and pin rejection | Final release identity, Play/APK upgrade compatibility and physical/foldable acceptance |
+| Android | 100 JVM tests (four live cases excluded); 47 instrumentation cases across 18 classes on local API 35 ARM64 and API 35/36 CI at `740d480`, including visibility and emulator-health checks; authenticated CLN/LND reads and pin rejection | Final release identity, Play/APK upgrade compatibility and physical/foldable acceptance |
 | Shared desktop UI | All 17 existing browser-flow suites plus entropy, transport and QR checks; phone, foldable and desktop widths where each suite defines them | Installed-host and native desktop acceptance; complete multiple-hot-wallet and hardware-funded Ark workflows |
 | StartOS/Umbrel | Shared REST checks, authenticated CLN/LND reads; both StartOS candidate architectures built and source/checksums checked | Complete backup/restore, candidate installation, bundled Jam pairing/revocation/Tor and upgrades; matching frozen wrappers |
 | Linux/macOS/Windows | Isolated Apple Silicon and Linux daemon authentication, duplicate-instance rejection and crash/restart; macOS development shell inspected; packaged Linux shell exercised under Xvfb | Windows shell and private storage; installed browser/accessibility acceptance; bundled Jam/Tor and runtime delivery; supported OS matrix, signed installers, notarization and clean install/upgrade tests |
@@ -2858,3 +2858,27 @@ user-state command; it was stopped before app tests, corrected and covered by a
 regression. Both launch records are retained. The local image differs from CI's
 default x86_64 images; API 35/36 cloud acceptance for this launcher remains pending.
 No runtime wallet code, funded device, production service or payment changed.
+
+## Relocated Lightning records: 2026-11-17
+
+Android CI `44145561422` passed at `740d480`: both native architectures and all
+47 instrumentation cases on each of API 35 and API 36, using the owned emulator
+launcher. Earlier startup failures remain recorded; this pass does not establish
+permanent emulator reliability or physical-device acceptance.
+
+A new shared REST regression copies an isolated legacy node store to a fresh
+location, both before and after explicit owner assignment. The assigned copy
+retains the full owner binding; another wallet or network cannot inherit it. An
+unassigned copy stays blocked until a fresh explicit review is confirmed. Approval
+from the original path or from the previous process cannot assign the restored
+copy. Partial staging is preserved but never adopted. Credentials and unknown
+payment receipts remain byte-exact, with unknown outcomes unchanged; recovering
+the copy does not alter the original snapshot.
+
+All 105 REST tests pass on the native Apple host, with one opt-in live test ignored.
+Repository checks pass. No runtime change was needed for this regression. This
+is relocated-storage acceptance only: it does not validate a backup archive,
+encryption, completeness, installed host backup/restore, filesystem power loss or
+downgrade safety. In particular, a seed-only restore cannot replace the node
+credentials and payment records, and an older binary does not enforce the new
+owner manifest. Those release gates remain open.

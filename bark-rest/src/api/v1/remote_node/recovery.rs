@@ -323,6 +323,68 @@ mod tests {
 		assert!(storage_root(&scope.base, scope.network, mailbox(3), scope.fingerprint).is_err());
 		assert!(storage_root(&scope.base, Network::Signet, scope.mailbox, scope.fingerprint).is_err());
 	}
+	// Copy only test-owned regular files into a fresh location. This exercises
+	// relocated storage, not a production archive format or installed host restore.
+	fn copy_fixture_tree(source: &Path, destination: &Path) {
+		private_dir(destination).unwrap();
+		for entry in std::fs::read_dir(source).unwrap() {
+			let entry = entry.unwrap(); let kind = entry.file_type().unwrap();
+			let target = destination.join(entry.file_name());
+			if kind.is_dir() { copy_fixture_tree(&entry.path(), &target); }
+			else {
+				assert!(kind.is_file(), "The fixture must not contain links or special files");
+				std::fs::copy(entry.path(), target).unwrap();
+			}
+		}
+	}
+	#[test]
+	fn relocated_node_records_preserve_ownership_unknowns_and_require_fresh_review() {
+		for assigned in [false, true] {
+			let (_source, scope, root) = fixture();
+			let mut source_sessions = Sessions::default();
+			let old_review = prepare(&scope, &mut source_sessions).unwrap();
+			if assigned { commit(&scope, &mut source_sessions, approval(&old_review)).unwrap(); }
+			let receipt = record_path(&root, &"01".repeat(32), false).unwrap();
+			let credential_bytes = std::fs::read(root.join("connection.json")).unwrap();
+			let receipt_bytes = std::fs::read(&receipt).unwrap();
+			let binding_bytes = std::fs::read(root.join(BINDING)).ok();
+			// An interrupted staging file is copied too: it is never ownership proof.
+			private_dir(&scope.base.join(STAGING)).unwrap();
+			std::fs::write(scope.base.join(STAGING).join("unfinished"), b"partial staged owner").unwrap();
+			let destination = tempfile::tempdir().unwrap();
+			let restored = StorageScope {base:destination.path().join("restored-node-data"),
+				network:scope.network, mailbox:scope.mailbox, fingerprint:scope.fingerprint};
+			copy_fixture_tree(&scope.base, &restored.base);
+			let restored_root = restored.base.join(restored.fingerprint.to_string());
+			// Neither a still-live review from another path nor an old approval in a
+			// restarted process can authorize assignment of this restored copy.
+			assert!(commit(&restored, &mut source_sessions, approval(&old_review)).is_err());
+			let mut restarted = Sessions::default();
+			assert!(commit(&restored, &mut restarted, approval(&old_review)).is_err());
+			if assigned {
+				assert!(prepare(&restored, &mut restarted).is_err());
+				assert_eq!(std::fs::read(restored_root.join(BINDING)).ok(), binding_bytes);
+			} else {
+				assert!(storage_root(&restored.base, restored.network, restored.mailbox, restored.fingerprint).is_err());
+				let review = prepare(&restored, &mut restarted).unwrap();
+				assert_eq!(review["unresolved_sends"], 1);
+				assert_eq!(review["payment_count"], 1);
+				assert!(!restored_root.join(BINDING).exists());
+				commit(&restored, &mut restarted, approval(&review)).unwrap();
+			}
+			assert_eq!(storage_root(&restored.base, restored.network, restored.mailbox, restored.fingerprint).unwrap(), restored_root);
+			assert!(storage_root(&restored.base, restored.network, mailbox(3), restored.fingerprint).is_err());
+			assert!(storage_root(&restored.base, Network::Signet, restored.mailbox, restored.fingerprint).is_err());
+			assert_eq!(records(&restored_root).unwrap()[0].state, "unknown");
+			assert_eq!(std::fs::read(restored_root.join("connection.json")).unwrap(), credential_bytes);
+			assert_eq!(std::fs::read(record_path(&restored_root, &"01".repeat(32), false).unwrap()).unwrap(), receipt_bytes);
+			assert_eq!(std::fs::read(restored.base.join(STAGING).join("unfinished")).unwrap(), b"partial staged owner");
+			// Recovering the copy must not mutate the source snapshot.
+			assert_eq!(std::fs::read(root.join(BINDING)).ok(), binding_bytes);
+			assert_eq!(std::fs::read(root.join("connection.json")).unwrap(), credential_bytes);
+			assert_eq!(std::fs::read(receipt).unwrap(), receipt_bytes);
+		}
+	}
 	#[test]
 	fn changed_records_wallet_review_and_missing_confirmation_cannot_assign() {
 		for failure in ["records", "credential", "wallet", "expired", "token", "backup", "owner", "restart", "competing"] {
