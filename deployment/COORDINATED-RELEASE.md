@@ -25,7 +25,7 @@ checks and their limits.
 | Android | 100 JVM tests (four live cases excluded); 47 instrumentation cases across 18 classes on local API 35 ARM64 and API 35/36 CI at `740d480`, including visibility and emulator-health checks; authenticated CLN/LND reads and pin rejection | Final release identity, Play/APK upgrade compatibility and physical/foldable acceptance |
 | Shared desktop UI | All 17 existing browser-flow suites plus entropy, transport and QR checks; phone, foldable and desktop widths where each suite defines them | Installed-host and native desktop acceptance; complete multiple-hot-wallet and hardware-funded Ark workflows |
 | StartOS/Umbrel | Shared REST checks, authenticated CLN/LND reads; both StartOS candidate architectures built and source/checksums checked | Complete backup/restore, candidate installation, bundled Jam pairing/revocation/Tor and upgrades; matching frozen wrappers |
-| Linux/macOS/Windows | Isolated Apple Silicon and Linux daemon authentication, duplicate-instance rejection and crash/restart; macOS bundled Jars/helper runtime passes 13 relocated isolation cases; Linux frozen Python/Tk shell passes Xvfb; eight native Windows storage cases pass | Windows shell and daemon ACL integration; installed browser/accessibility acceptance; bundled Jam/Tor and runtime delivery; supported OS matrix, signed installers, notarization and clean install/upgrade tests |
+| Linux/macOS/Windows | Isolated Apple Silicon and Linux daemon authentication, duplicate-instance rejection and crash/restart; macOS bundled Jars/helper runtime passes 13 relocated isolation cases; Linux frozen Python/Tk shell passes Xvfb; 30 native Windows storage/locking/discovery cases and authenticated daemon lifecycle pass | Windows shell; installed browser/accessibility acceptance; bundled Jam/Tor and runtime delivery; supported OS matrix, signed installers, notarization and clean install/upgrade tests |
 | Jars | Reviewed direct/CoinJoin toggle and bond funding/withdrawal clients; pinned signer, API, bond and interrupted-submission checks; encrypted Jam volume restore on a synthetic chain | Live CoinJoin, direct-send and bond-funding/withdrawal acceptance, installed payment-pairing acceptance, live maker and physical QR signer acceptance |
 | Payments and recovery | 293 shared wallet tests and 51 mobile Rust tests, exact-cost/RBF/unknown-outcome checks; unified-signature and Electrum-header checks | Live BOLT12/Ark/Bridge settlement, portable recovery/restore and current-source XBT consensus acceptance |
 
@@ -3021,3 +3021,34 @@ The earlier Windows PID-lock correction has now passed native execution in run
 `44162895477`: eight lock cases and four daemon-discovery cases pass. The daemon
 also builds and starts its version command on Windows. No wallet was funded or
 production installation changed.
+
+
+## Native storage and current-source desktop acceptance: 2026-11-17
+
+Windows run `44166809859` passes nine private-storage helper cases, nine shared
+Rust filesystem cases, eight PID-lock cases, four daemon-discovery cases and the
+real unfunded daemon lifecycle test. The latter verifies authenticated startup,
+private authentication/discovery files, duplicate-instance rejection, invalid
+entropy rejection, crash recovery, graceful shutdown and preservation of saved
+authentication. The first Rust run exposed three failures: metadata-only ancestor
+handles did not prevent renaming, path normalization bypassed ambiguous-name
+checks, and legacy replacement failed with an open reader. These were fixed by
+requesting directory-list access, validating the original path spelling and
+renaming the still-open private staging handle with native POSIX replacement.
+The permission checks were not relaxed. All fixes are mirrored to Android.
+
+The Mac daemon, helper runtimes and AppKit shell were rebuilt from `a120889`.
+Their recorded revisions agree, and the manifest binds the actual copied daemon
+hash. All 13 relocated runtime tests pass with external runtime paths denied;
+the native window reaches Ready and closes with released wallet/Jars locks,
+cleared recovery state and an intact strict deep signature. This is an ad-hoc
+signed development artifact, not a notarized distribution. Hosted Mac run
+`44164070480` could not allocate its runner and executed no steps; it is not
+counted as passing CI.
+
+Android API 35 run `44162895487` exposed a bond-funding review timeout without an
+ANR; ten other Jars cases passed. The failure remains open. The test now retains
+its synthetic page and route counts at the timeout boundary, rather than only a
+home-screen image after the class has finished. All 11 Jars cases pass on the
+local ARM64 emulator with this diagnostic change, but that does not establish a
+fix for the CI failure. Run `44168312445` carries the additional diagnostics.
