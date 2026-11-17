@@ -1353,15 +1353,23 @@ pub fn dispatch(state: &mut Option<Session>, request: Value, seed: [u8; 64]) -> 
 				let mut attempt = Attempt::new("ark", destination, amount, total);
 				if let bark::movement::PaymentMethod::Invoice(invoice) = &method { attempt.payment_hash = Some(invoice.payment_hash().to_string()); }
 				payment_attempt::begin(dir, &payment_owner, &attempt)?;
-				let result = if let Some(ids) = offboard_inputs {
-					let bark::movement::PaymentMethod::Bitcoin(address) = method else { bail!("invalid withdrawal quote"); };
-					let address = address.require_network(network)?;
-					let observer = payment_attempt::offboard_observer(dir, &payment_owner, &attempt.attempt_id, &address);
-					PaymentInitOutput::Onchain(w.offboard_vtxos_tracked(ids, address, observer).await?.txid)
-				} else if let bark::movement::PaymentMethod::Bitcoin(address) = &method {
-					let address = address.clone().require_network(network)?;
-					let observer = payment_attempt::offboard_observer(dir, &payment_owner, &attempt.attempt_id, &address);
-					PaymentInitOutput::Onchain(w.send_onchain_tracked(address, Amount::from_sat(amount), observer).await?.txid)
+				let result = if let bark::movement::PaymentMethod::Bitcoin(address) = &method {
+					let mut authorized = false;
+					let outcome = async {
+						let address = address.clone().require_network(network)?;
+						let review = payment_attempt::offboard_observer(dir, &payment_owner, &attempt.attempt_id, &address);
+						let observer = |action: &bark::actions::offboard::Offboard| {
+							review(action)?;
+							authorized = true;
+							Ok(())
+						};
+						if let Some(ids) = offboard_inputs {
+							w.offboard_vtxos_tracked(ids, address, observer).await
+						} else { w.send_onchain_tracked(address, Amount::from_sat(amount), observer).await }
+					}.await;
+					// Only the completed call can prove it never passed the observer.
+					// An interrupted call leaves its durable attempt unresolved.
+					return payment_attempt::finish_offboard(dir, &payment_owner, &attempt.attempt_id, authorized, outcome);
 				} else if let bark::movement::PaymentMethod::Ark(address) = &method {
 					PaymentInitOutput::Ark(w.send_arkoor_payment_tracked(address, Amount::from_sat(amount), Some(Amount::from_sat(total)),
 						payment_attempt::ark_observer(dir, &payment_owner, &attempt.attempt_id)).await?)

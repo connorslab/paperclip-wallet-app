@@ -5,6 +5,7 @@ use anyhow::{ensure, Context};
 use bark::actions::offboard::{Offboard, Progress as OffboardProgress};
 use bark::movement::{Movement, MovementStatus};
 use bark::subsystem::Subsystem;
+use bark::OffboardResult;
 use bitcoin::{Network, bip32::{Xpriv, Xpub}, hashes::{sha256, Hash}};
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior};
 use serde::{Deserialize, Serialize};
@@ -62,6 +63,9 @@ impl Attempt {
 		ensure!(self.offboard_action_id.as_ref().is_none_or(|id| id.len() == 32 && id.bytes().all(|b| b.is_ascii_hexdigit())
 			&& self.source == "ark" && self.payment_hash.is_none() && self.ark_action_id.is_none() && self.replacement_txids.is_empty()),
 			"Saved withdrawal action does not belong to this payment type");
+		ensure!(self.state != "not_sent" || (self.txid.is_none() && self.payment_hash.is_none()
+			&& self.ark_action_id.is_none() && self.offboard_action_id.is_none() && self.replacement_txids.is_empty()),
+			"A referenced payment cannot be restored as not submitted");
 		ensure!(self.confirmed_txid.as_ref().is_none_or(|confirmed| self.txid.is_some() && self.state == "completed"
 			&& (self.txid.as_ref() == Some(confirmed) || self.replacement_txids.contains(confirmed))),
 			"Confirmed transaction does not belong to the saved payment");
@@ -138,6 +142,25 @@ pub fn offboard_observer(dir: &Path, owner: &str, id: &str, destination: &bitcoi
 	}
 }
 
+/// The caller must await the original tracked call to completion. `authorized`
+/// is live evidence that its observer returned successfully, never restored data.
+/// Cancellation or process death must leave the attempt unresolved.
+pub fn finish_offboard(dir: &Path, owner: &str, id: &str, authorized: bool, outcome: anyhow::Result<OffboardResult>) -> anyhow::Result<Value> {
+	let result = match outcome {
+		Ok(result) => {
+			ensure!(authorized, "Withdrawal completed without its submission observer");
+			serde_json::json!({"state":"submitted", "txid":result.txid.to_string()})
+		},
+		Err(_) if !authorized => serde_json::json!({"state":"not_sent"}),
+		Err(error) => return Err(error),
+	};
+	let mut saved = serde_json::to_value(update(dir, owner, id, &result)?)?;
+	if !authorized {
+		saved["reason"] = "Withdrawal was not submitted. Review the amount and fees again when ready.".into();
+	}
+	Ok(saved)
+}
+
 /// Recover only the signed/adopted transaction recorded under this exact action.
 /// A movement's status alone does not establish confirmation or permit a retry.
 pub fn offboard_txid(attempt: &Attempt, movement: Option<&Movement>) -> anyhow::Result<Option<bitcoin::Txid>> {
@@ -206,6 +229,12 @@ pub fn update(dir: &Path, owner: &str, id: &str, result: &Value) -> anyhow::Resu
 			*saved = Some(value.into());
 		}
 	}
+	// Only a completed call that never authorized submission may resolve this
+	// way. Existing references or a later state keep recovery conservative.
+	ensure!(state != "not_sent" || (matches!(attempt.state.as_str(), "unknown" | "not_sent")
+		&& attempt.txid.is_none() && attempt.payment_hash.is_none() && attempt.ark_action_id.is_none()
+		&& attempt.offboard_action_id.is_none() && attempt.replacement_txids.is_empty()),
+		"A referenced payment cannot be classified as not submitted");
 	attempt.state = state.into();
 	ensure!(attempt.state != "completed" || attempt.txid.is_none() || attempt.confirmed_txid.is_some(),
 		"A completed on-chain payment must identify its confirmed transaction");
@@ -315,6 +344,77 @@ mod tests {
 		assert!(observe(&attempt.attempt_id, &action).is_err());
 		assert!(require_resolved(dir.path(), &owner).is_err());
 	}
+	#[test]
+	fn rejected_withdrawal_allows_new_review_only_after_durable_resolution() {
+		let (dir, owner) = setup();
+		let destination = bitcoin::Address::p2wsh(&bitcoin::ScriptBuf::from_bytes(vec![0x51]), Network::Regtest);
+		let attempt = Attempt::new("ark", destination.to_string(), 1000, 1100);
+		begin(dir.path(), &owner, &attempt).unwrap();
+		let action = Offboard {
+			id: "ab".repeat(16), destination: destination.clone().into_unchecked(),
+			onchain_output_amount: bitcoin::Amount::from_sat(1000), committed_fee: bitcoin::Amount::from_sat(101),
+			recovery_reserve: bitcoin::Amount::ZERO, committed_fee_rate: bitcoin::FeeRate::from_sat_per_vb(1).unwrap(),
+			kind: bark::actions::offboard::OffboardKind::OffboardWhole { input_vtxo_ids: vec![] }, progress: OffboardProgress::Start,
+		};
+		let rejected = offboard_observer(dir.path(), &owner, &attempt.attempt_id, &destination)(&action).unwrap_err();
+		assert!(require_resolved(dir.path(), &owner).is_err(), "An absent action alone is not proof of failure");
+		let conn = connection(dir.path()).unwrap();
+		conn.execute_batch("CREATE TRIGGER reject_resolution BEFORE UPDATE ON paperclip_payment_attempt BEGIN SELECT RAISE(FAIL, 'fixture failure'); END;").unwrap();
+		assert!(finish_offboard(dir.path(), &owner, &attempt.attempt_id, false, Err(rejected)).is_err());
+		assert!(require_resolved(dir.path(), &owner).is_err());
+		conn.execute_batch("DROP TRIGGER reject_resolution;").unwrap();
+		let result = finish_offboard(dir.path(), &owner, &attempt.attempt_id, false, Err(anyhow::anyhow!("synthetic pre-submit error"))).unwrap();
+		assert_eq!(result["state"], "not_sent");
+		assert!(require_resolved(dir.path(), &owner).is_ok());
+		let next = Attempt::new("ark", destination.to_string(), 900, 1000);
+		begin(dir.path(), &owner, &next).unwrap();
+		assert!(finish_offboard(dir.path(), &owner, &attempt.attempt_id, false, Err(anyhow::anyhow!("delayed error"))).is_err());
+		assert_eq!(load(dir.path(), &owner).unwrap().unwrap().attempt_id, next.attempt_id);
+		assert!(require_resolved(dir.path(), &owner).is_err());
+	}
+
+	#[test]
+	fn authorized_or_referenced_withdrawal_error_never_allows_retry() {
+		for reference in ["none", "offboard_action_id", "ark_action_id", "payment_hash", "txid"] {
+			let (dir, owner) = setup();
+			let attempt = Attempt::new("ark", "synthetic-destination".into(), 1000, 1100);
+			begin(dir.path(), &owner, &attempt).unwrap();
+			if reference != "none" {
+				let value = if reference.ends_with("action_id") { "ab".repeat(16) } else { "ab".repeat(32) };
+				update(dir.path(), &owner, &attempt.attempt_id, &json!({"state":"unknown", reference:value})).unwrap();
+			}
+			assert!(finish_offboard(dir.path(), &owner, &attempt.attempt_id, true, Err(anyhow::anyhow!("lost reply"))).is_err());
+			assert!(require_resolved(dir.path(), &owner).is_err());
+			if reference != "none" {
+				assert!(finish_offboard(dir.path(), &owner, &attempt.attempt_id, false, Err(anyhow::anyhow!("ambiguous storage failure"))).is_err());
+				assert!(require_resolved(dir.path(), &owner).is_err());
+			}
+			// Backup/restore preserves unknown; lack of a reference cannot restore
+			// the in-memory proof that a particular call finished before submission.
+			let restored: Attempt = serde_json::from_value(serde_json::to_value(load(dir.path(), &owner).unwrap().unwrap()).unwrap()).unwrap();
+			assert!(restored.unresolved());
+			if reference != "none" {
+				let mut contradictory = restored;
+				contradictory.state = "not_sent".into();
+				assert!(contradictory.validate().is_err());
+			}
+		}
+	}
+
+	#[test]
+	fn successful_withdrawal_stays_submitted_until_chain_confirmation() {
+		let (dir, owner) = setup();
+		let mut attempt = Attempt::new("ark", "synthetic-destination".into(), 1000, 1100);
+		attempt.offboard_action_id = Some("ab".repeat(16));
+		begin(dir.path(), &owner, &attempt).unwrap();
+		let outcome = OffboardResult { txid: "cd".repeat(32).parse().unwrap(), movement_id: bark::movement::MovementId(1) };
+		let result = finish_offboard(dir.path(), &owner, &attempt.attempt_id, true, Ok(outcome)).unwrap();
+		assert_eq!(result["state"], "submitted");
+		assert_eq!(result["txid"], "cd".repeat(32));
+		assert_eq!(result["offboard_action_id"], "ab".repeat(16));
+		assert!(require_resolved(dir.path(), &owner).is_err());
+	}
+
 	#[test]
 	fn withdrawal_reference_is_not_proof_of_confirmation_or_safe_retry() {
 		let (dir, owner) = setup();

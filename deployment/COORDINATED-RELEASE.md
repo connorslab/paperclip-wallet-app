@@ -2467,3 +2467,38 @@ Live withdrawal settlement and installed-host acceptance remain open, along with
 pre-observer/rejected-review recovery, portable node/Bridge recovery, Jam lifecycle
 and pairing, physical signers/foldables, current-source consensus and signed
 installers. No production service, funded device or release candidate was changed.
+
+
+## Mobile withdrawal rejection recovery: 2026-11-17
+
+Backend and browser CI passed at `d7bd937`, validating the preceding desktop
+withdrawal changes. The shared iOS/Android engine now also resolves a withdrawal
+rejected before its submission observer returns successfully. Previously a final
+fee-review rejection or preparation error could leave an unresolved payment that
+blocked a fresh review even though no checkpoint had been created.
+
+The new outcome uses evidence from the original completed call. It records
+`not_sent` only after that call returns an error before authorization and the
+same saved attempt has no payment/action/transaction references. The resolution
+must commit to durable storage before another send is allowed. A failed write,
+a changed attempt, any recorded reference or an error after authorization keeps
+the attempt unresolved. Restored receipts cannot combine `not_sent` with a
+payment reference. Successful withdrawals remain submitted until chain evidence
+establishes confirmation. Both mobile interfaces already handle `not_sent` and
+require a fresh review; no automatic resend was added.
+
+Validation: 47 shared mobile Rust tests passed with one existing live test ignored.
+New cases cover review rejection, failed resolution storage, a fresh subsequent
+attempt, stale completion, reference conflicts, restored contradictory state and
+submitted-versus-confirmed status. The existing core boundary test passed: observer
+failure prevents checkpoint creation and releases the action lock. Final native
+ARM64 Apple/Android libraries built, six iOS native tests and two Android JNI tests
+passed, and iOS bundle verification and repository checks passed. The native tests
+are regression checks, not live withdrawal acceptance. Apple still reports the
+previously observed thread-priority inversion warnings; performance acceptance is
+not implied. No funded device, production service or candidate was changed.
+
+This closes completed pre-submission withdrawal errors in source. A terminated or
+canceled call lacks that completion evidence and stays unresolved, including after
+backup/restore. Interrupted-call recovery, other payment types, live settlement,
+installed hosts, physical signers and signed release acceptance remain open.
