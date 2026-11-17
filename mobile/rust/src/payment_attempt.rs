@@ -690,6 +690,94 @@ mod tests {
 		assert!(load(dir.path(), &binding).is_err());
 		assert!(begin(dir.path(), &binding, &attempt).is_err());
 	}
+	/// Killing the owner after a committed boundary must never turn uncertainty
+	/// into permission to resend. Exercise both rollback-journal and WAL storage.
+	#[test]
+	fn killed_payment_writer_preserves_recovery_barrier_and_exact_references() {
+		const CHILD: &str = "PAPERCLIP_KILLED_PAYMENT_TEST_CHILD";
+		const CASE: &str = "PAPERCLIP_KILLED_PAYMENT_TEST_CASE";
+		if let Some(path) = std::env::var_os(CHILD) {
+			let dir = Path::new(&path);
+			let case = std::env::var(CASE).unwrap();
+			let binding = owner(Network::Regtest, &[21;64]);
+			// Retain an open connection so WAL commits are not checkpointed by
+			// closing the last connection before the parent kills this process.
+			let keep_open = connection(dir).unwrap();
+			keep_open.query_row("SELECT COUNT(*) FROM sqlite_master", [], |r| r.get::<_, u32>(0)).unwrap();
+			let mut attempt = Attempt::new(
+				if matches!(case.as_str(), "onchain" | "replacement") { "onchain" } else { "ark" },
+				"public crash fixture".into(), 1000, 1100,
+			);
+			let destination = bitcoin::Address::p2wsh(&bitcoin::ScriptBuf::from_bytes(vec![0x51]), Network::Regtest);
+			if case == "offboard" { attempt.destination = destination.to_string(); }
+			if attempt.source == "onchain" { attempt.txid = Some("ab".repeat(32)); }
+			begin(dir, &binding, &attempt).unwrap();
+			match case.as_str() {
+				"before_observer" | "onchain" => {},
+				"ark" => ark_observer(dir, &binding, &attempt.attempt_id)(&"ab".repeat(16)).unwrap(),
+				"lightning" => lightning_observer(dir, &binding, &attempt.attempt_id)("cd".repeat(32).parse().unwrap()).unwrap(),
+				"offboard" => {
+					let action = Offboard {
+						id: "cd".repeat(16), destination: destination.clone().into_unchecked(),
+						onchain_output_amount: bitcoin::Amount::from_sat(1000), committed_fee: bitcoin::Amount::from_sat(80),
+						recovery_reserve: bitcoin::Amount::from_sat(20), committed_fee_rate: bitcoin::FeeRate::from_sat_per_vb(1).unwrap(),
+						kind: bark::actions::offboard::OffboardKind::OffboardWhole { input_vtxo_ids: vec![] }, progress: OffboardProgress::Start,
+					};
+					offboard_observer(dir, &binding, &attempt.attempt_id, &destination)(&action).unwrap();
+				},
+				"replacement" => replacement(dir, &binding, &"ab".repeat(32), &"ef".repeat(32), 180).unwrap(),
+				_ => panic!("unknown crash fixture"),
+			}
+			let saved = serde_json::to_vec(&load(dir, &binding).unwrap().unwrap()).unwrap();
+			std::fs::write(dir.join("expected.json"), saved).unwrap();
+			std::fs::write(dir.join("ready"), b"committed").unwrap();
+			loop { std::thread::park(); }
+		}
+
+		struct OwnedChild(std::process::Child);
+		impl Drop for OwnedChild {
+			fn drop(&mut self) { let _ = self.0.kill(); let _ = self.0.wait(); }
+		}
+		for mode in ["DELETE", "WAL"] {
+			for case in ["before_observer", "ark", "lightning", "offboard", "onchain", "replacement"] {
+				let (dir, binding) = setup();
+				connection(dir.path()).unwrap().pragma_update(None, "journal_mode", mode).unwrap();
+				let mut child = OwnedChild(std::process::Command::new(std::env::current_exe().unwrap())
+					.args(["--exact", "payment_attempt::tests::killed_payment_writer_preserves_recovery_barrier_and_exact_references"])
+					.env(CHILD, dir.path()).env(CASE, case)
+					.stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).spawn().unwrap());
+				let deadline = std::time::Instant::now() + Duration::from_secs(15);
+				while !dir.path().join("ready").exists() {
+					assert!(child.0.try_wait().unwrap().is_none(), "{mode}/{case}: child failed before durable boundary");
+					assert!(std::time::Instant::now() < deadline, "{mode}/{case}: child did not reach durable boundary");
+					std::thread::sleep(Duration::from_millis(10));
+				}
+				if mode == "WAL" {
+					assert!(std::fs::metadata(dir.path().join("db.sqlite-wal")).unwrap().len() > 32,
+						"{case}: exercise committed WAL records, not only a checkpointed database");
+				}
+				child.0.kill().unwrap();
+				assert!(!child.0.wait().unwrap().success());
+				let recovered = load(dir.path(), &binding).unwrap().unwrap();
+				let expected: Value = serde_json::from_slice(&std::fs::read(dir.path().join("expected.json")).unwrap()).unwrap();
+				assert_eq!(serde_json::to_value(&recovered).unwrap(), expected, "{mode}/{case}");
+				assert_eq!(recovered.state, "unknown");
+				assert_eq!(recovered.amount_sat, 1000);
+				assert_eq!(recovered.total_sat, if case == "replacement" { 1180 } else { 1100 });
+				assert_eq!(recovered.ark_action_id, (case == "ark").then(|| "ab".repeat(16)));
+				assert_eq!(recovered.payment_hash, (case == "lightning").then(|| "cd".repeat(32)));
+				assert_eq!(recovered.offboard_action_id, (case == "offboard").then(|| "cd".repeat(16)));
+				assert_eq!(recovered.txid, matches!(case, "onchain" | "replacement").then(|| "ab".repeat(32)));
+				assert_eq!(recovered.replacement_txids, if case == "replacement" { vec!["ef".repeat(32)] } else { vec![] });
+				assert!(require_resolved(dir.path(), &binding).is_err());
+				assert!(begin(dir.path(), &binding, &Attempt::new("ark", "another send".into(), 1000, 1100)).is_err());
+				assert!(load(dir.path(), &owner(Network::Regtest, &[22;64])).is_err());
+				let integrity: String = connection(dir.path()).unwrap().query_row("PRAGMA quick_check", [], |r| r.get(0)).unwrap();
+				assert_eq!(integrity, "ok");
+			}
+		}
+	}
+
 	#[test]
 	fn durable_attempt_survives_process_exit_without_cleanup() {
 		const CHILD: &str = "PAPERCLIP_ATTEMPT_TEST_CHILD";

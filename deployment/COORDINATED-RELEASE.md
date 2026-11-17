@@ -27,7 +27,7 @@ checks and their limits.
 | StartOS/Umbrel | Shared REST checks, authenticated CLN/LND reads; both StartOS candidate architectures built and source/checksums checked | Complete backup/restore, candidate installation, bundled Jam pairing/revocation/Tor and upgrades; matching frozen wrappers |
 | Linux/macOS/Windows | Isolated Apple Silicon and Linux daemon authentication, duplicate-instance rejection and crash/restart; macOS development shell inspected; packaged Linux shell exercised under Xvfb | Windows shell and private storage; installed browser/accessibility acceptance; bundled Jam/Tor and runtime delivery; supported OS matrix, signed installers, notarization and clean install/upgrade tests |
 | Jars | Reviewed direct/CoinJoin toggle and bond funding/withdrawal clients; pinned signer, API, bond and interrupted-submission checks; encrypted Jam volume restore on a synthetic chain | Live CoinJoin, direct-send and bond-funding/withdrawal acceptance, installed payment-pairing acceptance, live maker and physical QR signer acceptance |
-| Payments and recovery | 291 shared wallet tests, exact-cost/RBF/unknown-outcome checks; unified-signature and Electrum-header checks | Live BOLT12/Ark/Bridge settlement, portable recovery/restore and current-source XBT consensus acceptance |
+| Payments and recovery | 293 shared wallet tests and 51 mobile Rust tests, exact-cost/RBF/unknown-outcome checks; unified-signature and Electrum-header checks | Live BOLT12/Ark/Bridge settlement, portable recovery/restore and current-source XBT consensus acceptance |
 
 The saved uncertain Ark attempt remains reserved in the private payment ledger.
 A failed sender plus an unavailable receiver record does not justify a retry or
@@ -2691,7 +2691,25 @@ sleep. The forced case uses a shortened test-only deadline.
 The first test attempt used an invalid TLS fixture (a CA certificate as the server
 leaf) and failed before the request reached its handler. A server leaf certificate
 with an explicit temporary trust anchor fixes the fixture without weakening TLS.
-The corrected native tests pass. Linux CI now includes this check; its result is
-pending. This closes part of the long-running read acceptance, not active payment,
+The corrected native tests pass. Linux CI run `44110674308` passed at `38c05b6`,
+including all three shutdown cases. This closes part of the long-running read acceptance, not active payment,
 shutdown during settlement, launcher death during a funded operation, installed
 Jam hosting or signed-distribution acceptance. Those release gates remain open.
+
+
+## Mobile journal recovery after forced termination: 2026-11-17
+
+A native subprocess test now terminates the payment-journal writer without cleanup
+at six committed boundaries: before a submission observer, direct Ark, resolved
+Lightning hash, offboard action, on-chain transaction and RBF candidate. Each case
+runs with SQLite rollback journaling and WAL. The WAL cases retain an open
+connection and verify that committed WAL records exist before termination.
+
+All twelve cases recover the exact saved attempt and references, preserve the
+reviewed amount and replacement fee, reject a different wallet owner and block a
+new send while the outcome is unknown. SQLite integrity checks pass after reopen.
+The full shared mobile suite passes 51 tests, with one existing ignored test, on
+the native Apple host. Repository checks pass. The cases use synthetic records
+and never submit a payment. This verifies process-crash persistence, not storage
+power loss, physical iOS/Android termination or live settlement. Device and
+portable remote-node/Bridge recovery acceptance remain open.
