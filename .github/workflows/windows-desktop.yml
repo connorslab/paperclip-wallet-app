@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
   push:
     branches: ['codex/cross-platform-parity']
-    paths: ['.github/workflows/windows-desktop.yml', 'deployment/desktop/windows/**', 'deployment/desktop/linux/launcher.py', 'deployment/desktop/managed_daemon.py', 'deployment/desktop/pipe_io.py', 'deployment/desktop/test_pipe_io.py', 'bark/src/lock_manager/**', 'bark/Cargo.toml', 'bark-common/**', 'Cargo.lock']
+    paths: ['.github/workflows/windows-desktop.yml', 'deployment/desktop/windows/**', 'deployment/desktop/linux/launcher.py', 'deployment/desktop/managed_daemon.py', 'deployment/desktop/pipe_io.py', 'deployment/desktop/test_pipe_io.py', 'deployment/desktop/test_native_daemon.py', 'bark/src/lock_manager/**', 'bark/Cargo.toml', 'bark-common/**', 'Cargo.lock']
 permissions:
   contents: read
 jobs:
@@ -46,7 +46,8 @@ jobs:
           "CXXFLAGS=/I`"$boost`"" >> $env:GITHUB_ENV
           "LIBCLANG_PATH=C:\Program Files\LLVM\bin" >> $env:GITHUB_ENV
           "BARK_WEB_DIST=$env:GITHUB_WORKSPACE\web" >> $env:GITHUB_ENV
-      - uses: actions/cache@v4
+      - uses: actions/cache/restore@v4
+        id: native-cache
         with:
           path: |
             target
@@ -60,6 +61,15 @@ jobs:
         run: cargo +1.91.0 test --locked -p bark-common --lib fs_perms
       - name: Build the shared daemon with embedded UI and SQLite
         run: cargo +1.91.0 build --locked -p bark-cli --bin paperclip-walletd --features barkd-web-ui,sqlite-bundled
+      - name: Retain compiled dependencies for subsequent native test fixes
+        if: steps.native-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            target
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ steps.native-cache.outputs.cache-primary-key }}
       - name: Verify the native executable starts without wallet storage
         run: ./target/debug/paperclip-walletd.exe --version
       - name: Verify unfunded authenticated startup and crash recovery

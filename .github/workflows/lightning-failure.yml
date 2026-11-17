@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
   push:
     branches: ['fix/lightning-failed-payment-costs', 'codex/cross-platform-parity']
-    paths: ['bark/**', 'bark-cli/**', 'bark-json/**', 'bark-rest/**', 'mobile/rust/**', 'Cargo.lock', 'web/**', 'scripts/test-desktop-handoff-browser.cjs', 'deployment/desktop/**', 'deployment/managed-chain.py', 'deployment/node_tor.py', 'deployment/test_managed_chain.py', 'deployment/test_node_tor.py', 'justfile', '.github/workflows/lightning-failure.yml']
+    paths: ['SHARED-SOURCE.sha256', 'bark-common/**', 'bark/**', 'bark-cli/**', 'bark-json/**', 'bark-rest/**', 'mobile/rust/**', 'Cargo.lock', 'web/**', 'scripts/test-desktop-handoff-browser.cjs', 'deployment/desktop/**', 'deployment/managed-chain.py', 'deployment/node_tor.py', 'deployment/test_managed_chain.py', 'deployment/test_node_tor.py', 'justfile', '.github/workflows/lightning-failure.yml']
 permissions:
   contents: read
 jobs:

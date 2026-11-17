@@ -23,7 +23,7 @@ def build(binary, output, work):
     output.parent.mkdir(parents=True, exist_ok=True)
     work.mkdir(parents=True)
     source = Path(__file__).resolve().parent
-    inputs = [source / 'launcher.py', source / 'test_launcher_ui.py', source / 'private_storage.py',
+    inputs = [source / 'launcher.py', source / 'test_launcher_ui.py', source / 'test_managed_daemon.py', source / 'private_storage.py',
         Path(__file__).resolve(), source.parent / 'linux/launcher.py',
         source.parent / 'managed_daemon.py', source.parent / 'managed_jam.py', source.parent / 'pipe_io.py']
     def fingerprints():

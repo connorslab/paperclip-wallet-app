@@ -8,6 +8,7 @@ import tempfile
 import time
 import tkinter as tk
 import unittest
+from unittest.mock import patch
 from urllib.request import Request, ProxyHandler, build_opener
 
 import win32api
@@ -19,6 +20,7 @@ import win32process
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from windows.launcher import Window, valid_handoff
 from windows.private_storage import SessionRecord, read_private_file
+from windows.test_managed_daemon import DiagnosticDaemon
 from managed_daemon import NoRedirects, local_endpoint
 
 BINARY = None
@@ -30,6 +32,7 @@ def private_bytes(path):
         return file.read()
 
 
+@patch('linux.launcher.ManagedDaemon', DiagnosticDaemon)
 class PreviewWindow(unittest.TestCase):
     def pump(self, predicate, timeout=35):
         deadline = time.monotonic() + timeout
