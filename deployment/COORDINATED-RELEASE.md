@@ -25,9 +25,83 @@ checks and their limits.
 | Android | 100 JVM tests (four live cases excluded); 47 instrumentation cases across 18 classes on local API 35 ARM64; 48 cases on each of API 35/36 CI at `a04a3e4`, including the new large-text Jars navigation case, visibility and emulator-health checks; authenticated CLN/LND reads and pin rejection | Final release identity, Play/APK upgrade compatibility and physical/foldable acceptance |
 | Shared desktop UI | All 17 existing browser-flow suites plus entropy, transport and QR checks; phone, foldable and desktop widths where each suite defines them | Installed-host and native desktop acceptance; complete multiple-hot-wallet and hardware-funded Ark workflows |
 | StartOS/Umbrel | Shared REST checks, authenticated CLN/LND reads; both StartOS candidate architectures built and source/checksums checked | Complete backup/restore, candidate installation, bundled Jam pairing/revocation/Tor and upgrades; matching frozen wrappers |
-| Linux/macOS/Windows | Isolated Apple Silicon and Linux daemon authentication, duplicate-instance rejection and crash/restart; macOS bundled Jars/helper runtime passes 13 relocated isolation cases; Linux bundled Jars passes TLS/proxy and frozen-window recovery checks; 73 native Windows storage/browser-policy/pipe/ownership/discovery/window/journal cases and authenticated daemon lifecycle pass at `dfab5c0` | Installed browser/accessibility acceptance; bundled Jam/Tor and runtime delivery; supported OS matrix, signed installers, notarization and clean install/upgrade tests |
+| Linux/macOS/Windows | Isolated Apple Silicon and Linux daemon authentication, duplicate-instance rejection and crash/restart; macOS bundled Jars/helper runtime passes 13 relocated isolation cases; Linux bundled Jars passes TLS/proxy and frozen-window recovery checks; 90 native Windows storage/browser-policy/pipe/ownership/discovery/window/Jars cases and authenticated daemon lifecycle pass at `710bc5f` | Installed browser/accessibility acceptance; bundled Jam/Tor and runtime delivery; supported OS matrix, signed installers, notarization and clean install/upgrade tests |
 | Jars | Reviewed direct/CoinJoin toggle and bond funding/withdrawal clients; pinned signer, API, bond and interrupted-submission checks; encrypted Jam volume restore on a synthetic chain | Live CoinJoin, direct-send and bond-funding/withdrawal acceptance, installed payment-pairing acceptance, live maker and physical QR signer acceptance |
 | Payments and recovery | 293 shared wallet tests and 51 mobile Rust tests, exact-cost/RBF/unknown-outcome checks; unified-signature and Electrum-header checks | Live BOLT12/Ark/Bridge settlement, portable recovery/restore and current-source XBT consensus acceptance |
+
+### Open release gates — consolidated 2026-11-17
+
+Use this list for the current release decision. Older dated sections below retain
+historical evidence and can describe work that later sections completed. The
+coordinated scope is iOS, Android, StartOS, Umbrel, Linux, macOS and Windows.
+
+1. **Finish functional parity.** Complete multiple hot-wallet profiles on the
+   shared desktop/server wallet and hardware/QR-funded Ark workflows, including
+   boarding and recovery. Complete the remaining end-to-end review of boarding,
+   hardware signing and exit paths. Mobile wallet switching alone does not close
+   the desktop profile requirement.
+2. **Finish native runtime delivery.** Complete the Windows upstream Jars wallet
+   creation locks, metadata/history storage, desktop entry/TLS lifecycle and
+   bundled crypto dependencies. Its reviewed private-file API adapter is only
+   one component. Complete supported Jam/Tor and node-RPC setup on the native
+   desktops, then validate the enabled packaged runtime. No external Python or
+   separate Kilombino app may be required for the bundled-host promise.
+3. **Complete portable recovery.** Finish the wallet-bound recovery envelope for
+   older app warnings, remote-node records and Bridge conversions, with an
+   explicit credential portability policy. Test legacy archives, cross-platform
+   restore, wrong-wallet rejection and interruption without replay or restored
+   spending approval. Finish typed proof of fresh Lightning rejection and
+   recovery of older receipts that lack an exact payment reference.
+4. **Accept the installed server packages.** On both StartOS and Umbrel, verify
+   install, restricted CLN/LND RPC access, Tor/TLS, phone pairing and revocation,
+   maker ownership, shutdown and restart. Complete full-volume backup/restore,
+   chain rescan, upgrades and downgrade/recovery policy for Paperclip and its
+   separate Jam data. The synthetic encrypted-Jam restore test is not this gate.
+5. **Verify real payment and recovery flows.** Record settlement evidence for
+   CLN/LND, BOLT12, Ark, both Bridge directions, Jam direct/CoinJoin sends, maker
+   operation and bond funding/matured withdrawal. Exercise on-chain/RBF and
+   interrupted or uncertain submissions against the exact saved references.
+   Reconcile the existing uncertain Ark test rather than retrying it. The private
+   ledger currently reserves or spends 10,110 of the 25,000-sat authorization;
+   further authorization is required before exceeding the total.
+6. **Accept physical signing and device UX.** Complete physical XBT Krux and
+   XBT SeedSigner camera/signing round trips, wallet switching, five Jars paths
+   and hardware-funded flows. Resolve and verify cold-bond CLTV review/signing
+   support rather than inferring it from QR transport or server-wallet withdrawal.
+   Accept real iPhone/Duo and Android/foldable behavior, hinge/orientation changes,
+   large text and screen readers. Verify installed desktop default-browser,
+   keyboard/accessibility and compact-window behavior on the supported OS matrix.
+7. **Close correctness and security acceptance.** Establish current-source XBT
+   consensus/signature acceptance; the 36 Bitcoin-fixture/kernel failures must
+   be resolved or correctly separated from the XBT acceptance suite. Complete
+   final candidate regression and security review of spending, RBF, PSBT/change
+   validation, permissions, TLS, storage failure and recovery. Process-crash tests
+   do not establish storage power-loss or actual-payment shutdown acceptance.
+8. **Finish signed distribution and upgrades.** Verify Android's Play/APK release
+   identity and upgrade compatibility; produce the final signed iOS candidate.
+   Obtain/verify macOS Developer ID and notarization, Windows publisher signing
+   and timestamps, and Linux release-key signatures. Define and test supported
+   OS/CPU combinations, clean installs, in-place upgrades, failed-update recovery
+   and data-preserving uninstall behavior. Publish source/license notices,
+   checksums and signing provenance with immutable artifacts. The local Apple
+   inventory did not contain Developer ID Application; availability elsewhere
+   and other release signing identities remain unverified.
+9. **Freeze and coordinate the release.** Select one reviewed revision and version,
+   regenerate matching StartOS/Umbrel wrappers and build every final artifact
+   from that revision with matching daemon/helper provenance. Re-run acceptance
+   on those exact artifacts, complete Apple/Google store eligibility and review,
+   and coordinate publication only after every gate above passes.
+
+Jars Direct/CoinJoin controls and server-wallet bond funding/withdrawal client
+flows are implemented. Their live/installed acceptance remains open; they should
+not be reported as entirely missing features. Native macOS/Linux shells, Windows
+launcher/storage, ordinary mobile send journals and synthetic Jam restore also
+have recorded passing checks, with the limits documented below.
+
+Owner participation will be needed for local StartOS backup authentication and an
+approved maintenance window, physical phones/signers, and unavailable release
+signing/account access. Existing prohibitions on production restarts and funded
+physical-device changes remain in force until the specific work is authorized.
 
 The saved uncertain Ark attempt remains reserved in the private payment ledger.
 A failed sender plus an unavailable receiver record does not justify a retry or
@@ -3194,3 +3268,34 @@ checks use disposable data and certificate identities. They do not enable the
 Windows Jam runtime: the pinned upstream wallet/history/metadata storage and
 crypto packaging still need their native adapters and acceptance tests. Hardware
 power-loss, installed-host and live-payment acceptance are not inferred here.
+
+## Pinned Windows Jars file API and PID test isolation: 2026-11-17
+
+The native adapter now supplies the pinned upstream private-file API for wallet,
+config and metadata operations. A build-time patch accepts one reviewed source
+checksum and installs Windows-only overrides. The POSIX implementation remains
+unchanged. CI reads the pinned Git object directly because checkout newline
+conversion changes the working file's bytes; the checksum gate is not relaxed.
+
+Windows run `44194916485` at `710bc5f` passes all six actual upstream-file API
+cases: private create/read/replace, protected configuration, exclusive creation,
+traversal rejection, junction rejection and refusal of unreviewed upstream code.
+Mac source tests pass 85 cases with five platform-specific skips. Rebuilt helpers
+pass all 13 relocated isolation cases with source fingerprints and signatures
+verified. Bundled Jam run `44194651200` passes on both Linux architectures.
+
+The preceding full Windows run `44190107459` failed in a PID-lock test after its
+storage, Jars, native daemon and frozen-window checks passed. Its test directories
+were named using PID and clock time, allowing parallel calls to select the same
+path. Both PID test fixtures now reserve temporary directories atomically and
+keep scoped cleanup. All 13 local PID-lock tests pass. Production locking behavior
+is unchanged. Run `44194916485` completes successfully: all 90 native Windows
+cases, including eight PID-lock and four discovery cases, plus the authenticated
+daemon lifecycle script. Its diagnostic also confirms checkout LF-to-CRLF
+conversion; testing the immutable Git bytes fixes that source-verification failure
+without accepting a different upstream checksum.
+
+This adapter does not close Windows Jars hosting: wallet-creation locks, history
+and metadata storage outside this API, entry-point lifecycle and native crypto
+packaging still require integration and acceptance. Changes are mirrored to the
+Android branch; no funded wallet or production service was changed.
