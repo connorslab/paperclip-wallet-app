@@ -19,7 +19,7 @@ use tracing::warn;
 #[cfg(windows)]
 mod windows;
 #[cfg(windows)]
-pub use windows::{harden, refuse_if_loose, create_new_owner_only, write_atomic_owner_only};
+pub use windows::{harden, refuse_if_loose, create_new_owner_only, write_atomic_owner_only, open_owner_only};
 
 /// `chmod` `path` to `mode` so other (non-root) users can't reach it.
 ///

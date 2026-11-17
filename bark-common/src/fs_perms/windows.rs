@@ -191,6 +191,19 @@ pub fn create_new_owner_only(path: &Path, contents: &[u8]) -> anyhow::Result<()>
 	result.context("failed to write private storage")
 }
 
+/// Open stable lock metadata without truncation, replacement or ACL repair.
+/// New files need an explicit user owner even under an elevated Windows token.
+pub fn open_owner_only(path: &Path) -> anyhow::Result<File> {
+	let (path, _parents) = guarded_path(path)?;
+	let sd = descriptor()?;
+	let attributes = SECURITY_ATTRIBUTES { nLength: std::mem::size_of::<SECURITY_ATTRIBUTES>() as u32,
+		lpSecurityDescriptor: sd.0, bInheritHandle: 0 };
+	let file = open(&path, GENERIC_READ | GENERIC_WRITE | READ_CONTROL, OPEN_ALWAYS, &attributes)?;
+	ensure!(file.metadata()?.is_file(), "lock metadata must be a regular file");
+	private_handle(&file)?;
+	Ok(file)
+}
+
 pub fn write_atomic_owner_only(path: &Path, contents: &[u8]) -> anyhow::Result<()> {
 	let (path, _parents) = guarded_path(path)?;
 	let parent = path.parent().context("missing storage parent")?;
@@ -255,6 +268,38 @@ mod tests {
 		refuse_if_loose(&path, 0o600).unwrap();
 		harden(dir.path(), 0o700).unwrap();
 		refuse_if_loose(dir.path(), 0o700).unwrap();
+	}
+
+	#[test]
+	fn stable_lock_file_has_explicit_owner_and_preserves_contents() {
+		let dir = tempfile::tempdir().unwrap();
+		let path = dir.path().join("lock");
+		let mut first = open_owner_only(&path).unwrap();
+		first.write_all(b"synthetic pid").unwrap();
+		refuse_if_loose(&path, 0o600).unwrap();
+		let second = open_owner_only(&path).unwrap();
+		assert_eq!(std::fs::read(&path).unwrap(), b"synthetic pid");
+		assert!(std::fs::rename(&path, dir.path().join("moved")).is_err());
+		drop((first, second));
+	}
+
+	#[test]
+	fn stable_lock_file_rejects_shared_or_unrestricted_existing_storage() {
+		let dir = tempfile::tempdir().unwrap();
+		let path = dir.path().join("lock");
+		create_new_owner_only(&path, b"synthetic pid").unwrap();
+		let alias = dir.path().join("alias");
+		std::fs::hard_link(&path, &alias).unwrap();
+		assert!(open_owner_only(&path).is_err());
+		std::fs::remove_file(alias).unwrap();
+		let file = open(&path, READ_CONTROL | WRITE_DAC, OPEN_EXISTING, null()).unwrap();
+		let status = unsafe { SetSecurityInfo(file.as_raw_handle(), SE_FILE_OBJECT,
+			DACL_SECURITY_INFORMATION, null_mut(), null_mut(), null(), null()) };
+		assert_eq!(status, 0);
+		drop(file);
+		assert!(open_owner_only(&path).is_err());
+		assert!(refuse_if_loose(&path, 0o600).is_err());
+		assert_eq!(std::fs::read(&path).unwrap(), b"synthetic pid");
 	}
 
 	#[test]

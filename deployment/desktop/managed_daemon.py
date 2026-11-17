@@ -251,6 +251,10 @@ class ManagedDaemon:
             self.close()
             if isinstance(error, StartupError):
                 raise
+            if os.name == 'nt' and isinstance(error, windows_storage.UnsafeStorage):
+                # These messages are fixed storage-policy text, never file
+                # contents, paths, authentication or an underlying OS error.
+                raise StartupError(str(error)) from None
             raise StartupError('The local wallet service could not start. Check its private data and executable.') from None
         except BaseException:
             self.close()

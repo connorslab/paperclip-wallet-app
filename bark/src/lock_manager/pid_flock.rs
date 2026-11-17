@@ -75,6 +75,7 @@ fn try_pid_lock(file: &File) -> Result<(), TryLockError> {
 	}
 }
 
+#[cfg(not(windows))]
 fn open_lock_file(path: &Path) -> anyhow::Result<File> {
 	File::options()
 		.read(true)
@@ -83,6 +84,12 @@ fn open_lock_file(path: &Path) -> anyhow::Result<File> {
 		.truncate(false)
 		.open(path)
 		.with_context(|| format!("failed to open lock file {}", path.display()))
+}
+
+#[cfg(windows)]
+fn open_lock_file(path: &Path) -> anyhow::Result<File> {
+	bark_common::fs_perms::open_owner_only(path)
+		.context("PID lock requires private user-owned storage")
 }
 
 
@@ -219,6 +226,8 @@ mod test {
 		let probe = File::open(dir.join(LOCK_FILE)).unwrap();
 		assert!(matches!(probe.try_lock(), Err(TryLockError::WouldBlock)));
 		assert_eq!(fs::read_to_string(dir.join(LOCK_FILE)).unwrap(), std::process::id().to_string());
+		#[cfg(windows)]
+		bark_common::fs_perms::refuse_if_loose(&dir.join(LOCK_FILE), 0o600).unwrap();
 		drop(held);
 		probe.try_lock().unwrap();
 		drop(probe);

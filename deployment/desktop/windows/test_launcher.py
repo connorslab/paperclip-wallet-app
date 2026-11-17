@@ -16,6 +16,26 @@ class BrowserPolicy(unittest.TestCase):
         self.assertEqual(launcher.browser_path(value, r'C:\preview\_internal'),
                          r'C:\Windows\System32;C:\preview\_internal-other;D:\browser')
 
+    def test_browser_child_resets_loader_before_shell_open(self):
+        good = 'http://127.0.0.1:1234/#desktop-handoff=' + 'a' * 44
+        with patch.object(os, 'name', 'nt'), patch.object(sys, 'frozen', True, create=True), \
+                patch.object(sys, '_MEIPASS', r'C:\preview\_internal', create=True), \
+                patch.dict(os.environ, {'PATH':r'C:\preview\_internal;C:\Windows'}, clear=True), \
+                patch.object(launcher.ctypes, 'WinDLL', create=True) as library, \
+                patch.object(os, 'startfile', create=True) as start:
+            reset = library.return_value.SetDllDirectoryW
+            reset.return_value = 0
+            self.assertFalse(launcher.open_browser_child(good))
+            start.assert_not_called()
+            reset.return_value = 1
+            def opened(url):
+                reset.assert_called_with(None)
+                self.assertEqual(os.environ['PATH'], r'C:\Windows')
+                self.assertEqual(url, good)
+            start.side_effect = opened
+            self.assertTrue(launcher.open_browser_child(good))
+            start.assert_called_once()
+
     def test_untrusted_urls_never_spawn_a_helper(self):
         good = 'http://127.0.0.1:1234/#desktop-handoff=' + 'a' * 44
         with patch.object(os, 'name', 'nt'), patch.object(subprocess, 'run') as run:

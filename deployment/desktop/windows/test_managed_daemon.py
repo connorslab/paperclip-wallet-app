@@ -19,6 +19,25 @@ from windows.private_storage import SessionRecord, private_directory, read_priva
 BINARY = None
 
 
+class DiagnosticDaemon(ManagedDaemon):
+    def start(self):
+        try:
+            return super().start()
+        except StartupError as error:
+            # Failure diagnostics are types, numeric OS codes and source lines
+            # only. Never render exception arguments, locals or file contents.
+            cause = error.__context__
+            if cause is not None:
+                frames = []
+                trace = cause.__traceback__
+                while trace is not None:
+                    frames.append(f'{Path(trace.tb_frame.f_code.co_filename).name}:{trace.tb_lineno}')
+                    trace = trace.tb_next
+                print('Startup diagnostic:', type(cause).__name__,
+                      getattr(cause, 'winerror', None), getattr(cause, 'errno', None), ','.join(frames))
+            raise
+
+
 class WindowsOwnership(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory(prefix='paperclip-windows-owner-')
@@ -26,7 +45,7 @@ class WindowsOwnership(unittest.TestCase):
         self.root = Path(self.temporary.name) / 'app'
 
     def runner(self, **options):
-        runner = ManagedDaemon(BINARY, self.root, **options)
+        runner = DiagnosticDaemon(BINARY, self.root, **options)
         self.addCleanup(runner.close)
         return runner
 
