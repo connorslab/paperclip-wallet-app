@@ -111,6 +111,43 @@ class JournalTest(unittest.TestCase):
         finally:
             other.close()
 
+    def test_competing_processes_cannot_both_cross_submission_boundary(self):
+        self.prepare()
+        # Both interpreters start with the same reviewed request. SQLite must
+        # serialize their claim/commit even across independent native handles.
+        program = """
+import sys
+from paperclip_jam.journal import Journal
+journal = Journal(sys.argv[1], lambda: 1000)
+wallet, identifier = 'xbt:fixture-fingerprint', '1' * 64
+review = journal.status(wallet, identifier)
+sys.stdin.buffer.read(1)
+claimed = journal.claim(wallet, identifier, review['approval'])
+print('claimed' if claimed is not None else 'blocked')
+journal.close()
+"""
+        processes = []
+        try:
+            for _ in range(2):
+                processes.append(subprocess.Popen([sys.executable, '-c', program, str(self.directory)],
+                    stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE))
+            for process in processes:
+                process.stdin.write(b'x')
+                process.stdin.flush()
+            results = []
+            for process in processes:
+                output, error = process.communicate(timeout=15)
+                self.assertEqual(process.returncode, 0, 'Claim fixture failed')
+                self.assertEqual(error, b'')
+                results.append(output.strip())
+            self.assertCountEqual(results, [b'claimed', b'blocked'])
+            self.assertEqual(self.journal.status(self.wallet, self.identifier)['state'], 'submitting')
+        finally:
+            for process in processes:
+                if process.poll() is None:
+                    process.kill()
+                process.communicate(timeout=5)
+
     def crash_writer(self, operation):
         # A new interpreter exits without closing SQLite or running finally
         # blocks. No socket, wallet key, payment or external service is used.
@@ -181,7 +218,9 @@ os._exit(23)
 
     def test_abrupt_exit_after_cache_spill_recovers_the_original_review(self):
         review = self.prepare()
+        self.journal.close()
         self.crash_writer('uncommitted-spill')
+        self.journal = Journal(self.directory, lambda: self.now)
         self.assertEqual(self.journal.status(self.wallet, self.identifier)['state'], 'prepared')
         self.assertEqual(self.journal.claim(self.wallet, self.identifier, review['approval']), 'aabb')
         self.assertIsNone(self.journal.claim(self.wallet, self.identifier, review['approval']))
