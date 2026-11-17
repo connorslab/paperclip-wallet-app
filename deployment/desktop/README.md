@@ -90,7 +90,7 @@ using that handoff. It shows startup, ready, open and retry states, monitors the
 owned helper without blocking AppKit, and quits through the lifetime chain.
 The helper accepts only bounded open/quit messages over private stdio. A wallet
 process exit produces a visible retry action rather than a stale Ready state.
-The runner still does not supervise Tor/Jam.
+The runner can supervise its packaged Jars child as described below; Tor hosting is separate.
 A private `session.active` marker in the application root is written and synced
 before daemon launch. Only an observed successful close of a ready, owned child
 clears it. Forced shutdown, launcher death, unexpected child exit and failed
@@ -156,7 +156,7 @@ browser into empty-wallet setup, a deliberately stopped QA daemon leading to Try
 Again, successful retry and window-close cleanup. No wallet was created. The
 six stdio bridge tests run on the built native daemon in backend CI; the macOS
 workflow compiles AppKit separately. Older macOS versions, Intel execution,
-clean-machine Python/runtime bundling and installed upgrades remain unverified.
+installed upgrades and supported-OS coverage remain unverified. The bundled-helper isolation check below covers build-host dependency isolation.
 
 
 ## Development Linux preview
@@ -218,3 +218,43 @@ then checked for visible crash/retry and normal window-close cleanup.
 
 This development option still references an external interpreter. It does not
 stand in for a bundled runtime, Tor/RPC setup or installed signed distribution.
+
+
+## Standalone native macOS preview
+
+`macos/build_helpers.py` freezes the explicitly selected reviewed Jam environment
+and launcher into separate native helper app bundles with PyInstaller 6.22.3.
+Install that build tool in an isolated build directory, then invoke the script
+with the pinned Jam interpreter and companion available on the build module path:
+
+```
+python deployment/desktop/macos/build_helpers.py \
+  --source /absolute/source/deployment \
+  --secp256k1 /absolute/reviewed/lib/libsecp256k1.dylib \
+  --output '/absolute/new/path/Helpers' --work /absolute/new/build-work
+python3 deployment/desktop/macos/build_preview.py \
+  --binary /absolute/path/to/paperclip-walletd \
+  --helpers '/absolute/new/path/Helpers' \
+  --output '/absolute/new/path/Paperclip Preview.app'
+python3 deployment/desktop/macos/test_bundle.py \
+  --app '/absolute/new/path/Paperclip Preview.app'
+```
+
+The crypto installation must include its `COPYING` file. The builder includes
+that notice and Python's license, records installed package versions and the
+crypto input hash, and verifies each helper signature before assembling the app.
+Bundled mode records no external interpreter path. The Jars child selects its
+bundled secp256k1 and CA files before importing wallet code. Every Python entry
+point disables bytecode writes so execution cannot alter the signed resources.
+
+`test_bundle.py` copies the app into a different path containing spaces, denies
+reads of the original app, Homebrew and `/usr/local`, and exercises all 13 actual
+Jars/wallet/launcher lifecycle cases. It checks signatures before and after use.
+This caught and fixed a post-launch bytecode signature failure and an incorrect
+ad-hoc/hardened-runtime signing combination. Local AppKit QA additionally verifies
+Ready, authenticated empty Jars discovery through the wallet's TLS proxy, window
+close and released process locks. These checks create no wallet or payment.
+
+The result is an ad-hoc development preview. It is not Developer ID signed or
+notarized, and the isolation test does not substitute for supported macOS/Intel
+installation, upgrades or live payment acceptance.

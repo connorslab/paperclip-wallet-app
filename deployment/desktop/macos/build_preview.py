@@ -1,7 +1,7 @@
 """Build a development-only Mac launcher with native Apple tools.
 
-The preview references an explicitly selected local Python runtime. It is not a
-standalone installer, Developer ID release or notarized distribution candidate.
+The preview uses bundled helpers or explicitly selected development interpreters.
+It is not a Developer ID release or notarized distribution candidate.
 """
 import argparse
 import json
@@ -14,7 +14,7 @@ import sys
 import tempfile
 
 
-def build(binary, python, output, jam_python=None):
+def build(binary, python, output, jam_python=None, helpers=None):
     if sys.platform != 'darwin':
         raise RuntimeError('Build this preview with native Apple tools on macOS.')
     if output.exists() or output.is_symlink():
@@ -38,7 +38,21 @@ def build(binary, python, output, jam_python=None):
         shutil.copy2(binary, executable / 'paperclip-walletd')
         for name in ('launcher_entry.py', 'launcher_bridge.py', 'managed_daemon.py', 'managed_jam.py'):
             shutil.copy2(source.parent / name, resources / name)
-        configuration = {'pythonExecutable':str(python)}
+        configuration = {}
+        if helpers is not None:
+            for name in ('PaperclipHelper', 'PaperclipJars'):
+                bundle = helpers / (name + '.app')
+                if not (bundle / 'Contents' / 'MacOS' / name).is_file():
+                    raise RuntimeError('Missing bundled helper executable.')
+                if any(path.is_symlink() and not path.resolve().is_relative_to(bundle.resolve()) for path in bundle.rglob('*')):
+                    raise RuntimeError('Helper link points outside its bundle.')
+                subprocess.run(['codesign', '--verify', '--deep', '--strict', str(bundle)], check=True)
+                shutil.copytree(bundle, contents / 'Helpers' / bundle.name, symlinks=True)
+            configuration['bundledHelpers'] = True
+        elif python is not None:
+            configuration['pythonExecutable'] = str(python)
+        else:
+            raise RuntimeError('Supply the built helper apps or explicit development Python.')
         if jam_python is not None:
             if not jam_python.is_file():
                 raise RuntimeError('Supply the pinned Jars runtime interpreter.')
@@ -59,14 +73,17 @@ def build(binary, python, output, jam_python=None):
         subprocess.run(['codesign', '--force', '--sign', '-', str(app)], check=True)
         subprocess.run(['codesign', '--verify', '--deep', '--strict', str(app)], check=True)
         app.rename(output)
-    print('Built development-only native Mac launcher; release signing and bundled runtime remain required.')
+    print('Built ad-hoc signed native Mac preview; release signing and notarization remain required.')
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--binary', type=Path, required=True)
-    parser.add_argument('--python', type=Path, required=True)
+    parser.add_argument('--python', type=Path)
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--jam-python', type=Path)
+    parser.add_argument('--helpers', type=Path)
     args = parser.parse_args()
-    build(args.binary.resolve(strict=True), args.python.resolve(strict=True), args.output.absolute(), args.jam_python.absolute() if args.jam_python else None)
+    if args.helpers and (args.python or args.jam_python):
+        parser.error('Choose built helpers or development interpreters')
+    build(args.binary.resolve(strict=True), args.python.resolve(strict=True) if args.python else None, args.output.absolute(), args.jam_python.absolute() if args.jam_python else None, args.helpers.resolve(strict=True) if args.helpers else None)

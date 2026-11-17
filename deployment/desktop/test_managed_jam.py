@@ -129,10 +129,10 @@ class WalletAndJam(JamOwnership):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--python', required=True, type=Path)
-    parser.add_argument('--entry', required=True, type=Path)
+    parser.add_argument('--entry', type=Path)
     parser.add_argument('--binary', type=Path)
     args, remaining = parser.parse_known_args()
-    PYTHON, ENTRY = args.python.absolute(), args.entry.resolve(strict=True)
+    PYTHON, ENTRY = args.python.absolute(), args.entry.resolve(strict=True) if args.entry else None
     BINARY = args.binary.resolve(strict=True) if args.binary else None
     if not BINARY:
         WalletAndJam.__unittest_skip__ = True

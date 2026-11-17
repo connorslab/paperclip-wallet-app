@@ -2926,3 +2926,30 @@ warning. No wallet was created and no live node was contacted.
 The preview includes the companion scripts but still uses an explicit external
 interpreter. Standalone runtime delivery and full installed-host acceptance are
 not implied by these results.
+
+
+## Bundled macOS Jars runtime: 2026-11-17
+
+The native development app now embeds its launcher helper, Jam Python runtime,
+companion, crypto library and certificate authorities. Its runtime configuration
+contains no external interpreter path. Build inputs record package versions and
+crypto hash; Python and secp256k1 notices accompany the package. Native helper
+bundles use standard macOS resource/framework layouts and are verified before
+assembly.
+
+Packaging tests found two real failures: bytecode writes changed sealed app
+resources after launch, and an explicit ad-hoc identity accidentally enabled
+hardened library validation without a Team ID. Entry points now suppress bytecode
+writes, and preview helper signing uses the tool's ad-hoc mode. This does not
+weaken TLS or substitute ad-hoc signing for release signing.
+
+All 13 actual Jars/wallet/helper lifecycle checks pass from a relocated app in a
+path with spaces while reads from Homebrew, `/usr/local` and the original app
+are denied. Strict deep signature verification passes both before and after
+execution. Native AppKit QA also reaches Ready under dependency isolation,
+queries its owned Jars service through the authenticated wallet TLS proxy, and
+closes with released locks and no recovery marker. No wallet or payment is created.
+Repository checks pass. The prior `113b86d` backend, Jam and native-shell CI runs
+all passed. These checks establish a bundled Apple Silicon development runtime;
+they do not establish Developer ID/notarization, Intel/older-OS installs or live
+settlement acceptance.

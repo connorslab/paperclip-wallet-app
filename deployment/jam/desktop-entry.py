@@ -17,6 +17,8 @@ import stat
 import sys
 import threading
 
+sys.dont_write_bytecode = True
+
 
 def private_directory(path):
     if not path.is_absolute() or any(item.is_symlink() for item in (path, *path.parents)):
@@ -41,6 +43,15 @@ async def serve(root):
     environment.update(HOME=str(root), JOINMARKET_DATA_DIR=str(root), JOINMARKET_CONFIG_FILE=str(root / 'config.toml'))
     os.environ.clear()
     os.environ.update(environment)
+    if getattr(sys, 'frozen', False):
+        import bitcointx
+        import certifi
+        library = Path(sys._MEIPASS) / 'libsecp256k1.dylib'
+        if not library.is_file():
+            raise ValueError('Missing bundled crypto library')
+        bitcointx.set_custom_secp256k1_path(str(library))
+        os.environ['SSL_CERT_FILE'] = certifi.where()
+        os.environ['SSL_CERT_DIR'] = str(Path(sys._MEIPASS) / 'no-host-ca-directory')
     from loguru import logger
     logger.remove()
     logger.disable('')

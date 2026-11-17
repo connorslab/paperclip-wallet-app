@@ -33,7 +33,7 @@ def build(binary, python, output, jam_python=None):
         launcher = package / 'bin' / 'paperclip-preview'
         launcher.write_text('#!/bin/sh\nset -eu\n'
                             'bundle=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)\n'
-                            'exec ' + shlex.quote(str(python)) + ' -I "$bundle/lib/launcher.py" '
+                            'exec ' + shlex.quote(str(python)) + ' -I -B "$bundle/lib/launcher.py" '
                             '--binary "$bundle/bin/paperclip-walletd" ' + jam_arguments + '"$@"\n')
         launcher.chmod(0o755)
         (package / 'PREVIEW.txt').write_text('Development preview: unsigned, external Python/Tk runtime required. '

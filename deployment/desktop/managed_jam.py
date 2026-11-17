@@ -16,7 +16,7 @@ class ManagedJam:
     def __init__(self, python, entry, root, startup_timeout=30, shutdown_timeout=25):
         # Preserve the venv interpreter path: resolving its symlink loses the venv.
         self.python = Path(python).absolute()
-        self.entry = Path(entry).resolve(strict=True)
+        self.entry = Path(entry).resolve(strict=True) if entry is not None else None
         if not self.python.is_file():
             raise StartupError('The bundled Jars interpreter is unavailable.')
         self.root = Path(root).absolute()
@@ -29,7 +29,8 @@ class ManagedJam:
             raise StartupError('This Jars session was already started.')
         environment = {key: os.environ[key] for key in ('PATH', 'LANG', 'TMPDIR') if key in os.environ}
         try:
-            self.process = subprocess.Popen([str(self.python), '-I', str(self.entry), '--data-dir', str(self.root)],
+            command = [str(self.python)] if self.entry is None else [str(self.python), '-I', '-B', str(self.entry)]
+            self.process = subprocess.Popen(command + ['--data-dir', str(self.root)],
                 env=environment, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                 stderr=subprocess.DEVNULL, close_fds=True)
             pending = b''

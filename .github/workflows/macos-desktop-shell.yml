@@ -16,4 +16,4 @@ jobs:
         run: |
           xcrun swiftc -swift-version 5 -target "$(uname -m)-apple-macosx13.0" -framework AppKit deployment/desktop/macos/Launcher.swift -o "$RUNNER_TEMP/PaperclipLauncher"
       - name: Check development bundle script syntax
-        run: python3 -m py_compile deployment/desktop/macos/build_preview.py
+        run: python3 -m py_compile deployment/desktop/macos/build_preview.py deployment/desktop/macos/build_helpers.py deployment/desktop/macos/test_bundle.py

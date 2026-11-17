@@ -11,7 +11,7 @@ import tempfile
 import unittest
 
 
-BINARY = None
+BINARY = HELPER = JAM = None
 
 
 @unittest.skipUnless(BINARY, 'Pass --binary for real daemon checks')
@@ -19,14 +19,17 @@ class LauncherBridge(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory(prefix='paperclip-shell-qa-')
         self.addCleanup(self.temporary.cleanup)
-        self.root = Path(self.temporary.name) / 'app'
+        self.root = Path(self.temporary.name).resolve() / 'app'
         self.addCleanup(self.cleanup)
         ready = self.launch()
         self.assertFalse(ready['recovery_required'])
 
     def launch(self):
-        self.process = subprocess.Popen([sys.executable, '-I', str(Path(__file__).with_name('launcher_entry.py')),
-            '--binary', str(BINARY), '--root', str(self.root)], stdin=subprocess.PIPE,
+        command = [str(HELPER)] if HELPER else [sys.executable, '-I', '-B', str(Path(__file__).with_name('launcher_entry.py'))]
+        command += ['--binary', str(BINARY), '--root', str(self.root)]
+        if JAM:
+            command += ['--jam-executable', str(JAM)]
+        self.process = subprocess.Popen(command, stdin=subprocess.PIPE,
             stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, start_new_session=True)
         ready = self.event()
         self.assertEqual(ready['event'], 'ready')
@@ -109,7 +112,11 @@ class LauncherBridge(unittest.TestCase):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--binary', type=Path, required=True)
+    parser.add_argument('--helper', type=Path)
+    parser.add_argument('--jam-executable', type=Path)
     args, remaining = parser.parse_known_args()
     BINARY = args.binary.resolve(strict=True)
+    HELPER = args.helper.resolve(strict=True) if args.helper else None
+    JAM = args.jam_executable.resolve(strict=True) if args.jam_executable else None
     LauncherBridge.__unittest_skip__ = False
     unittest.main(argv=[sys.argv[0]] + remaining)

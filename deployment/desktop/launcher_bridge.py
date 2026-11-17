@@ -67,11 +67,14 @@ if __name__ == '__main__':
     parser.add_argument('--root', type=Path, required=True)
     parser.add_argument('--jam-python', type=Path)
     parser.add_argument('--jam-entry', type=Path)
+    parser.add_argument('--jam-executable', type=Path)
     args = parser.parse_args()
+    if args.jam_executable and (args.jam_python or args.jam_entry):
+        parser.error('Choose the bundled Jars executable or development Python paths')
     if bool(args.jam_python) != bool(args.jam_entry):
         parser.error('Supply both packaged Jars runtime paths')
     try:
-        serve(args.binary, args.root, (args.jam_python, args.jam_entry) if args.jam_python else None)
+        serve(args.binary, args.root, (args.jam_executable, None) if args.jam_executable else ((args.jam_python, args.jam_entry) if args.jam_python else None))
     except BrokenPipeError:
         # Shell death already closes the lifetime chain; never print a traceback.
         sys.exit(1)

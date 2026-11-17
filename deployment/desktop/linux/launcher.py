@@ -7,6 +7,8 @@ import sys
 import threading
 import webbrowser
 
+sys.dont_write_bytecode = True
+
 # Source checkout and packaged preview both load only adjacent trusted helpers.
 resources = Path(__file__).resolve().parent
 sys.path.insert(0, str(resources if (resources / 'managed_daemon.py').is_file() else resources.parent))

@@ -3,7 +3,8 @@ import Foundation
 import Darwin
 
 private struct RuntimeConfiguration: Decodable {
-	let pythonExecutable: String
+	let pythonExecutable: String?
+	let bundledHelpers: Bool?
 	let jamPythonExecutable: String?
 }
 
@@ -106,12 +107,19 @@ final class Launcher: NSObject, NSApplicationDelegate {
 				root = URL(fileURLWithPath: CommandLine.arguments[index + 1], isDirectory: true)
 			}
 			let process = Process(), incoming = Pipe(), outgoing = Pipe()
-			process.executableURL = URL(fileURLWithPath: configuration.pythonExecutable)
-			process.arguments = ["-I", resources.appendingPathComponent("launcher_entry.py").path,
-				"--binary", executables.appendingPathComponent("paperclip-walletd").path, "--root", root.path]
-			if let jamPython = configuration.jamPythonExecutable {
-				process.arguments! += ["--jam-python", jamPython, "--jam-entry", resources.appendingPathComponent("jam-runtime/desktop-entry.py").path]
-			}
+			if configuration.bundledHelpers == true {
+				let helpers = resources.deletingLastPathComponent().appendingPathComponent("Helpers")
+				process.executableURL = helpers.appendingPathComponent("PaperclipHelper.app/Contents/MacOS/PaperclipHelper")
+				process.arguments = ["--binary", executables.appendingPathComponent("paperclip-walletd").path, "--root", root.path,
+					"--jam-executable", helpers.appendingPathComponent("PaperclipJars.app/Contents/MacOS/PaperclipJars").path]
+			} else if let python = configuration.pythonExecutable {
+				process.executableURL = URL(fileURLWithPath: python)
+				process.arguments = ["-I", "-B", resources.appendingPathComponent("launcher_entry.py").path,
+					"--binary", executables.appendingPathComponent("paperclip-walletd").path, "--root", root.path]
+				if let jamPython = configuration.jamPythonExecutable {
+					process.arguments! += ["--jam-python", jamPython, "--jam-entry", resources.appendingPathComponent("jam-runtime/desktop-entry.py").path]
+				}
+			} else { throw CocoaError(.fileNoSuchFile) }
 			process.environment = ProcessInfo.processInfo.environment.filter { ["PATH", "HOME", "TMPDIR", "LANG"].contains($0.key) }
 			process.standardInput = incoming
 			process.standardOutput = outgoing
