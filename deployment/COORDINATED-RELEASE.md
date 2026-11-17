@@ -3136,3 +3136,30 @@ Android run `44180236505` also passes at `a04a3e4`, after the Windows ownership
 change: both native ABI builds, both app distribution formats and all 48 cases on
 each of API 35 and 36. The Windows backend changes are mirrored to the Android
 branch and do not replace Android's own native build and instrumentation checks.
+
+## Native Windows Jars payment journal: 2026-11-17
+
+The reviewed-payment journal now has a Windows storage implementation. It creates
+local NTFS database and rollback files with explicit current-user ownership and
+protected user/SYSTEM access. Open handles prevent replacement during writes;
+SQLite retains responsibility for transaction locks. Existing permissions are
+checked without repair, and unexpected WAL sidecars are rejected before opening
+SQLite. Windows uses verified PERSIST journal mode and FULL synchronization so
+rollback storage can retain its explicit ownership between transactions.
+
+The native journal step in Windows run `44185860309` at `dfab5c0` passes all 15
+cases. These cover competing processes claiming the same review, failure before
+commit, cold recovery after an interrupted cache spill, restored uncertain
+payments remaining non-replayable, changed permissions and storage replacement.
+They exercise synthetic records and process death; they do not establish
+hardware power-loss behavior or live payment acceptance.
+
+Bundled Jam run `44185860317` passes on AMD64 and ARM64: 82 runtime cases
+and four supervisor cases per architecture, with three Windows-only runtime
+cases and three daemon-dependent supervisor cases skipped. The Mac source suite
+passes 81 cases, with four platform-specific cases skipped. Rebuilt Mac helpers pass all 13 relocated package checks and preserve strict
+signature verification before and after use. The bundled daemon is the existing
+native development binary, so this is helper regression evidence rather than a
+same-revision release candidate. Changes are mirrored to `feature/android-wallet`.
+Windows bundled Jars remains disabled until the rest of its runtime and packaging
+has equivalent native validation.
