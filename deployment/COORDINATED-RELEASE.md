@@ -126,6 +126,9 @@ market display and fee preservation. Two regular iPhone simulator cases verify t
 checks, comparison controls and portrait/landscape bond guidance with network
 actions disabled. These checks do not replace live host, physical signer, settlement,
 fold transitions or signed-release acceptance.
+Bundled Jam CI run `43987338446` at source `dc6b9e4` passes all 53 tests on both
+Linux architectures, including the new order book reader in the pinned container.
+Current-source Android, backend and full browser CI remain pending at this checkpoint.
 
 ## Source and artifacts
 
