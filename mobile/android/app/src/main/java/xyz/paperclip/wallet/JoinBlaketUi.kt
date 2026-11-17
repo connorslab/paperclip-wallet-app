@@ -149,7 +149,7 @@ internal fun JoinBlaketPage(state: JoinBlaketUiState) {
 				Text("Server", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
 				SelectionContainer { Text(review.endpoint, style = MaterialTheme.typography.bodyMedium) }
 				ReviewDetailRow("Jars wallet", review.wallet)
-				Text("Allows balances, receive addresses, maker controls and payment status for up to 30 days. Sending, key export and your main wallet are not included.", style = MaterialTheme.typography.bodySmall)
+				Text(if (review.canSend) "Allows managing and sending funds from this Jars wallet for up to 30 days. Review each payment on this phone. Key export and your main wallet are not included." else "Allows balances, receive addresses, maker controls and payment status for up to 30 days. Sending, key export and your main wallet are not included.", style = MaterialTheme.typography.bodySmall)
 				WalletPrimaryButton(enabled = !busy, modifier = Modifier.fillMaxWidth(), onClick = { run { pair(pairingText) } }) { Text("Verify and save connection") }
 				TextButton(enabled = !busy, modifier = Modifier.fillMaxWidth(), onClick = { pairingReview = null; pairingText = "" }) { Text("Cancel") }
 			} else {
@@ -259,8 +259,8 @@ internal fun JoinBlaketPage(state: JoinBlaketUiState) {
 						val amount = jar.getLong(field)
 						if (amount > 0 || field == "confirmed_sat") Row(Modifier.fillMaxWidth()) { Text(label, Modifier.weight(1f)); Text(unit.display(amount)) }
 					}
-					WalletPrimaryButton(enabled = !busy && !paired, modifier = Modifier.fillMaxWidth(), onClick = { showSend = true }) { Text("Send from ${jar.getString("name")}") }
-					if (paired) Text("This pairing manages jars. Sending requires a payment-authorized connection.", style = MaterialTheme.typography.bodySmall)
+					WalletPrimaryButton(enabled = !busy && (!paired || client?.canDiscardReviews == true), modifier = Modifier.fillMaxWidth(), onClick = { showSend = true }) { Text("Send from ${jar.getString("name")}") }
+					if (paired && client?.canDiscardReviews != true) Text("This pairing manages jars. Sending requires a payment-authorized connection.", style = MaterialTheme.typography.bodySmall)
 					WalletPrimaryButton(enabled = !busy, onClick = { run { address = checkNotNull(client).receiveAddress(selected, checkNotNull(authorization)) } }) { Text("Receive into ${jar.getString("name")}") }
 					address?.let { NodeReceiveCode(it); SelectionContainer { Text(it) } }
 				}

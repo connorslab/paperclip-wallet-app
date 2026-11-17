@@ -115,6 +115,7 @@ private struct JarsSendView: View {
     private var client: JoinBlaketClient?
     private var authorization: JoinBlaketAuthorization?
     @Published var paired = false
+    @Published var canSend = true
     func pair(_ text: String, save: Bool = true) async throws {
         let pairing = try JoinBlaketPairing(text: text)
         var resolved = pairing.connection
@@ -127,12 +128,12 @@ private struct JarsSendView: View {
         let rows = try JSONDecoder().decode(Response.self, from: JSONSerialization.data(withJSONObject: normalized)).jars
         if save { try WalletKeychain.save(Data(text.utf8), account: "jars-pairing-v1") }
         client = candidate; authorization = auth; selectedWallet = pairing.wallet
-        session = current; jars = rows; paired = true; needsRefresh = false
+        session = current; jars = rows; paired = true; canSend = pairing.canSend; needsRefresh = false
         address = nil; bondAddress = nil; bondMonth = ""
     }
     func forgetPairing() throws {
         try WalletKeychain.delete("jars-pairing-v1")
-        client = nil; authorization = nil; session = nil; jars = []; paired = false
+        client = nil; authorization = nil; session = nil; jars = []; paired = false; canSend = true
         selectedWallet = ""; wallets = []; address = nil; bondAddress = nil; bondMonth = ""
     }
     func perform(_ action: @escaping @MainActor () async throws -> Void) {
@@ -140,7 +141,7 @@ private struct JarsSendView: View {
         Task { defer { busy = false }; do { try await action() } catch { message = error.localizedDescription } }
     }
     func connect() async throws {
-        paired = false
+        paired = false; canSend = true
         session = nil; authorization = nil; jars = []; address = nil; wallets = []; bondAddress = nil; bondMonth = ""
         var resolved = connection
         if resolved.useTor { resolved.torProxy = try await EmbeddedTor.shared.proxy(for: resolved.torProxy) }
@@ -187,12 +188,12 @@ private struct JarsSendView: View {
         return try await client.market(amount: amount, authorization: authorization)
     }
     func prepareSend(_ draft: JoinBlaketSendDraft) async throws -> JoinBlaketSendReview {
-        guard !previewOnly, !paired, let client, let authorization else { throw JoinBlaketError.sessionExpired }
+        guard !previewOnly, canSend, let client, let authorization else { throw JoinBlaketError.sessionExpired }
         needsRefresh = true
         return try await client.prepareSend(draft, authorization: authorization)
     }
     func commitSend(_ review: JoinBlaketSendReview, _ draft: JoinBlaketSendDraft) async throws -> JoinBlaketPayment {
-        guard !previewOnly, !paired, let client, let authorization else { throw JoinBlaketError.sessionExpired }
+        guard !previewOnly, canSend, let client, let authorization else { throw JoinBlaketError.sessionExpired }
         return try await client.commitSend(review, draft: draft, authorization: authorization)
     }
     func discardPayment(_ id: String) async throws -> JoinBlaketPayment {
@@ -321,7 +322,7 @@ struct JoinBlaketView: View {
 
     }
     private var discardAction: ((String) async throws -> JoinBlaketPayment)? {
-        guard !model.paired else { return nil }
+        guard model.canSend else { return nil }
         return { id in try await model.discardPayment(id) }
     }
     @ViewBuilder private var connectedContent: some View {
@@ -356,8 +357,8 @@ struct JoinBlaketView: View {
                     if jar.frozen_sat > 0 { LabeledContent("Frozen", value: unit.display(jar.frozen_sat)) }
                     if jar.bond_sat > 0 { LabeledContent("Fidelity bonds", value: unit.display(jar.bond_sat)) }
                     Button { sendJar = jar } label: { Label("Send from \(jar.name)", systemImage: "arrow.up.right").frame(maxWidth: .infinity) }
-                        .buttonStyle(WalletPrimaryButtonStyle()).disabled(model.paired)
-                    if model.paired { Text("This pairing manages jars. Sending requires a payment-authorized connection.").font(.caption).foregroundStyle(PaperclipTheme.muted) }
+                        .buttonStyle(WalletPrimaryButtonStyle()).disabled(!model.canSend)
+                    if !model.canSend { Text("This pairing manages jars. Sending requires a payment-authorized connection.").font(.caption).foregroundStyle(PaperclipTheme.muted) }
                     Button { model.perform { try await model.receive(jar) } } label: { Label("Receive into \(jar.name)", systemImage: "arrow.down.left").frame(maxWidth: .infinity) }.modifier(GlassAction()).disabled(model.previewOnly)
                     if let address = model.address {
                         ReceiveCode(value: address).frame(maxWidth: .infinity)
@@ -530,7 +531,7 @@ struct JoinBlaketView: View {
                 Text("Server").font(.caption).foregroundStyle(PaperclipTheme.muted)
                 Text(review.endpoint).font(.subheadline).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
                 WalletReviewDetail(title: "Jars wallet", value: review.wallet)
-                Text("Allows balances, receive addresses, maker controls and payment status for up to 30 days. Sending, key export and your main wallet are not included.").font(.subheadline).foregroundStyle(PaperclipTheme.muted)
+                Text(review.canSend ? "Allows managing and sending funds from this Jars wallet for up to 30 days. Review each payment on this phone. Key export and your main wallet are not included." : "Allows balances, receive addresses, maker controls and payment status for up to 30 days. Sending, key export and your main wallet are not included.").font(.subheadline).foregroundStyle(PaperclipTheme.muted)
                 Button("Verify and save connection") {
                     let text = pairingText
                     model.perform { try await model.pair(text); pairingText = ""; pairingReview = nil }

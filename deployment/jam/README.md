@@ -71,7 +71,19 @@ Broadcast uses the owner's Jam node and is non-RBF. No direct-send fallback exis
 Commit rechecks every prevout and the original owner-qualified input leases;
 cancelling a signed review can leave coins reserved until the upstream safety
 window ends. Live CoinJoin settlement, bond funding/withdrawal client flows and
-payment-capable mobile pairing remain release gates.
+installed-host pairing acceptance remain release gates.
+
+The host can issue either a management-only phone pairing (the default) or an
+explicit manage-and-send pairing. Existing grants remain management-only; choosing
+a new permission never upgrades an existing device. Both native apps review the
+permission before saving it. Payment grants use the same direct/CoinJoin review,
+wallet identity, fee limits and one-shot submission contract as owner connections.
+They permit spending from this Jars wallet, without a per-device amount limit.
+They cannot unlock or create wallets, export keys, access the main wallet, or use
+legacy immediate-send endpoints. The host and companion enforce separate scopes;
+editing the QR payload cannot change the host grant. Revocation prevents new
+requests, not completion of a request already accepted by Jam. Locking, changing
+wallets, restarting Jam or expiry requires a new pairing.
 
 The shared owner UI now creates separate Jam wallets and guides password-verified
 recovery-word backup. Creation responses expose only wallet authorization, not

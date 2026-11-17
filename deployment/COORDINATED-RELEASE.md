@@ -19,12 +19,12 @@ checks from the required implementation and acceptance work.
 
 | Area | Verified in the current test pass | Still required |
 | --- | --- | --- |
-| iOS | 115 shared Swift tests; 17 safe UI cases on both regular-phone and open-Duo simulators | Physical signer, camera, accessibility and interrupted/folded payment acceptance; final signed candidate and upgrade |
-| Android | 91 JVM tests (four live cases excluded); 16 isolated API 35 UI cases; authenticated CLN/LND reads and pin rejection | Final release identity, Play/APK upgrade compatibility, physical/foldable acceptance and current CI completion |
+| iOS | 119 shared Swift tests; 17 safe UI cases on both regular-phone and open-Duo simulators | Physical signer, camera, accessibility and interrupted/folded payment acceptance; final signed candidate and upgrade |
+| Android | 96 JVM tests (four live cases excluded); 16 isolated API 35 UI cases; authenticated CLN/LND reads and pin rejection | Final release identity, Play/APK upgrade compatibility, physical/foldable acceptance and current CI completion |
 | Shared desktop UI | All 17 existing browser-flow suites plus entropy, transport and QR checks; phone, foldable and desktop widths where each suite defines them | Installed-host and native desktop acceptance; complete multiple-hot-wallet and hardware-funded Ark workflows |
 | StartOS/Umbrel | Shared REST checks, authenticated CLN/LND reads; both StartOS candidate architectures built and source/checksums checked | Complete backup/restore, candidate installation, bundled Jam pairing/revocation/Tor and upgrades; matching frozen wrappers |
 | Linux/macOS/Windows | Isolated native Apple Silicon daemon authentication and restart smoke | Native launchers and bundled service lifecycle, supported OS matrix, signed installers, notarization where applicable and clean install/upgrade tests |
-| Jars | Reviewed direct/CoinJoin toggle on every client; pinned signer, API, bond and interrupted-submission checks | Live CoinJoin and direct-send acceptance, bond funding/withdrawal, payment-capable pairing, live maker and physical QR signer acceptance |
+| Jars | Reviewed direct/CoinJoin toggle on every client; pinned signer, API, bond and interrupted-submission checks | Live CoinJoin and direct-send acceptance, bond funding/withdrawal, installed payment-pairing acceptance, live maker and physical QR signer acceptance |
 | Payments and recovery | 291 shared wallet tests, exact-cost/RBF/unknown-outcome checks; unified-signature and Electrum-header checks | Live BOLT12/Ark/Bridge settlement, portable recovery/restore and current-source XBT consensus acceptance |
 
 The saved uncertain Ark attempt remains reserved in the private payment ledger.
@@ -155,7 +155,7 @@ The jar send form now supports both direct and CoinJoin payments. The selected
 mode is immutable through review and commit; unsupported servers are rejected
 before preparation, and failed CoinJoins never fall back to direct sending.
 Existing management-only phone pairings remain unable to prepare, commit or cancel
-payments; spending grants require a separate integration.
+payments. Explicit spending grants are described below.
 
 ### Reviewed CoinJoin jar payments
 
@@ -1747,3 +1747,29 @@ and migration of the upstream fixtures remain required. Native compilation neede
 the existing Boost.MultiIndex 1.85 compatibility headers; neither a forced header
 nor the Homebrew 1.92 MPL option alone worked. This reinforces the open reproducible
 native toolchain gate rather than closing it with a local workaround.
+
+### Explicit payment-enabled phone pairing
+
+The host now offers Manage only (default) or Manage and send when creating a new
+Jars pairing. Existing stored grants retain management-only access. Both mobile
+apps explain spending permission before saving the code. A payment grant allows
+spending from that Jars wallet; it has no per-device amount limit. It cannot export
+keys, unlock wallets, access the main wallet or invoke legacy immediate-send APIs.
+The host and Jam independently enforce the permission with separate credentials.
+Changing the code's scope does not change the saved host grant.
+
+Paired direct and CoinJoin sends use the same immutable terms, saved-review
+preflight and explicit commit. A lost reply enters recovery; it never triggers
+an automatic retry. Revocation prevents new dispatches, while an already accepted
+request may finish. Wallet changes, Jam restart and expiry invalidate delegation.
+This completes the client/proxy implementation; installed-host TLS/Tor, revocation,
+backup/restore and live settlement acceptance remain open.
+
+Validation for payment pairing: 119 Swift tests; 96 Android JVM tests with four
+opt-in live cases skipped; 13 targeted REST tests; 66 local companion tests with
+one container-only case skipped; shared web contracts; Jars browser flows at
+390/1280/1440px; direct and CoinJoin browser flows at 390/1280px. Two regular iPhone
+simulator tests verify management/payment permission wording and canceled pairing.
+All seven Android API 35 Jars UI cases pass, including both permission reviews,
+CoinJoin selection, recovery, maker fees and bond guidance. Native device testing
+here uses synthetic fixtures and makes no payments.

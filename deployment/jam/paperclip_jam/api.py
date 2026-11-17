@@ -55,6 +55,11 @@ class Prepare(BaseModel):
         return self
 
 
+class PairingPermission(BaseModel):
+    model_config = ConfigDict(extra='forbid', strict=True)
+    scope: Literal['jars_manage_v1', 'jars_pay_v1'] = 'jars_manage_v1'
+
+
 class Commit(BaseModel):
     model_config = ConfigDict(extra='forbid', strict=True)
     approval: Identifier
@@ -141,8 +146,8 @@ def install(app, state):
         return {'wallet': walletname, 'identity': current.identity}
 
     @router.post('/wallet/{walletname}/paperclip/pairing-session')
-    async def pairing_session(request: Request, walletname: str):
-        return delegations.issue(adapter(request, walletname))
+    async def pairing_session(request: Request, walletname: str, body: PairingPermission):
+        return delegations.issue(adapter(request, walletname), body.scope)
 
     @router.get('/wallet/{walletname}/paperclip/payments')
     async def history(request: Request, walletname: str):

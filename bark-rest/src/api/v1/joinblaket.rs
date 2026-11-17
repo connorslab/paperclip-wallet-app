@@ -38,11 +38,12 @@ pub struct Request {
 	approval: Option<String>,
 	wallet_identity: Option<String>,
 	send: Option<SendTerms>,
+	#[serde(skip)] pairing_scope: pairing::Scope,
 }
 
 #[derive(Deserialize)]
 #[serde(rename_all = "snake_case")]
-enum Operation { Wallets, CreateWallet, BackupWallet, Unlock, Status, Identity, Coins, Address, BondAddress, StartMaker, StopMaker, Payments, CheckPayment, CancelPayment, PreparePayment, CommitPayment, Market, #[serde(skip)] PairingSession }
+enum Operation { Wallets, CreateWallet, BackupWallet, Unlock, Status, Identity, Coins, Address, BondAddress, StartMaker, StopMaker, Payments, CheckPayment, CancelPayment, PreparePayment, CommitPayment, PaymentCapabilities, PaymentReview, Market, #[serde(skip)] PairingSession }
 
 /// Fixed-amount sends bind the selected mode through review and commit.
 #[derive(Clone, Deserialize)]
@@ -236,7 +237,8 @@ async fn execute_bound(input: Request, expected_identity: Option<&str>) -> anyho
 		ensure!(pairing::valid_identity(id) && expected_identity.is_none_or(|expected| expected == id), "Jam wallet identity changed; pair again");
 		if matches!(input.operation, Operation::Identity) { return Ok(json!({"wallet": input.wallet, "identity": id})); }
 		if matches!(input.operation, Operation::PairingSession) {
-			let delegated = upstream(&client, &base, &["wallet", &input.wallet, "paperclip", "pairing-session"], &input.token, Some(json!({}))).await?;
+			let delegated = upstream(&client, &base, &["wallet", &input.wallet, "paperclip", "pairing-session"], &input.token, Some(json!({"scope":input.pairing_scope}))).await?;
+			ensure!(delegated.get("scope").cloned().unwrap_or(json!("jars_manage_v1")) == serde_json::to_value(input.pairing_scope)?, "Jam pairing permissions changed");
 			ensure!(delegated["identity"] == id && delegated["wallet"] == input.wallet, "Jam pairing identity changed");
 			let token = delegated["token"].as_str().context("Jam pairing session unavailable")?;
 			ensure!(token.strip_prefix("pjh1_").is_some_and(payment_identifier), "Invalid Jam pairing session");
@@ -278,6 +280,21 @@ async fn execute_bound(input: Request, expected_identity: Option<&str>) -> anyho
 			let result = upstream(&client, &base, &["wallet", &input.wallet, "paperclip", "payments", id, "commit"], &input.token, Some(json!({"approval":approval}))).await?;
 			ensure!(result["id"] == id && matches!(result["state"].as_str(), Some("submitting" | "unknown" | "submitted")), "Check Jars payment activity before another action");
 			recovery_payment(&result, &input.wallet)
+		},
+		Operation::PaymentCapabilities => {
+			let result = upstream(&client, &base, &["paperclip", "capabilities"], &input.token, None).await?;
+			Ok(json!({"version":result["version"],"reviewed_direct_send":result["reviewed_direct_send"],"coinjoin_payments":result["coinjoin_payments"]}))
+		},
+		Operation::PaymentReview => {
+			let id = input.payment_id.as_deref().context("Select a saved payment")?;
+			ensure!(payment_identifier(id), "Invalid Jam payment reference");
+			let identity = upstream(&client, &base, &["wallet", &input.wallet, "paperclip", "identity"], &input.token, None).await?;
+			let key = identity["identity"].as_str().context("Jam wallet identity unavailable")?;
+			ensure!(identity["wallet"] == input.wallet && expected_identity.is_none_or(|expected| expected == key), "Jam wallet identity changed");
+			let result = upstream(&client, &base, &["wallet", &input.wallet, "paperclip", "payments", id], &input.token, None).await?;
+			ensure!(result["id"] == id, "Jam returned a different payment");
+			if result["state"] == "prepared" { send_review(&result, &input.wallet, key, chrono::Utc::now().timestamp()) }
+			else { recovery_payment(&result, &input.wallet) }
 		},
 		Operation::Status => Ok(json!({"session":true,"wallet_name":input.wallet,
 			"maker_running":session["maker_running"],"coinjoin_in_process":session["coinjoin_in_process"],"rescanning":session["rescanning"]})),

@@ -66,14 +66,14 @@ internal suspend fun JoinBlaketClient.commitSend(review: JoinBlaketSendReview, d
 	val identity = sendIdentity(auth)
 	require(identity == review.walletIdentity) { "Jam wallet changed since review" }
 	val path = listOf("wallet",auth.wallet,"paperclip","payments",draft.id)
-	val saved = request(path,auth)
+	val saved = request(if (isPaired) path + "review" else path,auth)
 	val current = JoinBlaketPayment.parse(saved,auth.wallet)
 	require(current.id == draft.id && current.quote == review.payment.quote) { "Jam payment changed" }
 	if (current.needsCheck || current.state == "submitted") return current
 	val checked = JoinBlaketSendReview.parse(saved,auth.wallet)
 	checked.validate(draft,auth.wallet,identity)
 	require(checked.approval == review.approval) { "Jam approval changed" }
-	val result = JoinBlaketPayment.parse(request(path + "commit",auth,JSONObject().put("approval",review.approval)),auth.wallet)
+	val result = JoinBlaketPayment.parse(request(path + "commit",auth,JSONObject().put("approval",review.approval),walletIdentity=review.walletIdentity),auth.wallet)
 	require(result.id == draft.id && result.quote == review.payment.quote && (result.needsCheck || result.state == "submitted")) { "Check Jars payment activity before another action" }
 	return result
 }

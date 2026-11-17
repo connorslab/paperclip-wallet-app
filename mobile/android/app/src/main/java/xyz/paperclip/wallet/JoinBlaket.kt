@@ -21,7 +21,7 @@ import org.json.JSONObject
 
 /** Scoped host grant. Persist only through SecureStore; never log the payload. */
 internal class JoinBlaketPairing private constructor(val endpoint: String, val wallet: String,
-	internal val token: String, private val expires: Long, private val pin: String) {
+	internal val token: String, private val expires: Long, private val pin: String, val canSend: Boolean) {
 	val connection: JoinBlaketConnection get() = JoinBlaketConnection(endpoint, pin, if (URI(endpoint).host.lowercase().endsWith(".onion")) "builtin" else "")
 	fun authorization() = JoinBlaketAuthorization(wallet, token)
 	override fun toString() = "Jars pairing (redacted)"
@@ -31,19 +31,39 @@ internal class JoinBlaketPairing private constructor(val endpoint: String, val w
 			val value = JSONObject(String(java.util.Base64.getUrlDecoder().decode(text.removePrefix("paperclip-jars:")), Charsets.UTF_8))
 			val expiry = value.get("expires")
 			require(expiry is Int || expiry is Long) { "Invalid pairing expiry" }
-			val pair = JoinBlaketPairing(value.getString("endpoint"), value.getString("wallet"), value.getString("token"), (expiry as Number).toLong(), value.getString("certificate_sha256"))
-			require(value.getString("kind") == "paperclip-jars-v1" && value.getString("scope") == "jars_manage_v1" && pair.expires > now &&
+			val pair = JoinBlaketPairing(value.getString("endpoint"), value.getString("wallet"), value.getString("token"), (expiry as Number).toLong(), value.getString("certificate_sha256"), value.getString("scope") == "jars_pay_v1")
+			require(value.getString("kind") == "paperclip-jars-v1" && value.getString("scope") in setOf("jars_manage_v1", "jars_pay_v1") && pair.expires > now &&
 				pair.token.matches(Regex("pj1_[0-9a-f]{64}")) && pair.wallet.isNotEmpty() && pair.wallet.toByteArray().size <= 256 &&
 				'/' !in pair.wallet && '\\' !in pair.wallet && pair.wallet !in setOf(".", "..")) { "Pairing is invalid or expired. Create a new code on your host." }
 			pair.connection.validate()
 			return pair
 		}
 	}
-	fun request(parts: List<String>, body: JSONObject?): JSONObject {
+	fun request(parts: List<String>, body: JSONObject?, walletIdentity: String? = null): JSONObject {
 		require(expires > Instant.now().epochSecond) { "Pairing expired. Create a new code on your host." }
 		val fields = JSONObject().put("wallet", wallet)
 		val path = parts.joinToString("/"); val prefix = "wallet/$wallet/"
 		when {
+			canSend && path == "paperclip/capabilities" && body == null -> fields.put("operation","payment_capabilities")
+			canSend && path == prefix + "paperclip/identity" && body == null -> fields.put("operation","identity")
+			canSend && path == prefix + "paperclip/payments" && body != null -> {
+				require(body.length() == 11 && body.get("purpose") == "send" && body.get("send_max") == false && body.get("coinjoin") is Boolean && body.get("rbf") == !body.getBoolean("coinjoin"))
+				val draft = JoinBlaketSendDraft(body.getInt("jar"),body.getString("destination"),body.getLong("amount_sat"),body.getLong("fee_rate_millisat_vb"),body.getLong("max_fee_sat"),body.getString("id"),body.getBoolean("coinjoin"))
+				require(body.getLong("max_total_sat") == draft.amountSat + draft.maxFeeSat)
+				val terms = JSONObject()
+				for (key in listOf("jar","destination","amount_sat","fee_rate_millisat_vb","max_fee_sat","coinjoin")) terms.put(key,body.get(key))
+				fields.put("operation","prepare_payment").put("payment_id",draft.id).put("send",terms)
+			}
+			canSend && parts.size == 6 && parts.take(4) == listOf("wallet",wallet,"paperclip","payments") && JoinBlaketPayment.validId(parts[4]) -> {
+				fields.put("payment_id",parts[4])
+				when {
+					parts[5] == "review" && body == null -> fields.put("operation","payment_review")
+					parts[5] == "cancel" && body != null && body.length() == 0 -> fields.put("operation","cancel_payment")
+					parts[5] == "commit" && body != null && body.length() == 1 && JoinBlaketPayment.validId(body.getString("approval")) && walletIdentity != null ->
+						fields.put("operation","commit_payment").put("approval",body.getString("approval")).put("wallet_identity",walletIdentity)
+					else -> error("This pairing does not permit that operation")
+				}
+			}
 			parts.size == 3 && parts.take(2) == listOf("paperclip", "market") && body == null -> {
 				val amount = parts[2].toLong(); require(amount in 27_300..2_100_000_000_000_000L)
 				fields.put("operation", "market").put("comparison_sat", amount)
@@ -188,7 +208,7 @@ internal class JoinBlaketClient internal constructor(
 	}
 
 	internal suspend fun request(
-		components: List<String>, authorization: JoinBlaketAuthorization? = null, body: JSONObject? = null, preparingCoinJoin: Boolean = false,
+		components: List<String>, authorization: JoinBlaketAuthorization? = null, body: JSONObject? = null, preparingCoinJoin: Boolean = false, walletIdentity: String? = null,
 	): JSONObject {
 		connection.validate()
 		val url = connection.endpoint.toHttpUrl().newBuilder()
@@ -200,7 +220,7 @@ internal class JoinBlaketClient internal constructor(
 		if (pairing != null) {
 			require(authorization?.wallet == pairing.wallet && authorization.token == pairing.token && connection == pairing.connection) { "Pairing wallet or connection changed" }
 			request.header("Authorization", "Bearer " + pairing.token)
-			request.post(pairing.request(components, body).toString().toRequestBody("application/json".toMediaType()))
+			request.post(pairing.request(components, body, walletIdentity).toString().toRequestBody("application/json".toMediaType()))
 		} else {
 			authorization?.let { request.header("Authorization", "Bearer " + it.token) }
 			body?.let { request.post(it.toString().toRequestBody("application/json".toMediaType())) }
@@ -289,7 +309,8 @@ internal class JoinBlaketClient internal constructor(
 		status(authorization)
 		return JoinBlaketMarket.parse(request(listOf("paperclip", "market", amount.toString()), authorization), amount)
 	}
-	val canDiscardReviews: Boolean get() = pairing == null
+	val canDiscardReviews: Boolean get() = pairing == null || pairing.canSend
+	val isPaired: Boolean get() = pairing != null
 	/** Preserve management-only pairing scopes; uncertain submissions cannot be discarded. */
 	suspend fun discardPayment(id: String, authorization: JoinBlaketAuthorization): JoinBlaketPayment {
 		require(canDiscardReviews) { "Discard this review in Jars on your Paperclip host" }

@@ -110,6 +110,51 @@ final class JoinBlaketTests: XCTestCase {
         XCTAssertEqual(observed.state, .unknown)
         XCTAssertEqual(JamStub.requests.filter { $0.url!.path.hasSuffix("/commit") }.count, 1)
     }
+    func testPaymentPairingPreservesModeAndNeverRepeatsLostCommit() async throws {
+        for coinjoin in [false, true] {
+            JamStub.requests = []; JamStub.bodies = []
+            let pair = try JoinBlaketPairing(text: pairingText(["scope":"jars_pay_v1"]))
+            XCTAssertTrue(pair.canSend)
+            let configuration = URLSessionConfiguration.ephemeral; configuration.protocolClasses = [JamStub.self]
+            let client = try JoinBlaketClient(connection: pair.connection, configuration: configuration, pairing: pair)
+            let auth = try pair.authorization()
+            let draft = try JoinBlaketSendDraft(jar: 0, destination: "bcrt1qsyntheticrecipient", amountSat: 20000, feeRateMillisatVb: 1000, maxFeeSat: 500, coinjoin: coinjoin, id: String(repeating: "a", count: 64))
+            let file = Bundle.module.url(forResource: "jam-send-review", withExtension: "json", subdirectory: "Fixtures")!
+            let cases = try JSONSerialization.jsonObject(with: Data(contentsOf: file)) as! [[String: Any]]
+            var saved = (coinjoin ? cases.first { $0["name"] as? String == "reviewed CoinJoin" }! : cases[0])["review"] as! [String: Any]
+            saved["expires"] = Int64(Date().timeIntervalSince1970) + 200
+            var operations: [String] = [], revoked = false
+            JamStub.route = { request in
+                XCTAssertEqual(request.url!.path,"/api/v1/paired-jars/request")
+                let body = try! JSONSerialization.jsonObject(with: JamStub.bodies.last!) as! [String: Any]
+                XCTAssertNil(body["token"]); XCTAssertNil(body["password"]); XCTAssertEqual(body["wallet"] as? String,pair.wallet)
+                let op = body["operation"] as! String; operations.append(op)
+                if revoked { return (401,"{}") }
+                if op == "identity" { return (200,"{\"wallet\":\"fixture.jmdat\",\"identity\":\"xbt-regtest:\(String(repeating: "c", count: 64))\"}") }
+                if op == "payment_capabilities" { return (200,"{\"version\":2,\"reviewed_direct_send\":true,\"coinjoin_payments\":true}") }
+                if op == "prepare_payment" {
+                    let terms = body["send"] as! [String: Any]
+                    XCTAssertEqual(terms["coinjoin"] as? Bool,coinjoin)
+                    XCTAssertEqual(terms["amount_sat"] as? Int,20000)
+                } else if op == "commit_payment" {
+                    XCTAssertEqual(body["wallet_identity"] as? String,"xbt-regtest:" + String(repeating: "c", count: 64))
+                    XCTAssertEqual(body["approval"] as? String,saved["approval"] as? String)
+                    saved["state"] = "unknown"; return (504,"{}")
+                } else { XCTAssertEqual(op,"payment_review") }
+                return (200,String(decoding: try! JSONSerialization.data(withJSONObject: saved),as: UTF8.self))
+            }
+            let review = try await client.prepareSend(draft,authorization: auth)
+            XCTAssertFalse(operations.contains("commit_payment"))
+            do { _ = try await client.commitSend(review,draft: draft,authorization: auth); XCTFail("Lost response") } catch {}
+            let observed = try await client.commitSend(review,draft: draft,authorization: auth)
+            XCTAssertEqual(observed.state,.unknown)
+            XCTAssertEqual(operations.filter { $0 == "commit_payment" }.count,1)
+            revoked = true
+            do { _ = try await client.commitSend(review,draft: draft,authorization: auth); XCTFail("Revoked pairing") } catch {}
+            XCTAssertEqual(operations.filter { $0 == "commit_payment" }.count,1)
+        }
+    }
+
     private func pairingText(_ changes: [String: Any] = [:]) throws -> String {
         var value: [String: Any] = ["kind":"paperclip-jars-v1", "scope":"jars_manage_v1", "endpoint":"https://host.example.invalid", "wallet":"fixture.jmdat",
                                   "token":"pj1_" + String(repeating: "a", count: 64), "expires":4_000_000_000, "certificate_sha256":""]

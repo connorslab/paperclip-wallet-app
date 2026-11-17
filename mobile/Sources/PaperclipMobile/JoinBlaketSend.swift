@@ -27,6 +27,24 @@ public struct JoinBlaketSendDraft: Sendable {
     }
 }
 
+/// Map only the exact fixed-send contract into the host proxy, never a generic Jam route.
+func pairedSendFields(_ data: Data, wallet: String) throws -> [String: Any] {
+    struct Body: Decodable {
+        let id: String, purpose: String, jar: UInt8, destination: String
+        let amount_sat: UInt64, fee_rate_millisat_vb: UInt64, max_fee_sat: UInt64, max_total_sat: UInt64
+        let send_max: Bool, rbf: Bool, coinjoin: Bool
+    }
+    let body = try JSONDecoder().decode(Body.self, from: data)
+    let value = try JoinBlaketSendDraft(jar: body.jar, destination: body.destination, amountSat: body.amount_sat,
+        feeRateMillisatVb: body.fee_rate_millisat_vb, maxFeeSat: body.max_fee_sat, coinjoin: body.coinjoin, id: body.id)
+    guard body.purpose == "send", !body.send_max, body.rbf != body.coinjoin,
+          body.max_total_sat == value.amountSat + value.maxFeeSat,
+          let fields = try JSONSerialization.jsonObject(with: data) as? [String: Any], fields.count == 11 else { throw JoinBlaketError.invalidResponse }
+    return ["wallet": wallet, "operation": "prepare_payment", "payment_id": value.id,
+            "send": ["jar": value.jar, "destination": value.destination, "amount_sat": value.amountSat,
+                     "fee_rate_millisat_vb": value.feeRateMillisatVb, "max_fee_sat": value.maxFeeSat, "coinjoin": value.coinjoin]]
+}
+
 public struct JoinBlaketSendReview: Sendable {
     public let payment: JoinBlaketPayment
     public let approval: String, walletIdentity: String, network: String
@@ -85,7 +103,7 @@ extension JoinBlaketClient {
         let identity = try await sendIdentity(authorization)
         guard identity == review.walletIdentity else { throw JoinBlaketError.wrongWallet }
         let path = ["wallet", authorization.wallet, "paperclip", "payments", draft.id]
-        let saved = try await request(path, authorization: authorization)
+        let saved = try await request(path + (isPaired ? ["review"] : []), authorization: authorization)
         let current = try JSONDecoder().decode(JoinBlaketPayment.self, from: saved)
         try current.validate(wallet: authorization.wallet)
         guard current.id == draft.id, current.quote == review.payment.quote else { throw JoinBlaketError.invalidResponse }
@@ -93,7 +111,7 @@ extension JoinBlaketClient {
         let checked = try JoinBlaketSendReview(data: saved)
         try checked.validate(draft: draft, wallet: authorization.wallet, identity: identity)
         guard checked.approval == review.approval else { throw JoinBlaketError.invalidResponse }
-        let result = try JSONDecoder().decode(JoinBlaketPayment.self, from: await request(path + ["commit"], authorization: authorization, body: ["approval": review.approval]))
+        let result = try JSONDecoder().decode(JoinBlaketPayment.self, from: await request(path + ["commit"], authorization: authorization, body: ["approval": review.approval], walletIdentity: review.walletIdentity))
         try result.validate(wallet: authorization.wallet)
         guard result.id == draft.id, result.quote == review.payment.quote,
               result.needsCheck || result.state == .submitted else { throw JoinBlaketError.invalidResponse }

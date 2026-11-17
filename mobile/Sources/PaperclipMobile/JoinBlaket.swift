@@ -5,6 +5,7 @@ import Network
 public struct JoinBlaketPairing: Decodable, Sendable, CustomStringConvertible, CustomDebugStringConvertible {
     let kind: String
     let scope: String
+    public var canSend: Bool { scope == "jars_pay_v1" }
     public let endpoint: String
     public let wallet: String
     fileprivate let token: String
@@ -18,7 +19,7 @@ public struct JoinBlaketPairing: Decodable, Sendable, CustomStringConvertible, C
         encoded += String(repeating: "=", count: (4 - encoded.count % 4) % 4)
         guard let data = Data(base64Encoded: encoded) else { throw ConnectionError.invalidCredential }
         self = try JSONDecoder().decode(Self.self, from: data)
-        guard kind == "paperclip-jars-v1", scope == "jars_manage_v1", expires > Int64(now.timeIntervalSince1970),
+        guard kind == "paperclip-jars-v1", ["jars_manage_v1", "jars_pay_v1"].contains(scope), expires > Int64(now.timeIntervalSince1970),
               token.hasPrefix("pj1_"), JoinBlaketPayment.validID(String(token.dropFirst(4))),
               !wallet.isEmpty, wallet.utf8.count <= 256, !wallet.contains("/"), !wallet.contains("\\"), wallet != ".", wallet != ".." else { throw ConnectionError.invalidCredential }
         try connection.validate()
@@ -29,11 +30,25 @@ public struct JoinBlaketPairing: Decodable, Sendable, CustomStringConvertible, C
         return value
     }
     public func authorization() throws -> JoinBlaketAuthorization { try .init(wallet: wallet, token: token) }
-    fileprivate func request(_ components: [String], body: [String: String]?) throws -> [String: Any] {
+    fileprivate func request(_ components: [String], body: [String: String]?, jsonBody: Data? = nil, walletIdentity: String? = nil) throws -> [String: Any] {
         guard expires > Int64(Date().timeIntervalSince1970) else { throw JoinBlaketError.sessionExpired }
         var fields: [String: Any] = ["wallet": wallet]
         let path = components.joined(separator: "/"), prefix = "wallet/\(wallet)/"
-        if components.count == 3 && components.prefix(2).elementsEqual(["paperclip", "market"]), body == nil, let amount = UInt64(components[2]), (27_300...2_100_000_000_000_000).contains(amount) {
+        if let jsonBody {
+            guard canSend, path == prefix + "paperclip/payments", body == nil else { throw JoinBlaketError.invalidResponse }
+            return try pairedSendFields(jsonBody, wallet: wallet)
+        }
+        if canSend && path == "paperclip/capabilities" && body == nil { fields["operation"] = "payment_capabilities" }
+        else if canSend && path == prefix + "paperclip/identity" && body == nil { fields["operation"] = "identity" }
+        else if canSend && components.count == 6 && components.prefix(4).elementsEqual(["wallet", wallet, "paperclip", "payments"]), JoinBlaketPayment.validID(components[4]) {
+            fields["payment_id"] = components[4]
+            if components[5] == "review" && body == nil { fields["operation"] = "payment_review" }
+            else if components[5] == "cancel", let body, body.isEmpty { fields["operation"] = "cancel_payment" }
+            else if components[5] == "commit", let body, body.count == 1, let approval = body["approval"], JoinBlaketPayment.validID(approval), let walletIdentity {
+                fields["operation"] = "commit_payment"; fields["approval"] = approval; fields["wallet_identity"] = walletIdentity
+            } else { throw JoinBlaketError.invalidResponse }
+        }
+        else if components.count == 3 && components.prefix(2).elementsEqual(["paperclip", "market"]), body == nil, let amount = UInt64(components[2]), (27_300...2_100_000_000_000_000).contains(amount) {
             fields["operation"] = "market"; fields["comparison_sat"] = amount
         } else if path == "session" && body == nil { fields["operation"] = "status" }
         else if path == prefix + "utxos" && body == nil { fields["operation"] = "coins" }
@@ -263,7 +278,8 @@ public actor JoinBlaketClient {
     private let session: URLSession
     private let delegate: NodeSessionDelegate
     private let pairing: JoinBlaketPairing?
-    public var canDiscardReviews: Bool { pairing == nil }
+    public var canDiscardReviews: Bool { pairing == nil || pairing?.canSend == true }
+    var isPaired: Bool { pairing != nil }
 
     public init(connection: JoinBlaketConnection, pairing: JoinBlaketPairing? = nil) throws {
         try self.init(connection: connection, configuration: .ephemeral, pairing: pairing)
@@ -295,8 +311,8 @@ public actor JoinBlaketClient {
     deinit { session.invalidateAndCancel() }
 
     func request(_ components: [String], authorization: JoinBlaketAuthorization? = nil,
-                         body: [String: String]? = nil, jsonBody: Data? = nil, preparingCoinJoin: Bool = false) async throws -> Data {
-        guard jsonBody == nil || (pairing == nil && body == nil) else { throw JoinBlaketError.invalidResponse }
+                         body: [String: String]? = nil, jsonBody: Data? = nil, preparingCoinJoin: Bool = false, walletIdentity: String? = nil) async throws -> Data {
+        guard jsonBody == nil || body == nil else { throw JoinBlaketError.invalidResponse }
         var url = try EndpointPolicy.validate(connection.endpoint, tor: connection.useTor, credentials: true)
         let route = pairing == nil ? ["api", "v1"] + components : ["api", "v1", "paired-jars", "request"]
         for component in route {
@@ -313,14 +329,14 @@ public actor JoinBlaketClient {
             request.setValue("Bearer " + pairing.token, forHTTPHeaderField: "Authorization")
             request.httpMethod = "POST"
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            request.httpBody = try JSONSerialization.data(withJSONObject: pairing.request(components, body: body))
+            request.httpBody = try JSONSerialization.data(withJSONObject: pairing.request(components, body: body, jsonBody: jsonBody, walletIdentity: walletIdentity))
         } else if let authorization { request.setValue("Bearer " + authorization.token, forHTTPHeaderField: "Authorization") }
         if pairing == nil, let body {
             request.httpMethod = "POST"
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             request.httpBody = try JSONSerialization.data(withJSONObject: body)
         }
-        if let jsonBody {
+        if let jsonBody, pairing == nil {
             request.httpMethod = "POST"
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             request.httpBody = jsonBody

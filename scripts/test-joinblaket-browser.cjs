@@ -50,7 +50,8 @@ for (const item of cases) {
      if(p==='joinblaket/pairings') {
       if(route.request().method()==='POST') {
        const body=route.request().postDataJSON(); assert.equal(body.wallet,'Sample Jars.jmdat'); assert.equal(body.token,'fixture-token');
-       pairingCreates++; const row={id:'c'.repeat(64),label:body.label,wallet:body.wallet,scope:'jars_manage_v1',expires:Math.floor(Date.now()/1000)+2592000};
+       assert(['jars_manage_v1','jars_pay_v1'].includes(body.scope));
+       pairingCreates++; const row={id:'c'.repeat(64),label:body.label,wallet:body.wallet,scope:body.scope,expires:Math.floor(Date.now()/1000)+2592000};
        pairings=[row]; value={...row,token:'pj1_'+'d'.repeat(64)};
       } else value={pairings};
      }
@@ -154,6 +155,22 @@ for (const item of cases) {
    await page.getByRole('button',{name:'Confirm',exact:true}).click();
    await page.getByText('No paired devices.',{exact:true}).waitFor();
    assert.equal(pairingRevokes,1);
+   await page.locator('#jam-pairing-scope').selectOption('jars_pay_v1');
+   await page.locator('#jam-pairing-create').click();
+   await page.getByText(/This phone can manage and send funds/).waitFor();
+   await page.getByRole('button',{name:'Go back',exact:true}).click();
+   assert.equal(pairingCreates,1,'Cancelling spending permission cannot issue a grant');
+   await page.locator('#jam-pairing-create').click();
+   await page.getByRole('button',{name:'Confirm',exact:true}).click();
+   await page.locator('#jam-pairing-code').waitFor({state:'visible'});
+   assert.equal(pairings[0].scope,'jars_pay_v1');
+   await page.locator('#jam-pairing-scope').selectOption('jars_manage_v1');
+   assert(await page.locator('#jam-pairing-code').isHidden(),'Changing permission hides the previous private code');
+   assert.equal(pairings[0].scope,'jars_pay_v1','UI selection does not silently change an existing grant');
+   await page.getByRole('button',{name:'Revoke access',exact:true}).click();
+   await page.getByRole('button',{name:'Confirm',exact:true}).click();
+   await page.getByText('No paired devices.',{exact:true}).waitFor();
+   assert.equal(pairingRevokes,2);
    await page.locator('#jam-pairing-panel summary').click();
    await page.locator('#jam-payments-panel summary').first().click();
    await page.locator('#jam-payments-load').click();

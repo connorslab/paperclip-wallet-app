@@ -191,6 +191,52 @@ class RuntimeTest(unittest.TestCase):
         self.assertEqual(self.client.get(self.base).status_code, 401)
         self.backend.broadcast_transaction.assert_not_awaited()
 
+    def test_payment_delegation_is_separate_and_never_exports_or_unlocks(self):
+        target = self.base.replace('/payments', '/pairing-session')
+        manage = self.client.post(target, json={}).json()['token']
+        granted = self.client.post(target, json={'scope':'jars_pay_v1'})
+        self.assertEqual(granted.status_code,200)
+        pay = granted.json()['token']
+        self.assertTrue(manage != pay)
+        self.assertEqual(granted.json()['scope'],'jars_pay_v1')
+        self.assertEqual(self.client.post(target,json={'scope':'all'}).status_code,422)
+        for token in (manage,pay):
+            self.client.headers['Authorization']='Bearer '+token
+            for method,path in [('POST',target),('GET','/api/v1/wallet/fixture.jmdat/getseed'),
+                    ('POST','/api/v1/wallet/fixture.jmdat/unlock'),('POST','/api/v1/wallet/create'),
+                    ('POST','/api/v1/wallet/fixture.jmdat/taker/direct-send'),('POST','/api/v1/wallet/fixture.jmdat/taker/coinjoin'),
+                    ('GET','/api/v1/wallet/other.jmdat/paperclip/payments')]:
+                self.assertEqual(self.client.request(method,path).status_code,401,path)
+        self.client.headers['Authorization']='Bearer '+manage
+        self.assertEqual(self.client.post(self.base,json=self.body).status_code,401)
+        self.client.headers['Authorization']='Bearer '+pay
+        self.assertEqual(self.client.get('/api/v1/paperclip/capabilities').status_code,200)
+        saved=self.prepare()
+        self.backend.broadcast_transaction.assert_not_awaited()
+        self.client.headers['Authorization']='Bearer '+manage
+        self.assertEqual(self.client.post(self.base+'/'+'a'*64+'/commit',json={'approval':saved['approval']}).status_code,401)
+        self.client.headers['Authorization']='Bearer '+pay
+        self.backend.broadcast_transaction.side_effect=TimeoutError('Synthetic lost response')
+        response=self.client.post(self.base+'/'+'a'*64+'/commit',json={'approval':saved['approval']})
+        self.assertEqual(response.status_code,504)
+        repeated=self.client.post(self.base+'/'+'a'*64+'/commit',json={'approval':saved['approval']})
+        self.assertEqual(repeated.json()['state'],'unknown')
+        self.backend.broadcast_transaction.assert_awaited_once()
+        self.state._invalidate_ws_clients()
+        self.assertEqual(self.client.get(self.base).status_code,401)
+
+    def test_payment_delegation_can_cancel_only_an_unsent_review(self):
+        target=self.base.replace('/payments','/pairing-session')
+        pay=self.client.post(target,json={'scope':'jars_pay_v1'}).json()['token']
+        self.client.headers['Authorization']='Bearer '+pay
+        self.prepare()
+        cancelled=self.client.post(self.base+'/'+'a'*64+'/cancel')
+        self.assertEqual(cancelled.status_code,200)
+        self.assertEqual(cancelled.json()['state'],'cancelled')
+        self.app.state.paperclip_delegations.payment_record['expires']=1
+        self.assertEqual(self.client.get(self.base).status_code,401)
+        self.backend.broadcast_transaction.assert_not_awaited()
+
     def test_host_delegation_is_invalidated_by_wallet_lock_and_session_change(self):
         target = self.base.replace('/payments', '/pairing-session')
         delegation = self.client.post(target, json={}).json()['token']

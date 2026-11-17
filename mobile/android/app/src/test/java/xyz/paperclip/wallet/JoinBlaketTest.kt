@@ -77,6 +77,45 @@ class JoinBlaketTest {
 		assertTrue(runCatching { c.commitSend(review,draft,auth) }.isFailure)
 		assertEquals("unknown",c.commitSend(review,draft,auth).state); assertEquals(1,commits)
 	}
+	@Test fun paymentPairingPreservesModeAndNeverRepeatsLostCommit() = runBlocking {
+		for (coinjoin in listOf(false,true)) {
+			val pair = JoinBlaketPairing.parse(pairingText(mapOf("scope" to "jars_pay_v1")))
+			assertTrue(pair.canSend)
+			val draft = JoinBlaketSendDraft(0,"bcrt1qsyntheticrecipient",20000,1000,500,"a".repeat(64),coinjoin)
+			val cases=org.json.JSONArray(checkNotNull(javaClass.getResourceAsStream("/jam-send-review.json")).bufferedReader().use { it.readText() })
+			val saved=(if (coinjoin) (0 until cases.length()).map { cases.getJSONObject(it) }.first { it.getString("name") == "reviewed CoinJoin" } else cases.getJSONObject(0)).getJSONObject("review").put("expires",java.time.Instant.now().epochSecond+200)
+			val operations=mutableListOf<String>(); var revoked=false
+			val http=OkHttpClient.Builder().retryOnConnectionFailure(false).addInterceptor { chain ->
+				assertEquals("/api/v1/paired-jars/request",chain.request().url.encodedPath)
+				val buffer=okio.Buffer();chain.request().body!!.writeTo(buffer);val body=JSONObject(buffer.readUtf8())
+				assertFalse(body.has("token"));assertFalse(body.has("password"));assertEquals(pair.wallet,body.getString("wallet"))
+				val op=body.getString("operation");operations.add(op)
+				var status=if(revoked) 401 else 200
+				val result=when(op) {
+					"identity" -> JSONObject().put("wallet",pair.wallet).put("identity","xbt-regtest:"+"c".repeat(64))
+					"payment_capabilities" -> JSONObject().put("version",2).put("reviewed_direct_send",true).put("coinjoin_payments",true)
+					"prepare_payment" -> { assertEquals(coinjoin,body.getJSONObject("send").getBoolean("coinjoin"));saved }
+					"payment_review" -> saved
+					"commit_payment" -> {
+						assertEquals("xbt-regtest:"+"c".repeat(64),body.getString("wallet_identity"))
+						assertEquals(saved.getString("approval"),body.getString("approval"))
+						saved.put("state","unknown");status=504;JSONObject()
+					}
+					else -> error("Unexpected paired operation")
+				}
+				Response.Builder().request(chain.request()).protocol(Protocol.HTTP_1_1).code(status).message("fixture").body(result.toString().toResponseBody()).build()
+			}.build()
+			val client=JoinBlaketClient(pair.connection,http,pair); val auth=pair.authorization()
+			val review=client.prepareSend(draft,auth)
+			assertFalse(operations.contains("commit_payment"))
+			assertTrue(runCatching { client.commitSend(review,draft,auth) }.isFailure)
+			assertEquals("unknown",client.commitSend(review,draft,auth).state)
+			assertEquals(1,operations.count { it == "commit_payment" })
+			revoked=true
+			assertTrue(runCatching { client.commitSend(review,draft,auth) }.isFailure)
+			assertEquals(1,operations.count { it == "commit_payment" })
+		}
+	}
 	private fun pairingText(changes: Map<String, Any> = emptyMap()): String {
 		val value = JSONObject().put("kind", "paperclip-jars-v1").put("scope", "jars_manage_v1").put("endpoint", "https://host.example.invalid")
 			.put("wallet", "fixture.jmdat").put("token", "pj1_" + "a".repeat(64)).put("expires", 4_000_000_000L).put("certificate_sha256", "")

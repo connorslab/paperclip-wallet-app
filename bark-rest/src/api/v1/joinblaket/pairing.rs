@@ -15,12 +15,20 @@ use crate::ServerState;
 const LIFETIME: i64 = 30 * 24 * 60 * 60;
 const LIMIT: usize = 16;
 
+/// Existing saved grants stay management-only; spending always needs a new code.
+#[derive(Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub(super) enum Scope {
+	#[default]
+	#[serde(rename = "jars_manage_v1")] Manage,
+	#[serde(rename = "jars_pay_v1")] Pay,
+}
+
 // Contains an upstream bearer credential. Never derive Debug or return a Record.
 #[derive(Clone, Serialize, Deserialize)]
-struct Record { id: String, label: String, wallet: String, identity: String, upstream: String, token: String, expires: i64 }
+struct Record { #[serde(default)] scope: Scope, id: String, label: String, wallet: String, identity: String, upstream: String, token: String, expires: i64 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct Create { label: String, wallet: String, token: String }
+struct Create { label: String, wallet: String, token: String, #[serde(default)] scope: Scope }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Revoke { id: String }
@@ -85,7 +93,8 @@ fn authorize(records: &[Record], id: &str, upstream: &str, now: i64, input: &Req
 	let record = records.iter().find(|r| r.id == id && r.expires > now && r.upstream == upstream).context("Pairing expired or revoked; pair this device again")?;
 	ensure!(input.wallet == record.wallet && input.token.is_empty() && input.password.is_empty() && input.bip39_passphrase.is_empty(), "Pairing belongs to a different wallet");
 	ensure!(matches!(input.operation, Operation::Status | Operation::Coins | Operation::Address | Operation::BondAddress |
-		Operation::StartMaker | Operation::StopMaker | Operation::Payments | Operation::CheckPayment | Operation::Market), "This pairing does not permit that operation");
+		Operation::StartMaker | Operation::StopMaker | Operation::Payments | Operation::CheckPayment | Operation::Market)
+		|| (record.scope == Scope::Pay && matches!(input.operation, Operation::Identity | Operation::PaymentCapabilities | Operation::PaymentReview | Operation::PreparePayment | Operation::CommitPayment | Operation::CancelPayment)), "This pairing does not permit that operation");
 	Ok(record.clone())
 }
 fn response(status: StatusCode, result: anyhow::Result<Value>) -> (StatusCode, HeaderMap, Json<Value>) {
@@ -94,7 +103,7 @@ fn response(status: StatusCode, result: anyhow::Result<Value>) -> (StatusCode, H
 }
 fn public(record: &Record) -> Value {
 	json!({"id":record.id,"label":record.label,"wallet":record.wallet,"expires":record.expires,
-		"scope":"jars_manage_v1"})
+		"scope":record.scope})
 }
 async fn list(State(state): State<Arc<ServerState>>) -> (StatusCode, HeaderMap, Json<Value>) {
 	let _guard = state.jam_pairings.lock().await;
@@ -108,6 +117,7 @@ async fn create(State(state): State<Arc<ServerState>>, Json(input): Json<Create>
 		let upstream = binding()?;
 		let mut identity_request: Request = serde_json::from_value(json!({"operation":"identity","wallet":input.wallet,"token":input.token}))?;
 		identity_request.operation = Operation::PairingSession;
+		identity_request.pairing_scope = input.scope;
 		let delegated = execute_bound(identity_request, None).await?;
 		let identity = delegated["identity"].as_str().context("Jam identity unavailable")?.to_owned();
 		let _guard = state.jam_pairings.lock().await;
@@ -117,7 +127,7 @@ async fn create(State(state): State<Arc<ServerState>>, Json(input): Json<Create>
 		let mut records = load(&root)?; records.retain(|r| r.expires > now);
 		ensure!(records.len() < LIMIT, "Remove an old paired device first");
 		let token = format!("pj1_{}", sha256::Hash::hash(&bitcoin::secp256k1::rand::random::<[u8;32]>()));
-		let record = Record { id:digest(&token),label:label.into(),wallet:input.wallet,identity,upstream,
+		let record = Record { scope:input.scope, id:digest(&token),label:label.into(),wallet:input.wallet,identity,upstream,
 			token:delegated["token"].as_str().context("Jam pairing session unavailable")?.to_owned(),
 			expires:delegated["expires"].as_i64().context("Jam pairing session expired")?.min(now+LIFETIME) };
 		let mut result = public(&record); result["token"] = token.into();
@@ -149,7 +159,7 @@ async fn request(State(state): State<Arc<ServerState>>, headers: HeaderMap, Json
 #[cfg(test)]
 mod tests {
 	use super::*;
-	fn record() -> Record { Record { id:digest(&format!("pj1_{}", "a".repeat(64))),label:"Test phone".into(),wallet:"fixture.jmdat".into(),
+	fn record() -> Record { Record { scope:Scope::Manage, id:digest(&format!("pj1_{}", "a".repeat(64))),label:"Test phone".into(),wallet:"fixture.jmdat".into(),
 		identity:format!("xbt-regtest:{}", "b".repeat(64)),upstream:"fixture-upstream".into(),token:"synthetic-jam-secret".into(),expires:100 } }
 	fn input(operation: &str) -> Request { serde_json::from_value(json!({"operation":operation,"wallet":"fixture.jmdat"})).unwrap() }
 	#[test]
@@ -190,6 +200,31 @@ mod tests {
 		assert!(save(dir.path(), &records).is_err());
 		assert_eq!(std::fs::read_to_string(dir.path().join("grants.json/keep")).unwrap(), "unrelated");
 		assert!(load(dir.path()).is_err());
+	}
+	#[test]
+	fn payment_pairings_are_explicit_and_cannot_escalate_legacy_grants() {
+		let management = record();
+		let mut encoded = serde_json::to_value(&management).unwrap();
+		encoded.as_object_mut().unwrap().remove("scope");
+		let legacy: Record = serde_json::from_value(encoded.clone()).unwrap();
+		assert!(legacy.scope == Scope::Manage);
+		encoded["scope"] = "all".into(); assert!(serde_json::from_value::<Record>(encoded).is_err());
+		let mut pay = management.clone(); pay.scope = Scope::Pay;
+		for operation in ["identity","payment_capabilities","payment_review","prepare_payment","commit_payment","cancel_payment"] {
+			assert!(authorize(&[legacy.clone()], &legacy.id, &legacy.upstream, 99, &input(operation)).is_err());
+			assert!(authorize(&[pay.clone()], &pay.id, &pay.upstream, 99, &input(operation)).is_ok());
+			assert!(authorize(&[], &pay.id, &pay.upstream, 99, &input(operation)).is_err());
+			assert!(authorize(&[pay.clone()], &pay.id, &pay.upstream, 100, &input(operation)).is_err());
+		}
+		for operation in ["wallets","unlock","create_wallet","backup_wallet"] {
+			assert!(authorize(&[pay.clone()], &pay.id, &pay.upstream, 99, &input(operation)).is_err());
+		}
+		assert!(serde_json::from_value::<Request>(json!({"operation":"prepare_payment","wallet":"fixture.jmdat","pairing_scope":"jars_pay_v1"})).is_err());
+		let create: Create = serde_json::from_value(json!({"label":"Phone","wallet":"fixture.jmdat","token":"synthetic"})).unwrap();
+		assert!(create.scope == Scope::Manage);
+		assert!(serde_json::from_value::<Create>(json!({"label":"Phone","wallet":"fixture.jmdat","token":"synthetic","scope":"all"})).is_err());
+		let dir = tempfile::tempdir().unwrap(); save(dir.path(), &[pay]).unwrap();
+		assert!(load(dir.path()).unwrap()[0].scope == Scope::Pay);
 	}
 	#[tokio::test]
 	async fn paired_grant_never_authorizes_owner_or_main_wallet_routes() {

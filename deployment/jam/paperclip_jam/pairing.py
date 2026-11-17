@@ -15,29 +15,34 @@ class Delegations:
     def __init__(self, state):
         self.state = state
         self.record = None
+        self.payment_record = None
 
-    def current(self):
-        record = self.record
+    def current(self, record):
         return record is not None and record['wallet'] is self.state.wallet_service and record['name'] == self.state.wallet_name and \
             record['generation'] == self.state.wallet_generation and \
             record['key'] == self.state.token_authority._access_key and record['expires'] > time.time()
 
-    def issue(self, adapter):
+    def issue(self, adapter, scope='jars_manage_v1'):
         adapter.authorize()
-        if not self.current():
-            self.record = {'wallet': adapter.wallet, 'name': adapter.walletname,
+        if scope not in ('jars_manage_v1', 'jars_pay_v1'):
+            raise ValueError('Unsupported pairing permission')
+        record = self.payment_record if scope == 'jars_pay_v1' else self.record
+        if not self.current(record):
+            record = {'wallet': adapter.wallet, 'name': adapter.walletname,
                            'generation': adapter.generation,
                            'key': self.state.token_authority._access_key,
                            'token': 'pjh1_' + secrets.token_hex(32),
-                           'expires': int(time.time()) + 30 * 86400, 'identity': adapter.identity}
-        record = self.record
+                           'expires': int(time.time()) + 30 * 86400, 'identity': adapter.identity, 'scope': scope}
+            if scope == 'jars_pay_v1': self.payment_record = record
+            else: self.record = record
         return {'token': record['token'], 'expires': record['expires'],
-                'wallet': record['name'], 'identity': record['identity']}
+                'wallet': record['name'], 'identity': record['identity'], 'scope': record['scope']}
 
     def access(self, token, path, method):
-        if not self.current() or not secrets.compare_digest(token, self.record['token']):
+        record = next((r for r in (self.record, self.payment_record) if self.current(r) and secrets.compare_digest(token, r['token'])), None)
+        if record is None:
             return None
-        prefix = '/api/v1/wallet/' + self.record['name'] + '/'
+        prefix = '/api/v1/wallet/' + record['name'] + '/'
         if method == 'GET':
             allowed = bool(re.fullmatch(r'/api/v1/paperclip/market/[0-9]{1,16}', path)) or path == '/api/v1/session' or path in [prefix + suffix for suffix in (
                 'utxos', 'paperclip/identity', 'paperclip/payments', 'maker/stop')]
@@ -48,11 +53,15 @@ class Delegations:
                 allowed |= len(suffix) == 3 and suffix[:2] == ['paperclip', 'payments'] and len(suffix[2]) == 64 and all(c in '0123456789abcdef' for c in suffix[2])
         else:
             allowed = method == 'POST' and path == prefix + 'maker/start'
+        if record['scope'] == 'jars_pay_v1':
+            allowed |= method == 'GET' and path == '/api/v1/paperclip/capabilities'
+            allowed |= method == 'POST' and path == prefix + 'paperclip/payments'
+            allowed |= method == 'POST' and bool(re.fullmatch(re.escape(prefix) + r'paperclip/payments/[0-9a-f]{64}/(?:commit|cancel)', path))
         if not allowed:
             return None
         # Produce an ordinary short JWT only inside the scoped request. It is
         # checked again by the original route, including after its async work.
-        return self.state.token_authority.issue(self.record['name'], rotate_refresh=False).token
+        return self.state.token_authority.issue(record['name'], rotate_refresh=False).token
 
 
 class DelegationGuard:
