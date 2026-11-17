@@ -358,6 +358,11 @@ impl Wallet {
 	) -> anyhow::Result<MovementId>
 	where F: FnOnce(&str) -> anyhow::Result<()> + Send {
 		let action = start_arkoor_send(self, destination.clone(), amount, max_total).await?;
+		self.run_arkoor_send_tracked(action, before_submit).await
+	}
+
+	async fn run_arkoor_send_tracked<F>(&self, action: ArkoorSend, before_submit: F) -> anyhow::Result<MovementId>
+	where F: FnOnce(&str) -> anyhow::Result<()> + Send {
 		let action_id = action.id();
 
 		// Lock the action before its checkpoint exists. Otherwise a wallet sync
@@ -465,6 +470,31 @@ impl Wallet {
 #[cfg(test)]
 mod test {
 	use super::*;
+	use crate::actions::arkoor_send::Progress;
+
+	#[tokio::test]
+	async fn receipt_failure_prevents_arkoor_checkpoint_creation_and_releases_lock() {
+		let (wallet, _conn) = Wallet::offline_for_test().await;
+		let action = ArkoorSend {
+			id: "ab".repeat(16),
+			destination: "tark1pwh9vsmezqqpharv69q4z8m6x364d5m5prnmcalcalq9pdmzw0y7mpveck4pcfhezqypczkrrj3lkx5ue4qrf4jc7ztpt9htdttmh2judhqnu7aue8p0y9mq47jn9z".parse().unwrap(),
+			amount: Amount::from_sat(1000), input_vtxo_ids: vec![], change_key_index: 0,
+			small_anchor_transfer: false, economical_transfer: false,
+			change_pieces: Some(vec![]), progress: Progress::Cosigning,
+		};
+		let mut other = action.clone(); other.id = "cd".repeat(16);
+		wallet.inner.db.upsert_wallet_action_checkpoint(&other.id, &other.clone().into()).await.unwrap();
+		let mut observed = false;
+		let error = wallet.run_arkoor_send_tracked(action.clone(), |id| {
+			assert_eq!(id, action.id);
+			observed = true;
+			anyhow::bail!("synthetic receipt storage failure")
+		}).await.unwrap_err();
+		assert!(observed && error.to_string().contains("receipt storage failure"));
+		assert_eq!(wallet.pending_arkoor_sends().await.unwrap(), vec![other]);
+		assert!(wallet.movement_for_action(&action.id).await.unwrap().is_none());
+		assert!(wallet.try_lock_action::<ArkoorSend>(&action.id).await.unwrap().is_some());
+	}
 
 	#[test]
 	fn resolve_change_pieces_fallback_and_validation() {

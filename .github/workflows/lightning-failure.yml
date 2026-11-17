@@ -31,6 +31,8 @@ jobs:
       - run: nix develop .#build --command just unit-wallet lightning
       - run: nix develop .#build --command just unit-wallet onchain::qr
       - run: nix develop .#build --command just unit-wallet onchain::replacement
+      - run: nix develop .#build --command just unit-wallet receipt_failure_prevents_arkoor
+      - run: nix develop .#build --command just unit-mobile
       - run: nix develop .#build --command just unit-rest
       - run: nix develop .#build --command just unit-daemon
       - run: nix develop .#build --command just unit-creation

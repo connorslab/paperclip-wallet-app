@@ -123,6 +123,19 @@ pub fn ark_observer(dir: &Path, owner: &str, id: &str)
 	}
 }
 
+/// Only a completed direct-Ark call with a fresh action can prove this rejection.
+/// Never use this for Lightning: it can resume an earlier checkpoint before the
+/// current observer succeeds. Cancellation and restored records provide no proof.
+pub fn reject_direct_ark(dir: &Path, owner: &str, id: &str, authorized: bool, error: anyhow::Error) -> anyhow::Result<Value> {
+	if authorized { return Err(error); }
+	let attempt = load(dir, owner)?.context("Saved Ark payment is missing")?;
+	ensure!(attempt.attempt_id == id && attempt.source == "ark", "Saved Ark payment changed");
+	// update also refuses any saved reference, later state or storage failure.
+	let mut saved = serde_json::to_value(update(dir, owner, id, &serde_json::json!({"state":"not_sent"}))?)?;
+	saved["reason"] = "Ark payment was not submitted. Review the amount and fees again when ready.".into();
+	Ok(saved)
+}
+
 /// Recheck the constructed action after fee calculation and before the core can
 /// create a checkpoint. Returning an error prevents locking or spending inputs.
 pub fn offboard_observer(dir: &Path, owner: &str, id: &str, destination: &bitcoin::Address)
@@ -344,6 +357,66 @@ mod tests {
 		assert!(observe(&attempt.attempt_id, &action).is_err());
 		assert!(require_resolved(dir.path(), &owner).is_err());
 	}
+	#[test]
+	fn direct_ark_rejection_requires_durable_resolution_before_a_new_review() {
+		let (dir, owner) = setup();
+		let attempt = Attempt::new("ark", "public Ark fixture".into(), 1000, 1100);
+		begin(dir.path(), &owner, &attempt).unwrap();
+		let conn = connection(dir.path()).unwrap();
+		conn.execute_batch("CREATE TRIGGER reject_ark_receipt BEFORE UPDATE ON paperclip_payment_attempt BEGIN SELECT RAISE(FAIL, 'fixture failure'); END;").unwrap();
+		let rejected = ark_observer(dir.path(), &owner, &attempt.attempt_id)(&"ab".repeat(16)).unwrap_err();
+		assert!(reject_direct_ark(dir.path(), &owner, &attempt.attempt_id, false, rejected).is_err());
+		assert!(require_resolved(dir.path(), &owner).is_err());
+		conn.execute_batch("DROP TRIGGER reject_ark_receipt;").unwrap();
+		let result = reject_direct_ark(dir.path(), &owner, &attempt.attempt_id, false, anyhow::anyhow!("completed pre-submit failure")).unwrap();
+		assert_eq!(result["state"], "not_sent");
+		assert_eq!(result["attempt_id"], attempt.attempt_id);
+		assert!(require_resolved(dir.path(), &owner).is_ok());
+		let next = Attempt::new("ark", "another public fixture".into(), 900, 1000);
+		begin(dir.path(), &owner, &next).unwrap();
+		assert!(reject_direct_ark(dir.path(), &owner, &attempt.attempt_id, false, anyhow::anyhow!("delayed failure")).is_err());
+		assert_eq!(load(dir.path(), &owner).unwrap().unwrap().attempt_id, next.attempt_id);
+		assert!(require_resolved(dir.path(), &owner).is_err());
+	}
+
+	#[test]
+	fn authorized_or_referenced_direct_ark_error_stays_unresolved() {
+		for reference in ["none", "ark_action_id", "offboard_action_id", "payment_hash", "txid"] {
+			let (dir, owner) = setup();
+			let attempt = Attempt::new("ark", "public Ark fixture".into(), 1000, 1100);
+			begin(dir.path(), &owner, &attempt).unwrap();
+			if reference != "none" {
+				let value = if reference.ends_with("action_id") { "ab".repeat(16) } else { "ab".repeat(32) };
+				update(dir.path(), &owner, &attempt.attempt_id, &json!({"state":"unknown", reference:value})).unwrap();
+			}
+			assert!(reject_direct_ark(dir.path(), &owner, &attempt.attempt_id, true, anyhow::anyhow!("lost reply")).is_err());
+			assert!(require_resolved(dir.path(), &owner).is_err());
+			if reference != "none" {
+				assert!(reject_direct_ark(dir.path(), &owner, &attempt.attempt_id, false, anyhow::anyhow!("ambiguous storage failure")).is_err());
+				assert!(require_resolved(dir.path(), &owner).is_err());
+			}
+			let saved = load(dir.path(), &owner).unwrap().unwrap();
+			let restored: Attempt = serde_json::from_value(serde_json::to_value(&saved).unwrap()).unwrap();
+			assert!(restored.unresolved(), "An archive cannot restore the live call's pre-submit proof");
+		}
+	}
+
+	#[test]
+	fn direct_ark_rejection_cannot_change_another_owner_source_or_later_state() {
+		for source in ["ark", "onchain"] {
+			let (dir, binding) = setup();
+			let attempt = Attempt::new(source, "public fixture".into(), 1000, 1100);
+			begin(dir.path(), &binding, &attempt).unwrap();
+			assert!(reject_direct_ark(dir.path(), &owner(Network::Regtest, &[22;64]), &attempt.attempt_id, false, anyhow::anyhow!("wrong owner")).is_err());
+			if source == "onchain" {
+				assert!(reject_direct_ark(dir.path(), &binding, &attempt.attempt_id, false, anyhow::anyhow!("wrong source")).is_err());
+			}
+			update(dir.path(), &binding, &attempt.attempt_id, &json!({"state":"pending"})).unwrap();
+			assert!(reject_direct_ark(dir.path(), &binding, &attempt.attempt_id, false, anyhow::anyhow!("late failure")).is_err());
+			assert_eq!(load(dir.path(), &binding).unwrap().unwrap().state, "pending");
+		}
+	}
+
 	#[test]
 	fn rejected_withdrawal_allows_new_review_only_after_durable_resolution() {
 		let (dir, owner) = setup();

@@ -1371,8 +1371,22 @@ pub fn dispatch(state: &mut Option<Session>, request: Value, seed: [u8; 64]) -> 
 					// An interrupted call leaves its durable attempt unresolved.
 					return payment_attempt::finish_offboard(dir, &payment_owner, &attempt.attempt_id, authorized, outcome);
 				} else if let bark::movement::PaymentMethod::Ark(address) = &method {
-					PaymentInitOutput::Ark(w.send_arkoor_payment_tracked(address, Amount::from_sat(amount), Some(Amount::from_sat(total)),
-						payment_attempt::ark_observer(dir, &payment_owner, &attempt.attempt_id)).await?)
+					let mut authorized = false;
+					let review = payment_attempt::ark_observer(dir, &payment_owner, &attempt.attempt_id);
+					let outcome = w.send_arkoor_payment_tracked(address, Amount::from_sat(amount), Some(Amount::from_sat(total)), |id| {
+						review(id)?;
+						authorized = true;
+						Ok(())
+					}).await;
+					match outcome {
+						Ok(id) => {
+							ensure!(authorized, "Ark payment completed without its submission observer");
+							PaymentInitOutput::Ark(id)
+						},
+						// A completed error before this fresh action was authorized is
+						// different from interruption or an error after submission.
+						Err(error) => return payment_attempt::reject_direct_ark(dir, &payment_owner, &attempt.attempt_id, authorized, error),
+					}
 				} else {
 					let opts = LightningSendOptions::default().max_total(
 						(!method.is_bitcoin()).then(|| Amount::from_sat(total)),

@@ -2627,3 +2627,29 @@ At `22c00ed`, the Linux combined check passed, as did the separate full browser
 workflow. This does not establish installed default-browser integration, full
 backup/restore, active-payment shutdown, bundled native Jam/Tor, signed
 installation or any live settlement gate.
+
+## Direct-Ark pre-submission rejection recovery: 2026-11-17
+
+A direct-Ark send could fail during final planning or receipt storage and leave
+the mobile wallet blocked by an unknown payment, even when that completed call
+never authorized a submission. Both mobile platforms now record `not_sent` only
+after the original direct-Ark call returns an error before its observer succeeds.
+The durable update must still match the current wallet and attempt, contain no
+payment reference and remain in an eligible state. Storage failure, a later state,
+an existing reference, interruption or an error after authorization preserves the
+recovery barrier. The user must review a new quote; no send is repeated.
+
+This rule is specific to fresh direct-Ark actions. Lightning can resume an older
+checkpoint and retains its conservative behavior. Previously interrupted or
+restored unknown attempts are not cleared by the absence of an action reference.
+The core submission boundary now has a regression that rejects the observer and
+checks that no checkpoint or movement was created, an unrelated checkpoint is
+preserved and the action lock is released.
+
+Local validation: 50 mobile Rust tests passed (one existing ignored test), all
+293 wallet tests passed, and repository checks passed. Native ARM64 libraries
+built for iOS Simulator and Android. Six isolated native iOS tests and two JNI
+tests on the unfunded API 35 emulator passed; the iOS bundle verifier passed.
+These tests do not establish live settlement. Linux CI now includes the mobile
+Rust suite and the direct-Ark boundary regression; current remote results remain
+pending. No funded device, production service or payment changed.
