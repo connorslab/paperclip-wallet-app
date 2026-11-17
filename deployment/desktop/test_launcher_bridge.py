@@ -20,11 +20,17 @@ class LauncherBridge(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory(prefix='paperclip-shell-qa-')
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name) / 'app'
+        self.addCleanup(self.cleanup)
+        ready = self.launch()
+        self.assertFalse(ready['recovery_required'])
+
+    def launch(self):
         self.process = subprocess.Popen([sys.executable, '-I', str(Path(__file__).with_name('launcher_entry.py')),
             '--binary', str(BINARY), '--root', str(self.root)], stdin=subprocess.PIPE,
             stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, start_new_session=True)
-        self.addCleanup(self.cleanup)
-        self.assertEqual(self.event()['event'], 'ready')
+        ready = self.event()
+        self.assertEqual(ready['event'], 'ready')
+        return ready
 
     def cleanup(self):
         self.process.stdin.close()
@@ -69,6 +75,22 @@ class LauncherBridge(unittest.TestCase):
         self.assertEqual(result['event'], 'error')
         self.assertIn('stopped unexpectedly', result['message'])
         self.assertEqual(self.process.wait(timeout=5), 1)
+
+    def test_restarted_helper_reports_unclean_session_without_credentials(self):
+        owner = (self.root / 'wallet' / 'auth_token').read_text().strip()
+        pid = int((self.root / 'wallet' / 'barkd.lock').read_text())
+        os.kill(pid, signal.SIGKILL)
+        self.assertEqual(self.event()['event'], 'error')
+        self.assertEqual(self.process.wait(timeout=5), 1)
+        self.process.stdin.close()
+        self.process.stdout.close()
+        ready = self.launch()
+        self.assertTrue(ready['recovery_required'])
+        self.assertTrue(owner not in json.dumps(ready))
+        self.send(b'{"action":"quit"}\n')
+        self.assertEqual(self.event()['event'], 'stopped')
+        self.assertEqual(self.process.wait(timeout=5), 0)
+        self.assertFalse((self.root / 'session.active').exists())
 
     def test_unrecognized_command_fails_closed_without_echoing_input(self):
         self.send(b'{"action":"pay","private":"synthetic-sensitive-input"}\n')

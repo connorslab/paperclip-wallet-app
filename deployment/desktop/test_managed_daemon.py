@@ -96,6 +96,8 @@ class RunnerLifecycle(unittest.TestCase):
                                     'BARKD_NO_UI':'true', 'BARKD_EXPOSE_MNEMONIC':'true',
                                     'HTTPS_PROXY':'http://127.0.0.1:1'}):
             endpoint = first.start()
+        self.assertFalse(first.recovery_required)
+        self.assertTrue((self.root / 'session.active').exists())
         self.assertTrue(endpoint.startswith('http://127.0.0.1:'))
         token = (first.data / 'auth_token').read_bytes()
         http = build_opener(ProxyHandler({}), NoRedirects())
@@ -115,8 +117,10 @@ class RunnerLifecycle(unittest.TestCase):
         self.assertIsNone(first.process.poll())
         first.close()
         self.assertEqual(first.process.returncode, 0)
+        self.assertFalse((self.root / 'session.active').exists())
         third = self.runner()
         third.start()
+        self.assertFalse(third.recovery_required)
         self.assertEqual((third.data / 'auth_token').read_bytes(), token)
         self.assertFalse((third.data / 'mnemonic').exists())
         third.close()
@@ -253,6 +257,7 @@ while True:
             # No PID file, lock file or credential is deleted to permit recovery.
             replacement = self.runner()
             replacement.start()
+            self.assertTrue(replacement.recovery_required)
             self.assertEqual((replacement.data / 'auth_token').read_bytes(), token)
             self.assertFalse((replacement.data / 'mnemonic').exists())
         finally:
@@ -274,6 +279,47 @@ while True:
             runner.start()
         self.assertIsNotNone(runner.process.poll())
         self.assertIsNone(runner._lock)
+        self.assertTrue((self.root / 'session.active').exists())
+
+    def test_unexpected_daemon_exit_warns_on_next_launch_until_clean_close(self):
+        first = self.runner()
+        first.start()
+        token = (first.data / 'auth_token').read_bytes()
+        first.process.kill()
+        first.process.wait(timeout=5)
+        first.close()
+        self.assertTrue((self.root / 'session.active').exists())
+        second = self.runner()
+        second.start()
+        self.assertTrue(second.recovery_required)
+        self.assertTrue((second.data / 'auth_token').read_bytes() == token)
+        second.close()
+        third = self.runner()
+        third.start()
+        self.assertFalse(third.recovery_required)
+        self.assertFalse((third.data / 'mnemonic').exists())
+
+    def test_invalid_session_markers_are_not_followed_or_repaired(self):
+        self.root.mkdir(mode=0o700)
+        marker = self.root / 'session.active'
+        target = Path(self.temporary.name) / 'unrelated'
+        target.write_bytes(b'private fixture')
+        target.chmod(0o600)
+        for kind in ('symlink', 'hardlink', 'loose', 'malformed'):
+            with self.subTest(kind=kind):
+                if kind == 'symlink':
+                    marker.symlink_to(target)
+                elif kind == 'hardlink':
+                    os.link(target, marker)
+                else:
+                    marker.write_bytes(b'unknown marker format')
+                    marker.chmod(0o644 if kind == 'loose' else 0o600)
+                runner = self.runner()
+                with self.assertRaises(StartupError):
+                    runner.start()
+                self.assertIsNone(runner.process)
+                self.assertEqual(target.read_bytes(), b'private fixture')
+                marker.unlink()
 
     def test_stale_discovery_is_not_contacted_and_timeout_reaps_owned_child(self):
         self.root.mkdir(mode=0o700)

@@ -22,6 +22,9 @@ except ImportError:
     fcntl = None
 
 
+SESSION_MARKER = b'paperclip-desktop-session-v1\n'
+
+
 class StartupError(RuntimeError):
     """Public-safe error: never include daemon output, credentials or responses."""
 
@@ -93,6 +96,47 @@ class ManagedDaemon:
         self.process = None
         self._lock = None
         self.endpoint = None
+        self.recovery_required = False
+        self._marker_identity = None
+
+    def _mark_session(self):
+        marker = self.root / 'session.active'
+        try:
+            with private_file(marker) as file:
+                info = os.fstat(file.fileno())
+                if file.read(64) != SESSION_MARKER:
+                    raise StartupError('The desktop session record needs recovery.')
+                self._marker_identity = (info.st_dev, info.st_ino)
+            self.recovery_required = True
+        except FileNotFoundError:
+            with private_file(marker, os.O_RDWR | os.O_CREAT | os.O_EXCL) as file:
+                file.write(SESSION_MARKER)
+                file.flush()
+                os.fsync(file.fileno())
+                info = os.fstat(file.fileno())
+                self._marker_identity = (info.st_dev, info.st_ino)
+            self._sync_root()
+
+    def _sync_root(self):
+        fd = os.open(self.root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+
+    def _clear_session(self):
+        marker = self.root / 'session.active'
+        try:
+            with private_file(marker) as file:
+                info = os.fstat(file.fileno())
+                if ((info.st_dev, info.st_ino) != self._marker_identity
+                        or file.read(64) != SESSION_MARKER):
+                    raise StartupError('The desktop session record changed; keep checking recovery.')
+            marker.unlink()
+            self._sync_root()
+            self._marker_identity = None
+        except Exception:
+            raise StartupError('The wallet closed, but its recovery warning could not be cleared.') from None
 
     def start(self):
         if os.name != 'posix' or not (sys.platform == 'darwin' or sys.platform.startswith('linux')):
@@ -108,6 +152,9 @@ class ManagedDaemon:
                 fcntl.flock(self._lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
             except BlockingIOError:
                 raise StartupError('Paperclip is already open for this data directory.') from None
+            # Write before launch, clear only after an observed clean close.
+            # Launcher death and forced daemon shutdown leave this public marker.
+            self._mark_session()
             try:
                 previous = (self.data / 'barkd.url').lstat()
                 previous_identity = (previous.st_dev, previous.st_ino)
@@ -194,6 +241,7 @@ class ManagedDaemon:
             raise StartupError('Desktop browser sign-in could not be prepared.') from None
 
     def close(self):
+        was_running = self.process is not None and self.process.poll() is None
         try:
             if self.process is not None and self.process.stdin is not None:
                 self.process.stdin.close()
@@ -204,6 +252,8 @@ class ManagedDaemon:
                     self.process.kill()
                     self.process.wait(timeout=5)
                     raise StartupError('The wallet service required forced shutdown; check recovery on next launch.') from None
+            if was_running and self.endpoint is not None and self.process.returncode == 0:
+                self._clear_session()
         finally:
             self.endpoint = None
             if self._lock is not None:

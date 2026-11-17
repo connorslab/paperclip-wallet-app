@@ -10,6 +10,12 @@ private struct BridgeEvent: Decodable {
 	let event: String
 	let message: String?
 	let url: String?
+	let recoveryRequired: Bool?
+
+	enum CodingKeys: String, CodingKey {
+		case event, message, url
+		case recoveryRequired = "recovery_required"
+	}
 }
 
 final class Launcher: NSObject, NSApplicationDelegate {
@@ -151,7 +157,11 @@ final class Launcher: NSObject, NSApplicationDelegate {
 			switch event.event {
 			case "ready":
 				ready = true
-				status.stringValue = "Ready when you are."
+				let recovery = event.recoveryRequired == true
+				status.stringValue = recovery
+					? "Your previous session did not close cleanly. Check Activity before making another payment."
+					: "Ready when you are."
+				action.title = recovery ? "Review Wallet" : "Open Wallet"
 				progress.stopAnimation(nil)
 				progress.isHidden = true
 				action.isEnabled = true

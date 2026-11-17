@@ -80,6 +80,15 @@ owned helper without blocking AppKit, and quits through the lifetime chain.
 The helper accepts only bounded open/quit messages over private stdio. A wallet
 process exit produces a visible retry action rather than a stale Ready state.
 The runner still does not supervise Tor/Jam.
+A private `session.active` marker in the application root is written and synced
+before daemon launch. Only an observed successful close of a ready, owned child
+clears it. Forced shutdown, launcher death, unexpected child exit and failed
+startup retain the warning for the next launch. It survives wallet-directory
+deletion. Competing launchers cannot clear it; linked, shared or malformed marker
+files are rejected without repair. The helper's ready event carries only a
+`recovery_required` boolean. The macOS shell then offers Review Wallet and asks
+users to check Activity before another payment. A later clean close clears this
+advisory, never a payment receipt or an uncertain outcome.
 The shared REST server interrupts unfinished request-body reads when shutdown is
 requested. An interruption is an error, never a synthetic end-of-body: even valid
 JSON received before the HTTP body finishes cannot start a handler during shutdown.

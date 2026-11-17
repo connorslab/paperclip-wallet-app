@@ -47,7 +47,7 @@ def serve(binary, root):
     runner = ManagedDaemon(binary, root)
     try:
         runner.start()
-        emit('ready')
+        emit('ready', recovery_required=runner.recovery_required)
         for request in commands(runner):
             if request == {'action':'quit'}:
                 break

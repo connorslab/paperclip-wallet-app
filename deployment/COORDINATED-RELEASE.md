@@ -2532,3 +2532,35 @@ This is interrupted-upload acceptance on an isolated Apple Silicon daemon, not
 active-payment or long-running-handler shutdown acceptance. Linux CI, installed
 StartOS/Umbrel behavior, Windows ownership/runtime support, full backup/restore,
 physical signers, live settlement and signed installers remain release gates.
+
+
+## Desktop unclean-session recovery notice: 2026-11-17
+
+Linux backend CI passed at `01945d3`, including the interrupted-upload shutdown
+regression. The desktop launcher now preserves an advisory recovery notice across
+unclean sessions. Previously a forced-shutdown warning could disappear while the
+macOS window was closing, leaving no notice on the next launch.
+
+A private, synced session marker is created under the application root before
+starting the owned daemon. Only an observed clean close of a ready child clears
+it. Unexpected exit, launcher death and forced shutdown retain it. Startup rejects
+malformed, linked or shared marker files; a competing launcher cannot modify the
+record. The stdio helper reports only a recovery boolean. The native macOS preview
+shows Review Wallet and asks users to check Activity before another payment.
+This marker is advisory: clearing it never clears payment receipts, changes a
+payment's outcome or permits an uncertain payment to be repeated.
+
+Validation: 15 managed-daemon tests and six stdio bridge tests passed with an
+isolated native daemon. Cases cover crash/restart, forced shutdown, clean close,
+authentication preservation and hostile marker files. The native Apple-built,
+ad-hoc-signed macOS preview compiled and its recovery screen was visually inspected.
+Closing that window stopped its QA daemon, cleared the advisory marker and created
+no wallet. Repository checks passed. The first preview build attempt selected an
+unavailable local Python path; rebuilding with the installed Xcode interpreter
+passed. This remains a development preview with an external interpreter, not a
+standalone signed distribution candidate.
+
+Linux CI for this change, installed-host acceptance, active-payment shutdown,
+Windows lifecycle/runtime support, bundled desktop Jam/Tor, live settlement,
+physical signers and signed installers remain open. No production service,
+funded device, payment or published candidate changed.
