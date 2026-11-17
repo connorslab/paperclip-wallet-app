@@ -1,0 +1,63 @@
+"""Build a development-only Mac launcher with native Apple tools.
+
+The preview references an explicitly selected local Python runtime. It is not a
+standalone installer, Developer ID release or notarized distribution candidate.
+"""
+import argparse
+import json
+from pathlib import Path
+import platform
+import plistlib
+import shutil
+import subprocess
+import sys
+import tempfile
+
+
+def build(binary, python, output):
+    if sys.platform != 'darwin':
+        raise RuntimeError('Build this preview with native Apple tools on macOS.')
+    if output.exists() or output.is_symlink():
+        raise RuntimeError('Choose a new output path; existing apps are never overwritten.')
+    if output.suffix != '.app':
+        raise RuntimeError('The development preview output must end in .app.')
+    source = Path(__file__).resolve().parent
+    output.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix='.paperclip-preview-', dir=output.parent) as temporary:
+        app = Path(temporary) / output.name
+        contents = app / 'Contents'
+        executable = contents / 'MacOS'
+        resources = contents / 'Resources'
+        executable.mkdir(parents=True)
+        resources.mkdir()
+        architecture = platform.machine()
+        if architecture not in ('arm64', 'x86_64'):
+            raise RuntimeError('Unsupported native Mac architecture.')
+        subprocess.run(['xcrun', 'swiftc', '-swift-version', '5', '-target', architecture + '-apple-macosx13.0',
+            '-framework', 'AppKit', str(source / 'Launcher.swift'), '-o', str(executable / 'PaperclipLauncher')], check=True)
+        shutil.copy2(binary, executable / 'paperclip-walletd')
+        for name in ('launcher_entry.py', 'launcher_bridge.py', 'managed_daemon.py'):
+            shutil.copy2(source.parent / name, resources / name)
+        (resources / 'runtime.json').write_text(json.dumps({'pythonExecutable':str(python)}))
+        with (contents / 'Info.plist').open('wb') as file:
+            plistlib.dump({
+                'CFBundleName':'Paperclip Preview', 'CFBundleDisplayName':'Paperclip Preview',
+                'CFBundleExecutable':'PaperclipLauncher', 'CFBundleIdentifier':'org.paperclip.wallet.desktop.preview',
+                'CFBundlePackageType':'APPL', 'CFBundleVersion':'1', 'CFBundleShortVersionString':'0.0.0',
+                'LSMinimumSystemVersion':'13.0', 'NSPrincipalClass':'NSApplication',
+                'NSHighResolutionCapable':True,
+            }, file)
+        subprocess.run(['codesign', '--force', '--sign', '-', str(executable / 'paperclip-walletd')], check=True)
+        subprocess.run(['codesign', '--force', '--sign', '-', str(app)], check=True)
+        subprocess.run(['codesign', '--verify', '--deep', '--strict', str(app)], check=True)
+        app.rename(output)
+    print('Built development-only native Mac launcher; release signing and bundled runtime remain required.')
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--binary', type=Path, required=True)
+    parser.add_argument('--python', type=Path, required=True)
+    parser.add_argument('--output', type=Path, required=True)
+    args = parser.parse_args()
+    build(args.binary.resolve(strict=True), args.python.resolve(strict=True), args.output.absolute())

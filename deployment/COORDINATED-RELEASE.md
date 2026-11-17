@@ -2141,3 +2141,28 @@ This implements the handoff transport and shared UI entry, not a signed desktop
 application. An OS-visible launcher/browser-opening action, installed browser
 acceptance, first-run service configuration, bundled Tor/Jam, Windows support,
 signing and the remaining funded/hardware/restore gates remain open.
+
+## Native macOS development launcher — 2026-11-17
+
+The AppKit preview now has a visible startup/ready/open/retry flow and uses the
+one-time handoff to open the user's default browser. A private stdio helper owns
+the daemon, accepts only bounded open/quit commands, and reports unexpected wallet
+exit promptly. Its output carries a single-use URL only when requested; owner
+credentials are not sent to the shell. UI event processing preserves error/exit
+order, and startup/shutdown waits do not block AppKit. Closing the window or
+quitting closes the lifetime chain; the preview uses a separate data root.
+
+The native Apple Silicon preview was compiled, ad-hoc signed and signature-checked.
+Its real window was visually inspected. Open Wallet launched Brave into unfunded
+wallet setup with the fragment removed. Stopping only the isolated QA daemon
+produced Try Again; retry returned to Ready. Closing the window exited the app
+and daemon, released the lock and left no wallet keys. The test browser tab was
+closed without changing existing wallet tabs. Five bridge process tests pass,
+including EOF, unknown/oversized messages and unexpected daemon exit; backend
+CI now runs them. A separate macOS job compiles the shell with native Apple tools.
+
+This is development packaging, not a release candidate: its configured Python
+interpreter is external, signatures are ad-hoc, and Developer ID/notarization,
+bundled Tor/Jam, older OS/Intel execution and clean install/upgrade acceptance
+remain open. Linux/Windows visible shells, shared desktop multiple hot profiles
+and the remaining platform/payment/hardware/restore gates are still required.

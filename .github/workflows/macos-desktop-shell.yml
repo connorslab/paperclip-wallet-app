@@ -1,0 +1,19 @@
+name: Native macOS desktop shell
+on:
+  workflow_dispatch:
+  push:
+    branches: ['codex/cross-platform-parity']
+    paths: ['deployment/desktop/macos/**', '.github/workflows/macos-desktop-shell.yml']
+permissions:
+  contents: read
+jobs:
+  compile:
+    runs-on: macos-15
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile AppKit shell with native Apple tools
+        run: |
+          xcrun swiftc -swift-version 5 -target "$(uname -m)-apple-macosx13.0" -framework AppKit deployment/desktop/macos/Launcher.swift -o "$RUNNER_TEMP/PaperclipLauncher"
+      - name: Check development bundle script syntax
+        run: python3 -m py_compile deployment/desktop/macos/build_preview.py

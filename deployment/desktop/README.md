@@ -74,17 +74,48 @@ their existing authentication flow. Browser fixtures cover successful empty-wall
 setup, expired/interrupted/malformed codes, nonlocal pages and no retry at phone
 and desktop widths; real-daemon checks cover authenticated issue and one use.
 
-The runner does not yet open an OS browser window or supervise Tor/Jam.
+The development macOS shell in `macos/Launcher.swift` now opens the OS browser
+using that handoff. It shows startup, ready, open and retry states, monitors the
+owned helper without blocking AppKit, and quits through the lifetime chain.
+The helper accepts only bounded open/quit messages over private stdio. A wallet
+process exit produces a visible retry action rather than a stale Ready state.
+The runner still does not supervise Tor/Jam.
 Abrupt launcher-death tests cover an unfunded idle daemon: active payment
 and long-running request shutdown still require acceptance. First-run service/network configuration,
 packaged interpreter/runtime delivery, full OS ACL acceptance, Windows ownership
-support and a visible shell remain release gates. Do not distribute this module
+support and installed shell acceptance remain release gates. Do not distribute this module
 as a complete desktop app or point its acceptance tests at funded storage.
 
-Open work includes the OS-specific visible launcher and installed browser handoff
+Open work includes Linux/Windows visible launchers and installed browser handoff
 acceptance, full private data/ACL checks, bundled Tor/Jam,
 signing/notarization, installer upgrades, wallet migrations and full backup/restore.
 The pinned Jam runtime and companion currently use POSIX `fcntl` locks; Windows
 needs a reviewed equivalent or an explicitly managed packaged runtime before it
 can meet parity. Do not remove locking or substitute a separate user-installed Jam
 app to claim that gate has passed. See [the coordinated release gates](../COORDINATED-RELEASE.md).
+
+## Development macOS preview
+
+Build on a Mac with native Apple tools. Supply a reviewed native daemon and an
+explicit local Python interpreter. Existing output apps are never overwritten:
+
+```
+python3 deployment/desktop/macos/build_preview.py \
+  --binary /absolute/path/to/paperclip-walletd \
+  --python /absolute/path/to/python3 \
+  --output '/absolute/new/path/Paperclip Preview.app'
+```
+
+This preview embeds the daemon and helper scripts, uses Python isolated mode and
+is ad-hoc signed for local development. It references the supplied interpreter;
+it is **not standalone, Developer ID signed or notarized**. Its default data root
+is the separate `~/Library/Application Support/Paperclip Preview`. QA can supply
+an absolute `--qa-root` in a fresh temporary directory. Never point this preview
+at funded storage to satisfy release acceptance.
+
+Native Apple Silicon verification covers launch to Ready, opening the real default
+browser into empty-wallet setup, a deliberately stopped QA daemon leading to Try
+Again, successful retry and window-close cleanup. No wallet was created. The
+five stdio bridge tests run on the built native daemon in backend CI; the macOS
+workflow compiles AppKit separately. Older macOS versions, Intel execution,
+clean-machine Python/runtime bundling and installed upgrades remain unverified.
