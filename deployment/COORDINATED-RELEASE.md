@@ -41,8 +41,8 @@ coordinated scope is iOS, Android, StartOS, Umbrel, Linux, macOS and Windows.
    and physical-signer acceptance is still required. Complete the remaining end-to-end review of boarding,
    hardware signing and exit paths. Mobile wallet switching alone does not close
    the desktop profile requirement.
-2. **Finish native runtime delivery.** Complete the Windows upstream Jars wallet
-   creation locks, metadata/history storage, desktop entry/TLS lifecycle and
+2. **Finish native runtime delivery.** Accept the Windows upstream Jars wallet
+   lifecycle lock adapter, and complete metadata/history storage, desktop entry/TLS lifecycle and
    bundled crypto dependencies. Its reviewed private-file API adapter is only
    one component. Complete supported Jam/Tor and node-RPC setup on the native
    desktops, then validate the enabled packaged runtime. No external Python or
@@ -3356,3 +3356,17 @@ This adapter does not close Windows Jars hosting: wallet-creation locks, history
 and metadata storage outside this API, entry-point lifecycle and native crypto
 packaging still require integration and acceptance. Changes are mirrored to the
 Android branch; no funded wallet or production service was changed.
+
+### Pinned Windows Jars wallet-operation ownership
+
+A hash-gated build adapter now selects native Windows ownership for the pinned
+upstream create/recovery reservation, without changing its POSIX function bodies.
+It validates private local storage, refuses aliases and existing wallets, and
+keeps the kernel lock until the lifecycle exits. Writer cancellation still uses
+the upstream shielded worker so an active file writer cannot lose ownership.
+Eight native Windows cases cover contention, process death, cancellation, errors,
+existing wallets, ACL and junction rejection, and the source checksum gate.
+They are wired to native CI; acceptance requires that run to pass. Local macOS
+import and POSIX ownership/retry passed with the actual pinned module.
+This is not full Windows wallet creation or crypto/runtime acceptance. Jars
+remains disabled in Windows preview packages until the complete runtime passes.
