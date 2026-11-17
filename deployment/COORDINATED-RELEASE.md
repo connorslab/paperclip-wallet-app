@@ -12,10 +12,12 @@ The release version and date are not assigned yet. The current version numbers
 not a completed unified release. Do not reuse an uploaded build number, rewrite an
 existing release tag, or replace a published binary in place.
 
-## Current acceptance summary: 2026-11-16
+## Current acceptance summary: 2026-11-17
 
 The coordinated release is not ready. The table separates completed automated
-checks from the required implementation and acceptance work.
+checks from the required implementation and acceptance work. Results apply to
+their recorded revision and environment; the dated sections below record later
+checks and their limits.
 
 | Area | Verified in the current test pass | Still required |
 | --- | --- | --- |
@@ -23,7 +25,7 @@ checks from the required implementation and acceptance work.
 | Android | 100 JVM tests (four live cases excluded); 16 isolated API 35 UI cases; 46 API 36 ARM64 cases (including one visibility negative control); authenticated CLN/LND reads and pin rejection; API 35/36 CI passed at `98a1116` | Final release identity, Play/APK upgrade compatibility and physical/foldable acceptance |
 | Shared desktop UI | All 17 existing browser-flow suites plus entropy, transport and QR checks; phone, foldable and desktop widths where each suite defines them | Installed-host and native desktop acceptance; complete multiple-hot-wallet and hardware-funded Ark workflows |
 | StartOS/Umbrel | Shared REST checks, authenticated CLN/LND reads; both StartOS candidate architectures built and source/checksums checked | Complete backup/restore, candidate installation, bundled Jam pairing/revocation/Tor and upgrades; matching frozen wrappers |
-| Linux/macOS/Windows | Isolated Apple Silicon and Linux daemon authentication, duplicate-instance rejection and crash/restart checks | Native launchers and bundled service lifecycle, supported OS matrix, signed installers, notarization where applicable and clean install/upgrade tests |
+| Linux/macOS/Windows | Isolated Apple Silicon and Linux daemon authentication, duplicate-instance rejection and crash/restart; macOS development shell inspected; packaged Linux shell exercised under Xvfb | Windows shell and private storage; installed browser/accessibility acceptance; bundled Jam/Tor and runtime delivery; supported OS matrix, signed installers, notarization and clean install/upgrade tests |
 | Jars | Reviewed direct/CoinJoin toggle and bond funding/withdrawal clients; pinned signer, API, bond and interrupted-submission checks; encrypted Jam volume restore on a synthetic chain | Live CoinJoin, direct-send and bond-funding/withdrawal acceptance, installed payment-pairing acceptance, live maker and physical QR signer acceptance |
 | Payments and recovery | 291 shared wallet tests, exact-cost/RBF/unknown-outcome checks; unified-signature and Electrum-header checks | Live BOLT12/Ark/Bridge settlement, portable recovery/restore and current-source XBT consensus acceptance |
 
@@ -2591,7 +2593,11 @@ ready and 420px recovery layouts are legible and do not clip. The next change
 shortens the heading to avoid an awkward wrap and keeps late browser callbacks
 from replacing daemon failure messages. Its deterministic regression fails in
 nine cases against the old code and passes with the fix; four local controller
-tests and repository checks pass. The final revision still requires Linux CI.
+tests and repository checks pass. At final implementation revision `7c38e61`,
+Linux CI repeats the four controller tests and packaged GUI acceptance
+successfully. Both final screenshots were inspected: the heading now fits on
+one line, the recovery notice remains legible at 420px, and no controls clip.
+This GUI test captures the browser handoff rather than opening a real browser.
 
 The Linux installed default-browser, Wayland/accessibility and clean-machine
 runtime checks remain open, as do Windows shell/runtime support, bundled desktop
