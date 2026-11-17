@@ -46,6 +46,7 @@ jobs:
           export BARK_WEB_DIST="$PWD/web"
           nix develop .#build --command cargo build --locked -p bark-cli --bin paperclip-walletd --features barkd-web-ui,sqlite-bundled
           python3 deployment/desktop/test_native_daemon.py --binary "$PWD/target/debug/paperclip-walletd"
+          python3 deployment/desktop/test_managed_daemon.py --binary "$PWD/target/debug/paperclip-walletd" -v
       - name: Generate API documentation
         run: nix develop .#build --command cargo run --locked -p bark-rest --example dump_api_docs > bark-rest/openapi.json
       - uses: actions/upload-artifact@v4

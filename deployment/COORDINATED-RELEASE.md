@@ -2064,3 +2064,25 @@ now distinguish concurrent calls within a clock tick after their previous
 timestamp-only names collided during validation. Native launcher/browser
 handoff, Windows atomic discovery/ACLs, bundled runtimes and signed OS installers
 remain required; this prerequisite does not close those gates.
+
+## Desktop daemon ownership layer — 2026-11-17
+
+The Linux/macOS runner module now owns one daemon process under a private
+application root. Its launcher lock lives outside the wallet directory, so wallet
+deletion cannot remove it. Startup uses an OS-assigned loopback port, drops
+inherited service/proxy/loader overrides, and requires fresh discovery plus the
+owned child's PID before sending authenticated readiness requests. It rejects
+redirects, shared or symlinked storage and duplicate launchers. Startup failures
+and normal close reap only its own child; independently started daemons are left
+running. A required forced shutdown returns a recovery warning.
+
+Eight policy and real-child tests pass on native Apple Silicon, along with
+`just checks`, workflow parsing and whitespace checks. The tests use empty
+temporary storage and no node calls or payments. Linux backend CI now runs them
+against its built daemon; the preceding listener-discovery revision passed CI
+run `44028126712`. This does not establish Windows support or OS ACL acceptance.
+
+The module is not yet a visible desktop application. Browser authentication,
+first-run network/service configuration, packaged interpreter delivery, abrupt
+shell-death recovery, bundled Tor/Jam and signed installers remain open. No
+installed wallet, production service or funded device was modified.

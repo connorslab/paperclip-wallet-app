@@ -1,8 +1,9 @@
 # Native desktop prerequisites
 
 Linux, macOS and Windows packages must embed the same web UI and wallet daemon as
-StartOS/Umbrel. This directory begins their acceptance tooling; it is not a
-launcher, installer, signed application or complete desktop release.
+StartOS/Umbrel. This directory contains acceptance tooling and a POSIX daemon
+ownership module; it is not an installed launcher, signed application or complete
+desktop release.
 
 Build `paperclip-walletd` from the reviewed revision with the `barkd-web-ui` and
 `sqlite-bundled` features and `BARK_WEB_DIST` pointing to `web/`. Run:
@@ -28,6 +29,34 @@ signed-installation test. It also checks advertised entropy choices and rejects
 invalid generation requests before wallet creation. It does not create wallet keys, use real
 credentials or contact nodes.
 Windows ACL acceptance remains separate from the Unix mode checks.
+
+## Daemon ownership module
+
+`managed_daemon.py` supplies the process ownership layer for a future Linux/macOS
+shell. Nothing starts on import. The caller supplies the packaged daemon and a
+private application root; wallet data lives under its `wallet/` subdirectory.
+The separate launcher lock survives wallet deletion. The module provides the
+standard macOS Application Support and Linux XDG data locations, rejects loose
+or symlinked data directories, and drops inherited service, proxy and loader
+overrides. It never reads the user's existing wallet implicitly.
+
+Readiness requires an atomically replaced discovery file, the owned child's PID,
+and a successful authenticated loopback request. Stale discovery and independently
+started daemons are not adopted. Authentication is never printed or put in command
+arguments or a browser URL. Redirects are refused. Close and failed startup reap
+only the owned process; a forced shutdown is reported as a recovery warning.
+
+Run the real-child checks in a temporary, unfunded directory:
+
+```
+python3 deployment/desktop/test_managed_daemon.py --binary /absolute/path/to/paperclip-walletd -v
+```
+
+The runner does not yet open a browser, deliver browser authentication, supervise
+Tor/Jam or handle abrupt shell death. First-run service/network configuration,
+packaged interpreter/runtime delivery, full OS ACL acceptance, Windows ownership
+support and a visible shell remain release gates. Do not distribute this module
+as a complete desktop app or point its acceptance tests at funded storage.
 
 Open work includes the OS-specific launcher and authenticated browser handoff,
 private data locations, a single managed service instance, bundled Tor/Jam,
