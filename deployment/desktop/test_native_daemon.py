@@ -11,6 +11,7 @@ from pathlib import Path
 import signal
 import socket
 import subprocess
+import sys
 import tempfile
 import time
 from urllib.error import HTTPError, URLError
@@ -22,7 +23,16 @@ def check(binary):
     with tempfile.TemporaryDirectory(prefix='paperclip-native-qa-') as temporary:
         root = Path(temporary)
         data = root / 'wallet'
-        data.mkdir(mode=0o700)
+        if os.name == 'nt':
+            # Match the installer's private creation boundary, including an
+            # explicit user owner when QA runs under an elevated Windows token.
+            sys.path.insert(0, str(Path(__file__).parent / 'windows'))
+            from private_storage import private_directory, validate_handle
+            import win32con
+            import win32file
+            private_directory(data)
+        else:
+            data.mkdir(mode=0o700)
         endpoint = None
         # Do not inherit real node/Jam credentials, platform overrides or proxies.
         env = {key: os.environ[key] for key in
@@ -76,6 +86,15 @@ def check(binary):
                     if os.name != 'nt':
                         assert data.stat().st_mode & 0o777 == 0o700, 'Wallet directory is not private'
                         assert (data / 'auth_token').stat().st_mode & 0o777 == 0o600, 'Authentication file is not private'
+                    else:
+                        for name in ('auth_token', 'barkd.url'):
+                            handle = win32file.CreateFile(str(data / name), win32con.READ_CONTROL,
+                                win32con.FILE_SHARE_READ | win32con.FILE_SHARE_WRITE, None,
+                                win32con.OPEN_EXISTING, win32file.FILE_FLAG_OPEN_REPARSE_POINT, None)
+                            try:
+                                validate_handle(handle, directory=False)
+                            finally:
+                                handle.Close()
                     for credential in (None, 'invalid-synthetic-token'):
                         try:
                             request('/api/v1/wallet', credential)

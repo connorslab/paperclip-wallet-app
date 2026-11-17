@@ -57,6 +57,8 @@ jobs:
         run: cargo +1.91.0 build --locked -p bark-cli --bin paperclip-walletd --features barkd-web-ui,sqlite-bundled
       - name: Verify the native executable starts without wallet storage
         run: ./target/debug/paperclip-walletd.exe --version
+      - name: Verify unfunded authenticated startup and crash recovery
+        run: python deployment/desktop/test_native_daemon.py --binary target/debug/paperclip-walletd.exe
       - name: Verify Windows PID ownership and readable discovery
         run: |
           cargo +1.91.0 test --locked -p bark-wallet --features onchain-bdk,sqlite-bundled --lib lock_manager::pid_flock
