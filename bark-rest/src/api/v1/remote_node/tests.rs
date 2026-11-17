@@ -158,7 +158,9 @@ async fn node_routes_require_authentication_and_a_loaded_wallet() {
 	let token = crate::auth::AuthToken::new([42;32]);
 	let state = Arc::new(ServerState::builder().auth_token(token.clone()).build(CancellationToken::new()));
 	let router = crate::api::v1::router(&state).with_state(state);
-	for (path,method,body) in [("/remote-node/connection","GET",""),("/remote-node/request","POST",r#"{"operation":"pay"}"#)] {
+	for (path,method,body) in [("/remote-node/connection","GET",""),("/remote-node/request","POST",r#"{"operation":"pay"}"#),
+		("/remote-node/recovery/review","POST","{}"),
+		("/remote-node/recovery/assign","POST",r#"{"request_id":"test","owner_confirmed":true,"backup_confirmed":true}"#)] {
 		let request = HttpRequest::builder().method(method).uri(path).header("content-type","application/json").body(Body::from(body)).unwrap();
 		assert_eq!(router.clone().oneshot(request).await.unwrap().status(),StatusCode::UNAUTHORIZED);
 		let request = HttpRequest::builder().method(method).uri(path).header("content-type","application/json").header("authorization",format!("Bearer {}",token.encode())).body(Body::from(body)).unwrap();

@@ -16,12 +16,14 @@ window.PaperclipReview = (() => {
   approve.onclick = () => finish(true);
   dialog.addEventListener('cancel', event => { event.preventDefault(); finish(false); });
   dialog.addEventListener('close', () => { if (pending) finish(false); });
-  function open(content, heading = 'Review and confirm') {
+  function open(content, heading = 'Review and confirm', canApprove = () => true) {
     if (pending) return Promise.resolve(false);
     const session = token;
     title.textContent = heading; text.replaceChildren(content);
+    approve.disabled = !canApprove();
+    content.addEventListener('change', () => { approve.disabled = !canApprove(); });
     return new Promise(resolve => {
-      pending = value => resolve(value && session === token && !!token);
+      pending = value => resolve(value && session === token && !!token && canApprove());
       dialog.showModal(); cancel.focus();
     });
   }
@@ -31,6 +33,27 @@ window.PaperclipReview = (() => {
     return node;
   }
   return { ask: message => open(document.createTextNode(message)),
+    nodeRecovery(review) {
+      const content = element('div', '', 'withdrawal-review node-recovery-review');
+      const details = element('dl', '', 'jam-payment-costs');
+      for (const [label, value] of [['Network', review.network], ['Saved records', String(review.payment_count)], ['Sends to check', String(review.unresolved_sends)]]) {
+        const row = element('div', ''); row.append(element('dt', label), element('dd', value)); details.append(row);
+      }
+      content.append(details);
+      const identities = element('details', ''); identities.append(element('summary', 'Wallet and node identities'));
+      identities.append(element('p', 'Assign to the current hot wallet'), element('code', review.wallet_id));
+      if (review.connection) identities.append(element('p', review.connection.endpoint), element('code', review.connection.node_id));
+      else identities.append(element('p', 'No saved node connection.'));
+      content.append(identities, element('p', 'Credentials and payment outcomes stay unchanged. Nothing is sent or retried. Check unresolved payments after recovery.', 'withdrawal-review-note'));
+      function confirmation(label) {
+        const row = element('label', '', 'node-toggle'), input = document.createElement('input'); input.type = 'checkbox';
+        row.append(input, document.createTextNode(label)); content.append(row); return input;
+      }
+      const owner = confirmation('These records belong to this hot wallet. I checked the identities above.');
+      const backup = confirmation('I have a complete host backup, including the older node records.');
+      content.append(element('p', 'A matching short fingerprint does not prove ownership. If unsure, go back and check the original node and backup.', 'hint'));
+      return open(content, 'Recover node records', () => owner.checked && backup.checked);
+    },
     withdrawal(quote) {
       const content = element('div', '', 'withdrawal-review');
       const amount = element('div', '', 'withdrawal-review-amount');

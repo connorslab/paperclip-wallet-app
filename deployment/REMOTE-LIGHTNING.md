@@ -32,14 +32,36 @@ The browser does not persist credentials. Receive-only mode also blocks sends on
 the server; it does not create a restricted rune or macaroon on the node.
 
 Older candidates used only the short fingerprint for storage. Those directories
-do not prove ownership and are never adopted, renamed or hidden behind a fresh
-empty history. If one exists for the current fingerprint, all node operations,
-including Bridge funding and reconciliation, stop with an ownership-verification
-error. Keep a complete host backup and check unresolved payments on the original
-node. Do not delete or manually rename the directory to dismiss the error.
-A reviewed migration and installed-upgrade acceptance are required before
-releasing this change to hosts with existing node connections. No automated
-migration is provided yet, even when the older directory appears empty.
+do not prove ownership and are never automatically adopted or hidden behind an
+empty history. Until explicitly assigned, node operations, including Bridge
+funding and reconciliation, stop with an ownership-verification error. Do not
+delete or manually rename the directory to dismiss the error.
+
+On the node page, **Recover an older node connection** opens a read-only review.
+It shows the current wallet's full identity and network, the saved node identity,
+record count and number of unresolved sends. The owner must confirm both the
+original wallet and a complete host backup. This is an authenticated owner's
+explicit assignment, not cryptographic proof of the old records' original owner
+or automatic verification that a backup exists. If uncertain, cancel and check
+the original node and backup first.
+
+A two-minute, single-use review binds the exact connection and payment files to
+that wallet. Assignment rechecks those bytes under the node's process lock and
+publishes a private owner manifest atomically without replacing an existing one.
+The old files remain in place, unchanged. Subsequent access requires the full
+identity in the manifest; a colliding fingerprint or different network is refused.
+No network request, payment, credential export or outcome change occurs during
+assignment. Two separate histories, incomplete records, unexpected files and
+linked records block recovery rather than being merged or skipped.
+
+If the reply is lost, use **Check saved connection** to read the binding and
+original history. Assignment is never retried automatically. Cancellation or
+restart before assignment requires a new review. Interrupted filesystem writes
+that leave unexpected files require recovery from the complete host backup;
+the app does not guess that these files are safe to delete. Older binaries do
+not enforce the new manifest: do not downgrade to an earlier candidate. Complete
+installed-host backup/restore, interrupted-write and upgrade/downgrade acceptance
+remain release gates before deploying this change to existing funded hosts.
 
 ## Payment review and recovery
 

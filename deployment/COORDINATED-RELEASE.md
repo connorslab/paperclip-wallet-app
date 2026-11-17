@@ -2769,3 +2769,36 @@ ignored; repository checks pass on the native Apple host. These synthetic storag
 checks do not demonstrate a remote unauthenticated attack, live settlement,
 portable backup recovery or a completed upgrade. Mobile node adapters and their
 ABI are unchanged; this shared server fix is mirrored to the Android branch.
+
+## Explicit recovery of older node records: 2026-11-17
+
+Backend run `44127844822` passed at `b74ad9b`. The shared host UI now provides an
+explicit owner-assignment flow for older node connections. Its review shows the
+current wallet/network, saved node identity, payment count and unresolved sends.
+Confirmation remains disabled until the user affirms both original-wallet
+ownership and a complete host backup. These affirmations do not cryptographically
+prove historical ownership or verify a backup archive; uncertain users must cancel.
+
+The authenticated backend binds a single-use, expiring review to the full wallet
+identity and digest of the exact original files. It rechecks under the node lock
+and atomically publishes a private owner manifest without overwriting another
+binding. Credentials, offers and payment records stay in place and unchanged.
+The adapter thereafter requires that full identity even though the original
+directory name is retained. Distinct wallets/networks, competing or expired
+reviews, changed credentials/history, incomplete or linked records and separate
+histories are rejected. Recovery never contacts a node or sends a payment.
+
+Local REST validation passes 101 tests with one opt-in live test ignored. New
+cases cover ownership/backup confirmation, changed files, a competing owner,
+restart/lost reply, retained unknown receipts and linked/invalid data. Protected
+route checks cover both recovery endpoints. Browser checks at 390/840/1280px
+cover cancellation, disabled confirmation, lost response followed by read-only
+reopening, preserved unknown status, no automatic retry and a late response after
+locking. The compact phone review was visually inspected.
+
+This supplies the explicit assignment flow, not complete installed migration
+acceptance. Abrupt interruption before manifest publication may leave unexpected
+temporary files; those require backup recovery rather than automatic deletion.
+Older binaries ignore the owner manifest, so installed upgrade/downgrade policy,
+full host backup/restore and interrupted-write acceptance remain release blockers.
+No funded host was upgraded or assigned in this test pass.

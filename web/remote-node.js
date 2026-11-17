@@ -23,6 +23,7 @@
     changed(); saved = null; records = []; busy = false; loading = false;
     $('node-connect').reset(); $('node-pay').reset(); $('node-receive').reset(); $('node-credential').required = true; $('node-credential').placeholder = '';
     $('node-credential').value = ''; $('node-content').hidden = true; $('node-setup').open = true;
+    $('node-recovery').open = false;
     $('node-title').textContent = 'Your Lightning node'; $('node-status').textContent = 'Connect your node to get started.';
     PaperclipReceive.clear('node-request'); $('node-request').textContent = ''; $('node-copy').hidden = true; $('node-payments').replaceChildren();
     $('node-balance').textContent = 'Not checked'; $('node-balance-detail').textContent = '';
@@ -39,7 +40,7 @@
     $('node-title').textContent = value.alias || (value.implementation === 'cln' ? 'Core Lightning' : 'XBT LND');
   }
   function updateControls() {
-    document.querySelectorAll('#node-connect button,#node-pay button,#node-receive button,#node-refresh').forEach(button => { button.disabled = busy || loading; });
+    document.querySelectorAll('#node-connect button,#node-pay button,#node-receive button,#node-refresh,#node-recovery button').forEach(button => { button.disabled = busy || loading; });
   }
   async function act(button, message, operation) {
     if (busy || loading || !token) return;
@@ -96,6 +97,28 @@
     finally { if (currentWallet(context.wallet)) { loading = false; updateControls(); } }
   }
   $('node-kind').onchange = () => { $('node-credential-label').firstChild.textContent = $('node-kind').value === 'cln' ? 'Access rune' : 'Macaroon (hex)'; };
+  $('node-recovery-reopen').onclick = () => load();
+  $('node-recovery-review').onclick = event => act(event.target, 'Checking older records without contacting the node…', async context => {
+    const here = () => current(context) && !document.querySelector('[data-screen=node]').hidden;
+    const review = await api('remote-node/recovery/review', {});
+    if (!here()) return;
+    const config = review.connection;
+    if (!hash(review.request_id) || !hash(review.wallet_id) || !['bitcoin','testnet','testnet4','signet','regtest'].includes(review.network)
+        || !Number.isSafeInteger(review.payment_count) || review.payment_count < 0 || !Number.isSafeInteger(review.unresolved_sends)
+        || review.unresolved_sends < 0 || review.unresolved_sends > review.payment_count
+        || (config !== null && (!config || !['cln','lnd'].includes(config.implementation) || typeof config.endpoint !== 'string' || !/^(02|03)[a-f0-9]{64}$/i.test(config.node_id || '')))) throw new Error('Invalid recovery review. Nothing was assigned.');
+    const approved = await PaperclipReview.nodeRecovery(review);
+    if (!approved || !here()) { if (here()) $('node-status').textContent = 'Recovery cancelled. Nothing was assigned.'; return; }
+    $('node-status').textContent = 'Assigning the reviewed records once…';
+    try {
+      const result = await api('remote-node/recovery/assign', {request_id:review.request_id,owner_confirmed:true,backup_confirmed:true});
+      if (!here()) return;
+      if (result.assigned !== true) throw new Error('Assignment response was not recognized.');
+      $('node-status').textContent = 'Ownership assigned. Check saved connection to load the original payment history. No payment was sent.';
+    } catch (error) {
+      if (here()) $('node-status').textContent = error.message + ' Check saved connection before another recovery review. Assignment is never retried automatically; no payment was sent.';
+    }
+  });
   $('node-connect').onsubmit = event => {
     event.preventDefault(); const button = event.submitter;
     act(button, $('node-tor').checked ? 'Connecting through Tor and verifying your node…' : 'Verifying your node’s secure connection…', async context => {
@@ -176,6 +199,7 @@
       const home = view === 'node';
       $('node-back-lightning').hidden = !home; $('node-back').hidden = home;
       $('node-setup').hidden = !home; $('node-overview').hidden = !home;
+      $('node-recovery').hidden = !home;
       for (const [id, screen] of [['node-send-panel','node-pay'],['node-receive-panel','node-receive'],['node-activity-panel','node-activity']]) {
         $(id).hidden = view !== screen; $(id).classList.toggle('node-page-enter', view === screen);
       }

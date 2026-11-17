@@ -3,6 +3,7 @@
 //! every payment; an unknown outcome can only be observed, never replayed.
 mod model;
 mod transport;
+mod recovery;
 pub(super) mod bridge;
 #[cfg(test)]
 mod tests;
@@ -24,7 +25,7 @@ use model::{identity, invoice, msats};
 use transport::{Connection, Node};
 
 #[derive(Default)]
-pub(crate) struct Sessions { reviews: HashMap<PathBuf, Review> }
+pub(crate) struct Sessions { reviews: HashMap<PathBuf, Review>, recovery: Option<recovery::Review> }
 struct Review { id: String, invoice: String, hash: String, node_id: String, amount_msat: u64, fee_sat: u64, created: Instant, bridge: Option<bridge::Terms> }
 
 #[derive(Deserialize)]
@@ -59,6 +60,7 @@ struct Record {
 
 pub fn router() -> Router<Arc<ServerState>> {
 	Router::new().route("/connection", get(connection)).route("/request", post(request))
+		.route("/recovery/review", post(recovery::review)).route("/recovery/assign", post(recovery::assign))
 		.layer(DefaultBodyLimit::max(320 * 1024))
 }
 fn headers() -> HeaderMap {
@@ -90,26 +92,33 @@ fn load<T: serde::de::DeserializeOwned>(path: &Path) -> anyhow::Result<T> {
 	let data = std::fs::read(path).context("Saved node state is unavailable")?;
 	serde_json::from_slice(&data).map_err(|_| anyhow::anyhow!("Saved node state is invalid; restore its backup"))
 }
-async fn context(state: &ServerState) -> anyhow::Result<(PathBuf, Network)> {
+struct StorageScope { base: PathBuf, network: Network, mailbox: MailboxIdentifier, fingerprint: Fingerprint }
+async fn storage_scope(state: &ServerState) -> anyhow::Result<StorageScope> {
 	ensure!(state.auth_token().is_some(), "Configure wallet authentication first");
 	let wallet = state.require_wallet().map_err(|_| anyhow::anyhow!("Unlock your wallet first"))?;
 	let web = state.web.as_ref().context("Node storage is not configured")?;
 	let properties = wallet.properties().await?;
-	let root = storage_root(&web.datadir.join("lightning-nodes"), properties.network,
-		wallet.mailbox_identifier(), properties.fingerprint)?;
-	Ok((root, properties.network))
+	Ok(StorageScope { base:web.datadir.join("lightning-nodes"), network:properties.network,
+		mailbox:wallet.mailbox_identifier(), fingerprint:properties.fingerprint })
+}
+async fn context(state: &ServerState) -> anyhow::Result<(PathBuf, Network)> {
+	let scope = storage_scope(state).await?;
+	Ok((storage_root(&scope.base, scope.network, scope.mailbox, scope.fingerprint)?, scope.network))
+}
+fn storage_identity(network: Network, mailbox: MailboxIdentifier) -> String {
+	sha256::Hash::hash(format!("paperclip-remote-node-v2:{network}:{mailbox}").as_bytes()).to_string()
 }
 fn storage_root(base: &Path, network: Network, mailbox: MailboxIdentifier, fingerprint: Fingerprint) -> anyhow::Result<PathBuf> {
 	private_dir(base)?;
+	let identity = storage_identity(network, mailbox);
 	// Older directories have no full owner binding. Neither matching the short
 	// fingerprint nor re-entering node credentials proves who owns their receipts.
 	// Never hide those records behind a new empty store, even if a v2 store exists.
 	match std::fs::symlink_metadata(base.join(fingerprint.to_string())) {
 		Err(error) if error.kind() == std::io::ErrorKind::NotFound => {},
 		Err(_) => anyhow::bail!("Could not check older Lightning records. Restore access before continuing"),
-		Ok(_) => anyhow::bail!("Older Lightning records need wallet ownership verification before use. Keep a full host backup and check pending payments on the original node. Do not delete these records"),
+		Ok(_) => return recovery::owned_root(base, fingerprint, &identity),
 	}
-	let identity = sha256::Hash::hash(format!("paperclip-remote-node-v2:{network}:{mailbox}").as_bytes());
 	let root = base.join(format!("v2-{identity}")); private_dir(&root)?;
 	private_dir(&root.join("payments"))?;
 	Ok(root)
@@ -344,7 +353,7 @@ mod storage_tests {
 	use super::transport::Implementation;
 	use bitcoin::secp256k1::{PublicKey, Secp256k1, SecretKey};
 
-	fn mailbox(byte: u8) -> MailboxIdentifier {
+	pub(super) fn mailbox(byte: u8) -> MailboxIdentifier {
 		MailboxIdentifier::from_pubkey(PublicKey::from_secret_key(&Secp256k1::new(), &SecretKey::from_slice(&[byte; 32]).unwrap()))
 	}
 	#[test]

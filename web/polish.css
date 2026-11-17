@@ -357,3 +357,11 @@ button,a,summary {touch-action:manipulation}
 .withdrawal-review-destination{display:grid;gap:6px}
 .withdrawal-review-destination code{font-size:12px;overflow-wrap:anywhere;color:#eef2f8}
 .withdrawal-review-note{font-size:12px;color:var(--muted)}
+
+/* Recovery confirmations keep the payment-review hierarchy without large form gaps. */
+.node-recovery-review{gap:12px;line-height:1.45}
+.node-recovery-review :is(p,dl,details,label){margin:0}
+.node-recovery-review dl{padding-block:10px;gap:8px}
+.node-recovery-review .node-toggle{min-height:44px;gap:12px;align-items:flex-start;font-size:13px;margin:0}
+.node-recovery-review .node-toggle input{flex:0 0 22px;margin:3px 0 0;width:22px;height:22px;min-height:22px;padding:0}
+.node-recovery-review code{display:block;font-size:12px;overflow-wrap:anywhere}
