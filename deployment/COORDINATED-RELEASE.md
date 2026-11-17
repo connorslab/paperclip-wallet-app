@@ -2028,3 +2028,20 @@ Bundled Jam run `44023055068` at `2d43c43` passed on Linux AMD64 and ARM64,
 including the encrypted-volume restore regression. No package was deployed or
 published. The live, installed-host, physical signer, backup/rescan and signed
 native distribution gates listed above remain open.
+
+
+## Packaged supervisor shutdown prerequisite — 2026-11-16
+
+The managed-chain supervisor now has unfunded process-level tests for normal
+SIGTERM shutdown and unexpected wallet exit. Each starts the real supervisor with
+three isolated Python child processes standing in for the wallet, chain adapter
+and Tor. No node or network is contacted. The checks verify that all owned children
+receive termination, are reaped, and leave no live PIDs; an unexpected wallet exit
+preserves its failure status. Failure cleanup is restricted to the test's separate
+process group.
+
+Four supervisor tests and three existing Tor policy tests passed on native macOS,
+along with `just checks` and workflow YAML parsing. The backend CI now runs these
+checks without invoking package publication. This does not establish installed
+StartOS/Umbrel upgrade behavior, actual Tor recovery, Jam service lifecycle or
+Windows supervisor support; those acceptance gates remain open.

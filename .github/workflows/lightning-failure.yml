@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
   push:
     branches: ['fix/lightning-failed-payment-costs', 'codex/cross-platform-parity']
-    paths: ['bark/**', 'bark-cli/**', 'bark-json/**', 'bark-rest/**', 'mobile/rust/**', 'Cargo.lock', 'deployment/desktop/**', 'justfile', '.github/workflows/lightning-failure.yml']
+    paths: ['bark/**', 'bark-cli/**', 'bark-json/**', 'bark-rest/**', 'mobile/rust/**', 'Cargo.lock', 'deployment/desktop/**', 'deployment/managed-chain.py', 'deployment/node_tor.py', 'deployment/test_managed_chain.py', 'deployment/test_node_tor.py', 'justfile', '.github/workflows/lightning-failure.yml']
 permissions:
   contents: read
 jobs:
@@ -36,6 +36,10 @@ jobs:
       - run: nix develop .#build --command just unit-support
       - run: nix develop .#build --command just unit funded_lightning
       - run: nix develop .#build --command just unit lightning_send_lifetime
+      - name: Packaged service supervisor lifecycle
+        run: |
+          python3 -m unittest discover -s deployment -p test_managed_chain.py
+          python3 -m unittest discover -s deployment -p test_node_tor.py
       - name: Unfunded native daemon lifecycle prerequisite
         run: |
           export BARK_WEB_DIST="$PWD/web"
