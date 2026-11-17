@@ -7,6 +7,7 @@ Only local paths, current-user ownership and user/SYSTEM access are accepted.
 from contextlib import contextmanager
 from pathlib import Path
 
+import ntsecuritycon
 import pywintypes
 import win32api
 import win32con
@@ -80,9 +81,9 @@ def ancestors(path):
     handles = []
     try:
         for parent in reversed(path.parents):
-            handle = win32file.CreateFile(str(parent), win32con.READ_CONTROL | win32con.FILE_READ_ATTRIBUTES,
+            handle = win32file.CreateFile(str(parent), win32con.READ_CONTROL | ntsecuritycon.FILE_READ_ATTRIBUTES,
                 win32con.FILE_SHARE_READ | win32con.FILE_SHARE_WRITE, None, win32con.OPEN_EXISTING,
-                win32con.FILE_FLAG_OPEN_REPARSE_POINT | win32con.FILE_FLAG_BACKUP_SEMANTICS, None)
+                win32file.FILE_FLAG_OPEN_REPARSE_POINT | win32con.FILE_FLAG_BACKUP_SEMANTICS, None)
             handles.append(handle)
             validate_handle(handle, directory=True, private=False)
         yield
@@ -99,9 +100,9 @@ def private_directory(path):
         except pywintypes.error as error:
             if error.winerror != 183:  # ERROR_ALREADY_EXISTS; verify instead of changing ACLs.
                 raise
-        handle = win32file.CreateFile(str(path), win32con.READ_CONTROL | win32con.FILE_READ_ATTRIBUTES,
+        handle = win32file.CreateFile(str(path), win32con.READ_CONTROL | ntsecuritycon.FILE_READ_ATTRIBUTES,
             win32con.FILE_SHARE_READ | win32con.FILE_SHARE_WRITE, None, win32con.OPEN_EXISTING,
-            win32con.FILE_FLAG_OPEN_REPARSE_POINT | win32con.FILE_FLAG_BACKUP_SEMANTICS, None)
+            win32file.FILE_FLAG_OPEN_REPARSE_POINT | win32con.FILE_FLAG_BACKUP_SEMANTICS, None)
         try:
             validate_handle(handle, directory=True)
         finally:
@@ -114,7 +115,7 @@ def exclusive_file(path):
     with ancestors(path):
         handle = win32file.CreateFile(str(path), win32con.GENERIC_READ | win32con.GENERIC_WRITE | win32con.READ_CONTROL,
             win32con.FILE_SHARE_READ | win32con.FILE_SHARE_WRITE, private_attributes(), win32con.OPEN_ALWAYS,
-            win32con.FILE_FLAG_OPEN_REPARSE_POINT, None)
+            win32file.FILE_FLAG_OPEN_REPARSE_POINT, None)
         try:
             validate_handle(handle, directory=False)
             overlap = pywintypes.OVERLAPPED()
