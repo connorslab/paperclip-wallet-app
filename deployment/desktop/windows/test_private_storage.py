@@ -149,11 +149,15 @@ class PrivateStorage(unittest.TestCase):
         second.close()
         self.assertEqual(path.read_bytes(), b'incomplete fixture')
 
-    def test_checked_reader_survives_atomic_file_replacement(self):
+    def test_checked_reader_keeps_its_opened_identity_after_path_replacement(self):
         first = self.record(); first.begin(); first.finish(); first.close()
         other_path = self.root / 'other.state'
         second = self.record(other_path); second.begin(); second.close()
         with read_private_file(self.root / 'session.state') as file:
+            # Python's legacy MoveFileEx replacement cannot overwrite an open
+            # target. Exercise reader identity here; Rust's native filesystem
+            # suite covers its atomic FileRenameInfoEx replacement separately.
+            (self.root / 'session.state').rename(self.root / 'previous.state')
             os.replace(other_path, self.root / 'session.state')
             self.assertEqual(file.read(), SessionRecord.CLOSED)
         with read_private_file(self.root / 'session.state') as file:
