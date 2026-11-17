@@ -432,7 +432,8 @@ impl WalletAction for Offboard {
 
 /// Build a fresh [`Offboard`] in [`Progress::Start`]: pick inputs (for
 /// `SendOnchain`), derive the offboard key (for `SendOnchain`), validate fee/dust
-/// constraints, and lock the inputs under the new action id.
+/// constraints, and record the selected inputs. The persisted action locks
+/// those inputs when its first step runs.
 ///
 /// The executor persists the returned state. Idempotent under re-run
 /// only if no checkpoint exists yet for this offboard (the caller is
@@ -887,11 +888,19 @@ async fn adopt_broadcast_offboard(
 	let Some(offboard_tx) = tx else {
 		return Ok(None);
 	};
+	if offboard_tx.compute_txid() != offboard_txid {
+		retry!("chain source returned a different offboard transaction");
+	}
 
 	info!("Found offboard tx {} on chain, adopting it", offboard_txid);
 	let movement_id = get_or_create_movement(
 		wallet, action, offboard_vtxo_ids, iter::empty::<VtxoId>(),
 	).await?;
+	// Keep the receipt after the confirmation checkpoint is removed, just as
+	// finish_offboard does when its response was received without interruption.
+	wallet.inner.movements.update_movement(
+		movement_id, MovementUpdate::new().metadata(OffboardMovement::metadata(&offboard_tx)),
+	).await.context("failed to retain adopted offboard transaction").retry()?;
 	Ok(Some(Progress::AwaitingConfirmations {
 		offboard_vtxo_ids: offboard_vtxo_ids.to_vec(),
 		offboard_txid,

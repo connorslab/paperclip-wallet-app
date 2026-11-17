@@ -2,6 +2,7 @@ use std::path::Path;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::{ensure, Context};
+use bark::actions::offboard::{Offboard, Progress as OffboardProgress};
 use bark::movement::{Movement, MovementStatus};
 use bark::subsystem::Subsystem;
 use bitcoin::{Network, bip32::{Xpriv, Xpub}, hashes::{sha256, Hash}};
@@ -31,6 +32,8 @@ pub struct Attempt {
 	/// Exact direct-Ark action, saved before the core can submit it.
 	#[serde(skip_serializing_if = "Option::is_none")]
 	pub ark_action_id: Option<String>,
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub offboard_action_id: Option<String>,
 	#[serde(default)]
 	pub replacement_txids: Vec<String>,
 }
@@ -40,7 +43,7 @@ impl Attempt {
 		Self { version: 1, attempt_id: sha256::Hash::hash(&bitcoin::secp256k1::rand::random::<[u8;32]>()).to_string(),
 			state: "unknown".into(), source: source.into(), destination, amount_sat, total_sat,
 			created_at: SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs(),
-			txid: None, confirmed_txid: None, payment_hash: None, ark_action_id: None, replacement_txids: Vec::new() }
+			txid: None, confirmed_txid: None, payment_hash: None, ark_action_id: None, offboard_action_id: None, replacement_txids: Vec::new() }
 	}
 	pub fn unresolved(&self) -> bool { !matches!(self.state.as_str(), "completed" | "paid" | "not_sent") }
 	fn validate(&self) -> anyhow::Result<()> {
@@ -53,8 +56,12 @@ impl Attempt {
 			&& self.replacement_txids.len() <= 16 && self.replacement_txids.iter().all(|v| hash(v)),
 			"Saved payment needs recovery; no new payment was started");
 		ensure!(self.ark_action_id.as_ref().is_none_or(|id| id.len() == 32 && id.bytes().all(|b| b.is_ascii_hexdigit())
-			&& self.source == "ark" && self.txid.is_none() && self.payment_hash.is_none()),
+			&& self.source == "ark" && self.txid.is_none() && self.payment_hash.is_none() && self.offboard_action_id.is_none()
+			&& self.replacement_txids.is_empty()),
 			"Saved Ark action does not belong to this payment type");
+		ensure!(self.offboard_action_id.as_ref().is_none_or(|id| id.len() == 32 && id.bytes().all(|b| b.is_ascii_hexdigit())
+			&& self.source == "ark" && self.payment_hash.is_none() && self.ark_action_id.is_none() && self.replacement_txids.is_empty()),
+			"Saved withdrawal action does not belong to this payment type");
 		ensure!(self.confirmed_txid.as_ref().is_none_or(|confirmed| self.txid.is_some() && self.state == "completed"
 			&& (self.txid.as_ref() == Some(confirmed) || self.replacement_txids.contains(confirmed))),
 			"Confirmed transaction does not belong to the saved payment");
@@ -112,6 +119,45 @@ pub fn ark_observer(dir: &Path, owner: &str, id: &str)
 	}
 }
 
+/// Recheck the constructed action after fee calculation and before the core can
+/// create a checkpoint. Returning an error prevents locking or spending inputs.
+pub fn offboard_observer(dir: &Path, owner: &str, id: &str, destination: &bitcoin::Address)
+	-> impl FnOnce(&Offboard) -> anyhow::Result<()> + Send + 'static
+{
+	let dir = dir.to_path_buf(); let owner = owner.to_owned(); let id = id.to_owned();
+	let destination = destination.clone().into_unchecked();
+	move |action| {
+		let attempt = load(&dir, &owner)?.context("Saved withdrawal is missing")?;
+		let total = action.onchain_output_amount.checked_add(action.committed_fee)
+			.and_then(|v| v.checked_add(action.recovery_reserve)).context("Withdrawal cost overflow")?;
+		ensure!(attempt.attempt_id == id && action.progress == OffboardProgress::Start
+			&& action.destination == destination && action.onchain_output_amount.to_sat() == attempt.amount_sat
+			&& total.to_sat() <= attempt.total_sat, "Withdrawal changed; the reviewed payment was not submitted");
+		update(&dir, &owner, &id, &serde_json::json!({"state":"unknown", "offboard_action_id":action.id}))?;
+		Ok(())
+	}
+}
+
+/// Recover only the signed/adopted transaction recorded under this exact action.
+/// A movement's status alone does not establish confirmation or permit a retry.
+pub fn offboard_txid(attempt: &Attempt, movement: Option<&Movement>) -> anyhow::Result<Option<bitcoin::Txid>> {
+	attempt.validate()?;
+	ensure!(attempt.offboard_action_id.is_some(), "Saved withdrawal action is missing");
+	let Some(movement) = movement else { return Ok(None); };
+	ensure!(movement.subsystem.is_subsystem(Subsystem::OFFBOARD)
+		&& matches!(movement.subsystem.kind.as_str(), "offboard" | "send_onchain")
+		&& movement.sent_to.len() == 1
+		&& matches!(movement.sent_to[0].destination, bark::movement::PaymentMethod::Bitcoin(_))
+		&& movement.sent_to[0].amount.to_sat() == attempt.amount_sat
+		&& movement.offchain_fee.to_sat() <= attempt.total_sat - attempt.amount_sat,
+		"Saved withdrawal has an unexpected movement; check the original payment");
+	if matches!(movement.status, MovementStatus::Failed | MovementStatus::Canceled) { return Ok(None); }
+	movement.metadata.get("offboard_txid").map(|v| {
+		v.as_str().context("Withdrawal transaction reference is damaged")?.parse()
+			.context("Withdrawal transaction reference is invalid")
+	}).transpose()
+}
+
 /// Only classify a movement looked up by the saved action, never by recipient
 /// or amount. A failed movement is not evidence that funds are safe to resend.
 pub fn ark_result(attempt: &Attempt, movement: Option<&Movement>) -> anyhow::Result<Value> {
@@ -153,7 +199,8 @@ pub fn update(dir: &Path, owner: &str, id: &str, result: &Value) -> anyhow::Resu
 	ensure!(attempt.unresolved() || attempt.state == state,
 		"A verified payment outcome cannot be replaced by a delayed result");
 	for (key, saved) in [("txid", &mut attempt.txid), ("payment_hash", &mut attempt.payment_hash),
-		("confirmed_txid", &mut attempt.confirmed_txid), ("ark_action_id", &mut attempt.ark_action_id)] {
+		("confirmed_txid", &mut attempt.confirmed_txid), ("ark_action_id", &mut attempt.ark_action_id),
+		("offboard_action_id", &mut attempt.offboard_action_id)] {
 		if let Some(value) = result[key].as_str() {
 			ensure!(saved.as_deref().is_none_or(|old| old == value), "Payment reference changed; keep checking the original attempt");
 			*saved = Some(value.into());
@@ -224,9 +271,95 @@ mod tests {
 		assert!(value.get("confirmed_txid").is_none());
 		assert!(value.get("payment_hash").is_none());
 		assert!(value.get("ark_action_id").is_none());
+		assert!(value.get("offboard_action_id").is_none());
 		let restored: Attempt = serde_json::from_value(value).unwrap();
 		assert_eq!(restored.attempt_id, attempt.attempt_id);
 		assert!(restored.txid.is_none() && restored.payment_hash.is_none());
+	}
+	#[test]
+	fn withdrawal_guard_binds_recipient_net_amount_and_total_before_recording_action() {
+		let (dir, owner) = setup();
+		let destination = bitcoin::Address::p2wsh(&bitcoin::ScriptBuf::from_bytes(vec![0x51]), Network::Regtest);
+		let attempt = Attempt::new("ark", destination.to_string(), 1000, 1100);
+		begin(dir.path(), &owner, &attempt).unwrap();
+		let mut action = Offboard {
+			id: "ab".repeat(16), destination: destination.clone().into_unchecked(),
+			onchain_output_amount: bitcoin::Amount::from_sat(1000), committed_fee: bitcoin::Amount::from_sat(80),
+			recovery_reserve: bitcoin::Amount::from_sat(20), committed_fee_rate: bitcoin::FeeRate::from_sat_per_vb(1).unwrap(),
+			kind: bark::actions::offboard::OffboardKind::OffboardWhole { input_vtxo_ids: vec![] }, progress: OffboardProgress::Start,
+		};
+		let observe = |id: &str, action: &Offboard| offboard_observer(dir.path(), &owner, id, &destination)(action);
+		for field in ["recipient", "amount", "fee", "reserve", "overflow", "progress"] {
+			let mut changed = action.clone();
+			match field {
+				"recipient" => changed.destination = bitcoin::Address::p2wsh(&bitcoin::ScriptBuf::from_bytes(vec![0x52]), Network::Regtest).into_unchecked(),
+				"amount" => changed.onchain_output_amount = bitcoin::Amount::from_sat(999),
+				"fee" => changed.committed_fee = bitcoin::Amount::from_sat(81),
+				"reserve" => changed.recovery_reserve = bitcoin::Amount::from_sat(21),
+				"overflow" => changed.committed_fee = bitcoin::Amount::from_sat(u64::MAX),
+				_ => changed.progress = OffboardProgress::SplitWithArkoor,
+			}
+			assert!(observe(&attempt.attempt_id, &changed).is_err(), "{field}");
+			assert!(load(dir.path(), &owner).unwrap().unwrap().offboard_action_id.is_none());
+		}
+		assert!(observe(&"00".repeat(32), &action).is_err());
+		let conn = connection(dir.path()).unwrap();
+		conn.execute_batch("CREATE TRIGGER reject_withdrawal_reference BEFORE UPDATE ON paperclip_payment_attempt BEGIN SELECT RAISE(FAIL, 'fixture failure'); END;").unwrap();
+		assert!(observe(&attempt.attempt_id, &action).is_err());
+		conn.execute_batch("DROP TRIGGER reject_withdrawal_reference;").unwrap();
+		observe(&attempt.attempt_id, &action).unwrap();
+		assert_eq!(load(dir.path(), &owner).unwrap().unwrap().offboard_action_id.as_deref(), Some(action.id.as_str()));
+		assert!(update(dir.path(), &owner, &attempt.attempt_id, &json!({"state":"unknown", "ark_action_id":action.id})).is_err());
+		assert!(update(dir.path(), &owner, &attempt.attempt_id, &json!({"state":"unknown", "payment_hash":"ab".repeat(32)})).is_err());
+		action.id = "cd".repeat(16);
+		assert!(observe(&attempt.attempt_id, &action).is_err());
+		assert!(require_resolved(dir.path(), &owner).is_err());
+	}
+	#[test]
+	fn withdrawal_reference_is_not_proof_of_confirmation_or_safe_retry() {
+		let (dir, owner) = setup();
+		let destination = bitcoin::Address::p2wsh(&bitcoin::ScriptBuf::from_bytes(vec![0x51]), Network::Regtest);
+		let mut attempt = Attempt::new("ark", destination.to_string(), 1000, 1100);
+		attempt.offboard_action_id = Some("ab".repeat(16));
+		begin(dir.path(), &owner, &attempt).unwrap();
+		let subsystem = bark::movement::MovementSubsystem { name: Subsystem::OFFBOARD.as_name().into(), kind: "offboard".into() };
+		let mut movement = Movement::new(bark::movement::MovementId(1), MovementStatus::Pending, &subsystem,
+			"2026-11-17T00:00:00+00:00".parse().unwrap());
+		movement.sent_to = vec![bark::movement::MovementDestination::bitcoin(destination, bitcoin::Amount::from_sat(1000))];
+		movement.offchain_fee = bitcoin::Amount::from_sat(100);
+		assert!(offboard_txid(&attempt, None).unwrap().is_none());
+		assert!(offboard_txid(&attempt, Some(&movement)).unwrap().is_none());
+		let txid = "ab".repeat(32);
+		movement.metadata.insert("offboard_txid".into(), json!(txid));
+		for kind in ["offboard", "send_onchain"] {
+			movement.subsystem.kind = kind.into();
+			for status in [MovementStatus::Pending, MovementStatus::Successful] {
+				movement.status = status;
+				assert_eq!(offboard_txid(&attempt, Some(&movement)).unwrap(), Some(txid.parse().unwrap()));
+				let saved = update(dir.path(), &owner, &attempt.attempt_id, &json!({"state":"unknown", "txid":txid})).unwrap();
+				assert!(saved.unresolved(), "A recorded transaction still needs chain evidence");
+			}
+		}
+		for status in [MovementStatus::Failed, MovementStatus::Canceled] {
+			movement.status = status;
+			assert!(offboard_txid(&attempt, Some(&movement)).unwrap().is_none());
+			assert!(require_resolved(dir.path(), &owner).is_err());
+		}
+		movement.status = MovementStatus::Pending;
+		movement.metadata.insert("offboard_txid".into(), json!("broken"));
+		assert!(offboard_txid(&attempt, Some(&movement)).is_err());
+		movement.metadata.insert("offboard_txid".into(), json!(txid));
+		movement.subsystem.name = Subsystem::ARKOOR.as_name().into();
+		assert!(offboard_txid(&attempt, Some(&movement)).is_err());
+		movement.subsystem = subsystem;
+		movement.sent_to[0].amount = bitcoin::Amount::from_sat(999);
+		assert!(offboard_txid(&attempt, Some(&movement)).is_err());
+		movement.sent_to[0].amount = bitcoin::Amount::from_sat(1000);
+		movement.offchain_fee = bitcoin::Amount::from_sat(101);
+		assert!(offboard_txid(&attempt, Some(&movement)).is_err());
+		assert!(update(dir.path(), &owner, &attempt.attempt_id, &json!({"state":"completed"})).is_err());
+		update(dir.path(), &owner, &attempt.attempt_id, &json!({"state":"completed", "confirmed_txid":txid})).unwrap();
+		assert!(!load(dir.path(), &owner).unwrap().unwrap().unresolved());
 	}
 	#[test]
 	fn ark_action_is_durable_immutable_and_fails_closed_before_submission() {

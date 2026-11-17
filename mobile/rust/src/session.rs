@@ -126,7 +126,7 @@ mod tests {
 
 	#[test]
 	fn payment_attempt_survives_native_backup_without_restoring_approval() {
-		for direct_ark in [false, true] {
+		for source in ["lightning", "ark", "offboard"] {
 			let base = tempfile::tempdir().unwrap();
 			let original = base.path().join("original");
 			let restored = base.path().join("restored");
@@ -136,7 +136,8 @@ mod tests {
 			dispatch(&mut state, json!({"op":"create", "network":"xbt-regtest", "directory":original}), seed).unwrap();
 			assert!(dispatch(&mut state, json!({"op":"outgoing_payment"}), seed).unwrap()["attempt"].is_null());
 			let mut attempt = Attempt::new("ark", "public restore fixture".into(), 1000, 1100);
-			if direct_ark { attempt.ark_action_id = Some("ab".repeat(16)); }
+			if source == "offboard" { attempt.offboard_action_id = Some("ab".repeat(16)); }
+			else if source == "ark" { attempt.ark_action_id = Some("ab".repeat(16)); }
 			else { attempt.payment_hash = Some("ab".repeat(32)); }
 			payment_attempt::begin(&original, &binding, &attempt).unwrap();
 			let archive = dispatch(&mut state, json!({"op":"backup"}), seed).unwrap();
@@ -147,6 +148,7 @@ mod tests {
 			assert_eq!(saved["attempt"]["attempt_id"], attempt.attempt_id);
 			assert_eq!(saved["attempt"]["payment_hash"].as_str(), attempt.payment_hash.as_deref());
 			assert_eq!(saved["attempt"]["ark_action_id"].as_str(), attempt.ark_action_id.as_deref());
+			assert_eq!(saved["attempt"]["offboard_action_id"].as_str(), attempt.offboard_action_id.as_deref());
 			assert_eq!(saved["attempt"]["state"], "unknown");
 			assert!(state.as_ref().unwrap().quote.is_none());
 			for op in ["send", "send_onchain", "quote", "quote_onchain"] {
@@ -915,8 +917,18 @@ pub fn dispatch(state: &mut Option<Session>, request: Value, seed: [u8; 64]) -> 
 		}
 		match op {
 			"check_outgoing_payment" => {
-				let Some(attempt) = payment_attempt::load(dir, &payment_owner)? else { return Ok(json!({"attempt":null})); };
+				let Some(mut attempt) = payment_attempt::load(dir, &payment_owner)? else { return Ok(json!({"attempt":null})); };
 				if !attempt.unresolved() { return Ok(json!({"attempt":attempt})); }
+				if attempt.txid.is_none() {
+					if let Some(action) = &attempt.offboard_action_id {
+						let movement = w.movement_for_action(action).await?;
+						if let Some(txid) = payment_attempt::offboard_txid(&attempt, movement.as_ref())? {
+							// Keep the reference even if the following chain lookup fails.
+							attempt = payment_attempt::update(dir, &payment_owner, &attempt.attempt_id,
+								&json!({"state":"unknown", "txid":txid.to_string()}))?;
+						}
+					}
+				}
 				let result = if let Some(hash) = &attempt.payment_hash {
 					use bark::actions::lightning::pay::LightningSendState;
 					// Read existing settlement evidence; do not drive or replay a send.
@@ -1343,7 +1355,13 @@ pub fn dispatch(state: &mut Option<Session>, request: Value, seed: [u8; 64]) -> 
 				payment_attempt::begin(dir, &payment_owner, &attempt)?;
 				let result = if let Some(ids) = offboard_inputs {
 					let bark::movement::PaymentMethod::Bitcoin(address) = method else { bail!("invalid withdrawal quote"); };
-					PaymentInitOutput::Onchain(w.offboard_vtxos(ids, address.assume_checked()).await?.txid)
+					let address = address.require_network(network)?;
+					let observer = payment_attempt::offboard_observer(dir, &payment_owner, &attempt.attempt_id, &address);
+					PaymentInitOutput::Onchain(w.offboard_vtxos_tracked(ids, address, observer).await?.txid)
+				} else if let bark::movement::PaymentMethod::Bitcoin(address) = &method {
+					let address = address.clone().require_network(network)?;
+					let observer = payment_attempt::offboard_observer(dir, &payment_owner, &attempt.attempt_id, &address);
+					PaymentInitOutput::Onchain(w.send_onchain_tracked(address, Amount::from_sat(amount), observer).await?.txid)
 				} else if let bark::movement::PaymentMethod::Ark(address) = &method {
 					PaymentInitOutput::Ark(w.send_arkoor_payment_tracked(address, Amount::from_sat(amount), Some(Amount::from_sat(total)),
 						payment_attempt::ark_observer(dir, &payment_owner, &attempt.attempt_id)).await?)

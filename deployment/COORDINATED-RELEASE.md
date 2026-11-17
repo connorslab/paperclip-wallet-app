@@ -2343,6 +2343,7 @@ Xcode build, iOS bundle verification and just checks passed. Android receipt
 selection was unit-tested and compiled in this pass; its screen was not rerun on
 an emulator. No live invoice, transaction confirmation, funded device operation,
 service restart or publication was performed.
+
 ## Direct-Ark mobile send recovery: 2026-11-17
 
 Ordinary mobile sends to an Ark address now save the exact native action ID before
@@ -2380,3 +2381,54 @@ This does not close direct-Ark live-delivery acceptance, Ark-to-onchain withdraw
 action correlation, pre-callback failure recovery, portable remote-node/Bridge
 recovery, or the installed-host, hardware, consensus and signed-distribution
 gates. No release candidate was published or deployed.
+
+
+## Ark withdrawal recovery and review boundary: 2026-11-17
+
+Backend CI and both API 35/36 Android jobs passed at `46e938e`, including the
+updated backup-screen assertion. These passes precede the withdrawal changes
+below; current-source CI remains required.
+
+The shared mobile engine now retains an exact offboard action before the native
+checkpoint can lock or spend inputs. New tracked core entry points preserve
+explicit Send Max inputs or the requested fixed amount. Immediately before
+checkpoint creation, the mobile observer rechecks the constructed action's
+recipient, receive amount, total fee including recovery reserves, and saved
+attempt. An increased debit, changed recipient/amount, overflow or failed receipt
+write rejects submission. The existing untracked public APIs retain their behavior.
+
+A lost reply can now be reconciled through the exact action's movement and its
+recorded signed/adopted transaction. The transaction reference is saved before a
+chain lookup, so an unavailable chain source cannot erase it. A movement ID,
+failed/canceled movement or missing transaction does not prove confirmation or
+permit a new send. Confirmation still requires chain evidence. Backup/restore
+retains this action reference without restoring approval. Status checks never
+submit or drive a payment.
+
+The shared core also retains transaction metadata when adopting an offboard found
+on-chain after a lost finish reply. Previously this path could remove the final
+checkpoint without leaving the transaction reference in movement history. Adoption
+now rejects a chain response with a different transaction ID and persists the
+reference before advancing; this applies to every platform using the core.
+
+Validation: 44 mobile Rust tests passed with one existing live test ignored;
+291 existing shared wallet tests and one new submission-boundary test passed.
+The new boundary test proves a failed observer leaves no withdrawal checkpoint or
+movement, releases its lock and preserves another action. Mobile tests cover review
+changes, storage failure, immutable references, conservative reconciliation and
+backup restore. Native ARM64 Apple/Android libraries and app builds passed, as did
+six iOS native tests, two Android JNI tests, bundle verification and repository
+checks. The first Android attempt ran before the emulator completed booting and
+failed fixture creation with permission errors; it is retained as failed evidence.
+After boot completion and an unlocked user-storage check, both cases passed.
+iOS reported thread-priority inversion warnings during native fixtures; there was
+no test failure, but this is not performance acceptance.
+
+Still open: live withdrawal settlement, recovery for failures before the action
+observer or after a rejected review, and desktop withdrawal review parity. The
+shared desktop UI currently confirms "Fees apply" for withdraw-all, without an
+exact receive amount/fee approval; it needs a bound quote and commit flow using
+the selected inputs. Do not treat the mobile guard as fixing that desktop flow.
+Portable node/Bridge recovery, installed-host/Jam lifecycle, physical signers,
+current-source consensus and signed installers remain required. No funded device,
+production service or release candidate was changed in this pass.
