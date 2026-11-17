@@ -10,6 +10,7 @@ import javax.crypto.spec.SecretKeySpec
 object BackupCodec {
     private val header = "PAPERCLIP-BACKUP-1\n".toByteArray(Charsets.UTF_8)
     const val MAX_BYTES = 64 * 1024 * 1024
+    private val maxPlaintextBytes = MAX_BYTES - header.size - 12 - 16
     fun newKey(): String = Base64.getEncoder().encodeToString(ByteArray(32).also { SecureRandom().nextBytes(it) })
     private fun key(value: String): SecretKeySpec {
         require(value.trim().length <= 64) { "Invalid recovery key" }
@@ -18,7 +19,7 @@ object BackupCodec {
         return SecretKeySpec(bytes, "AES").also { bytes.fill(0) }
     }
     fun seal(plain: ByteArray, recoveryKey: String): ByteArray {
-        require(plain.size < MAX_BYTES - 64) { "Backup too large" }
+        require(plain.size <= maxPlaintextBytes) { "Backup too large" }
         val nonce = ByteArray(12).also { SecureRandom().nextBytes(it) }
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(Cipher.ENCRYPT_MODE, key(recoveryKey), GCMParameterSpec(128, nonce))

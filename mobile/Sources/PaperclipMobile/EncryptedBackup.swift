@@ -13,13 +13,37 @@ public struct RecoveryArchive: Codable, Sendable, Equatable {
     public let seed: Data
     public let recoveryState: Data
     public let seedPhrase: String?
+    private enum CodingKeys: String, CodingKey {
+        case version, network, walletID, createdAt, seed, recoveryState, seedPhrase
+    }
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        func data(_ name: CodingKeys) throws -> Data {
+            let encoded = try values.decode(String.self, forKey: name)
+            guard let result = Data(base64Encoded: encoded), result.base64EncodedString() == encoded else {
+                throw BackupError.invalidArchive
+            }
+            return result
+        }
+        version = try values.decode(Int.self, forKey: .version)
+        network = try values.decode(String.self, forKey: .network)
+        walletID = try values.decode(String.self, forKey: .walletID)
+        createdAt = try values.decode(Date.self, forKey: .createdAt)
+        seed = try data(.seed)
+        recoveryState = try data(.recoveryState)
+        seedPhrase = try values.decodeIfPresent(String.self, forKey: .seedPhrase)
+        try validate()
+    }
     public init(network: String, walletID: String, createdAt: Date, seed: Data, recoveryState: Data, seedPhrase: String? = nil) {
         self.version = 1; self.network = network; self.walletID = walletID
         self.createdAt = createdAt; self.seed = seed; self.recoveryState = recoveryState; self.seedPhrase = seedPhrase
     }
     public func validate() throws {
         guard version == 1, ["xbt-mainnet", "xbt-regtest"].contains(network),
-              !walletID.isEmpty, walletID.count <= 128, seed.count == 64, !recoveryState.isEmpty else {
+              !walletID.isEmpty, walletID.utf8.count <= 128,
+              createdAt.timeIntervalSinceReferenceDate.isFinite,
+              seed.count == 64, !recoveryState.isEmpty,
+              seedPhrase.map({ $0.utf8.count <= 4096 }) ?? true else {
             throw BackupError.invalidArchive
         }
     }
@@ -28,6 +52,7 @@ public struct RecoveryArchive: Codable, Sendable, Equatable {
 public enum EncryptedBackup {
     private static let header = Data("PAPERCLIP-BACKUP-1\n".utf8)
     public static let maximumBytes = 64 * 1024 * 1024
+    private static let maximumPlaintextBytes = maximumBytes - header.count - 12 - 16
     public static func generateRecoveryKey() -> String {
         SymmetricKey(size: .bits256).withUnsafeBytes { Data($0).base64EncodedString() }
     }
@@ -38,8 +63,11 @@ public enum EncryptedBackup {
     }
     public static func seal(_ archive: RecoveryArchive, recoveryKey: String) throws -> Data {
         try archive.validate()
+        // Keep the device's existing allocation limit, then also account for
+        // JSON/base64 expansion, nonce/tag, and header in the wire size check.
         guard archive.recoveryState.count < maximumBytes / 2 else { throw BackupError.tooLarge }
         let plain = try JSONEncoder().encode(archive)
+        guard plain.count <= maximumPlaintextBytes else { throw BackupError.tooLarge }
         let sealed = try AES.GCM.seal(plain, using: key(recoveryKey), authenticating: header)
         guard let combined = sealed.combined else { throw BackupError.invalidArchive }
         return header + combined

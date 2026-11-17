@@ -43,6 +43,23 @@ class AssistanceNativeTest {
             val sourceProfile = engine.profiles().first { it.id == source }
             engine.removeWallet(source, sourceProfile.name, "REMOVE ${sourceProfile.name}", true)
             engine.open()
+            // These used to pass JSONObject's coercing getters. Rejection must
+            // happen before either check or import can touch the active session.
+            val validPlain = BackupCodec.open(archive, key)
+            val valid = try { JSONObject(String(validPlain, Charsets.UTF_8)) } finally { validPlain.fill(0) }
+            for ((field, value) in listOf("version" to 1.9, "version" to "1",
+                "seedPhrase" to false, "walletID" to "", "createdAt" to "yesterday")) {
+                val malformed = JSONObject(valid.toString()).put(field, value).toString().toByteArray()
+                val invalid = try { BackupCodec.seal(malformed, key) } finally { malformed.fill(0) }
+                try {
+                    try { engine.checkBackup(invalid, key); fail("Malformed metadata passed restore check") }
+                    catch (_: IllegalArgumentException) {}
+                    assertStillOpen()
+                    try { engine.restore(invalid, key, testOnly = true); fail("Malformed metadata was imported") }
+                    catch (_: IllegalArgumentException) {}
+                    assertStillOpen()
+                } finally { invalid.fill(0) }
+            }
             val decoded = BackupCodec.open(archive, key)
             val damaged = try { JSONObject(String(decoded, Charsets.UTF_8)).put("recoveryState", Base64.getEncoder().encodeToString("invalid database".toByteArray())) }
             finally { decoded.fill(0) }

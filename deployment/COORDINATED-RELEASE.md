@@ -2166,3 +2166,36 @@ interpreter is external, signatures are ad-hoc, and Developer ID/notarization,
 bundled Tor/Jam, older OS/Intel execution and clean install/upgrade acceptance
 remain open. Linux/Windows visible shells, shared desktop multiple hot profiles
 and the remaining platform/payment/hardware/restore gates are still required.
+
+
+## Mobile backup validation parity: 2026-11-17
+
+Android previously used coercing JSON getters for the archive version and other
+metadata. A fractional or string version could reach the version-1 restore path;
+missing display identity/date fields were also accepted. A dedicated validator
+now checks the schema before opening or changing a wallet. iOS and Android share
+a public encrypted fixture and 27 malformed-archive cases covering field types,
+required metadata, network/version, UTF-8 field bounds, canonical base64, seed
+length and empty recovery state. Optional seed words may still be absent in old
+version-1 files. Native seed/database ownership validation remains mandatory;
+legacy walletID metadata is not ownership proof.
+
+Android reports malformed payloads with a generic error without retaining the
+JSON parser exception, which can include the source document. Both writers
+account for header, nonce and authentication tag within the 64 MiB wire limit.
+iOS retains its existing less-than-32-MiB database export allocation guard. This
+is not a new backup format and does not add app payment records or credentials.
+
+Validation: five Swift backup tests and seven Android unit tests passed, including
+the common CryptoKit-produced AES-GCM fixture, malformed metadata and parser-error
+redaction. An unfunded API 35 ARM64 emulator passed the native rejection test: five
+malformed metadata variants were rejected by both check and import, with direct
+JNI evidence that the active wallet stayed open and its selection was preserved.
+Wrong-key, duplicate-wallet and damaged-database rejection also passed in that
+test. Native Xcode simulator build and bundle verification passed; just checks
+passed. No physical-device or funded restore was performed.
+
+The portable app-recovery envelope described above remains an open release gate.
+It must bind native-wallet and remote-node records separately, preserve uncertain
+outcomes and references, and never restore a spending approval or replay a send.
+These validation checks do not establish complete cross-platform recovery.

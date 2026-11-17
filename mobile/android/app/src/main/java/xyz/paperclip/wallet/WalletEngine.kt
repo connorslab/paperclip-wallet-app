@@ -626,6 +626,7 @@ class WalletEngine private constructor(context: Context) {
 				.put("seed", r.getString("seed"))
 				.put("seedPhrase", r.optString("phrase").ifEmpty { null } ?: JSONObject.NULL)
 				.put("recoveryState", snapshot.getString("database"))
+		BackupArchive.validate(archive)
 		val plain = archive.toString().toByteArray()
 		try {
 			BackupCodec.seal(plain, key)
@@ -635,10 +636,9 @@ class WalletEngine private constructor(context: Context) {
 	}
 
 	suspend fun checkBackup(bytes: ByteArray, key: String): Boolean = serial {
-		openStored()
 		val plain = BackupCodec.open(bytes, key)
-		val archive = try { JSONObject(String(plain, Charsets.UTF_8)) } finally { plain.fill(0) }
-		require(archive.getInt("version") == 1 && archive.getString("network") in listOf("xbt-mainnet", "xbt-regtest")) { "Unsupported backup format" }
+		val archive = try { BackupArchive.decode(plain) } finally { plain.fill(0) }
+		openStored()
 		val phrase = if(archive.isNull("seedPhrase")) "" else archive.optString("seedPhrase")
 		if(phrase.isNotEmpty()) require(invoke("seed_derive", JSONObject().put("phrase", phrase)).getString("seed") == archive.getString("seed")) { "Backup words do not match its seed" }
 		val seed = Base64.getDecoder().decode(archive.getString("seed"))
@@ -653,16 +653,10 @@ class WalletEngine private constructor(context: Context) {
 		val plain = BackupCodec.open(bytes, key)
 		val archive =
 			try {
-				JSONObject(String(plain, Charsets.UTF_8))
+				BackupArchive.decode(plain)
 			} finally {
 				plain.fill(0)
 			}
-		require(
-			archive.getInt("version") == 1 &&
-				archive.getString("network") in listOf("xbt-mainnet", "xbt-regtest"),
-		) {
-			"Unsupported backup network or version"
-		}
 		val network = archive.getString("network")
 		check(
 			registry().entries().none {
