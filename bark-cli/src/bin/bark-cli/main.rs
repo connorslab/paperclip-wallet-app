@@ -760,6 +760,7 @@ async fn refresh_expiring(
 
 async fn inner_main(cli: Cli) -> anyhow::Result<()> {
 	let datadir = PathBuf::from_str(&cli.datadir).unwrap();
+	bark_cli::connection::require_standalone_datadir(&datadir)?;
 
 	// No log file: the datadir's debug.log belongs to barkd.
 	init_logging(cli.verbose, cli.quiet, &datadir, None, true);

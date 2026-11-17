@@ -35,6 +35,7 @@ jobs:
       - run: nix develop .#build --command just unit-mobile
       - run: nix develop .#build --command just unit-rest
       - run: nix develop .#build --command just unit-daemon
+      - run: nix develop .#build --command just unit-profiles
       - run: nix develop .#build --command just unit-creation
       - run: nix develop .#build --command just unit-support
       - run: nix develop .#build --command just unit funded_lightning
@@ -48,6 +49,7 @@ jobs:
           export BARK_WEB_DIST="$PWD/web"
           nix develop .#build --command cargo build --locked -p bark-cli --bin paperclip-walletd --features barkd-web-ui,sqlite-bundled
           python3 deployment/desktop/test_native_daemon.py --binary "$PWD/target/debug/paperclip-walletd"
+          python3 scripts/test-hot-profiles-daemon.py "$PWD/target/debug/paperclip-walletd"
           python3 deployment/desktop/test_pipe_io.py -v
           python3 deployment/desktop/test_managed_daemon.py --binary "$PWD/target/debug/paperclip-walletd" -v
           python3 deployment/desktop/test_managed_shutdown.py --binary "$PWD/target/debug/paperclip-walletd" -v

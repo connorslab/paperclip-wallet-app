@@ -43,3 +43,14 @@ const unavailable = client(async () => { retryCount++; return response(503); });
 await assert.rejects(unavailable.request('wallet/identity', {token:'fixture'}));
 assert.equal(retryCount, 2, 'Retry is bounded');
 console.log('PASS: bounded observation retries, no mutation/auth/TLS replay, distinct cancellation and deadline');
+
+// A retry must retain the exact profile namespace; no default-wallet fallback.
+{
+  const paths=[];
+  const c=client(async path=>{paths.push(path);return response(paths.length===1?503:200,{});});
+  await c.request('wallet/balance',{token:'fixture',profile:'a'.repeat(64)});
+  assert.deepEqual(paths,Array(2).fill('/api/profiles/'+'a'.repeat(64)+'/v1/wallet/balance'));
+  await assert.rejects(c.request('wallet/balance',{token:'fixture',profile:'../main'}));
+  assert.equal(paths.length,2);
+}
+console.log('PASS: explicit profile routing, stable retries and malformed profile rejection');

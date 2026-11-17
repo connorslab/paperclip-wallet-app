@@ -9,6 +9,8 @@ pub mod error;
 mod desktop_handoff;
 #[cfg(feature = "web-ui")]
 pub mod web;
+#[cfg(feature = "web-ui")]
+pub mod profiles;
 #[cfg(feature = "swagger-ui")]
 mod swagger;
 
@@ -139,6 +141,7 @@ pub struct RestServer {
 	local_addr: SocketAddr,
 	shutdown: CancellationToken,
 	jh: JoinHandle<()>,
+	state: Arc<ServerState>,
 }
 
 #[derive(Clone)]
@@ -186,6 +189,8 @@ impl std::ops::Deref for ServerWallet {
 /// The handlers share the state as an [Arc], so the fields themselves don't
 /// need to be individually shareable.
 pub struct ServerState {
+	#[cfg(feature = "web-ui")]
+	pub profiles: Option<Arc<profiles::Profiles>>,
 	#[cfg(feature = "web-ui")]
 	pub(crate) jam_pairings: tokio::sync::Mutex<()>,
 	pub(crate) withdrawal_review: tokio::sync::Mutex<Option<api::v1::withdrawals::PreparedWithdrawal>>,
@@ -242,6 +247,8 @@ pub struct ServerState {
 ///     .build();
 /// ```
 pub struct ServerStateBuilder {
+	#[cfg(feature = "web-ui")]
+	profiles: Option<Arc<profiles::Profiles>>,
 	wallet: Option<Wallet>,
 	auth_token: Option<AuthToken>,
 	on_wallet_create: Option<Box<OnWalletCreate>>,
@@ -254,6 +261,8 @@ pub struct ServerStateBuilder {
 impl ServerStateBuilder {
 	pub fn new() -> Self {
 		Self {
+			#[cfg(feature = "web-ui")]
+			profiles: None,
 			wallet: None,
 			auth_token: None,
 			on_wallet_create: None,
@@ -295,12 +304,20 @@ impl ServerStateBuilder {
 		self
 	}
 
+	#[cfg(feature = "web-ui")]
+	pub fn profiles(mut self, profiles: Arc<profiles::Profiles>) -> Self {
+		self.profiles = Some(profiles);
+		self
+	}
+
 	pub fn build(self, shutdown: CancellationToken) -> ServerState {
 		let wallet_opt = match &self.wallet {
 			Some(wallet) => Some(ServerWallet::new(wallet.clone(), shutdown.clone())),
 			None => None,
 		};
 		ServerState {
+			#[cfg(feature = "web-ui")]
+			profiles: self.profiles,
 			#[cfg(feature = "web-ui")]
 			jam_pairings: tokio::sync::Mutex::new(()),
 			replacement: tokio::sync::Mutex::new(None),
@@ -338,6 +355,16 @@ impl Default for ServerStateBuilder {
 impl ServerState {
 	pub fn builder() -> ServerStateBuilder {
 		ServerStateBuilder::new()
+	}
+
+	pub fn stop_wallet(&self) {
+		if let Some(wallet) = self.wallet.read().as_ref() { wallet.stop(); }
+	}
+
+	pub async fn stop_wallet_wait(&self) -> anyhow::Result<()> {
+		let wallet = self.wallet.read().clone();
+		if let Some(wallet) = wallet { wallet.stop_wait().await?; }
+		Ok(())
 	}
 
 	pub fn require_wallet(&self) -> Result<Wallet, ErrorResponse> {
@@ -416,6 +443,9 @@ impl RestServer {
 			.route("/ping", get(ping))
 			.nest("/api/v1", api::v1::router(&state));
 
+		#[cfg(feature = "web-ui")]
+		let router = router.merge(profiles::router(&state));
+
 		#[cfg(feature = "swagger-ui")]
 		let router = {
 			log::info!("Swagger UI is hosted on http://{}/swagger-ui", socket_addr);
@@ -444,7 +474,7 @@ impl RestServer {
 			.layer(cors_layer(config))
 			.layer(axum::middleware::from_fn(error::log_errors))
 			.layer(axum::middleware::from_fn_with_state(shutdown.clone(), request_body::interrupt_on_shutdown))
-			.with_state(state);
+			.with_state(state.clone());
 
 		let shutdown2 = shutdown.clone();
 		let jh = tokio::spawn(async move {
@@ -457,7 +487,7 @@ impl RestServer {
 			}
 		});
 
-		Ok(RestServer { local_addr: socket_addr, shutdown, jh })
+		Ok(RestServer { local_addr: socket_addr, shutdown, jh, state })
 	}
 
 	/// The bound listener address, including the OS-assigned port when configured with zero.
@@ -468,12 +498,18 @@ impl RestServer {
 	/// Stop the REST server
 	pub fn stop(&self) {
 		self.shutdown.cancel();
+		self.state.stop_wallet();
+		#[cfg(feature = "web-ui")]
+		if let Some(profiles) = &self.state.profiles { profiles.stop(); }
 	}
 
 	/// Stop the REST server and wait for it to shut down
 	pub async fn stop_wait(self) -> anyhow::Result<()> {
 		self.stop();
 		self.jh.await?;
+		self.state.stop_wallet_wait().await?;
+		#[cfg(feature = "web-ui")]
+		if let Some(profiles) = &self.state.profiles { profiles.stop_wait().await?; }
 		Ok(())
 	}
 }

@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
   push:
     branches: ['codex/cross-platform-parity']
-    paths: ['.github/workflows/windows-desktop.yml', 'deployment/desktop/windows/**', 'deployment/desktop/linux/launcher.py', 'deployment/desktop/managed_daemon.py', 'deployment/desktop/pipe_io.py', 'deployment/desktop/test_pipe_io.py', 'deployment/desktop/test_native_daemon.py', 'deployment/jam/paperclip_jam/journal.py', 'deployment/jam/test_journal.py', 'deployment/jam/paperclip_jam/hosting.py', 'deployment/jam/test_runtime_lock.py', 'deployment/jam/test_certificate_handoff.py', 'deployment/jam/install_windows_storage.py', 'deployment/jam/paperclip_jam/windows_storage.py', 'bark/src/lock_manager/**', 'bark/Cargo.toml', 'bark-common/**', 'Cargo.lock']
+    paths: ['.github/workflows/windows-desktop.yml', 'deployment/desktop/windows/**', 'deployment/desktop/linux/launcher.py', 'deployment/desktop/managed_daemon.py', 'deployment/desktop/pipe_io.py', 'deployment/desktop/test_pipe_io.py', 'deployment/desktop/test_native_daemon.py', 'deployment/jam/paperclip_jam/journal.py', 'deployment/jam/test_journal.py', 'deployment/jam/paperclip_jam/hosting.py', 'deployment/jam/test_runtime_lock.py', 'deployment/jam/test_certificate_handoff.py', 'deployment/jam/install_windows_storage.py', 'deployment/jam/paperclip_jam/windows_storage.py', 'bark/src/lock_manager/**', 'bark/Cargo.toml', 'bark-common/**', 'bark-cli/**', 'bark-rest/src/profiles.rs', 'bark-rest/src/lib.rs', 'scripts/test-hot-profiles-daemon.py', 'Cargo.lock']
 permissions:
   contents: read
 jobs:
@@ -98,6 +98,8 @@ jobs:
         run: ./target/debug/paperclip-walletd.exe --version
       - name: Verify unfunded authenticated startup and crash recovery
         run: python deployment/desktop/test_native_daemon.py --binary target/debug/paperclip-walletd.exe
+      - name: Verify isolated native hot-wallet profiles
+        run: python scripts/test-hot-profiles-daemon.py target/debug/paperclip-walletd.exe
       - name: Verify owned Windows launcher lifecycle and crash records
         timeout-minutes: 5
         run: python deployment/desktop/windows/test_managed_daemon.py --binary target/debug/paperclip-walletd.exe -v

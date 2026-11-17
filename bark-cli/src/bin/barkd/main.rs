@@ -414,11 +414,89 @@ fn wallet_create_request_to_create_opts(req: CreateWalletRequest) -> anyhow::Res
 	})
 }
 
+async fn wallet_state(
+	datadir: PathBuf, auth_token: Option<AuthToken>, expose_mnemonic: bool, shutdown: CancellationToken,
+) -> anyhow::Result<bark_rest::ServerStateBuilder> {
+	let opened_wallet = tokio::select! {
+		_ = shutdown.cancelled() => anyhow::bail!("Wallet startup cancelled"),
+		result = open_wallet(&datadir, USER_AGENT) => result?,
+	};
+	if shutdown.is_cancelled() {
+		anyhow::bail!("Wallet startup cancelled");
+	}
+	let wallet_opt = if let Some(wallet) = opened_wallet {
+		wallet.start_daemon()?;
+		info!("Wallet loaded and daemon started");
+		Some(wallet)
+	} else {
+		warn!("No wallet found. Starting rest server without daemon");
+		None
+	};
+
+	let on_wallet_create: Box<OnWalletCreate> = Box::new({
+		let datadir = datadir.clone();
+
+		move |req: CreateWalletRequest| {
+			let datadir = datadir.clone();
+
+			Box::pin(async move {
+				let create_opts = wallet_create_request_to_create_opts(req)?;
+				create_wallet(&datadir, USER_AGENT, create_opts).await?;
+				let wallet = open_wallet(&datadir, USER_AGENT).await?
+					.expect("Wallet should exist");
+
+				// Warm up `wallet.server` before spawning the daemon so
+				// that subsequent REST requests don't race with the daemon's
+				// first connection check.
+				if let Err(e) = wallet.refresh_server().await {
+					warn!("Ark server handshake failed on wallet creation: {:#}", e);
+				}
+
+				wallet.start_daemon()?;
+				Ok::<_, anyhow::Error>(wallet)
+			})
+		}
+	});
+
+	let on_wallet_delete: Box<OnWalletDelete> = Box::new({
+		let datadir = datadir.clone();
+		move || {
+			let datadir = datadir.clone();
+
+			// NB: No need to stop the daemon here, it will be stopped when the wallet is removed from the server state
+
+			Box::pin(async move {
+				connection::wipe_datadir_except_barkd_files(&datadir)?;
+				Ok(())
+			})
+		}
+	});
+
+	let on_get_mnemonic: Option<Box<OnGetMnemonic>> = if expose_mnemonic {
+		let datadir = datadir.clone();
+		Some(Box::new(move || {
+			let datadir = datadir.clone();
+			Box::pin(async move { read_mnemonic(&datadir).await })
+		}))
+	} else {
+		None
+	};
+
+	Ok(ServerState::builder()
+		.wallet(wallet_opt)
+		.auth_token(auth_token)
+		.on_wallet_create(on_wallet_create)
+		.on_wallet_delete(on_wallet_delete)
+		.on_get_mnemonic(on_get_mnemonic))
+
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()>{
 	let cli = Cli::parse();
 
 	let datadir = PathBuf::from_str(&cli.datadir).unwrap();
+	connection::require_standalone_datadir(&datadir)?;
 
 	let datadir_existed = datadir.exists();
 	std::fs::create_dir_all(&datadir)
@@ -496,78 +574,7 @@ async fn main() -> anyhow::Result<()>{
 		Some(token)
 	};
 
-	let opened_wallet = tokio::select! {
-		_ = shutdown.cancelled() => return Ok(()),
-		result = open_wallet(&datadir, USER_AGENT) => result?,
-	};
-	if shutdown.is_cancelled() {
-		return Ok(());
-	}
-	let wallet_opt = if let Some(wallet) = opened_wallet {
-		wallet.start_daemon()?;
-		info!("Wallet loaded and daemon started");
-		Some(wallet)
-	} else {
-		warn!("No wallet found. Starting rest server without daemon");
-		None
-	};
-
-	let on_wallet_create: Box<OnWalletCreate> = Box::new({
-		let datadir = datadir.clone();
-
-		move |req: CreateWalletRequest| {
-			let datadir = datadir.clone();
-
-			Box::pin(async move {
-				let create_opts = wallet_create_request_to_create_opts(req)?;
-				create_wallet(&datadir, USER_AGENT, create_opts).await?;
-				let wallet = open_wallet(&datadir, USER_AGENT).await?
-					.expect("Wallet should exist");
-
-				// Warm up `wallet.server` before spawning the daemon so
-				// that subsequent REST requests don't race with the daemon's
-				// first connection check.
-				if let Err(e) = wallet.refresh_server().await {
-					warn!("Ark server handshake failed on wallet creation: {:#}", e);
-				}
-
-				wallet.start_daemon()?;
-				Ok::<_, anyhow::Error>(wallet)
-			})
-		}
-	});
-
-	let on_wallet_delete: Box<OnWalletDelete> = Box::new({
-		let datadir = datadir.clone();
-		move || {
-			let datadir = datadir.clone();
-
-			// NB: No need to stop the daemon here, it will be stopped when the wallet is removed from the server state
-
-			Box::pin(async move {
-				connection::wipe_datadir_except_barkd_files(&datadir)?;
-				Ok(())
-			})
-		}
-	});
-
-	let on_get_mnemonic: Option<Box<OnGetMnemonic>> = if cli.expose_mnemonic {
-		let datadir = datadir.clone();
-		Some(Box::new(move || {
-			let datadir = datadir.clone();
-			Box::pin(async move { read_mnemonic(&datadir).await })
-		}))
-	} else {
-		None
-	};
-
-	let inner_wallet = wallet_opt.as_ref().map(|w| w.clone());
-	let builder = ServerState::builder()
-		.wallet(wallet_opt)
-		.auth_token(auth_token)
-		.on_wallet_create(on_wallet_create)
-		.on_wallet_delete(on_wallet_delete)
-		.on_get_mnemonic(on_get_mnemonic);
+	let builder = wallet_state(datadir.clone(), auth_token.clone(), cli.expose_mnemonic, shutdown.clone()).await?;
 
 	// Serve the embedded bark-web SPA from the same origin as the REST API.
 	#[cfg(feature = "barkd-web-ui")]
@@ -582,6 +589,26 @@ async fn main() -> anyhow::Result<()>{
 			datadir: datadir.clone(),
 		})
 	});
+
+	#[cfg(feature = "barkd-web-ui")]
+	let builder = if !cli.no_ui {
+		let defaults = bark_rest::web::WebConfig {
+			ark_server: cli.ui_default_ark_server.clone(), chain_source: cli.ui_default_chain_source.clone(),
+			network: cli.ui_default_network.clone(), wallet_data_path: String::new(), datadir: PathBuf::new(),
+		};
+		let shutdown = shutdown.clone();
+		let expose_mnemonic = cli.expose_mnemonic;
+		let open: Arc<bark_rest::profiles::OpenProfile> = Arc::new(move |path| {
+			let auth = auth_token.clone();
+			let shutdown = shutdown.clone();
+			let mut web = defaults.clone();
+			web.wallet_data_path = path.display().to_string(); web.datadir = path.clone();
+			Box::pin(async move {
+				Ok(wallet_state(path, auth, expose_mnemonic, shutdown.clone()).await?.web(web).build(shutdown))
+			})
+		});
+		builder.profiles(Arc::new(bark_rest::profiles::Profiles::open(&datadir, open).await?))
+	} else { builder };
 
 	let state = builder.build(shutdown.clone());
 	let server = if cli.desktop_handoff {
@@ -601,18 +628,12 @@ async fn main() -> anyhow::Result<()>{
 		});
 	}
 	if let Err(error) = connection::store_barkd_url(&datadir, &format!("http://{}", connect_addr)) {
-		if let Some(wallet) = inner_wallet {
-			wallet.stop_daemon();
-		}
 		let _ = server.stop_wait().await;
 		return Err(error.context("Failed to publish the listener address"));
 	}
 
 	run_shutdown_signal_listener(shutdown.clone()).await;
 
-	if let Some(wallet) = inner_wallet {
-		wallet.stop_daemon();
-	}
 
 	if let Err(e) = server.stop_wait().await {
 		warn!("Error while stopping REST server: {:#}", e);

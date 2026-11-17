@@ -1,5 +1,6 @@
 'use strict';
 (() => {
+  let hotProfiles=[], hotId='', profilesSupported=false, registering=null;
   let accounts=[], selected=null, generation=0, busy=false, pending=null, signed=null, history=[], lastRelay=null, paired=null, renaming=null, removing=null;
   let collector=new PaperclipSigningQR.Collector(), qrFrames=[], frame=0, paused=false, stream=null, scanning=false, scanPublic=false, cameraGeneration=0;
   const dialog=$('qr-scanner'), video=$('scanner-video'), canvas=document.createElement('canvas'), context=canvas.getContext('2d',{willReadFrequently:true});
@@ -7,7 +8,7 @@
   function controls() {
     $('wallet-select').disabled=busy||walletMutations>0;
     document.querySelectorAll('#paired-wallets button, [data-hot-wallet]').forEach(button=>button.disabled=busy||walletMutations>0);
-    for(const id of ['pair-form','cold-send','wallet-rename-form','wallet-remove-form']) $(id).querySelectorAll('button,input,textarea,select').forEach(control=>control.disabled=busy);
+    for(const id of ['hot-wallet-form','pair-form','cold-send','wallet-rename-form','wallet-remove-form']) $(id).querySelectorAll('button,input,textarea,select').forEach(control=>control.disabled=busy);
     $('cold-amount').disabled=busy||$('cold-max').checked;$('cold-amount').required=!$('cold-max').checked;
     $('signed-broadcast').disabled=busy||!signed;
     $('cold-send').hidden=!!pending||selected?.kind==='watch';
@@ -45,7 +46,8 @@
   }
   async function choose(id) {
     if(busy||walletMutations>0)return;
-    await selectAccount(id);
+    try { if(id.startsWith('hot:'))await selectHot(id.slice(4));else if(!id&&hotId)await selectHot('');else await selectAccount(id); }
+    catch(error){status(error.message);showIdentity();}
   }
   async function selectAccount(id) {
     const next=accounts.find(account=>account.id===id)||null;if(id&&!next)throw new Error('Select a saved wallet.');
@@ -56,25 +58,68 @@
     if($('wallet').hidden)return;
     if(selected){const ticket=generation;void refresh().catch(error=>{if(ticket===generation)$('cold-relay').textContent=error.message;});}else { if (submissionJournal) void syncSubmissions().catch(error=>status(error.message)); void update(); }
   }
+  async function loadHot() {
+    const session=token;
+    let result;
+    try {result=await api('/api/profiles');}
+    catch(error){if(error.status!==404)throw error;result=null;}
+    if(token!==session||!session)throw new Error('Session changed. Unlock again.');
+    profilesSupported=result?.version===1&&Array.isArray(result.profiles);
+    if(profilesSupported&&result.profiles.some(p=>!/^[0-9a-f]{64}$/.test(p.id)||typeof p.label!=='string'))throw new Error('Could not load hot wallets.');
+    hotProfiles=profilesSupported?result.profiles:[];
+    $('add-hot-wallet').hidden=!profilesSupported;
+  }
+  async function restoreHot() {
+    const id=sessionRead('paperclip.selected-hot')||'';
+    await loadHot();
+    if(id&&!hotProfiles.some(p=>p.id===id)){
+      $('forget-selected-wallet').hidden=false;
+      throw new Error('Your selected hot wallet is unavailable. Retry, or explicitly choose the main wallet.');
+    }
+    hotId=id;selected=null;showIdentity();
+  }
+  async function selectHot(id) {
+    if(id&&!hotProfiles.some(p=>p.id===id))throw new Error('Select a saved hot wallet.');
+    cancelRequest();generation++;selected=null;clearWalletView();
+    sessionWrite('paperclip.selected-qr',null);sessionWrite('paperclip.selected-hot',id||null);
+    // Hiding the old wallet clears node, Bridge and QR drafts before the new identity loads.
+    $('wallet').hidden=true;await Promise.resolve();hotId=id;generation++;
+    network=null;submissionJournal=false;lightningEnabled=false;lightningDebitLimit=false;
+    $('ark-balance').textContent='Loading…';$('chain-balance').textContent='Loading…';
+    try {await unlockWallet(token);PaperclipNavigation.show('overview');renderAccounts();}
+    catch(error){$('login').hidden=false;status(error.message);throw error;}
+  }
+  $('hot-wallet-form').onsubmit=event=>{event.preventDefault();void work('wallet-account-status',async()=>{
+    const label=$('hot-wallet-name').value.trim();if(!label)throw new Error('Enter a wallet name.');
+    // Preserve the request ID after a lost response; registration never creates keys.
+    if(!registering||registering.label!==label)registering={id:Array.from(crypto.getRandomValues(new Uint8Array(32)),b=>b.toString(16).padStart(2,'0')).join(''),label};
+    const result=await api('/api/profiles',registering);
+    if(result.id!==registering.id||result.label!==label)throw new Error('Wallet registration was not confirmed. Reload the wallet list.');
+    const id=result.id;registering=null;await loadHot();$('hot-wallet-form').reset();
+    await selectHot(id);
+  });};
+  $('setup-back-wallets').onclick=()=>{if(setupPending||walletMutations>0)return;setupRevision++;setupDiceClear();$('setup-password').value='';void selectHot('').catch(error=>status(error.message));};
   function showIdentity() {
-    $('wallet-select').value=selected?.id||'';$('wallet-kind').textContent=selected?.kind==='watch'?'WATCH-ONLY WALLET':selected?'QR WALLET · KEYS OFFLINE':'HOT WALLET';
+    $('wallet-select').value=selected?.id||(hotId?'hot:'+hotId:'');$('wallet-kind').textContent=selected?.kind==='watch'?'WATCH-ONLY WALLET':selected?'QR WALLET · KEYS OFFLINE':'HOT WALLET';
     $('cold-name').textContent=selected?.label||'QR wallet';$('signing-name').textContent=selected?'Send from '+selected.label:'Send from QR wallet';
     $('public-wallet-detail').textContent=selected?.kind==='watch'?'On-chain XBT · View balances and receive. Send from the wallet that holds the keys.':'On-chain XBT · Approve payments on your XBT SeedSigner or XBT Krux.';
     document.body.classList.toggle('qr-account-active',!!selected);
   }
   function renderAccounts() {
-    const select=$('wallet-select');select.replaceChildren(new Option('Hot wallet · Ark & on-chain',''));
-    for(const account of accounts)select.add(new Option(account.label+(account.kind==='watch'?' · Watch-only':' · QR wallet'),account.id));select.value=selected?.id||'';
+    const select=$('wallet-select');select.replaceChildren(new Option('Main wallet · Ark & on-chain',''));
+    for(const profile of hotProfiles)select.add(new Option(profile.label+' · Hot wallet','hot:'+profile.id));
+    for(const account of accounts)select.add(new Option(account.label+(account.kind==='watch'?' · Watch-only':' · QR wallet'),account.id));select.value=selected?.id||(hotId?'hot:'+hotId:'');
     const rows=$('paired-wallets');rows.replaceChildren();
-    for(const account of [{id:'',label:'Hot wallet',kind:'hot'},...accounts]) {
+    for(const account of [{id:'',label:'Main wallet',kind:'hot'},...hotProfiles.map(p=>({...p,id:'hot:'+p.id,kind:'hot'})),...accounts]) {
       const button=document.createElement('button');button.className='menu-row secondary';button.type='button';
       const title=document.createElement('strong'),detail=document.createElement('small'),copy=document.createElement('span');title.textContent=account.label;
       detail.textContent=account.kind==='hot'?'Ark, Lightning & on-chain':account.kind==='watch'?'Watch-only · View and receive':'QR Signer · Public account only';copy.append(title,detail);button.append(copy);
-      button.setAttribute('aria-pressed',String((selected?.id||'')===account.id));button.onclick=()=>void choose(account.id);
+      button.setAttribute('aria-pressed',String((selected?.id||(hotId?'hot:'+hotId:''))===account.id));button.onclick=()=>void choose(account.id);
       const card=document.createElement('div');card.className='wallet-choice';card.append(button);
       if(account.id){
         const rename=document.createElement('button');rename.type='button';rename.className='secondary';rename.textContent='Rename';rename.dataset.renameAccount=account.id;rename.setAttribute('aria-label','Rename '+account.label);
         rename.onclick=()=>{renaming=account.id;$('wallet-rename-name').value=account.label;$('wallet-rename-error').textContent='';$('wallet-rename').showModal();$('wallet-rename-name').focus();};card.append(rename);
+        if(account.kind==='hot'){rows.append(card);continue;}
         const manage=document.createElement('details'),summary=document.createElement('summary');summary.textContent='More options';manage.append(summary);
         const exportButton=document.createElement('button');exportButton.type='button';exportButton.className='secondary';exportButton.textContent='Export public account';exportButton.setAttribute('aria-label','Export '+account.label+' public account');
         exportButton.onclick=()=>void work('wallet-account-status',async()=>{
@@ -93,7 +138,7 @@
     controls();
   }
   async function load() {
-    const ticket=generation,session=token;const result=await api('hardware/accounts');if(ticket!==generation||session!==token)return;
+    const ticket=generation,session=token;await loadHot();const result=await api('hardware/accounts');if(ticket!==generation||session!==token)return;
     if(!Array.isArray(result.accounts)||result.accounts.some(a=>!/^[0-9a-f]{64}$/.test(a.id)||typeof a.label!=='string'||!['hardware','watch'].includes(a.kind)))throw new Error('Could not load public wallets.');
     accounts=result.accounts;if(selected)selected=accounts.find(account=>account.id===selected.id)||selected;renderAccounts();showIdentity();
   }
@@ -117,7 +162,7 @@
     }
   }
   $('forget-selected-wallet').onclick=()=>{
-    sessionWrite('paperclip.selected-qr',null);$('forget-selected-wallet').hidden=true;
+    sessionWrite('paperclip.selected-qr',null);sessionWrite('paperclip.selected-hot',null);hotId='';$('forget-selected-wallet').hidden=true;
     status('Hot wallet selected. Enter your access token to unlock.');$('token').focus();
   };
   async function refresh() {
@@ -153,13 +198,13 @@
   $('wallet-rename-form').onsubmit=event=>{event.preventDefault();const account=renaming,ticket=generation;void work('wallet-rename-error',async()=>{
     const label=$('wallet-rename-name').value.trim();
     if(!account||!label)throw new Error('Enter a wallet name.');
-    await call('rename',{account,label});
+    if(account.startsWith('hot:'))await api('/api/profiles/'+account.slice(4)+'/name',{id:account.slice(4),label});else await call('rename',{account,label});
     if(selected?.id===account)clearSigning();
     await load();$('wallet-rename').close();renaming=null;$('wallet-rename-form').reset();
   }).then(()=>{
     if(ticket===generation&&!$('wallet-rename').open)document.querySelector('[data-rename-account="'+account+'"]')?.focus();
   });};
-  document.querySelectorAll('[data-hot-wallet]').forEach(button=>button.onclick=()=>void choose(''));
+  document.querySelectorAll('[data-hot-wallet]').forEach(button=>button.onclick=()=>void choose(hotId?'hot:'+hotId:''));
   $('pair-form').onsubmit=event=>{event.preventDefault();void work('wallet-account-status',async()=>{
     const publicKey=await new PaperclipSigningQR.Collector().accept($('pair-key').value,true);
     if(!publicKey)throw new Error('Finish scanning the public account first.');
@@ -279,5 +324,5 @@
     if($('wallet').hidden){generation++;selected=null;accounts=[];cancelRequest();clearWalletView();$('pair-form').reset();$('pair-confirmation').hidden=true;$('wallet-account-status').textContent='';document.body.classList.remove('qr-account-active');renderAccounts();}
     else void load().catch(()=>{$('wallet-account-status').textContent='Could not load QR wallets. Open Manage wallets to retry.';});
   }).observe($('wallet'),{attributes:true,attributeFilter:['hidden']});
-  window.PaperclipAccounts={get selectedId(){return selected?.id||'';},get generation(){return generation;},restore,refresh,busyChanged:controls};
+  window.PaperclipAccounts={get hotProfiles(){return hotProfiles.map(p=>({...p}));},get hotProfileId(){return hotId;},restoreHot,get selectedId(){return selected?.id||'';},get generation(){return generation;},restore,refresh,busyChanged:controls};
 })();

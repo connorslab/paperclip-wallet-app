@@ -20,6 +20,15 @@ pub const BARKD_LOCK_FILE: &str = "barkd.lock";
 /// listens on. Only meaningful while the lock is held.
 pub const BARKD_URL_FILE: &str = "barkd.url";
 
+/// Managed profiles must be selected through their host, never treated as a
+/// standalone datadir with the default daemon URL or a new authorization token.
+pub fn require_standalone_datadir(datadir: &Path) -> anyhow::Result<()> {
+	if datadir.join("hot-wallet-profile").try_exists()? {
+		bail!("This hot wallet belongs to a multi-wallet host. Select it in that host's wallet UI or use its explicit profile API.");
+	}
+	Ok(())
+}
+
 /// Record the base URL this barkd listens on, so that clients on the same
 /// datadir connect to it instead of the default listen address.
 /// The caller must hold the daemon lock. Unix readers see a complete replacement.
@@ -44,7 +53,7 @@ pub fn barkd_url(datadir: &Path) -> anyhow::Result<Option<String>> {
 /// Remove everything in the datadir except the running barkd's own files,
 /// so the held lock, auth token and listen URL survive a wallet wipe.
 pub fn wipe_datadir_except_barkd_files(datadir: &Path) -> anyhow::Result<()> {
-	let barkd_files = [BARKD_LOCK_FILE, AUTH_TOKEN_FILE, BARKD_URL_FILE];
+	let barkd_files = [BARKD_LOCK_FILE, AUTH_TOKEN_FILE, BARKD_URL_FILE, "hot-wallets", "hot-wallet-profile"];
 	for entry in fs::read_dir(datadir).context("failed to list datadir")? {
 		let entry = entry?;
 		if barkd_files.iter().any(|k| entry.file_name() == *k) {
@@ -136,6 +145,8 @@ mod test {
 		fs::write(dir.join(AUTH_TOKEN_FILE), "tok").unwrap();
 		store_barkd_url(&dir, "http://127.0.0.1:3001").unwrap();
 		fs::write(dir.join("db.sqlite"), "x").unwrap();
+		fs::create_dir(dir.join("hot-wallets")).unwrap();
+		fs::write(dir.join("hot-wallets/profiles.json"), "other wallets").unwrap();
 		fs::create_dir(dir.join("sub")).unwrap();
 		fs::write(dir.join("sub").join("f"), "y").unwrap();
 
@@ -145,6 +156,7 @@ mod test {
 		assert!(dir.join(AUTH_TOKEN_FILE).exists());
 		assert!(dir.join(BARKD_URL_FILE).exists());
 		assert!(!dir.join("db.sqlite").exists());
+		assert_eq!(fs::read_to_string(dir.join("hot-wallets/profiles.json")).unwrap(), "other wallets");
 		assert!(!dir.join("sub").exists());
 
 		let _ = fs::remove_dir_all(&dir);

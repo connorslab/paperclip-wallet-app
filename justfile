@@ -22,6 +22,10 @@ unit-daemon filter="":
 	cargo test --locked -p bark-cli --bin paperclip-walletd --features barkd-web-ui {{filter}}
 	cargo test --locked -p bark-cli --lib connection::test
 
+unit-profiles:
+	cargo test --locked -p bark-rest --features web-ui --lib profiles::tests
+	cargo test --locked -p bark-cli --lib profile_storage_survives
+
 unit-creation:
 	cargo test --locked -p bark-cli --lib seed::tests
 

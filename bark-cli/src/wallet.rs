@@ -313,7 +313,7 @@ const EXPECTED_DATADIR_FILES: [&str; 7] = [
 /// Whether `name` is an expected datadir file or an atomic-write temp
 /// sibling of one (`.<name>.temp.<nanos>.<n>.tmp`).
 fn is_expected_datadir_file(name: &str) -> bool {
-	EXPECTED_DATADIR_FILES.iter().chain(&[CONFIG_FILE]).any(|expected| {
+	EXPECTED_DATADIR_FILES.iter().chain(&[CONFIG_FILE, "hot-wallets", "hot-wallet-profile"]).any(|expected| {
 		name == *expected || name.strip_prefix('.')
 			.and_then(|s| s.strip_prefix(expected))
 			.and_then(|s| s.strip_prefix(".temp."))
@@ -666,9 +666,27 @@ mod test {
 		assert!(!dir.exists());
 	}
 
+	#[tokio::test]
+	async fn profile_storage_survives_failed_creation_and_force_cleanup() {
+		let dir = tmp_dir();
+		fs::create_dir(dir.join("hot-wallets")).unwrap();
+		fs::write(dir.join("hot-wallets/profiles.json"), "other wallets").unwrap();
+		fs::write(dir.join("hot-wallet-profile"), "profile identity").unwrap();
+		create_wallet(&dir, "test", failing_create_opts()).await.unwrap_err();
+		assert_eq!(fs::read_to_string(dir.join("hot-wallets/profiles.json")).unwrap(), "other wallets");
+		assert_eq!(fs::read_to_string(dir.join("hot-wallet-profile")).unwrap(), "profile identity");
+		fs::write(dir.join("db.sqlite"), "old wallet").unwrap();
+		check_clean_datadir(&dir, true).await.unwrap();
+		assert!(dir.join("hot-wallets/profiles.json").exists());
+		assert!(dir.join("hot-wallet-profile").exists());
+		assert!(!dir.join("db.sqlite").exists());
+		let _ = fs::remove_dir_all(dir);
+	}
+
 	#[test]
 	fn expected_datadir_files_and_their_temps() {
 		assert!(is_expected_datadir_file("auth_token"));
+		assert!(is_expected_datadir_file("hot-wallets"));
 		assert!(is_expected_datadir_file("barkd.lock"));
 		assert!(is_expected_datadir_file("barkd.url"));
 		// Atomic-write temp siblings, mid-write or left by a crash.

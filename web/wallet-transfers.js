@@ -17,7 +17,10 @@
         if (!currentWallet(context) || ticket !== revision) return;
         if (!Array.isArray(data.accounts) || data.accounts.some(a => !/^[0-9a-f]{64}$/.test(a.id) || typeof a.label !== 'string')) throw new Error('Could not verify saved wallets.');
         const source = globalThis.PaperclipAccounts?.selectedId || '';
-        const targets = [{id:'', label:'Hot wallet'}, ...data.accounts].filter(a => a.id !== source);
+        const currentHot=globalThis.PaperclipAccounts?.hotProfileId||'';
+        const otherHot=(globalThis.PaperclipAccounts?.hotProfiles||[]).filter(p=>p.id!==currentHot).map(p=>({id:'hot:'+p.id,label:p.label+' · Hot wallet'}));
+        if(currentHot)otherHot.unshift({id:'hot:main',label:'Main wallet · Hot wallet'});
+        const targets = [{id:'', label:'Current hot wallet'}, ...data.accounts].filter(a => a.id !== source).concat(otherHot);
         select.replaceChildren(new Option('Choose a destination wallet', '__none__'));
         for (const target of targets) select.add(new Option(target.label, target.id));
         select.hidden = !targets.length;
@@ -30,7 +33,7 @@
       const context = walletContext(), ticket = ++revision, source = globalThis.PaperclipAccounts?.selectedId || '';
       select.disabled = true; load.disabled = true; input.value = ''; output.textContent = 'Getting the receiving address…';
       try {
-        const data = await api('hardware/request', {operation:'destination', account:source, target_account:target});
+        const data = target.startsWith('hot:') ? await api('/api/profiles/'+target.slice(4)+'/receive',{network}) : await api('hardware/request', {operation:'destination', account:source, target_account:target});
         if (!currentWallet(context) || ticket !== revision) return;
         if (data.account !== target || typeof data.address !== 'string' || !data.address || typeof data.label !== 'string' || data.network !== network) throw new Error('Destination wallet changed. Choose it again.');
         destination = data.address; input.value = destination; input.dispatchEvent(new Event('input', {bubbles:true}));

@@ -22,11 +22,11 @@ async function api(path, body, method, signal) {
   // Jam has its own wallet authorization. Selecting a public account must not
   // hide that independent wallet or grant access to any hot-wallet operation.
   const separateWallet = ['joinblaket/connection','joinblaket/request','joinblaket/pairings','joinblaket/pairings/revoke'].includes(path);
-  if (account && !path.startsWith('hardware/') && !separateWallet) throw new Error('This action belongs to the hot wallet. Switch wallets first.');
+  if (account && !path.startsWith('hardware/') && !path.startsWith('/api/profiles') && !separateWallet) throw new Error('This action belongs to the hot wallet. Switch wallets first.');
   const mutation = (body !== undefined || (method && method !== 'GET')) && !(path === 'hardware/request' && body?.operation === 'refresh');
   if (mutation) { walletMutations++; globalThis.PaperclipAccounts?.busyChanged(); }
   try {
-    const result = await PaperclipTransport.request(path, {body, method, token, signal, ...(path === 'joinblaket/request' && body?.operation === 'prepare_payment' && body.send?.coinjoin === true ? {timeoutMs:190000} : path === 'submissions' && body !== undefined ? {timeoutMs:190000} : path === 'hardware/request' ? {timeoutMs:150000} : (path.startsWith('remote-node/') || ['bridge/quotes','bridge/prepare-funding','bridge/fund','bridge/prepare-ark-funding','bridge/fund-ark'].includes(path)) ? {timeoutMs:190000} : path === 'bridge/check' ? {timeoutMs:60000} : {})});
+    const result = await PaperclipTransport.request(path, {body, method, token, profile: separateWallet ? '' : globalThis.PaperclipAccounts?.hotProfileId || '', signal, ...(path === 'joinblaket/request' && body?.operation === 'prepare_payment' && body.send?.coinjoin === true ? {timeoutMs:190000} : path === 'submissions' && body !== undefined ? {timeoutMs:190000} : path === 'hardware/request' ? {timeoutMs:150000} : (path.startsWith('remote-node/') || ['bridge/quotes','bridge/prepare-funding','bridge/fund','bridge/prepare-ark-funding','bridge/fund-ark'].includes(path)) ? {timeoutMs:190000} : path === 'bridge/check' ? {timeoutMs:60000} : {})});
     if (generation !== (globalThis.PaperclipAccounts?.generation ?? 0)) throw new Error('Wallet changed. Refresh the selected wallet.');
     return result;
   }
@@ -110,11 +110,15 @@ async function connectWallet() {
 async function unlockWallet(value) {
   token = accessToken(value);
   try {
+    await globalThis.PaperclipAccounts?.restoreHot();
+    uncertainMutation = sessionRead(uncertainKey()) === '1';
     const existing = await api('wallet');
     if (existing.fingerprint !== null && typeof existing.fingerprint !== 'string') throw new Error('Unrecognized wallet status.');
     setupPending = false;
     if (existing.fingerprint === null) {
-      $('login').hidden = true; $('setup').hidden = false;
+      if (!$('wallet').hidden) { $('wallet').hidden = true; await Promise.resolve(); }
+      $('login').hidden = true;
+      $('setup-back-wallets').hidden = !globalThis.PaperclipAccounts?.hotProfileId;
       if (!setupDefaultsLoaded) {
         const defaults = await api('/api/config').catch(() => null);
         if (typeof defaults?.arkServer === 'string') {
@@ -130,7 +134,7 @@ async function unlockWallet(value) {
       const installed = await api('wallet/platform-node').catch(() => ({available: false}));
       $('setup-installed').disabled = !installed.available;
       $('setup-backend').value = installed.available ? 'installed' : 'manual';
-      setupBackend();
+      setupBackend();$('setup').hidden = false;
       status('Choose your XBT backend and ASP to create a wallet.');
       return;
     }
@@ -295,8 +299,12 @@ $('refresh').onclick = event => run(event.target, async () => {
 const journalOperations = new Set(['wallet/send','lightning/pay','onchain/send/commit',
   'onchain/replacement/commit','boards/commit','withdrawals/commit','wallet/offboard/all','wallet/refresh/all',
   'exits/start/all','exits/progress','exits/claim/all']);
+function uncertainKey() {
+  const profile=globalThis.PaperclipAccounts?.hotProfileId;
+  return profile ? 'paperclip.uncertain.'+profile : 'paperclip.uncertain';
+}
 function submissionWarning(uncertain) {
-  uncertainMutation = uncertain; sessionWrite('paperclip.uncertain', uncertain ? '1' : null);
+  uncertainMutation = uncertain; sessionWrite(uncertainKey(), uncertain ? '1' : null);
   $('submission-warning').hidden = !uncertain;
 }
 async function acknowledgeSubmission(id) {
@@ -611,7 +619,7 @@ $('setup-lock').onclick = () => { sessionWrite('paperclip.session', null); sessi
 $('submission-reviewed').onclick = event => run(event.target, async () => {
   if (submissionJournal) { await syncSubmissions(true); return; }
   if (!await PaperclipReview.ask('Have you checked Activity and the payment status? Continue only after resolving the previous submission. A pending payment must not be sent again.')) return;
-  uncertainMutation = false; sessionWrite('paperclip.uncertain', null); $('submission-warning').hidden = true;
+  uncertainMutation = false; sessionWrite(uncertainKey(), null); $('submission-warning').hidden = true;
   status('Previous result acknowledged. No payment has been resubmitted.');
 });
 let refreshing = false;
@@ -639,8 +647,8 @@ window.addEventListener('DOMContentLoaded', async () => {
   const saved = sessionRead('paperclip.session'); if (!saved) return;
   token = saved; $('remember-session').checked = true;
   status('Restoring this tab\u2019s wallet session\u2026');
-  try { await connectWallet(); }
-  catch { token = ''; network = null; sessionWrite('paperclip.session', null); status('Unlock again to reconnect. Your wallet data is unchanged.'); }
+  try { await unlockWallet(saved); }
+  catch (error) { token = ''; network = null; sessionWrite('paperclip.session', null); status(error.message || 'Unlock again to reconnect. Your wallet data is unchanged.'); }
 }, {once:true});
 
 let vtxoSnapshot = {balance: {}, rows: [], tip: null};

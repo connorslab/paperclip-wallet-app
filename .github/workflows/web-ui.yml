@@ -33,6 +33,7 @@ jobs:
           node scripts/test-navigation-browser.cjs
           node scripts/test-hardware-browser.cjs
           node scripts/test-wallet-races-browser.cjs
+          node scripts/test-hot-profiles-browser.cjs
           node scripts/test-activity-browser.cjs
           node scripts/test-board-review-browser.cjs
           node scripts/test-withdrawal-review-browser.cjs

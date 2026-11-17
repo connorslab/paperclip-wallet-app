@@ -8,7 +8,9 @@ const PaperclipTransport = (() => {
     return method === 'GET' && (reads.has(path) || /^lightning\/(sends|receives)\/[^/]+$/.test(path));
   }
   function failure(kind, message) { return Object.assign(new Error(message), {kind}); }
-  async function request(path, {body, method = body === undefined ? 'GET' : 'POST', token, signal, timeoutMs = body === undefined ? 10000 : 60000}) {
+  async function request(path, {body, method = body === undefined ? 'GET' : 'POST', token, profile = '', signal, timeoutMs = body === undefined ? 10000 : 60000}) {
+    if (profile && !/^[0-9a-f]{64}$/.test(profile)) throw failure('wallet', 'Invalid wallet selection.');
+    const target = path.startsWith('/') ? path : profile ? '/api/profiles/' + profile + '/v1/' + path : '/api/v1/' + path;
     const controller = new AbortController();
     let timedOut = false;
     const abort = () => controller.abort();
@@ -18,7 +20,7 @@ const PaperclipTransport = (() => {
     try {
       for (let attempt = 0; attempt < 2; attempt++) {
         if (controller.signal.aborted) throw failure('cancelled', 'Request cancelled.');
-        const response = await fetch(path.startsWith('/') ? path : '/api/v1/' + path, {
+        const response = await fetch(target, {
           signal: controller.signal, method, cache: 'no-store', redirect: 'error',
           headers: {Authorization: 'Bearer ' + token, 'Content-Type': 'application/json'},
           ...(body === undefined ? {} : {body: JSON.stringify(body)})
@@ -34,7 +36,7 @@ const PaperclipTransport = (() => {
           if (response.status === 403) throw failure('permission', 'This wallet credential does not permit the requested action.');
           let message = '';
           try { const detail = await response.json(); message = typeof detail.message === 'string' ? detail.message.slice(0, 900) : ''; } catch {}
-          throw failure('server', message || 'Wallet request failed (' + response.status + '). Check wallet access and local services.');
+          throw Object.assign(failure('server', message || 'Wallet request failed (' + response.status + '). Check wallet access and local services.'), {status:response.status});
         }
         return response.status === 204 ? null : await response.json();
       }

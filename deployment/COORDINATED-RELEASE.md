@@ -23,7 +23,7 @@ checks and their limits.
 | --- | --- | --- |
 | iOS | 123 shared Swift tests; 17 safe UI cases on both regular-phone and open-Duo simulators | Physical signer, camera, accessibility and interrupted/folded payment acceptance; final signed candidate and upgrade |
 | Android | 100 JVM tests (four live cases excluded); 47 instrumentation cases across 18 classes on local API 35 ARM64; 48 cases on each of API 35/36 CI at `a04a3e4`, including the new large-text Jars navigation case, visibility and emulator-health checks; authenticated CLN/LND reads and pin rejection | Final release identity, Play/APK upgrade compatibility and physical/foldable acceptance |
-| Shared desktop UI | All 17 existing browser-flow suites plus entropy, transport and QR checks; phone, foldable and desktop widths where each suite defines them | Installed-host and native desktop acceptance; complete multiple-hot-wallet and hardware-funded Ark workflows |
+| Shared desktop UI | All 17 existing browser-flow suites plus entropy, transport and QR checks; phone, foldable and desktop widths where each suite defines them | Installed-host and native desktop acceptance; accept multiple-hot-wallet profiles and complete hardware-funded Ark workflows |
 | StartOS/Umbrel | Shared REST checks, authenticated CLN/LND reads; both StartOS candidate architectures built and source/checksums checked | Complete backup/restore, candidate installation, bundled Jam pairing/revocation/Tor and upgrades; matching frozen wrappers |
 | Linux/macOS/Windows | Isolated Apple Silicon and Linux daemon authentication, duplicate-instance rejection and crash/restart; macOS bundled Jars/helper runtime passes 13 relocated isolation cases; Linux bundled Jars passes TLS/proxy and frozen-window recovery checks; 90 native Windows storage/browser-policy/pipe/ownership/discovery/window/Jars cases and authenticated daemon lifecycle pass at `710bc5f` | Installed browser/accessibility acceptance; bundled Jam/Tor and runtime delivery; supported OS matrix, signed installers, notarization and clean install/upgrade tests |
 | Jars | Reviewed direct/CoinJoin toggle and bond funding/withdrawal clients; pinned signer, API, bond and interrupted-submission checks; encrypted Jam volume restore on a synthetic chain | Live CoinJoin, direct-send and bond-funding/withdrawal acceptance, installed payment-pairing acceptance, live maker and physical QR signer acceptance |
@@ -35,8 +35,8 @@ Use this list for the current release decision. Older dated sections below retai
 historical evidence and can describe work that later sections completed. The
 coordinated scope is iOS, Android, StartOS, Umbrel, Linux, macOS and Windows.
 
-1. **Finish functional parity.** Complete multiple hot-wallet profiles on the
-   shared desktop/server wallet and hardware/QR-funded Ark workflows, including
+1. **Finish functional parity.** Accept the shared desktop/server hot-wallet profiles and guided transfers,
+   and complete hardware/QR-funded Ark workflows, including
    boarding and recovery. Complete the remaining end-to-end review of boarding,
    hardware signing and exit paths. Mobile wallet switching alone does not close
    the desktop profile requirement.
@@ -116,6 +116,35 @@ tests terminate a writer without cleanup on either side of the durable submissio
 boundary. The copied pending journal cannot replay or cancel an uncertain payment.
 The local Jam suite passes 45 cases with one container-only case skipped. Both
 architectures also pass the bundled Jam CI run at `86c1245`. This does not establish full host-volume backup/restore or power-loss acceptance.
+
+### Shared desktop/server hot-wallet profiles
+
+The shared host now supports explicitly addressed hot-wallet profiles, each with
+separate keys, databases, node/Bridge state, signing reviews and submission
+receipts. Tabs retain their own selection; saved selections are checked against
+the authenticated catalog before any wallet request. Missing profiles never
+fall back to the main wallet. Jars keeps its separate host-level authorization.
+Public QR accounts belong to the selected hot profile's network and catalog.
+
+Manage wallets offers named profiles and the existing entropy setup flow. Guided
+on-chain transfers can fetch an address from another hot profile without switching
+the sender, with a destination-network check before address generation. Profile
+registration is idempotent and creates no keys. All saved wallets are opened for
+background maintenance, and host shutdown waits for their tasks. Main-wallet
+creation failure, force cleanup and deletion preserve other profiles. Private
+profile markers and daemon locks prevent a managed profile from accidentally
+starting as a separate host. Backups must include the complete host data volume,
+including `hot-wallets`; profiles are not separate permission boundaries.
+
+Validation covers authenticated native macOS host registration, rename, missing
+IDs, disabled mnemonic access, graceful shutdown and restart without creating
+keys. Rust tests cover independent state/locks, catalog persistence, alias and
+missing-storage rejection, and failed-creation cleanup. Browser fixtures exercise
+hot/public selection, remembered sessions, two-tab isolation, late responses,
+per-wallet warnings, cross-profile receiving-address lookup and new-wallet setup
+at 390/840/1280px. These tests do not
+establish funded multi-wallet operation, installed package upgrades, funded cross-profile
+transfers or hardware-funded Ark acceptance. Those gates remain open.
 
 ### Hot-wallet entropy choices
 
