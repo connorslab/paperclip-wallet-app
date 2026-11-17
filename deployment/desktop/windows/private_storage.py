@@ -5,9 +5,12 @@ keep ancestor directories from being renamed during creation and lock acquisitio
 Only local paths, current-user ownership and user/SYSTEM access are accepted.
 """
 from contextlib import contextmanager, ExitStack
+import ctypes
+from ctypes import wintypes
 import msvcrt
 import os
 from pathlib import Path
+import secrets
 
 import ntsecuritycon
 import pywintypes
@@ -129,7 +132,12 @@ def exclusive_file(path):
         try:
             validate_handle(handle, directory=False)
             overlap = pywintypes.OVERLAPPED()
-            win32file.LockFileEx(handle, win32con.LOCKFILE_EXCLUSIVE_LOCK | win32con.LOCKFILE_FAIL_IMMEDIATELY, 1, 0, overlap)
+            try:
+                win32file.LockFileEx(handle, win32con.LOCKFILE_EXCLUSIVE_LOCK | win32con.LOCKFILE_FAIL_IMMEDIATELY, 1, 0, overlap)
+            except pywintypes.error as error:
+                if error.winerror == 33:  # ERROR_LOCK_VIOLATION
+                    raise BlockingIOError('Application storage is already in use.') from None
+                raise
             yield handle
         finally:
             # Closing the handle releases the kernel lock, including after a crash.
@@ -167,6 +175,95 @@ def writable_private_file(path):
             yield handle
         finally:
             handle.Close()
+
+
+class _RenameInfo(ctypes.Structure):
+    _fields_ = [('flags', wintypes.DWORD), ('root', wintypes.HANDLE),
+                ('name_length', wintypes.DWORD), ('name', wintypes.WCHAR * 1)]
+
+
+def _rename_private_handle(handle, destination):
+    # FileRenameInfoEx: replace the directory entry while existing readers keep
+    # the old file. The staging handle stays open across replacement and flush.
+    encoded = str(destination).encode('utf-16-le')
+    size = max(ctypes.sizeof(_RenameInfo), _RenameInfo.name.offset + len(encoded) + 2)
+    buffer = ctypes.create_string_buffer(size)
+    info = _RenameInfo.from_buffer(buffer)
+    info.flags = 0x1 | 0x2  # REPLACE_IF_EXISTS | POSIX_SEMANTICS
+    info.name_length = len(encoded)
+    ctypes.memmove(ctypes.addressof(buffer) + _RenameInfo.name.offset, encoded, len(encoded))
+    function = ctypes.WinDLL('kernel32', use_last_error=True).SetFileInformationByHandle
+    function.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD]
+    function.restype = wintypes.BOOL
+    if not function(int(handle), 22, buffer, size):  # FileRenameInfoEx
+        raise ctypes.WinError(ctypes.get_last_error())
+
+
+def _write_private_handle(handle, data):
+    for offset in range(0, len(data), 1024 * 1024):
+        chunk = data[offset:offset + 1024 * 1024]
+        if win32file.WriteFile(handle, chunk)[1] != len(chunk):
+            raise OSError('Private storage write was incomplete.')
+    win32file.FlushFileBuffers(handle)
+
+
+def _create_private_handle(path):
+    if win32api.GetVolumeInformation(path.anchor)[-1] != 'NTFS':
+        raise UnsafeStorage('Private wallet storage requires a local NTFS volume.')
+    try:
+        handle = win32file.CreateFile(str(path),
+            win32con.GENERIC_READ | win32con.GENERIC_WRITE | win32con.READ_CONTROL | win32con.DELETE,
+            win32con.FILE_SHARE_READ | win32con.FILE_SHARE_WRITE, private_attributes(), win32con.CREATE_NEW,
+            win32file.FILE_FLAG_OPEN_REPARSE_POINT | win32file.FILE_FLAG_WRITE_THROUGH, None)
+    except pywintypes.error as error:
+        if error.winerror in (80, 183):
+            raise FileExistsError('Private storage already exists.') from None
+        raise
+    try:
+        validate_handle(handle, directory=False)
+        return handle
+    except BaseException:
+        handle.Close()
+        raise
+
+
+def create_private_file(path, data):
+    """Create once with explicit owner/ACLs; preserve partial state on failure."""
+    path = local_path(path)
+    with ancestors(path):
+        private_directory(path.parent)
+        handle = _create_private_handle(path)
+        try:
+            _write_private_handle(handle, data)
+        finally:
+            handle.Close()
+
+
+def atomic_write_private(path, data):
+    """Replace checked private bytes through a still-open native file handle.
+
+    Flush errors propagate, including after replacement: callers must reconcile
+    the saved state instead of assuming a failed request left the old contents.
+    """
+    path = local_path(path)
+    with ancestors(path), ExitStack() as storage:
+        private_directory(path.parent)
+        try:
+            storage.enter_context(read_private_file(path))
+        except FileNotFoundError:
+            pass
+        temporary = path.with_name('.paperclip-' + secrets.token_hex(16) + '.tmp')
+        handle = _create_private_handle(temporary)
+        replaced = False
+        try:
+            _write_private_handle(handle, data)
+            _rename_private_handle(handle, path)
+            replaced = True
+            win32file.FlushFileBuffers(handle)
+        finally:
+            handle.Close()
+            if not replaced:
+                temporary.unlink()
 
 
 @contextmanager

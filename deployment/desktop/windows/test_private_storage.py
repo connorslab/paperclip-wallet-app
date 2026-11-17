@@ -5,13 +5,14 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 import pywintypes
 import win32con
 import win32file
 import win32security
 
-from private_storage import UnsafeStorage, exclusive_file, private_directory, local_path, user_sid, ancestors, read_private_file, SessionRecord
+from private_storage import UnsafeStorage, exclusive_file, private_directory, local_path, user_sid, ancestors, read_private_file, SessionRecord, atomic_write_private, create_private_file
 
 
 class PrivateStorage(unittest.TestCase):
@@ -170,6 +171,77 @@ class PrivateStorage(unittest.TestCase):
         os.link(self.root / 'session.state', self.root / 'alias.state')
         with self.assertRaises(UnsafeStorage), read_private_file(self.root / 'session.state'):
             self.fail('Shared metadata must not be read')
+
+
+    def test_atomic_write_preserves_old_reader_and_private_unicode_destination(self):
+        path = self.root / 'wallet \U0001f512.dat'
+        create_private_file(path, b'old-fixture')
+        with read_private_file(path) as old:
+            atomic_write_private(path, b'new-fixture')
+            self.assertEqual(old.read(), b'old-fixture')
+            with read_private_file(path) as new:
+                self.assertEqual(new.read(), b'new-fixture')
+        self.assertEqual(list(self.root.iterdir()), [path])
+
+    def test_exclusive_creation_cannot_replace_existing_or_failed_initialization(self):
+        path = self.root / 'wallet.dat'
+        with patch('private_storage.win32file.FlushFileBuffers', side_effect=OSError('fixture flush failure')):
+            with self.assertRaises(OSError):
+                create_private_file(path, b'partial-fixture')
+        with self.assertRaises(OSError):
+            create_private_file(path, b'retry-fixture')
+        with read_private_file(path) as reader:
+            self.assertEqual(reader.read(), b'partial-fixture')
+
+    def test_failed_flush_before_replace_keeps_original_and_removes_staging_file(self):
+        path = self.root / 'wallet.dat'
+        create_private_file(path, b'old-fixture')
+        with patch('private_storage.win32file.FlushFileBuffers', side_effect=OSError('fixture flush failure')):
+            with self.assertRaises(OSError):
+                atomic_write_private(path, b'new-fixture')
+        with read_private_file(path) as reader:
+            self.assertEqual(reader.read(), b'old-fixture')
+        self.assertEqual(list(self.root.iterdir()), [path])
+
+    def test_failed_flush_after_replace_is_reported_with_new_state_preserved(self):
+        path = self.root / 'wallet.dat'
+        create_private_file(path, b'old-fixture')
+        original = win32file.FlushFileBuffers
+        calls = 0
+        def fail_after_replace(handle):
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise OSError('fixture post-replacement flush failure')
+            return original(handle)
+        with patch('private_storage.win32file.FlushFileBuffers', side_effect=fail_after_replace):
+            with self.assertRaises(OSError):
+                atomic_write_private(path, b'new-fixture')
+        with read_private_file(path) as reader:
+            self.assertEqual(reader.read(), b'new-fixture')
+        self.assertEqual(list(self.root.iterdir()), [path])
+
+    def test_atomic_write_refuses_shared_destination_without_repair(self):
+        path = self.root / 'wallet.dat'
+        create_private_file(path, b'old-fixture')
+        win32security.SetNamedSecurityInfo(str(path), win32security.SE_FILE_OBJECT,
+            win32security.DACL_SECURITY_INFORMATION, None, None, None, None)
+        with self.assertRaises(UnsafeStorage):
+            atomic_write_private(path, b'new-fixture')
+        self.assertEqual(path.read_bytes(), b'old-fixture')
+        descriptor = win32security.GetNamedSecurityInfo(str(path), win32security.SE_FILE_OBJECT,
+            win32security.DACL_SECURITY_INFORMATION)
+        self.assertIsNone(descriptor.GetSecurityDescriptorDacl())
+
+    def test_atomic_write_refuses_hard_linked_destination(self):
+        path = self.root / 'wallet.dat'
+        create_private_file(path, b'old-fixture')
+        alias = self.root / 'alias.dat'
+        os.link(path, alias)
+        with self.assertRaises(UnsafeStorage):
+            atomic_write_private(path, b'new-fixture')
+        self.assertEqual(alias.read_bytes(), b'old-fixture')
+        self.assertEqual(path.read_bytes(), b'old-fixture')
 
 
 if __name__ == '__main__':

@@ -1,12 +1,16 @@
 """Private runtime ownership and public-certificate handoff to Paperclip."""
-from contextlib import asynccontextmanager
-import fcntl
+from contextlib import asynccontextmanager, contextmanager
 import os
 from pathlib import Path
 import stat
 import tempfile
 
 from cryptography import x509
+
+if os.name == 'nt':
+    from windows.private_storage import exclusive_file
+else:
+    import fcntl
 
 
 def export_certificate(data_dir, destination):
@@ -43,23 +47,33 @@ def export_certificate(data_dir, destination):
             os.unlink(temporary)
 
 
+@contextmanager
+def runtime_lock(data_dir):
+    # The upstream daemon state is process-local. Multiple API workers must not
+    # enter its lifespan concurrently, even when they use different transports.
+    path = Path(data_dir) / 'paperclip' / 'runtime.lock'
+    if os.name == 'nt':
+        with exclusive_file(path):
+            yield
+    else:
+        fd = os.open(path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            yield
+        finally:
+            os.close(fd)
+
+
 def install_hosting(app, data_dir):
     original = app.router.lifespan_context
 
     @asynccontextmanager
     async def lifespan(current):
-        fd = os.open(Path(data_dir) / 'paperclip' / 'runtime.lock',
-            os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
-        try:
-            # The legacy daemon state is process-local. Multiple API workers
-            # cannot safely coordinate its maker/taker admission flags.
-            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        with runtime_lock(data_dir):
             target = os.environ.get('PAPERCLIP_JAM_PUBLIC_CERT_FILE')
             if target:
                 export_certificate(data_dir, target)
             async with original(current):
                 yield
-        finally:
-            os.close(fd)
 
     app.router.lifespan_context = lifespan
