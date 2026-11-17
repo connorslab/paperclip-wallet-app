@@ -25,6 +25,7 @@ jobs:
           node scripts/test-web-transport.mjs
           node scripts/test-receive-qr.mjs
           node scripts/test-setup-browser.cjs
+          node scripts/test-desktop-handoff-browser.cjs
           node scripts/test-seed-setup-browser.cjs
           node scripts/test-joinblaket-browser.cjs
           node scripts/test-jars-setup-browser.cjs

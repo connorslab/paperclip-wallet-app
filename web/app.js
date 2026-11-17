@@ -107,8 +107,8 @@ async function connectWallet() {
     status('Signed in. Loading balances\u2026');
     void update().then(complete => { if (token === session) status(complete ? 'Wallet updated.' : 'Signed in. Some wallet data is unavailable.'); }).catch(() => { if (token === session) status('Signed in. Check connections in Settings.'); });
 }
-$('unlock').addEventListener('submit', event => { event.preventDefault(); run(event.submitter, async () => {
-  token = accessToken($('token').value.trim()); $('token').value = '';
+async function unlockWallet(value) {
+  token = accessToken(value);
   try {
     const existing = await api('wallet');
     if (existing.fingerprint !== null && typeof existing.fingerprint !== 'string') throw new Error('Unrecognized wallet status.');
@@ -136,6 +136,10 @@ $('unlock').addEventListener('submit', event => { event.preventDefault(); run(ev
     }
     await connectWallet();
   } catch (error) { token = ''; throw error; }
+}
+$('unlock').addEventListener('submit', event => { event.preventDefault(); run(event.submitter, async () => {
+  const value = $('token').value.trim(); $('token').value = '';
+  await unlockWallet(value);
 }); });
 function endpoint(id, protocols) {
   const value = $(id).value.trim();
@@ -605,6 +609,19 @@ setInterval(async () => {
   finally { refreshing = false; }
 }, 30000);
 window.addEventListener('DOMContentLoaded', async () => {
+  if (globalThis.PaperclipDesktopHandoff?.pending) {
+    sessionWrite('paperclip.session', null);
+    $('remember-session').checked = false;
+    const controls = Array.from($('unlock').elements);
+    controls.forEach(control => { control.disabled = true; });
+    status('Opening your desktop wallet\u2026');
+    try { await unlockWallet(await PaperclipDesktopHandoff.redeem()); }
+    catch {
+      token = ''; network = null;
+      status('Desktop sign-in expired or was interrupted. Open the wallet again from the desktop app.');
+    } finally { controls.forEach(control => { control.disabled = false; }); }
+    return;
+  }
   const saved = sessionRead('paperclip.session'); if (!saved) return;
   token = saved; $('remember-session').checked = true;
   status('Restoring this tab\u2019s wallet session\u2026');

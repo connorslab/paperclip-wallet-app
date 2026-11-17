@@ -2109,3 +2109,35 @@ This verifies idle-daemon crash cleanup, not active payment/request draining or
 bundled Tor/Jam shutdown. Those checks, the visible desktop shell and browser
 handoff, Windows support, signed installers and other platform acceptance gates
 remain open. No funded wallet, installed service or payment was changed.
+
+## Desktop browser sign-in handoff — 2026-11-17
+
+The managed daemon now provides an explicit desktop-only browser sign-in path.
+The launcher authenticates a local request to issue a random, in-memory code;
+the code expires after 60 seconds, replaces any previous pending code and can be
+redeemed only once. It is distinct from the saved owner credential. The browser
+removes the fragment before loading the rest of the UI and redeems through a
+same-origin POST. Exact Host/Origin checks, bounded request bodies and no-store
+responses protect the exchange. Automatic sign-in keeps the returned credential
+in memory rather than browser storage. Expired or interrupted handoffs require
+opening a new link; they do not automatically retry.
+
+The routes require explicit `--desktop-handoff` and the launcher lifetime flag.
+Remote binding, disabled authentication and disabled UI are rejected before
+wallet opening. Ordinary server launches retain their existing login flow and
+have no handoff routes. Shared source and browser behavior are mirrored to the
+Android branch; mobile node authentication is unchanged.
+
+Validation passes: 86 REST tests (one existing test ignored), seven daemon and
+four connection tests, twelve real-process runner checks, ordinary native daemon
+smoke checks, web contracts and existing manual first-run browser flows. Ten new
+browser scenarios cover success, expiry, interrupted exchange, malformed codes
+and nonlocal pages at phone/desktop widths. A native Apple Silicon daemon and
+isolated Chrome window also completed the actual exchange into empty-wallet
+setup, with no credential in the final URL, input field or session storage. No
+wallet keys were created and no node/payment operations ran. `just checks` passes.
+
+This implements the handoff transport and shared UI entry, not a signed desktop
+application. An OS-visible launcher/browser-opening action, installed browser
+acceptance, first-run service configuration, bundled Tor/Jam, Windows support,
+signing and the remaining funded/hardware/restore gates remain open.

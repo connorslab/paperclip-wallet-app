@@ -159,6 +159,31 @@ class RunnerLifecycle(unittest.TestCase):
         self.assertEqual(runner.process.wait(timeout=5), 0)
         self.assertFalse(runner.process.stdin.closed)
 
+    def test_browser_handoff_is_authenticated_one_use_and_not_the_owner_token(self):
+        runner = self.runner()
+        runner.start()
+        url = runner.browser_url()
+        code = url.split('#desktop-handoff=', 1)[1]
+        owner = (runner.data / 'auth_token').read_text().strip()
+        self.assertTrue(code != owner)
+        http = build_opener(ProxyHandler({}), NoRedirects())
+        with self.assertRaises(HTTPError) as unauthenticated:
+            http.open(Request(runner.endpoint + '/api/desktop/handoff/new', data=b''), timeout=2)
+        self.assertEqual(unauthenticated.exception.code, 401)
+        for origin, expected in [('https://untrusted.example', 403), (runner.endpoint, 200), (runner.endpoint, 403)]:
+            request = Request(runner.endpoint + '/api/desktop/handoff/redeem',
+                data=json.dumps({'code':code}).encode(),
+                headers={'Origin':origin, 'Content-Type':'application/json'})
+            if expected == 200:
+                with http.open(request, timeout=2) as response:
+                    self.assertEqual(response.headers['Cache-Control'], 'no-store')
+                    self.assertTrue(json.loads(response.read())['token'] == owner)
+            else:
+                with self.assertRaises(HTTPError) as rejected:
+                    http.open(request, timeout=2)
+                self.assertEqual(rejected.exception.code, expected)
+        self.assertFalse((runner.data / 'mnemonic').exists())
+
     def test_launcher_crash_releases_daemon_lock_and_allows_restart(self):
         ready = Path(self.temporary.name) / 'launcher-ready.json'
         script = '''

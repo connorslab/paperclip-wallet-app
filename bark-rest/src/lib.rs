@@ -6,6 +6,7 @@ pub mod api;
 pub mod auth;
 pub mod config;
 pub mod error;
+mod desktop_handoff;
 #[cfg(feature = "web-ui")]
 pub mod web;
 #[cfg(feature = "swagger-ui")]
@@ -375,6 +376,27 @@ impl RestServer {
 		state: Arc<ServerState>,
 		shutdown: CancellationToken,
 	) -> anyhow::Result<Self> {
+		Self::start_inner(config, state, shutdown, false).await
+	}
+
+	/// Start an authenticated loopback UI with single-use desktop browser handoff.
+	pub async fn start_desktop(
+		config: &Config,
+		state: Arc<ServerState>,
+		shutdown: CancellationToken,
+	) -> anyhow::Result<Self> {
+		Self::start_inner(config, state, shutdown, true).await
+	}
+
+	async fn start_inner(
+		config: &Config,
+		state: Arc<ServerState>,
+		shutdown: CancellationToken,
+		desktop: bool,
+	) -> anyhow::Result<Self> {
+		if desktop && (!config.host.is_loopback() || state.auth_token().is_none()) {
+			bail!("Desktop handoff requires authenticated loopback binding");
+		}
 		let (router, _api) = OpenApiRouter::with_openapi(ApiDoc::openapi())
 			.split_for_parts();
 
@@ -401,6 +423,11 @@ impl RestServer {
 
 		#[cfg(not(feature = "web-ui"))]
 		let (router, web_ui_attached) = (router.fallback(error::route_not_found), false);
+
+		let router = if desktop {
+			if !web_ui_attached { bail!("Desktop handoff requires the embedded wallet UI"); }
+			router.merge(desktop_handoff::router(&state, socket_addr.to_string()))
+		} else { router };
 
 		log::info!("Server starting on http://{}", socket_addr);
 

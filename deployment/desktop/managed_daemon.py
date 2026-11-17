@@ -1,4 +1,4 @@
-"""POSIX daemon ownership for a future desktop shell; no browser/token handoff yet.
+"""POSIX daemon ownership and one-use browser handoff for a future desktop shell.
 
 This module never selects an installed wallet or starts anything on import.
 Callers supply the packaged executable and an application data root explicitly.
@@ -81,7 +81,7 @@ class ManagedDaemon:
     """Own one child; never attach to, terminate or authenticate an unknown daemon.
 
     The shell must call close on normal quit. Its lifetime pipe also closes on
-    abrupt death; bundled Jam/Tor supervision and browser authentication are separate.
+    abrupt death; bundled Jam/Tor supervision and the visible shell are separate.
     """
 
     def __init__(self, binary, root, startup_timeout=30, shutdown_timeout=20):
@@ -118,7 +118,7 @@ class ManagedDaemon:
             env = {key: os.environ[key] for key in ('PATH', 'HOME', 'TMPDIR', 'LANG') if key in os.environ}
             self.process = subprocess.Popen([
                 str(self.binary), '--quiet', '--no-logfile', '--datadir', str(self.data),
-                '--host', '127.0.0.1', '--port', '0', '--exit-on-stdin-close',
+                '--host', '127.0.0.1', '--port', '0', '--exit-on-stdin-close', '--desktop-handoff',
             ], env=env, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL, close_fds=True)
             http = build_opener(ProxyHandler({}), NoRedirects())
@@ -168,6 +168,30 @@ class ManagedDaemon:
         except BaseException:
             self.close()
             raise
+
+    def browser_url(self):
+        """Return an expiring, single-use URL; caller must not log or persist it."""
+        if self.endpoint is None or self.process is None or self.process.poll() is not None:
+            raise StartupError('Open the desktop wallet before opening its browser window.')
+        try:
+            with private_file(self.data / 'auth_token') as credential:
+                token = credential.read(128).decode('ascii').strip()
+            if not re.fullmatch(r'[A-Za-z0-9_-]{44}', token):
+                raise StartupError('The saved local authentication is malformed.')
+            request = Request(self.endpoint + '/api/desktop/handoff/new', method='POST',
+                              headers={'Authorization':'Bearer ' + token}, data=b'')
+            http = build_opener(ProxyHandler({}), NoRedirects())
+            with http.open(request, timeout=3) as response:
+                result = json.loads(response.read(4096))
+            code = result.get('code')
+            if not isinstance(code, str) or not re.fullmatch(r'[A-Za-z0-9_-]{44}', code) or result.get('expires_in') != 60:
+                raise StartupError('The local daemon returned an invalid browser handoff.')
+            return self.endpoint + '/#desktop-handoff=' + code
+        except HTTPError as error:
+            error.close()
+            raise StartupError('Desktop browser sign-in could not be prepared.') from None
+        except Exception:
+            raise StartupError('Desktop browser sign-in could not be prepared.') from None
 
     def close(self):
         try:

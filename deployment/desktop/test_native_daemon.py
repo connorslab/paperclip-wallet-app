@@ -83,6 +83,12 @@ def check(binary):
                         except HTTPError as error:
                             assert error.code == 401, 'Unexpected authentication response'
                     assert json.loads(request('/api/ui-platform')[0]) == {'platform':'standalone'}
+                    for route in ('new', 'redeem'):
+                        try:
+                            request('/api/desktop/handoff/' + route, token, method='POST', body={'code':'synthetic'})
+                            raise AssertionError('Unmanaged daemon exposed desktop handoff')
+                        except HTTPError as error:
+                            assert error.code in (404, 405), 'Desktop handoff must remain absent by default'
                     assert b'id="jam-create"' in request('/')[0], 'Shared Jars setup UI missing'
                     jars_script = request('/joinblaket.js')[0]
                     assert b"call('backup_wallet'" in jars_script, 'Shared backup flow missing'

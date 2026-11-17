@@ -99,6 +99,9 @@ struct Cli {
 	/// Intended for managed desktop processes; no bytes are interpreted as commands.
 	#[arg(long)]
 	exit_on_stdin_close: bool,
+	/// Enable single-use browser sign-in for an authenticated loopback desktop UI.
+	#[arg(long, requires = "exit_on_stdin_close")]
+	desktop_handoff: bool,
 
 	/// The port to listen on. Zero lets the OS choose an available port.
 	#[arg(long, env = "BARKD_BIND_PORT")]
@@ -221,6 +224,17 @@ impl Cli {
 			}
 		}
 		cfg.allowed_origins = self.allowed_origins.clone();
+		if self.desktop_handoff && (self.auth_disabled() || !cfg.host.is_loopback()) {
+			bail!("Desktop handoff requires authenticated loopback binding");
+		}
+		#[cfg(feature = "barkd-web-ui")]
+		if self.desktop_handoff && self.no_ui {
+			bail!("Desktop handoff requires the embedded wallet UI");
+		}
+		#[cfg(not(feature = "barkd-web-ui"))]
+		if self.desktop_handoff {
+			bail!("Desktop handoff requires the embedded wallet UI");
+		}
 		Ok(cfg)
 	}
 
@@ -570,7 +584,11 @@ async fn main() -> anyhow::Result<()>{
 	});
 
 	let state = builder.build(shutdown.clone());
-	let server = RestServer::start(&config, Arc::new(state), shutdown.clone()).await?;
+	let server = if cli.desktop_handoff {
+		RestServer::start_desktop(&config, Arc::new(state), shutdown.clone()).await?
+	} else {
+		RestServer::start(&config, Arc::new(state), shutdown.clone()).await?
+	};
 
 	// Publish discovery only after a successful bind; failed starts must not
 	// replace an existing address or advertise an unusable port zero.
@@ -611,6 +629,13 @@ mod test {
 	fn launcher_lifetime_is_explicitly_opt_in() {
 		let normal = Cli::try_parse_from(["barkd"]).unwrap();
 		assert!(!normal.exit_on_stdin_close);
+		assert!(!normal.desktop_handoff);
+		assert!(Cli::try_parse_from(["barkd", "--desktop-handoff"]).is_err());
+		for extra in [vec!["--no-auth"], vec!["--host", "0.0.0.0"]] {
+			let mut args = vec!["barkd", "--desktop-handoff", "--exit-on-stdin-close"];
+			args.extend(extra);
+			assert!(Cli::try_parse_from(args).unwrap().to_config().is_err());
+		}
 		let managed = Cli::try_parse_from(["barkd", "--exit-on-stdin-close"]).unwrap();
 		assert!(managed.exit_on_stdin_close);
 	}

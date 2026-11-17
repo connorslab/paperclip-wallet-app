@@ -56,15 +56,33 @@ Run the real-child checks in a temporary, unfunded directory:
 python3 deployment/desktop/test_managed_daemon.py --binary /absolute/path/to/paperclip-walletd -v
 ```
 
-The runner does not yet open a browser, deliver browser authentication or supervise
-Tor/Jam. Abrupt launcher-death tests cover an unfunded idle daemon: active payment
+The runner supplies `browser_url()` for the future shell's browser-opening action.
+It uses the owner credential only in an authenticated local POST and returns a
+different, single-use code in the URL fragment. Never log or persist that URL.
+The code expires after 60 seconds; issuing a new one replaces the previous code.
+The browser removes it from the address before the rest of the UI loads, then
+exchanges it through a same-origin POST. The exchange checks exact Host/Origin,
+refuses replay, limits request bodies and returns no-store responses. The browser
+keeps the resulting owner credential in memory rather than tab storage for this
+automatic sign-in. Reopening from the desktop shell creates a fresh handoff;
+refreshing a memory-only tab requires signing in again.
+
+The server routes are absent unless `--desktop-handoff` is explicitly enabled
+alongside the launcher lifetime flag. Non-loopback, unauthenticated and UI-disabled
+configuration is rejected. Host packages and ordinary server launches retain
+their existing authentication flow. Browser fixtures cover successful empty-wallet
+setup, expired/interrupted/malformed codes, nonlocal pages and no retry at phone
+and desktop widths; real-daemon checks cover authenticated issue and one use.
+
+The runner does not yet open an OS browser window or supervise Tor/Jam.
+Abrupt launcher-death tests cover an unfunded idle daemon: active payment
 and long-running request shutdown still require acceptance. First-run service/network configuration,
 packaged interpreter/runtime delivery, full OS ACL acceptance, Windows ownership
 support and a visible shell remain release gates. Do not distribute this module
 as a complete desktop app or point its acceptance tests at funded storage.
 
-Open work includes the OS-specific launcher and authenticated browser handoff,
-private data locations, a single managed service instance, bundled Tor/Jam,
+Open work includes the OS-specific visible launcher and installed browser handoff
+acceptance, full private data/ACL checks, bundled Tor/Jam,
 signing/notarization, installer upgrades, wallet migrations and full backup/restore.
 The pinned Jam runtime and companion currently use POSIX `fcntl` locks; Windows
 needs a reviewed equivalent or an explicitly managed packaged runtime before it
