@@ -6,10 +6,12 @@ import sys
 import tempfile
 import unittest
 
+import pywintypes
 import win32con
+import win32file
 import win32security
 
-from private_storage import UnsafeStorage, exclusive_file, private_directory, local_path
+from private_storage import UnsafeStorage, exclusive_file, private_directory, local_path, user_sid
 
 
 class PrivateStorage(unittest.TestCase):
@@ -22,7 +24,11 @@ class PrivateStorage(unittest.TestCase):
     def test_private_directory_is_reusable_and_children_inherit_private_access(self):
         private_directory(self.root)
         child = self.root / 'child'
-        child.mkdir()
+        # Elevated CI defaults ordinary mkdir's owner to Administrators. Keep
+        # explicit user ownership while letting the child inherit its DACL.
+        attributes = pywintypes.SECURITY_ATTRIBUTES()
+        attributes.SECURITY_DESCRIPTOR.SetSecurityDescriptorOwner(user_sid(), False)
+        win32file.CreateDirectory(str(child), attributes)
         private_directory(child)
 
     def test_existing_shared_acl_is_rejected_without_being_repaired(self):
