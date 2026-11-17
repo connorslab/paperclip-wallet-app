@@ -281,3 +281,23 @@ the launcher's process environment.
 
 This packages Python/Tk, not the Linux Jars/Tor services or a signed installer.
 Native Linux execution must pass in CI before accepting the runtime packaging.
+
+
+## Windows storage prerequisite
+
+`windows/private_storage.py` uses native Windows ACL and kernel-lock APIs through
+pinned pywin32 311. It accepts only local, unambiguous paths; creates directories
+with explicit current-user ownership and user/SYSTEM access; and validates
+existing ACLs without silently repairing them. Junctions, other reparse points,
+hard-linked files and unexpected owners/permissions fail closed. Ancestor handles
+exclude delete-sharing during creation and acquisition. Kernel locks survive
+neither normal handle close nor process death, so stale files cannot establish
+ownership.
+
+`windows/test_private_storage.py` runs eight real Windows cases in temporary,
+unfunded directories. It includes ACL inheritance with explicit ownership (the
+hosted CI token is elevated), shared/null ACL rejection, junction protection,
+hard-link rejection and competing/killed processes. This module is not wired
+into the POSIX runner; Windows launcher, daemon ACL integration and durability
+require their own native acceptance. The Windows workflow also builds the shared
+daemon with pinned native dependencies and invokes only `--version`.

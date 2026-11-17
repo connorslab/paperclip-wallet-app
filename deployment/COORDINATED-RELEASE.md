@@ -25,7 +25,7 @@ checks and their limits.
 | Android | 100 JVM tests (four live cases excluded); 47 instrumentation cases across 18 classes on local API 35 ARM64 and API 35/36 CI at `740d480`, including visibility and emulator-health checks; authenticated CLN/LND reads and pin rejection | Final release identity, Play/APK upgrade compatibility and physical/foldable acceptance |
 | Shared desktop UI | All 17 existing browser-flow suites plus entropy, transport and QR checks; phone, foldable and desktop widths where each suite defines them | Installed-host and native desktop acceptance; complete multiple-hot-wallet and hardware-funded Ark workflows |
 | StartOS/Umbrel | Shared REST checks, authenticated CLN/LND reads; both StartOS candidate architectures built and source/checksums checked | Complete backup/restore, candidate installation, bundled Jam pairing/revocation/Tor and upgrades; matching frozen wrappers |
-| Linux/macOS/Windows | Isolated Apple Silicon and Linux daemon authentication, duplicate-instance rejection and crash/restart; macOS development shell inspected; packaged Linux shell exercised under Xvfb | Windows shell and private storage; installed browser/accessibility acceptance; bundled Jam/Tor and runtime delivery; supported OS matrix, signed installers, notarization and clean install/upgrade tests |
+| Linux/macOS/Windows | Isolated Apple Silicon and Linux daemon authentication, duplicate-instance rejection and crash/restart; macOS bundled Jars/helper runtime passes 13 relocated isolation cases; Linux frozen Python/Tk shell passes Xvfb; eight native Windows storage cases pass | Windows shell and daemon ACL integration; installed browser/accessibility acceptance; bundled Jam/Tor and runtime delivery; supported OS matrix, signed installers, notarization and clean install/upgrade tests |
 | Jars | Reviewed direct/CoinJoin toggle and bond funding/withdrawal clients; pinned signer, API, bond and interrupted-submission checks; encrypted Jam volume restore on a synthetic chain | Live CoinJoin, direct-send and bond-funding/withdrawal acceptance, installed payment-pairing acceptance, live maker and physical QR signer acceptance |
 | Payments and recovery | 293 shared wallet tests and 51 mobile Rust tests, exact-cost/RBF/unknown-outcome checks; unified-signature and Electrum-header checks | Live BOLT12/Ark/Bridge settlement, portable recovery/restore and current-source XBT consensus acceptance |
 
@@ -2966,6 +2966,26 @@ The application restores the system library search path for its explicit
 `xdg-open` child without mutating the launcher's environment.
 
 Five local controller checks pass, including the frozen browser environment and
-real owned-daemon crash/retry. Script syntax and repository checks pass. Native
-Linux frozen execution is pending CI, so this is implementation rather than
-accepted installed Linux packaging. Jars/Tor and signing are separate work.
+real owned-daemon crash/retry. Script syntax and repository checks pass. Native Linux CI `44159594890` subsequently passed the bundled-runtime build,
+relocated wrapper check and frozen Xvfb window test. This verifies the Python/Tk
+runtime on Ubuntu 24.04. The complete backend run also passed, including
+real Chromium handoff checks. Installed desktop/browser acceptance, Jars/Tor and
+signing remain separate work.
+
+
+## Native Windows storage prerequisite: 2026-11-17
+
+A separate Windows storage module now creates private user/SYSTEM ACLs, verifies
+existing ownership and access without rewriting permissions, rejects junctions
+and hard-linked files, holds ancestor handles during operations, and takes a
+nonblocking kernel file lock. Eight native Windows tests pass in run
+`44161030772`, including competing-process rejection and lock release after a
+killed child. The module is not yet connected to a wallet launcher.
+
+The Windows daemon build now uses Rust 1.91.0, protoc 36.2.0 and checksum-verified
+Boost 1.85.0 headers. An initial runner-image dependency assumption failed before
+compilation and was removed. The storage test also caught Windows constant-module
+and elevated-fixture ownership mistakes; neither permission validation nor
+link rejection was relaxed. Native daemon compilation remains in progress at
+this checkpoint. No storage, credentials or accounts outside disposable CI
+fixtures were touched.

@@ -74,7 +74,9 @@ jobs:
         if: always()
         with:
           name: linux-preview-screenshots
-          path: ${{ runner.temp }}/linux-preview-screenshots/*.png
+          path: |
+            ${{ runner.temp }}/linux-preview-screenshots/*.png
+            ${{ runner.temp }}/linux-frozen-screenshots/*.png
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
