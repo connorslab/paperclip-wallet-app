@@ -8,18 +8,22 @@ import tempfile
 from cryptography import x509
 
 if os.name == 'nt':
-    from windows.private_storage import exclusive_file
+    from windows.private_storage import exclusive_file, read_private_file, atomic_write_private
 else:
     import fcntl
 
 
 def export_certificate(data_dir, destination):
     source = Path(data_dir) / 'ssl' / 'cert.pem'
-    fd = os.open(source, os.O_RDONLY | os.O_NOFOLLOW)
-    with os.fdopen(fd, 'rb') as stream:
-        if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
-            raise ValueError('Jam certificate must be a regular file')
-        certificate = stream.read(16_385)
+    if os.name == 'nt':
+        with read_private_file(source) as stream:
+            certificate = stream.read(16_385)
+    else:
+        fd = os.open(source, os.O_RDONLY | os.O_NOFOLLOW)
+        with os.fdopen(fd, 'rb') as stream:
+            if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
+                raise ValueError('Jam certificate must be a regular file')
+            certificate = stream.read(16_385)
     if len(certificate) > 16_384 or b'PRIVATE KEY' in certificate:
         raise ValueError('Invalid public certificate')
     x509.load_pem_x509_certificate(certificate)
@@ -29,6 +33,11 @@ def export_certificate(data_dir, destination):
     # Host packaging creates this directory, writable only by the Jam uid.
     if not destination.parent.is_dir():
         raise ValueError('Jam public certificate volume is not mounted')
+    if os.name == 'nt':
+        # The native desktop consumer runs as the same user. Keep the public
+        # certificate private rather than widening access for a separate UID.
+        atomic_write_private(destination, certificate)
+        return
     fd, temporary = tempfile.mkstemp(dir=destination.parent, prefix='.cert-')
     try:
         with os.fdopen(fd, 'wb') as stream:

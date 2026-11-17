@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
   push:
     branches: ['codex/cross-platform-parity']
-    paths: ['.github/workflows/windows-desktop.yml', 'deployment/desktop/windows/**', 'deployment/desktop/linux/launcher.py', 'deployment/desktop/managed_daemon.py', 'deployment/desktop/pipe_io.py', 'deployment/desktop/test_pipe_io.py', 'deployment/desktop/test_native_daemon.py', 'deployment/jam/paperclip_jam/journal.py', 'deployment/jam/test_journal.py', 'deployment/jam/paperclip_jam/hosting.py', 'deployment/jam/test_runtime_lock.py', 'bark/src/lock_manager/**', 'bark/Cargo.toml', 'bark-common/**', 'Cargo.lock']
+    paths: ['.github/workflows/windows-desktop.yml', 'deployment/desktop/windows/**', 'deployment/desktop/linux/launcher.py', 'deployment/desktop/managed_daemon.py', 'deployment/desktop/pipe_io.py', 'deployment/desktop/test_pipe_io.py', 'deployment/desktop/test_native_daemon.py', 'deployment/jam/paperclip_jam/journal.py', 'deployment/jam/test_journal.py', 'deployment/jam/paperclip_jam/hosting.py', 'deployment/jam/test_runtime_lock.py', 'deployment/jam/test_certificate_handoff.py', 'bark/src/lock_manager/**', 'bark/Cargo.toml', 'bark-common/**', 'Cargo.lock']
 permissions:
   contents: read
 jobs:
@@ -35,6 +35,8 @@ jobs:
           python deployment/jam/test_journal.py -v
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python deployment/jam/test_runtime_lock.py -v
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python deployment/jam/test_certificate_handoff.py -v
       - name: Select the reviewed Rust toolchain
         run: rustup toolchain install 1.91.0 --profile minimal
       - name: Prepare native build dependencies
