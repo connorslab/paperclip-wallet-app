@@ -7,8 +7,9 @@ import os
 import sys
 import tempfile
 import unittest
+from unittest.mock import Mock
 
-from launcher import Session, valid_handoff
+from launcher import Session, Window, valid_handoff
 
 BINARY = None
 
@@ -23,6 +24,29 @@ class HandoffPolicy(unittest.TestCase):
                     good.replace('127.0.0.1', 'user@127.0.0.1'), good.replace('http:', 'file:'),
                     good[:-1], 'https://untrusted.example/' + good):
             self.assertFalse(valid_handoff(bad))
+
+
+class BrowserCompletion(unittest.TestCase):
+    def test_late_browser_result_cannot_replace_daemon_failure(self):
+        # A browser process can return after the owned daemon has failed.
+        # Drive queued completions without Tk so the race stays deterministic.
+        for state in ('failed', 'closed', 'ready'):
+            for event, value in (('opened', True), ('opened', False), ('open_error', 'Browser unavailable')):
+                with self.subTest(state=state, event=event, value=value):
+                    window = Window.__new__(Window)
+                    window.state = state
+                    window.failure = 'Your wallet stopped unexpectedly.'
+                    window.quitting = False
+                    window.root, window.status, window.action, window.progress = Mock(), Mock(), Mock(), Mock()
+                    window.session = Mock()
+                    window.session.events = queue.Queue()
+                    window.session.events.put((event, value))
+                    # Keep cleanup in progress for the closed-state case.
+                    window.session.thread.is_alive.return_value = True
+                    window.poll()
+                    window.status.configure.assert_not_called()
+                    window.action.configure.assert_not_called()
+                    self.assertEqual(window.state, state)
 
 
 @unittest.skipUnless(BINARY, 'Pass --binary for real native daemon checks')

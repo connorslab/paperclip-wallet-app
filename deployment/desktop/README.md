@@ -1,9 +1,9 @@
 # Native desktop prerequisites
 
 Linux, macOS and Windows packages must embed the same web UI and wallet daemon as
-StartOS/Umbrel. This directory contains acceptance tooling and a POSIX daemon
-ownership module; it is not an installed launcher, signed application or complete
-desktop release.
+StartOS/Umbrel. This directory contains development shells for Linux and macOS,
+acceptance tooling and a POSIX daemon ownership module. These previews are not
+signed applications or complete desktop releases.
 
 Build `paperclip-walletd` from the reviewed revision with the `barkd-web-ui` and
 `sqlite-bundled` features and `BARK_WEB_DIST` pointing to `web/`. Run:
@@ -32,7 +32,7 @@ Windows ACL acceptance remains separate from the Unix mode checks.
 
 ## Daemon ownership module
 
-`managed_daemon.py` supplies the process ownership layer for a future Linux/macOS
+`managed_daemon.py` supplies the process ownership layer for the Linux/macOS
 shell. Nothing starts on import. The caller supplies the packaged daemon and a
 private application root; wallet data lives under its `wallet/` subdirectory.
 The separate launcher lock survives wallet deletion. The module provides the
@@ -56,7 +56,7 @@ Run the real-child checks in a temporary, unfunded directory:
 python3 deployment/desktop/test_managed_daemon.py --binary /absolute/path/to/paperclip-walletd -v
 ```
 
-The runner supplies `browser_url()` for the future shell's browser-opening action.
+The runner supplies `browser_url()` for the shell's browser-opening action.
 It uses the owner credential only in an authenticated local POST and returns a
 different, single-use code in the URL fragment. Never log or persist that URL.
 The code expires after 60 seconds; issuing a new one replaces the previous code.
@@ -132,7 +132,7 @@ at funded storage to satisfy release acceptance.
 Native Apple Silicon verification covers launch to Ready, opening the real default
 browser into empty-wallet setup, a deliberately stopped QA daemon leading to Try
 Again, successful retry and window-close cleanup. No wallet was created. The
-five stdio bridge tests run on the built native daemon in backend CI; the macOS
+six stdio bridge tests run on the built native daemon in backend CI; the macOS
 workflow compiles AppKit separately. Older macOS versions, Intel execution,
 clean-machine Python/runtime bundling and installed upgrades remain unverified.
 
@@ -144,7 +144,8 @@ handoff and unclean-session advisory as the macOS preview. A worker owns the dae
 startup, requests and shutdown do not block the window. Browser opening runs outside
 the UI thread, validates the exact loopback handoff URL and requires an explicit
 action. Crashes expose Try Again; restarting does not replay a browser request.
-The window supports keyboard activation and a compact recovery layout.
+Late browser results cannot replace a daemon failure message. The window supports
+keyboard activation and a compact recovery layout.
 
 Build on Linux with a reviewed native daemon and an explicit Python interpreter
 that includes Tk. Existing output directories are never overwritten:

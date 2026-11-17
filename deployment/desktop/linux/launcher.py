@@ -100,7 +100,7 @@ class Window:
             widget.pack(fill='x', pady=7)
             return widget
         label('PAPERCLIP', 13, '#ff8956', 'bold')
-        label('Your wallet, on Linux', 22, '#f3f6fa', 'bold')
+        label('Your wallet', 22, '#f3f6fa', 'bold')
         self.status = label('Starting your wallet…', 12, '#b9c9db')
         style = ttk.Style(root)
         style.theme_use('clam')
@@ -175,10 +175,10 @@ class Window:
                                 opened = False
                             owner.events.put(('opened', bool(opened)))
                         threading.Thread(target=open_browser, daemon=True).start()
-                elif event == 'opened':
+                elif event == 'opened' and self.state == 'ready' and self.failure is None:
                     self.status.configure(text='Your wallet is open in your browser.' if value else 'The browser could not open. Try Open Wallet again.')
                     self.action.configure(state='normal')
-                elif event == 'open_error':
+                elif event == 'open_error' and self.state == 'ready' and self.failure is None:
                     self.status.configure(text=value)
                     self.action.configure(state='normal')
                 elif event == 'error':

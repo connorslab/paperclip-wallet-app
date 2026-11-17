@@ -2585,8 +2585,13 @@ handoff URLs, open/close, crash/restart, preserved authentication and recovery
 warning, and closing before startup without creating storage. Python syntax
 checks passed. Linux graphical acceptance is newly wired into backend CI: build
 the preview, execute its wrapper, exercise its packaged daemon/modules under Xvfb,
-inspect compact-screen bounds and save screenshots. Those Linux results and visual
-inspection are still required before the UI prerequisite can be accepted.
+inspect compact-screen bounds and save screenshots. At `b74e959`, the Linux
+controller and packaged GUI steps passed. Both screenshots were inspected: the
+ready and 420px recovery layouts are legible and do not clip. The next change
+shortens the heading to avoid an awkward wrap and keeps late browser callbacks
+from replacing daemon failure messages. Its deterministic regression fails in
+nine cases against the old code and passes with the fix; four local controller
+tests and repository checks pass. The final revision still requires Linux CI.
 
 The Linux installed default-browser, Wayland/accessibility and clean-machine
 runtime checks remain open, as do Windows shell/runtime support, bundled desktop
