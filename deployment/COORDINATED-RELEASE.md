@@ -2502,3 +2502,33 @@ This closes completed pre-submission withdrawal errors in source. A terminated o
 canceled call lacks that completion evidence and stays unresolved, including after
 backup/restore. Interrupted-call recovery, other payment types, live settlement,
 installed hosts, physical signers and signed release acceptance remain open.
+
+
+## Desktop shutdown with interrupted uploads: 2026-11-17
+
+Backend and Android API 35/36 CI passed at `5f6a599`, validating the preceding
+mobile withdrawal rejection change. A new real-daemon test reproduced a separate
+desktop problem: an unfinished HTTP upload prevented graceful shutdown until the
+launcher forcibly killed its child. The reproduction used a fresh empty data
+directory and never created a wallet or contacted a node.
+
+Shared REST request-body reads now observe the server shutdown token. An
+interrupted upload returns a body error instead of EOF, so a valid JSON prefix
+cannot be misinterpreted as a completed request. The change does not cancel
+handlers that already consumed their requests, alter payment receipts or bypass
+request-size limits. This applies to the same REST server used by desktop and
+host packages; the source is mirrored to the Android branch.
+
+Validation: 92 REST tests passed with one existing ignored test, including
+incomplete valid JSON rejection before handler dispatch, completion of an already
+running handler and unchanged size limits. The native Apple-built daemon passed
+all 13 managed lifecycle checks, five launcher bridge checks and the native daemon
+acceptance harness. The new real-child case keeps the incomplete socket open while
+the daemon closes cleanly, then verifies restart preserves authentication and no
+wallet was created. The failure before the fix is retained as evidence. Repository
+checks passed. No production service, funded wallet or installed candidate changed.
+
+This is interrupted-upload acceptance on an isolated Apple Silicon daemon, not
+active-payment or long-running-handler shutdown acceptance. Linux CI, installed
+StartOS/Umbrel behavior, Windows ownership/runtime support, full backup/restore,
+physical signers, live settlement and signed installers remain release gates.

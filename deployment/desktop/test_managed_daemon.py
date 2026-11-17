@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import signal
+import socket
 import subprocess
 import sys
 import tempfile
@@ -16,6 +17,7 @@ from unittest.mock import patch
 from managed_daemon import ManagedDaemon, NoRedirects, StartupError, default_data_root, local_endpoint
 from urllib.request import Request, build_opener, ProxyHandler
 from urllib.error import HTTPError
+from urllib.parse import urlsplit
 
 try:
     import fcntl
@@ -158,6 +160,28 @@ class RunnerLifecycle(unittest.TestCase):
         runner.process.terminate()
         self.assertEqual(runner.process.wait(timeout=5), 0)
         self.assertFalse(runner.process.stdin.closed)
+
+    def test_close_rejects_incomplete_upload_without_forced_shutdown_or_wallet_creation(self):
+        runner = self.runner(shutdown_timeout=2)
+        endpoint = urlsplit(runner.start())
+        token = (runner.data / 'auth_token').read_bytes()
+        with socket.create_connection((endpoint.hostname, endpoint.port), timeout=3) as client:
+            request = (f'POST /api/v1/wallet/create HTTP/1.1\r\nHost: {endpoint.netloc}\r\n'
+                       f'Authorization: Bearer {token.decode().strip()}\r\n'
+                       'Content-Type: application/json\r\nContent-Length: 100\r\n'
+                       'Expect: 100-continue\r\n\r\n')
+            client.sendall(request.encode())
+            # 100 Continue proves the request reached its body reader. Keep the
+            # socket open and send valid JSON without completing the HTTP body.
+            self.assertTrue(client.recv(1024).startswith(b'HTTP/1.1 100 Continue'))
+            client.sendall(b'{}')
+            runner.close()
+            self.assertEqual(runner.process.returncode, 0)
+        self.assertFalse((runner.data / 'mnemonic').exists())
+        replacement = self.runner()
+        replacement.start()
+        self.assertEqual((replacement.data / 'auth_token').read_bytes(), token)
+        self.assertFalse((replacement.data / 'mnemonic').exists())
 
     def test_browser_handoff_is_authenticated_one_use_and_not_the_owner_token(self):
         runner = self.runner()

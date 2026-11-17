@@ -80,8 +80,15 @@ owned helper without blocking AppKit, and quits through the lifetime chain.
 The helper accepts only bounded open/quit messages over private stdio. A wallet
 process exit produces a visible retry action rather than a stale Ready state.
 The runner still does not supervise Tor/Jam.
+The shared REST server interrupts unfinished request-body reads when shutdown is
+requested. An interruption is an error, never a synthetic end-of-body: even valid
+JSON received before the HTTP body finishes cannot start a handler during shutdown.
+Handlers that already consumed their requests retain the existing graceful-shutdown
+behavior. A real-child regression keeps an unfinished authenticated upload open
+while closing the launcher, checks a clean exit without wallet creation, and then
+checks restart with the original authentication.
 Abrupt launcher-death tests cover an unfunded idle daemon: active payment
-and long-running request shutdown still require acceptance. First-run service/network configuration,
+and long-running handler shutdown still require acceptance. First-run service/network configuration,
 packaged interpreter/runtime delivery, full OS ACL acceptance, Windows ownership
 support and installed shell acceptance remain release gates. Do not distribute this module
 as a complete desktop app or point its acceptance tests at funded storage.

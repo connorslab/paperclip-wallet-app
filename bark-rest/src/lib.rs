@@ -13,6 +13,7 @@ pub mod web;
 mod swagger;
 
 mod notifications;
+mod request_body;
 
 pub use crate::config::Config;
 use crate::notifications::NotificationManager;
@@ -442,6 +443,7 @@ impl RestServer {
 		let router = router
 			.layer(cors_layer(config))
 			.layer(axum::middleware::from_fn(error::log_errors))
+			.layer(axum::middleware::from_fn_with_state(shutdown.clone(), request_body::interrupt_on_shutdown))
 			.with_state(state);
 
 		let shutdown2 = shutdown.clone();
