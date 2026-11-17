@@ -14,7 +14,24 @@ use crate::ServerState;
 
 #[derive(Default)]
 pub(crate) struct Accounts { pending: HashMap<PathBuf, Pending> }
-struct Pending { psbt: Psbt, signed: Option<Transaction>, created: Instant }
+struct Pending { psbt: Psbt, signed: Option<Transaction>, created: Instant, board: Option<Board> }
+struct Board {
+	owner: Arc<tokio::sync::RwLock<dyn OnchainWalletTrait>>,
+	key: bitcoin::secp256k1::Keypair,
+	expiry: bitcoin_ext::BlockHeight,
+	amount: u64,
+	reserve: u64,
+	signed: Option<Psbt>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct BoardApproval {
+	account: String,
+	pub request_id: bitcoin::Txid,
+	amount_sat: u64,
+	total_sat: u64,
+}
 
 #[derive(Clone, Deserialize, Serialize)]
 struct Account {
@@ -47,7 +64,7 @@ struct Request {
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "snake_case")]
-enum Operation { Destination, Pair, Rename, Export, Remove, Address, Refresh, Prepare, Verify, Broadcast, Cancel }
+enum Operation { Destination, Pair, Rename, Export, Remove, Address, Refresh, Prepare, Verify, Broadcast, Cancel, ArkPrepare, ArkVerify }
 
 pub fn router() -> Router<Arc<ServerState>> {
 	Router::new().route("/accounts", get(accounts)).route("/request", post(request))
@@ -154,6 +171,18 @@ fn check_request(pending: &Pending, id: &str) -> anyhow::Result<()> {
 	ensure!(pending.psbt.unsigned_tx.compute_txid().to_string() == id, "This response belongs to another signing request");
 	Ok(())
 }
+fn check_purpose(pending: &Pending, boarding: bool) -> anyhow::Result<()> {
+	ensure!(pending.board.is_some() == boarding, "Signing purpose changed. Review the correct transfer type");
+	Ok(())
+}
+fn check_board_approval(pending: &Pending, approval: &BoardApproval) -> anyhow::Result<()> {
+	check_request(pending, &approval.request_id.to_string())?;
+	check_purpose(pending, true)?;
+	let board = pending.board.as_ref().context("Review Ark boarding first")?;
+	ensure!(approval.amount_sat == board.amount && board.amount.checked_add(pending.psbt.fee()?.to_sat()) == Some(approval.total_sat), "Reviewed boarding cost changed");
+	Ok(())
+}
+
 fn archive(root: &Path, account: &Account, confirmation: &str, acknowledged: bool) -> anyhow::Result<()> {
 	ensure!(acknowledged && confirmation == format!("REMOVE {}", account.label), "Confirm the wallet name and keep its public export before removing it");
 	let directory = account_dir(root, &account.id)?;
@@ -224,7 +253,7 @@ async fn request(State(state): State<Arc<ServerState>>, Json(request): Json<Requ
 			accounts.pending.remove(&directory);
 			return Ok(json!({"removed":true,"id":account.id}));
 		}
-		if matches!(request.operation, Operation::Prepare | Operation::Verify | Operation::Broadcast) { can_sign(&account)?; }
+		if matches!(request.operation, Operation::Prepare | Operation::Verify | Operation::Broadcast | Operation::ArkPrepare | Operation::ArkVerify) { can_sign(&account)?; }
 		let mut wallet = open(&root, &account).await?;
 		let relay_file = directory.join("broadcast.json");
 		// Recover the exact pre-relay journal. Never automatically submit it again.
@@ -271,11 +300,52 @@ async fn request(State(state): State<Arc<ServerState>>, Json(request): Json<Requ
 				let fee = psbt.fee()?.to_sat();
 				let result = json!({"request_id": psbt.unsigned_tx.compute_txid().to_string(), "account": account.id, "destination": request.destination,
 					"amount_sat": amount, "fee_sat": fee, "total_sat": amount.checked_add(fee).context("Amount overflow")?, "send_max": request.send_max, "psbt": STANDARD.encode(psbt.serialize())});
-				accounts.pending.insert(directory, Pending { psbt, signed: None, created: Instant::now() });
+				accounts.pending.insert(directory, Pending { psbt, signed: None, created: Instant::now(), board: None });
+				Ok(result)
+			},
+			Operation::ArkPrepare => {
+				accounts.pending.remove(&directory);
+				ensure!(!relay(&relay_file)?.is_some_and(|r| r.state == "pending_broadcast"), "Check the previous broadcast before preparing another payment");
+				ensure!(!request.send_max, "Enter a boarding amount");
+				let amount = request.amount_sat.filter(|v| *v > 0).context("Enter a boarding amount")?;
+				main.chain().require_funded_policy().await?;
+				tokio::time::timeout(Duration::from_secs(90), wallet.sync(main.chain())).await.context("Refresh timed out. No signing request was created")??;
+				main.chain().update_fee_rates(main.config().fallback_fee_rate).await?;
+				let estimate = main.estimate_board_offchain_fee(Amount::from_sat(amount)).await?;
+				let policy = ark::exit_policy::paperclip_funding();
+				let anchor = estimate.fee.max(policy.anchor()).to_sat();
+				let miner = policy.miner_fee().to_sat();
+				let reserve = anchor.checked_add(miner).context("Recovery reserve overflow")?;
+				let net = amount.checked_sub(reserve).filter(|v| *v > 0).context("Board amount is below the recovery reserve")?;
+				let (key, _) = main.derive_store_next_keypair().await?;
+				let (address, expiry) = main.board_funding_address(&key).await?;
+				let mut psbt = wallet.prepare_tx(&[(address.clone(), Amount::from_sat(amount))], main.chain().fee_rates().await.regular).await?;
+				qr::prepare_board(&mut psbt)?;
+				ensure!(psbt.serialize().len() <= qr::MAX_TRANSFER, "Transaction is too large for QR signing");
+				wallet.persist().await?;
+				let fee = psbt.fee()?.to_sat();
+				let review = json!({"kind":"ark_board", "account":account.id, "request_id":psbt.unsigned_tx.compute_txid(),
+					"destination":address.to_string(), "amount_sat":amount, "fee_sat":fee,
+					"total_sat":amount.checked_add(fee).context("Board total overflow")?, "net_sat":net, "reserve_sat":reserve,
+					"recovery_anchor_sat":anchor,"recovery_miner_fee_sat":miner,"psbt":STANDARD.encode(psbt.serialize())});
+				let board = Board { owner:state.require_onchain().map_err(|_| anyhow::anyhow!("Receiving hot wallet is unavailable"))?, key, expiry, amount, reserve, signed:None };
+				accounts.pending.insert(directory, Pending { psbt, signed:None, created:Instant::now(), board:Some(board) });
+				Ok(review)
+			},
+			Operation::ArkVerify => {
+				let pending = accounts.pending.get_mut(&directory).context("Review an Ark boarding request first")?;
+				check_request(pending, &request.request_id)?;
+				ensure!(request.signed.len() <= qr::MAX_TRANSFER * 2, "Signed response is too large");
+				check_purpose(pending, true)?;
+				let board = pending.board.as_mut().context("This signing request is not an Ark board")?;
+				let signed = qr::finalized_board(&pending.psbt, &STANDARD.decode(&request.signed)?)?;
+				let result = json!({"verified":true,"kind":"ark_board","txid":signed.unsigned_tx.compute_txid(),"fee_sat":pending.psbt.fee()?.to_sat()});
+				board.signed = Some(signed);
 				Ok(result)
 			},
 			Operation::Verify => {
 				let pending = accounts.pending.get_mut(&directory).context("Review a signing request in this wallet first")?;
+				check_purpose(pending, false)?;
 				check_request(pending, &request.request_id)?;
 				ensure!(request.signed.len() <= qr::MAX_TRANSFER * 2, "Signed response is too large");
 				let tx = qr::signed_transaction(&pending.psbt, &STANDARD.decode(&request.signed)?)?;
@@ -284,6 +354,7 @@ async fn request(State(state): State<Arc<ServerState>>, Json(request): Json<Requ
 			},
 			Operation::Broadcast => {
 				let pending = accounts.pending.get(&directory).context("Review and sign a request first")?;
+				check_purpose(pending, false)?;
 				check_request(pending, &request.request_id)?;
 				let tx = pending.signed.as_ref().context("Scan and verify the signed response first")?.clone();
 				ensure!(tx.compute_txid().to_string() == request.txid, "Transaction changed");
@@ -303,6 +374,45 @@ async fn request(State(state): State<Arc<ServerState>>, Json(request): Json<Requ
 	}.await)
 }
 
+/// Only the submission journal calls this path. A QR funding transaction is
+/// handed to Ark's durable action, never the ordinary hardware broadcaster.
+pub(super) async fn commit_board_tracked<F>(state: Arc<ServerState>, approval: BoardApproval, before_submit: F) -> anyhow::Result<Value>
+where F: FnOnce() -> anyhow::Result<()> + Send {
+	let _lifecycle = state.wallet_lifecycle.lock().await;
+	let mut accounts = state.hardware.lock().await;
+	let (main, root, network) = context(&state).await?;
+	let _file_lock = bark::lock_manager::platform_default(Some(&root), None)?;
+	let account = read_account(&root, &approval.account, network)?;
+	can_sign(&account)?;
+	let directory = account_dir(&root, &account.id)?;
+	let pending = accounts.pending.remove(&directory).context("Review and sign an Ark boarding request first")?;
+	check_board_approval(&pending, &approval)?;
+	let board = pending.board.context("This signing request is not an Ark board")?;
+	ensure!(Arc::ptr_eq(&board.owner, &state.require_onchain().map_err(|_| anyhow::anyhow!("Receiving hot wallet is unavailable"))?), "Receiving wallet changed; review again");
+	let signed = board.signed.context("Scan and verify the signed Ark request first")?;
+	ensure!(signed.unsigned_tx.compute_txid() == approval.request_id, "Funding transaction changed");
+	main.chain().require_funded_policy().await?;
+	let estimate = main.estimate_board_offchain_fee(Amount::from_sat(board.amount)).await?;
+	let policy = ark::exit_policy::paperclip_funding();
+	ensure!(estimate.fee.max(policy.anchor()).checked_add(policy.miner_fee()).context("Recovery reserve overflow")?.to_sat() == board.reserve, "Ark costs changed; review again");
+	let mut source = open(&root, &account).await?;
+	tokio::time::timeout(Duration::from_secs(90), source.sync(main.chain())).await.context("Refresh timed out. No transaction was broadcast")??;
+	let unspent: std::collections::HashSet<_> = source.list_unspent().iter().map(|u| u.outpoint).collect();
+	ensure!(signed.unsigned_tx.input.iter().all(|input| unspent.contains(&input.previous_output)), "A funding input was spent; review again");
+	ensure!(pending.created.elapsed() < Duration::from_secs(1800), "Boarding request expired; review again");
+	let transaction = signed.clone().extract_tx()?;
+	let mut record = Relay { txid: approval.request_id.to_string(), transaction: STANDARD.encode(bitcoin::consensus::serialize(&transaction)), state:"pending_broadcast".into() };
+	before_submit()?;
+	save(&directory.join("broadcast.json"), &record)?;
+	// board_psbt verifies and persists the signed recovery graph before any broadcast.
+	let result = main.board_psbt(signed, board.key, board.expiry).await?;
+	let cached = source.register_tx(&transaction).await.is_ok();
+	record.state = "submitted".into();
+	let saved = save(&directory.join("broadcast.json"), &record).is_ok();
+	Ok(json!({"state":"pending","kind":"ark_board","amount_sat":result.amount.to_sat(),
+		"txid":approval.request_id,"source_cached":cached,"source_receipt_saved":saved}))
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
@@ -310,6 +420,38 @@ mod tests {
 	fn fixtures() -> Vec<Value> {
 		serde_json::from_str(include_str!("../../../../mobile/Tests/PaperclipMobileTests/Fixtures/krux.json")).unwrap()
 	}
+	#[tokio::test]
+	async fn qr_boarding_keeps_signing_purpose_and_exact_approval() {
+		let root = tempfile::tempdir().unwrap();
+		let fixtures = fixtures();
+		let fixture = fixtures.iter().find(|f| f["script"] == "segwit").unwrap();
+		let (receive, change) = qr::descriptors(fixture["public_key"].as_str().unwrap(), fixture["script"].as_str().unwrap(), "", Network::Bitcoin, true).unwrap();
+		let account = Account { id:account_id(&receive,Network::Bitcoin), label:"Synthetic signer".into(), receive, change, network:Network::Bitcoin, kind:AccountKind::Hardware, archived:false };
+		private_dir(&account_dir(root.path(), &account.id).unwrap()).unwrap();
+		let owner = Arc::new(tokio::sync::RwLock::new(open(root.path(), &account).await.unwrap()));
+		let mut psbt = Psbt::deserialize(&STANDARD.decode(fixture["original"].as_str().unwrap()).unwrap()).unwrap();
+		qr::prepare_board(&mut psbt).unwrap();
+		let amount = psbt.unsigned_tx.output[0].value.to_sat();
+		let total = amount + psbt.fee().unwrap().to_sat();
+		let key = bitcoin::secp256k1::Keypair::from_secret_key(&bitcoin::secp256k1::Secp256k1::new(), &bitcoin::secp256k1::SecretKey::from_slice(&[4; 32]).unwrap());
+		let mut approval = BoardApproval { account:account.id, request_id:psbt.unsigned_tx.compute_txid(), amount_sat:amount, total_sat:total };
+		let mut pending = Pending { psbt, signed:None, created:Instant::now(), board:Some(Board { owner, key, expiry:bitcoin_ext::BlockHeight::from(500u32), amount, reserve:1000, signed:None }) };
+		assert!(check_board_approval(&pending, &approval).is_ok());
+		assert!(check_purpose(&pending, false).is_err(), "Boarding cannot use ordinary verification or broadcast");
+		approval.total_sat -= 1;
+		assert!(check_board_approval(&pending, &approval).is_err());
+		approval.total_sat = total; approval.amount_sat -= 1;
+		assert!(check_board_approval(&pending, &approval).is_err());
+		approval.amount_sat = amount; approval.request_id = bitcoin::Txid::from_byte_array([8;32]);
+		assert!(check_board_approval(&pending, &approval).is_err());
+		approval.request_id = pending.psbt.unsigned_tx.compute_txid();
+		pending.created -= Duration::from_secs(1801);
+		assert!(check_board_approval(&pending, &approval).is_err());
+		pending.created = Instant::now(); pending.board = None;
+		assert!(check_purpose(&pending, false).is_ok());
+		assert!(check_board_approval(&pending, &approval).is_err(), "An ordinary send cannot become an Ark board");
+	}
+
 	#[tokio::test]
 	async fn public_send_max_retains_the_exact_net_amount_without_signing() {
 		let root = tempfile::tempdir().unwrap();
@@ -415,7 +557,7 @@ mod tests {
 		let mut psbt = Psbt::deserialize(&STANDARD.decode(fixture["original"].as_str().unwrap()).unwrap()).unwrap();
 		qr::prepare(&mut psbt).unwrap();
 		let id = psbt.unsigned_tx.compute_txid().to_string();
-		let mut pending = Pending { psbt, signed: None, created: Instant::now() };
+		let mut pending = Pending { psbt, signed: None, created: Instant::now(), board: None };
 		assert!(check_request(&pending, &id).is_ok());
 		assert!(check_request(&pending, &"0".repeat(64)).is_err());
 		pending.created -= Duration::from_secs(1801);

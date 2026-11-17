@@ -9,6 +9,15 @@
     $('wallet-select').disabled=busy||walletMutations>0;
     document.querySelectorAll('#paired-wallets button, [data-hot-wallet]').forEach(button=>button.disabled=busy||walletMutations>0);
     for(const id of ['hot-wallet-form','pair-form','cold-send','wallet-rename-form','wallet-remove-form']) $(id).querySelectorAll('button,input,textarea,select').forEach(control=>control.disabled=busy);
+    const boarding=$('cold-purpose').value==='ark';
+    $('cold-ark-option').disabled=!hardwareArkEnabled;
+    $('cold-ark-recovery').hidden=!hardwareArkEnabled;
+    if(boarding)$('cold-max').checked=false;
+    $('cold-destination').closest('label').hidden=boarding;$('cold-destination').required=!boarding;
+    $('cold-max').closest('label').hidden=boarding;
+    document.querySelectorAll('#cold-send .own-wallet-transfer').forEach(row=>row.hidden=boarding);
+    $('cold-ark-detail').hidden=!boarding;
+    $('cold-ark-detail').textContent='To '+(hotProfiles.find(p=>p.id===hotId)?.label||'Main wallet')+' · Ark. After boarding, these funds use this hot wallet’s keys. Keep its backup. Native SegWit and Taproot QR accounts are supported.';
     $('cold-amount').disabled=busy||$('cold-max').checked;$('cold-amount').required=!$('cold-max').checked;
     $('signed-broadcast').disabled=busy||!signed;
     $('cold-send').hidden=!!pending||selected?.kind==='watch';
@@ -38,7 +47,7 @@
   function clearWalletView() {
     resetWalletControls();PaperclipActivity.reset();PaperclipReview.cancel();PaperclipReceive.clear();$('transaction-result').close();$('wallet-rename').close();renaming=null;$('wallet-rename-form').reset();
     $('wallet-remove').close();removing=null;$('wallet-remove-form').reset();
-    for(const id of ['cold-address','cold-relay','cold-history','cold-history-status','activity-list','history','ln-result','ln-invoice','ln-offer-output','address','deposit-address']) $(id)?.replaceChildren();
+    for(const id of ['pending-boards','cold-address','cold-relay','cold-history','cold-history-status','activity-list','history','ln-result','ln-invoice','ln-offer-output','address','deposit-address']) $(id)?.replaceChildren();
     for(const id of ['destination','amount','ln-destination','ln-amount','chain-destination','chain-amount','ln-identifier']) if($(id))$(id).value='';
     $('chain-max').checked=false;$('chain-max').onchange();
     $('ark-max').checked=false;$('ark-max').onchange();
@@ -84,7 +93,7 @@
     sessionWrite('paperclip.selected-qr',null);sessionWrite('paperclip.selected-hot',id||null);
     // Hiding the old wallet clears node, Bridge and QR drafts before the new identity loads.
     $('wallet').hidden=true;await Promise.resolve();hotId=id;generation++;
-    network=null;submissionJournal=false;lightningEnabled=false;lightningDebitLimit=false;
+    network=null;submissionJournal=false;lightningEnabled=false;lightningDebitLimit=false;hardwareArkEnabled=false;
     $('ark-balance').textContent='Loading…';$('chain-balance').textContent='Loading…';
     try {await unlockWallet(token);PaperclipNavigation.show('overview');renderAccounts();}
     catch(error){$('login').hidden=false;status(error.message);throw error;}
@@ -214,20 +223,22 @@
   $('pair-use').onclick=()=>{if(paired){$('pair-confirmation').hidden=true;void choose(paired);}};
   $('cold-history-refresh').onclick=()=>void work('cold-history-status',refresh);
   $('cold-receive').onclick=()=>void work('cold-relay',async()=>{const result=await call('address');$('cold-address').textContent=result.address;PaperclipReceive.show('cold-address',result.address,'Receive to '+selected.label);});
-  $('cold-max').onchange=controls;
+  $('cold-max').onchange=controls;$('cold-purpose').onchange=()=>{PaperclipReview.cancel();controls();};
   $('cold-send').onsubmit=event=>{event.preventDefault();void work('signing-status',async()=>{
     if(!selected||selected.kind!=='hardware')throw new Error('Select a QR signing wallet first.');
-    const context=walletContext(),destination=$('cold-destination').value.trim(),maximum=$('cold-max').checked,amount=$('cold-amount').value;
-    if(!destination)throw new Error('Enter a recipient address.');
+    const context=walletContext(),boarding=$('cold-purpose').value==='ark',destination=$('cold-destination').value.trim(),maximum=!boarding&&$('cold-max').checked,amount=$('cold-amount').value;
+    if(boarding&&!hardwareArkEnabled)throw new Error('Update your wallet host before boarding with a QR signer.');
+    if(!boarding&&!destination)throw new Error('Enter a recipient address.');
     if(!maximum&&(!/^[1-9][0-9]*$/.test(amount)||!Number.isSafeInteger(Number(amount))))throw new Error('Enter a whole number of sats.');
-    const unchanged=()=>currentWallet(context)&&token&&$('cold-destination').value.trim()===destination&&$('cold-max').checked===maximum&&(maximum||$('cold-amount').value===amount);
-    const result=await call('prepare',maximum?{destination,send_max:true}:{destination,amount_sat:Number(amount)});
+    const unchanged=()=>currentWallet(context)&&token&&($('cold-purpose').value==='ark')===boarding&&$('cold-destination').value.trim()===destination&&$('cold-max').checked===maximum&&(maximum||$('cold-amount').value===amount);
+    const result=await call(boarding?'ark_prepare':'prepare',boarding?{amount_sat:Number(amount)}:maximum?{destination,send_max:true}:{destination,amount_sat:Number(amount)});
     if(!unchanged())throw new Error('Payment changed. Review again.');
-    if(result.account!==selected.id||result.destination!==destination||!maximum&&result.amount_sat!==Number(amount)||maximum&&result.send_max!==true||
+    if(result.account!==selected.id||(!boarding&&result.destination!==destination)||boarding&&(result.kind!=='ark_board'||typeof result.destination!=='string'||!result.destination)||!maximum&&result.amount_sat!==Number(amount)||maximum&&result.send_max!==true||
       !/^[0-9a-f]{64}$/.test(result.request_id)||![result.amount_sat,result.fee_sat,result.total_sat].every(Number.isSafeInteger)||result.amount_sat<=0||result.fee_sat<0||
       result.total_sat!==result.amount_sat+result.fee_sat)throw new Error('Invalid signing review. Refresh and try again.');
-    const summary=selected.label+(maximum?' \u00b7 Send Max':'')+'\n\nRecipient: '+result.destination+'\nAmount: '+sats(result.amount_sat)+'\nNetwork fee: '+sats(result.fee_sat)+'\nTotal debit: '+sats(result.total_sat);
-    if(!await PaperclipReview.ask(summary+'\n\nCreate the QR request for your signer?')){if(currentWallet(context)&&token)await call('cancel');return;}
+    if(boarding&&(![result.net_sat,result.reserve_sat,result.recovery_anchor_sat,result.recovery_miner_fee_sat].every(Number.isSafeInteger)||result.net_sat<=0||result.reserve_sat<0||result.recovery_anchor_sat<0||result.recovery_miner_fee_sat<0||result.net_sat+result.reserve_sat!==result.amount_sat||result.recovery_anchor_sat+result.recovery_miner_fee_sat!==result.reserve_sat))throw new Error('Invalid Ark recovery review. No signing request was approved.');
+    const summary=boarding?'From: '+selected.label+'\nTo: '+(hotProfiles.find(p=>p.id===hotId)?.label||'Main wallet')+' · Ark\n\nFunding address: '+result.destination+'\nBoard amount: '+sats(result.amount_sat)+'\nNetwork fee: '+sats(result.fee_sat)+'\nRecovery reserve: '+sats(result.reserve_sat)+'\nNet Ark amount: '+sats(result.net_sat)+'\nTotal debit: '+sats(result.total_sat)+'\n\nThe receiving hot wallet will control these Ark funds. Back it up before continuing.':selected.label+(maximum?' \u00b7 Send Max':'')+'\n\nRecipient: '+result.destination+'\nAmount: '+sats(result.amount_sat)+'\nNetwork fee: '+sats(result.fee_sat)+'\nTotal debit: '+sats(result.total_sat);
+    if(!await (boarding?PaperclipReview.boarding(result,selected.label,hotProfiles.find(p=>p.id===hotId)?.label||'Main wallet'):PaperclipReview.ask(summary+'\n\nCreate the QR request for your signer?'))){if(currentWallet(context)&&token)await call('cancel');return;}
     if(!unchanged())throw new Error('Payment changed. Review again.');
     pending=result;signed=null;collector=new PaperclipSigningQR.Collector();qrFrames=PaperclipSigningQR.frames(PaperclipSigningQR.binary(result.psbt));frame=0;
     paused=matchMedia('(prefers-reduced-motion: reduce)').matches;$('signing-pause').textContent=paused?'Play QR':'Pause QR';$('signing-review').textContent=summary;showFrame();
@@ -246,10 +257,10 @@
     if(isPublic){$('pair-key').value=result;$('pair-wallet').open=true;return;}
     if(!pending||!selected)throw new Error('Review a transaction in this wallet first.');
     let response;
-    try {response=await call('verify',{request_id:input.pending.request_id,signed:PaperclipSigningQR.toBase64(result)});}
+    try {response=await call(input.pending.kind==='ark_board'?'ark_verify':'verify',{request_id:input.pending.request_id,signed:PaperclipSigningQR.toBase64(result)});}
     catch(error){if(!currentSigning(input))return;collector=new PaperclipSigningQR.Collector();throw error;}
     if(!currentSigning(input))return;
-    if(response.verified!==true||response.fee_sat!==input.pending.fee_sat)throw new Error('Signature verification did not match this review.');
+    if(response.verified!==true||response.fee_sat!==input.pending.fee_sat||input.pending.kind==='ark_board'&&(response.kind!=='ark_board'||response.txid!==input.pending.request_id))throw new Error('Signature verification did not match this review.');
     signed=response;$('signing-progress').textContent='Signature verified. Review once more before broadcast.';controls();
   }
   async function scan(isPublic) {
@@ -308,15 +319,16 @@
   $('scanner-close').onclick=stopCamera;dialog.addEventListener('cancel',stopCamera);dialog.addEventListener('close',stopCamera);
   $('signing-cancel').onclick=cancelRequest;
   $('signing-download').onclick=()=>{if(!pending)return;const url=URL.createObjectURL(new Blob([PaperclipSigningQR.binary(pending.psbt)],{type:'application/octet-stream'}));const a=document.createElement('a');a.href=url;a.download='paperclip-unsigned.psbt';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);};
+  $('cold-ark-recovery').onclick=()=>void work('cold-relay',async()=>{await selectAccount('');PaperclipNavigation.show('recovery');});
   $('signed-broadcast').onclick=()=>void work('signing-status',async()=>{
     if(!pending||!signed)throw new Error('Scan and verify the signature first.');
     if(!await PaperclipReview.ask('Broadcast from '+selected.label+'?\n\n'+$('signing-review').textContent+'\n\nTransaction: '+signed.txid))return;
     // Disable a second submission even if the reply is lost. The server journals before relay.
-    const ticket=generation,txid=signed.txid,request_id=pending.request_id;signed=null;controls();
+    const ticket=generation,txid=signed.txid,request_id=pending.request_id,boarding=pending.kind==='ark_board',approval={account:selected.id,request_id,amount_sat:pending.amount_sat,total_sat:pending.total_sat};signed=null;controls();
     let result;
-    try{result=await call('broadcast',{request_id,txid});}
+    try{result=boarding?await mutate('hardware/board/commit',approval):await call('broadcast',{request_id,txid});}
     catch(error){if(ticket!==generation)throw error;clearSigning();PaperclipNavigation.show('overview');$('cold-relay').textContent='Broadcast result is uncertain. Refresh and check transaction '+txid+' before another payment.';throw error;}
-    clearSigning();PaperclipNavigation.show('overview');$('cold-relay').textContent=result.state==='submitted'?'Transaction submitted. Waiting for confirmation.':'Broadcast result is uncertain. Check transaction '+txid+' before another payment.';
+    clearSigning();PaperclipNavigation.show('overview');$('cold-relay').textContent=boarding?'Ark boarding is pending. Open the receiving Ark wallet below to check confirmation and registration. Funding transaction: '+txid:result.state==='submitted'?'Transaction submitted. Waiting for confirmation.':'Broadcast result is uncertain. Check transaction '+txid+' before another payment.';
   });
   window.addEventListener('paperclip:view',event=>{stopCamera();if(event.detail==='wallets'&&token)void work('wallet-account-status',load);});
   document.addEventListener('visibilitychange',()=>{if(document.hidden)stopCamera();});

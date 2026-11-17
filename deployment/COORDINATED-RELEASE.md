@@ -23,7 +23,7 @@ checks and their limits.
 | --- | --- | --- |
 | iOS | 123 shared Swift tests; 17 safe UI cases on both regular-phone and open-Duo simulators | Physical signer, camera, accessibility and interrupted/folded payment acceptance; final signed candidate and upgrade |
 | Android | 100 JVM tests (four live cases excluded); 47 instrumentation cases across 18 classes on local API 35 ARM64; 48 cases on each of API 35/36 CI at `a04a3e4`, including the new large-text Jars navigation case, visibility and emulator-health checks; authenticated CLN/LND reads and pin rejection | Final release identity, Play/APK upgrade compatibility and physical/foldable acceptance |
-| Shared desktop UI | All 17 existing browser-flow suites plus entropy, transport and QR checks; phone, foldable and desktop widths where each suite defines them | Installed-host and native desktop acceptance; accept multiple-hot-wallet profiles and complete hardware-funded Ark workflows |
+| Shared desktop UI | All 17 existing browser-flow suites plus entropy, transport and QR checks; phone, foldable and desktop widths where each suite defines them | Installed-host and native desktop acceptance; accept multiple-hot-wallet profiles and hardware-funded Ark workflows |
 | StartOS/Umbrel | Shared REST checks, authenticated CLN/LND reads; both StartOS candidate architectures built and source/checksums checked | Complete backup/restore, candidate installation, bundled Jam pairing/revocation/Tor and upgrades; matching frozen wrappers |
 | Linux/macOS/Windows | Isolated Apple Silicon and Linux daemon authentication, duplicate-instance rejection and crash/restart; macOS bundled Jars/helper runtime passes 13 relocated isolation cases; Linux bundled Jars passes TLS/proxy and frozen-window recovery checks; 90 native Windows storage/browser-policy/pipe/ownership/discovery/window/Jars cases and authenticated daemon lifecycle pass at `710bc5f` | Installed browser/accessibility acceptance; bundled Jam/Tor and runtime delivery; supported OS matrix, signed installers, notarization and clean install/upgrade tests |
 | Jars | Reviewed direct/CoinJoin toggle and bond funding/withdrawal clients; pinned signer, API, bond and interrupted-submission checks; encrypted Jam volume restore on a synthetic chain | Live CoinJoin, direct-send and bond-funding/withdrawal acceptance, installed payment-pairing acceptance, live maker and physical QR signer acceptance |
@@ -36,8 +36,9 @@ historical evidence and can describe work that later sections completed. The
 coordinated scope is iOS, Android, StartOS, Umbrel, Linux, macOS and Windows.
 
 1. **Finish functional parity.** Accept the shared desktop/server hot-wallet profiles and guided transfers,
-   and complete hardware/QR-funded Ark workflows, including
-   boarding and recovery. Complete the remaining end-to-end review of boarding,
+   and the shared hardware/QR-funded Ark workflow, including
+   boarding and recovery. The desktop/server client is now implemented; installed
+   and physical-signer acceptance is still required. Complete the remaining end-to-end review of boarding,
    hardware signing and exit paths. Mobile wallet switching alone does not close
    the desktop profile requirement.
 2. **Finish native runtime delivery.** Complete the Windows upstream Jars wallet
@@ -145,6 +146,33 @@ per-wallet warnings, cross-profile receiving-address lookup and new-wallet setup
 at 390/840/1280px. These tests do not
 establish funded multi-wallet operation, installed package upgrades, funded cross-profile
 transfers or hardware-funded Ark acceptance. Those gates remain open.
+
+### Shared QR-funded Ark boarding
+
+The desktop, StartOS and Umbrel UI now offers Move to my Ark wallet from a QR
+account. Its review names both wallets, explains that the receiving hot wallet
+controls the Ark funds, and shows funding amount, network fee, recovery reserve,
+net Ark amount and total source debit. Native SegWit and Taproot signing use the
+same stable-transaction and signature checks as mobile. Watch-only accounts do
+not gain spending access; legacy and nested inputs cannot use this boarding path.
+
+Signing purpose, source account, funding transaction, cost, expiry and receiving
+wallet are checked before commit. The source inputs and Ark reserve are checked
+again. Commit goes through the receiving wallet's durable submission journal and
+Ark recovery checkpoint, never the ordinary hardware broadcast route. A lost
+reply is uncertain and cannot trigger an automatic resend. The receiving-wallet
+shortcut opens pending boards and their funding references. Empty or unavailable
+records do not imply that an uncertain payment failed.
+
+Validation: 111 shared REST tests passed (one existing ignored test); seven QR
+crypto tests passed; native macOS build and mandatory checks passed. Synthetic
+browser cases at 390/840/1280px cover malformed costs, custody review, cancellation,
+dedicated signature verification, pending/unknown replies, receiving-wallet
+navigation, unavailable/empty recovery states and no replay after reload. Existing
+hardware, wallet-race, hot-profile, hot-boarding and submission tests passed.
+The phone review was visually inspected. No actual signing device, funds or
+production service was used, so live boarding/registration and installed-host
+recovery acceptance remain open.
 
 ### Hot-wallet entropy choices
 

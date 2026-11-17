@@ -382,6 +382,7 @@ pub async fn identity(
 		"network": wallet.network().await?,
 		"exit_profile": ark::exit_policy::PAPERCLIP_EXIT_PROFILE,
 		"lightning_debit_limit": true,
+		"hardware_ark_boarding": cfg!(feature = "web-ui"),
 		"submission_journal": if cfg!(feature = "web-ui") { 1 } else { 0 },
 		"lightning_enabled": wallet.ark_info().await.ok().flatten().is_some_and(|info| info.funded_lightning),
 	})))

@@ -54,6 +54,22 @@ window.PaperclipReview = (() => {
       content.append(element('p', 'A matching short fingerprint does not prove ownership. If unsure, go back and check the original node and backup.', 'hint'));
       return open(content, 'Recover node records', () => owner.checked && backup.checked);
     },
+    boarding(quote, source, target) {
+      const content = element('div', '', 'withdrawal-review');
+      const amount = element('div', '', 'withdrawal-review-amount');
+      amount.append(element('span', 'To your Ark balance'), element('strong', quote.net_sat.toLocaleString() + ' sats'));
+      const details = element('dl', '');
+      for (const [label, value] of [['Funding amount', quote.amount_sat], ['Network fee', quote.fee_sat],
+          ['Recovery reserve', quote.reserve_sat], ['Total QR wallet debit', quote.total_sat]]) {
+        const row = element('div', ''); row.append(element('dt', label), element('dd', value.toLocaleString() + ' sats')); details.append(row);
+      }
+      const destination = element('div', '', 'withdrawal-review-destination');
+      destination.append(element('span', 'Verify this funding address on your signer'), element('code', quote.destination));
+      content.append(element('p', source + ' → ' + target + ' · Ark', 'withdrawal-review-route'), amount, details, destination,
+        element('p', 'The receiving hot wallet will control these funds. Back it up before continuing. Recovery reserves are included in the funding amount and reduce your Ark balance.', 'withdrawal-review-note'),
+        element('p', 'Next: scan and sign. Nothing is sent until you approve the signed transaction. Boarding then needs confirmations and Ark registration.', 'hint'));
+      return open(content, 'Review move to Ark');
+    },
     withdrawal(quote) {
       const content = element('div', '', 'withdrawal-review');
       const amount = element('div', '', 'withdrawal-review-amount');

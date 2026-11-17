@@ -5,6 +5,7 @@ let uncertainMutation = sessionRead('paperclip.uncertain') === '1';
 let submissionJournal = false;
 let lightningEnabled = false;
 let lightningDebitLimit = false;
+let hardwareArkEnabled = false;
 let setupPending = false;
 let setupDefaultsLoaded = false;
 const $ = id => document.getElementById(id);
@@ -22,7 +23,8 @@ async function api(path, body, method, signal) {
   // Jam has its own wallet authorization. Selecting a public account must not
   // hide that independent wallet or grant access to any hot-wallet operation.
   const separateWallet = ['joinblaket/connection','joinblaket/request','joinblaket/pairings','joinblaket/pairings/revoke'].includes(path);
-  if (account && !path.startsWith('hardware/') && !path.startsWith('/api/profiles') && !separateWallet) throw new Error('This action belongs to the hot wallet. Switch wallets first.');
+  const qrRecovery = path==='submissions' && (body===undefined || body?.operation==='hardware/board/commit') || ['submissions/ack','submissions/check'].includes(path);
+  if (account && !qrRecovery && !path.startsWith('hardware/') && !path.startsWith('/api/profiles') && !separateWallet) throw new Error('This action belongs to the hot wallet. Switch wallets first.');
   const mutation = (body !== undefined || (method && method !== 'GET')) && !(path === 'hardware/request' && body?.operation === 'refresh');
   if (mutation) { walletMutations++; globalThis.PaperclipAccounts?.busyChanged(); }
   try {
@@ -50,9 +52,9 @@ async function update() {
 }
 async function updateBalances(sessionToken) {
   const accountGeneration = globalThis.PaperclipAccounts?.generation ?? 0;
-  const results = await Promise.allSettled(['wallet/balance', 'onchain/balance', 'wallet/vtxos', 'exits/status/all', 'bitcoin/tip'].map(path => api(path)));
+  const results = await Promise.allSettled(['wallet/balance', 'onchain/balance', 'wallet/vtxos', 'exits/status/all', 'bitcoin/tip', 'boards/pending'].map(path => api(path)));
   if (!token || token !== sessionToken || accountGeneration !== (globalThis.PaperclipAccounts?.generation ?? 0)) return;
-  const [balance, chain, vtxos, exits, tip] = results.map(result => result.status === 'fulfilled' ? result.value : null);
+  const [balance, chain, vtxos, exits, tip, boards] = results.map(result => result.status === 'fulfilled' ? result.value : null);
   $('exits').textContent = JSON.stringify(exits, null, 2);
   const hasArkBalance = Number.isSafeInteger(balance?.spendable_sat) && balance.spendable_sat >= 0;
   const hasChainBalance = Number.isSafeInteger(chain?.confirmed_sat) && chain.confirmed_sat >= 0;
@@ -61,6 +63,7 @@ async function updateBalances(sessionToken) {
   $('vtxos').textContent = JSON.stringify({balance, onchain: chain, vtxos}, null, 2);
   vtxoSnapshot = {balance: balance || {}, rows: Array.isArray(vtxos) ? vtxos : [], tip: Number.isSafeInteger(tip?.tip_height) ? tip.tip_height : null};
   renderVtxos();
+  renderPendingBoards(boards);
   if (!vtxos || !balance) {
     $('vtxo-list').replaceChildren(); $('vtxo-summary').textContent = 'Recovery balances are unavailable. Check connections and try again.';
   }
@@ -94,6 +97,7 @@ async function connectWallet() {
     submissionJournal = info.submission_journal === 1;
     lightningEnabled = info.lightning_enabled === true;
     lightningDebitLimit = info.lightning_debit_limit === true;
+    hardwareArkEnabled = info.hardware_ark_boarding === true && submissionJournal;
     $('ln-controls').disabled = !lightningEnabled;
     $('ln-capability').textContent = lightningEnabled ? 'Experimental XBT Lightning enabled. Channel and Ark pool liquidity are required. Recovery reserves are included in your payment cost.' : 'This ASP has not enabled funded Lightning. Payment controls are unavailable.';
     $('network').textContent = network === 'bitcoin' ? 'XBT MAINNET \u00b7 EXPERIMENTAL' : 'XBT REGTEST';
@@ -297,7 +301,7 @@ $('refresh').onclick = event => run(event.target, async () => {
 
 // Persisted on the server so closing a tab cannot erase an uncertain payment.
 const journalOperations = new Set(['wallet/send','lightning/pay','onchain/send/commit',
-  'onchain/replacement/commit','boards/commit','withdrawals/commit','wallet/offboard/all','wallet/refresh/all',
+  'onchain/replacement/commit','hardware/board/commit','boards/commit','withdrawals/commit','wallet/offboard/all','wallet/refresh/all',
   'exits/start/all','exits/progress','exits/claim/all']);
 function submissionKey() {
   const profile=globalThis.PaperclipAccounts?.hotProfileId;
@@ -662,6 +666,23 @@ function vtxoNode(tag, text, className) {
   if (className) node.className = className;
   return node;
 }
+function renderPendingBoards(boards) {
+  const list = $('pending-boards'); list.replaceChildren();
+  if (!Array.isArray(boards) || boards.some(board => !Number.isSafeInteger(board.amount_sat) || board.amount_sat < 0 || !/^[0-9a-f]{64}$/.test(board.funding_tx?.txid))) {
+    list.append(vtxoNode('p', 'Pending transfers are unavailable. Check the saved submission and funding transaction before trying again.', 'hint')); return;
+  }
+  if (!boards.length) {
+    list.append(vtxoNode('p', 'No pending boarding records. This does not establish the outcome of an uncertain submission; check its saved status and Activity.', 'hint')); return;
+  }
+  for (const board of boards) {
+    const card = vtxoNode('article', '', 'vtxo-card');
+    card.append(vtxoNode('strong', board.amount_sat.toLocaleString() + ' sats'),
+      vtxoNode('p', 'Awaiting confirmation or Ark registration', 'hint'));
+    const details = vtxoNode('details', '');
+    details.append(vtxoNode('summary', 'Funding transaction'), vtxoNode('code', board.funding_tx.txid));
+    card.append(details); list.append(card);
+  }
+}
 function renderVtxos() {
   const {balance, rows, tip} = vtxoSnapshot;
   const nextKey = JSON.stringify([vtxoSnapshot, $('vtxo-filter').value]);
@@ -695,7 +716,7 @@ function renderVtxos() {
 $('vtxo-filter').onchange = renderVtxos;
 $('vtxo-update').onclick = event => run(event.target,async()=>{await update();status('VTXOs updated.');});
 const vtxoLock = $('lock').onclick;
-$('lock').onclick = () => { vtxoLock();vtxoRenderKey='';vtxoSnapshot={balance:{},rows:[],tip:null};$('vtxo-list').replaceChildren();$('vtxo-summary').replaceChildren();$('vtxo-tip').textContent=''; };
+$('lock').onclick = () => { vtxoLock();vtxoRenderKey='';vtxoSnapshot={balance:{},rows:[],tip:null};$('vtxo-list').replaceChildren();$('vtxo-summary').replaceChildren();$('vtxo-tip').textContent='';$('pending-boards').replaceChildren(); };
 
 function showOffer(offer) {
   $('offer-state').textContent = offer?.active ? 'Enabled while wallet service is online' : 'Disabled';

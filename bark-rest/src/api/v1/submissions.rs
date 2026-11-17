@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use crate::ServerState;
-use super::{boards, exits, lightning, onchain, wallet, withdrawals};
+use super::{hardware, boards, exits, lightning, onchain, wallet, withdrawals};
 
 const MAX_RECORD_BYTES: u64 = 2 * 1024 * 1024;
 
@@ -52,6 +52,7 @@ enum Action {
 	#[serde(rename = "onchain/send/commit")] Onchain(onchain::SendApproval),
 	#[serde(rename = "onchain/replacement/commit")] Replacement(onchain::ReplacementApproval),
 	#[serde(rename = "boards/commit")] Board(boards::BoardApproval),
+	#[serde(rename = "hardware/board/commit")] HardwareBoard(hardware::BoardApproval),
 	#[serde(rename = "withdrawals/commit")] Withdrawal(withdrawals::WithdrawalApproval),
 	#[serde(rename = "wallet/offboard/all")] Offboard(bark_json::web::OffboardAllRequest),
 	#[serde(rename = "wallet/refresh/all")] Refresh(Empty),
@@ -67,7 +68,7 @@ impl Action {
 	fn references(&self) -> (Option<String>, Option<String>) {
 		let txid = match self {
 			Self::Onchain(v) => Some(v.request_id.to_string()), Self::Replacement(v) => Some(v.replacement_txid.to_string()),
-			Self::Board(v) => Some(v.request_id.to_string()), _ => None,
+			Self::Board(v) => Some(v.request_id.to_string()), Self::HardwareBoard(v) => Some(v.request_id.to_string()), _ => None,
 		};
 		let destination = match self { Self::Lightning(v) => Some(&v.destination), _ => None };
 		let hash = destination.and_then(|v| v.parse::<ark::lightning::Invoice>().ok()).map(|v| v.payment_hash().to_string());
@@ -97,6 +98,7 @@ impl Action {
 			Self::Onchain(v) => call!(onchain::send_commit_tracked(state, v, || receipt.started(None, None)).await),
 			Self::Replacement(v) => call!(onchain::replacement_commit_tracked(state, v, || receipt.started(None, None)).await),
 			Self::Board(v) => call!(boards::commit_review_tracked(state, v, || receipt.started(None, None)).await),
+			Self::HardwareBoard(v) => hardware::commit_board_tracked(state, v, || receipt.started(None, None)).await,
 			Self::Withdrawal(v) => call!(withdrawals::commit_tracked(state, v, |id| receipt.started(Some(id.to_owned()), None)).await),
 			Self::Offboard(v) => call!(wallet::offboard_all_tracked(state, v, |id| receipt.started(Some(id.to_owned()), None)).await),
 			Self::Claim(v) => call!(exits::exit_claim_all_tracked(state, v, |txid| receipt.transaction(txid)).await),
@@ -365,6 +367,16 @@ mod tests {
 
 	fn request(n: u8) -> Request {
 		Request { id: format!("{n:064x}"), operation: "wallet/send".into(), body: json!({"destination":"public-fixture","amount_sat":1000}) }
+	}
+
+	#[test]
+	fn hardware_board_receipts_bind_the_funding_transaction_and_contract() {
+		let body = json!({"account":"a".repeat(64),"request_id":"b".repeat(64),"amount_sat":70000,"total_sat":71000});
+		let mut req = Request { id:"c".repeat(64),operation:"hardware/board/commit".into(),body };
+		let action = Action::parse(&req).unwrap();
+		assert_eq!(action.references(), (Some("b".repeat(64)), None));
+		req.body["signed"] = json!("not accepted through the commit contract");
+		assert!(Action::parse(&req).is_err());
 	}
 
 	#[tokio::test]
