@@ -1970,3 +1970,23 @@ selected ANGLE/SwiftShader, unlike the earlier legacy GLES path. All eleven Jars
 cases passed on the isolated ARM64 API 36 emulator, including the blocked-window
 negative control. Kotlin compilation, workflow YAML parsing and `just checks`
 passed. The new Linux x86_64 API 35/36 CI run is still required.
+
+
+## Bond withdrawal confirmation race — 2026-11-16
+
+A new real-signer/API regression reproduced a validation gap: the wallet cache
+could retain a confirmed bond while the final node UTXO read reported it as
+unconfirmed. Commit checked the cached confirmation count but only compared value
+and script in the node result, so the synthetic request was submitted.
+
+Commit now also requires a positive integer confirmation count in that final node
+result. Zero, negative and malformed counts reject before the journal's submission
+boundary and before broadcast. The review remains prepared; once the node confirms
+the input, a separate explicit commit of an otherwise valid review can proceed.
+This applies to the shared Jam host used by every client and is mirrored to the
+Android branch. It does not enable an automatic payment retry.
+
+The regression failed before the fix and passes afterward. The complete pinned
+Jam suite passes 71 tests with one container-only skip (72 total), using synthetic
+chain data and the real signer. Live chain reorganization, installed-host withdrawal
+and confirmed settlement acceptance remain open; no funds were moved.

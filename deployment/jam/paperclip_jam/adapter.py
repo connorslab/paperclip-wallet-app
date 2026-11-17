@@ -157,6 +157,8 @@ class JamAdapter:
             self.idle()
             if chain_coin is None or chain_coin.value != coin.value or chain_coin.scriptpubkey != coin.scriptpubkey:
                 raise PaymentConflict('The node no longer reports the reviewed unspent coins')
+            if quote['purpose'] == 'withdraw_bond' and (type(chain_coin.confirmations) is not int or chain_coin.confirmations <= 0):
+                raise PaymentConflict('The node no longer reports a confirmed bond; wait for confirmation before withdrawing')
 
     async def broadcast(self, signed, quote):
         self.authorize()

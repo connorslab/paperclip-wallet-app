@@ -16,7 +16,7 @@ from loguru import logger
 from mnemonic import Mnemonic
 from jmcore.bitcoin import get_txid, parse_transaction
 from jmcore.timenumber import timestamp_to_timenumber
-from jmwallet.backends.base import Transaction
+from jmwallet.backends.base import Transaction, UTXO
 from jmwallet.wallet.address import pubkey_to_p2wpkh_script, script_to_p2wsh_scriptpubkey
 from jmwallet.wallet.bond_registry import BondRegistry, create_bond_info, save_registry
 from jmwallet.wallet.models import UTXOInfo
@@ -446,6 +446,29 @@ class RuntimeTest(unittest.TestCase):
         self.backend.get_utxo.return_value = None
         self.assertEqual(self.client.post(target,json={'approval':review['approval']}).status_code,409)
         self.backend.broadcast_transaction.assert_not_awaited()
+
+    def test_bond_withdrawal_rejects_node_confirmation_loss_despite_stale_wallet_cache(self):
+        bond, _ = self.bond_withdrawal()
+        self.backend.get_median_time_past.return_value = bond.locktime + 1
+        review = self.prepare()
+        # A reorg can occur after the wallet sync and before the node's final
+        # unspent-output read. The cached coin still says it is confirmed.
+        chain_coin = UTXO(txid=self.coin.txid, vout=self.coin.vout, value=self.coin.value,
+            address=self.coin.address, confirmations=0, scriptpubkey=self.coin.scriptpubkey)
+        self.backend.get_utxo.return_value = chain_coin
+        self.assertGreater(self.coin.confirmations, 0)
+        target = self.base + '/' + self.body['id'] + '/commit'
+        for confirmations in (0, -1, None, True):
+            with self.subTest(confirmations=confirmations):
+                chain_coin.confirmations = confirmations
+                result = self.client.post(target, json={'approval': review['approval']})
+                self.assertEqual(result.status_code, 409)
+                self.backend.broadcast_transaction.assert_not_awaited()
+                self.assertEqual(self.client.get(self.base + '/' + self.body['id']).json()['state'], 'prepared')
+        # Once the node confirms it, an explicit still-valid commit is possible.
+        chain_coin.confirmations = 1
+        self.assertEqual(self.client.post(target, json={'approval': review['approval']}).status_code, 200)
+        self.backend.broadcast_transaction.assert_awaited_once()
 
     def test_ordinary_send_never_spends_matured_bond_even_automatically(self):
         bond, _ = self.bond_withdrawal()

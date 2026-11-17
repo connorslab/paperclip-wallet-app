@@ -70,8 +70,8 @@ includes maker fees, the owner's mining share, total debit and maker count.
 Broadcast uses the owner's Jam node and is non-RBF. No direct-send fallback exists.
 Commit rechecks every prevout and the original owner-qualified input leases;
 cancelling a signed review can leave coins reserved until the upstream safety
-window ends. Live CoinJoin settlement, live bond funding, bond withdrawal client flows and
-installed-host pairing acceptance remain release gates.
+window ends. Live CoinJoin settlement, live bond funding/withdrawal and installed-host pairing
+acceptance remain release gates.
 
 The host can issue either a management-only phone pairing (the default) or an
 explicit manage-and-send pairing. Existing grants remain management-only; choosing
@@ -163,7 +163,9 @@ full, less that fee. The request binds `withdraw_bond`, jar 0, the exact outpoin
 input value and unlock date; it cannot substitute another coin or use CoinJoin.
 Stop the maker before sending. Maturity uses chain time, never the device clock.
 The companion rechecks maturity, confirmation, freeze state, ownership and the
-node's unspent output before its one permitted broadcast. Unknown submission
+node's unspent output before its one permitted broadcast. The final node output
+must still report positive confirmations, even if the wallet cache has not yet
+observed a reorganization. A rejected check keeps the review unsubmitted. Unknown submission
 outcomes must be checked in Jars payment activity, never automatically retried.
 
 The same client contract is implemented in iOS, Android and the shared desktop
