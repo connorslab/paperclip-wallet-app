@@ -187,18 +187,15 @@ impl LockManager for FlockPidLockManager {
 mod test {
 	use super::*;
 
-	fn tmp_dir() -> PathBuf {
-		let dir = std::env::temp_dir()
-			.join(format!("bark-pid-lockmgr-{}", std::process::id()))
-			.join(format!("{}", std::time::SystemTime::now()
-				.duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
-		let _ = fs::remove_dir_all(&dir);
-		dir
+	fn tmp_dir() -> tempfile::TempDir {
+		// Clock resolution is not a uniqueness guarantee when tests run in parallel.
+		tempfile::Builder::new().prefix("bark-pid-lock-test-").tempdir().unwrap()
 	}
 
 	#[tokio::test]
 	async fn acquire_writes_holder_pid() {
-		let dir = tmp_dir();
+		let directory = tmp_dir();
+		let dir = directory.path();
 		let mgr = FlockPidLockManager::new(&dir).unwrap();
 		let contents = fs::read_to_string(dir.join(LOCK_FILE)).unwrap();
 		assert_eq!(contents, std::process::id().to_string());
@@ -208,7 +205,8 @@ mod test {
 
 	#[tokio::test]
 	async fn second_acquire_in_same_process_is_refused() {
-		let dir = tmp_dir();
+		let directory = tmp_dir();
+		let dir = directory.path();
 		let _held = FlockPidLockManager::new(&dir).unwrap();
 		let err = FlockPidLockManager::new(&dir).unwrap_err();
 		assert!(
@@ -221,7 +219,8 @@ mod test {
 
 	#[test]
 	fn whole_file_probe_observes_owner_without_blocking_pid_reads() {
-		let dir = tmp_dir();
+		let directory = tmp_dir();
+		let dir = directory.path();
 		let held = FlockPidLockManager::new(&dir).unwrap();
 		let probe = File::open(dir.join(LOCK_FILE)).unwrap();
 		assert!(matches!(probe.try_lock(), Err(TryLockError::WouldBlock)));
@@ -236,7 +235,8 @@ mod test {
 
 	#[test]
 	fn legacy_whole_file_owner_prevents_pid_lock_acquisition() {
-		let dir = tmp_dir();
+		let directory = tmp_dir();
+		let dir = directory.path();
 		fs::create_dir_all(&dir).unwrap();
 		let legacy = open_lock_file(&dir.join(LOCK_FILE)).unwrap();
 		legacy.try_lock().unwrap();
@@ -249,7 +249,8 @@ mod test {
 
 	#[tokio::test]
 	async fn distinct_lock_files_dont_conflict() {
-		let dir = tmp_dir();
+		let directory = tmp_dir();
+		let dir = directory.path();
 		let _default = FlockPidLockManager::new(&dir).unwrap();
 		let _custom = FlockPidLockManager::new_with_lock_file(&dir, "other.lock").unwrap();
 		let err = FlockPidLockManager::new_with_lock_file(&dir, "other.lock").unwrap_err();
@@ -259,7 +260,8 @@ mod test {
 
 	#[tokio::test]
 	async fn reacquire_after_drop_succeeds() {
-		let dir = tmp_dir();
+		let directory = tmp_dir();
+		let dir = directory.path();
 		let first = FlockPidLockManager::new(&dir).unwrap();
 		drop(first);
 		let _second = FlockPidLockManager::new(&dir).unwrap();
@@ -268,7 +270,8 @@ mod test {
 
 	#[tokio::test]
 	async fn per_key_locking_works_in_process() {
-		let dir = tmp_dir();
+		let directory = tmp_dir();
+		let dir = directory.path();
 		let mgr = FlockPidLockManager::new(&dir).unwrap();
 
 		let g = mgr.try_lock("foo").await;
@@ -285,8 +288,10 @@ mod test {
 
 	#[tokio::test]
 	async fn separate_wallets_do_not_share_named_locks() {
-		let first_dir = tmp_dir();
-		let second_dir = tmp_dir();
+		let first_directory = tmp_dir();
+		let second_directory = tmp_dir();
+		let first_dir = first_directory.path();
+		let second_dir = second_directory.path();
 		let first = FlockPidLockManager::new(&first_dir).unwrap();
 		let second = FlockPidLockManager::new(&second_dir).unwrap();
 		let _first_guard = first.try_lock("same-operation").await.unwrap();

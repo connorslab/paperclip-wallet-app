@@ -196,18 +196,15 @@ impl LockManager for FcntlPidLockManager {
 mod test {
 	use super::*;
 
-	fn tmp_dir() -> PathBuf {
-		let dir = std::env::temp_dir()
-			.join(format!("bark-pid-fcntl-lockmgr-{}", std::process::id()))
-			.join(format!("{}", std::time::SystemTime::now()
-				.duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
-		let _ = fs::remove_dir_all(&dir);
-		dir
+	fn tmp_dir() -> tempfile::TempDir {
+		// Clock resolution is not a uniqueness guarantee when tests run in parallel.
+		tempfile::Builder::new().prefix("bark-pid-lock-test-").tempdir().unwrap()
 	}
 
 	#[tokio::test]
 	async fn acquire_writes_holder_pid() {
-		let dir = tmp_dir();
+		let directory = tmp_dir();
+		let dir = directory.path();
 		let mgr = FcntlPidLockManager::new(&dir).unwrap();
 		let contents = fs::read_to_string(dir.join(LOCK_FILE)).unwrap();
 		assert_eq!(contents, std::process::id().to_string());
@@ -217,7 +214,8 @@ mod test {
 
 	#[tokio::test]
 	async fn second_acquire_in_same_process_is_refused() {
-		let dir = tmp_dir();
+		let directory = tmp_dir();
+		let dir = directory.path();
 		let _held = FcntlPidLockManager::new(&dir).unwrap();
 		let err = FcntlPidLockManager::new(&dir).unwrap_err();
 		assert!(
@@ -230,7 +228,8 @@ mod test {
 
 	#[tokio::test]
 	async fn reacquire_after_drop_succeeds() {
-		let dir = tmp_dir();
+		let directory = tmp_dir();
+		let dir = directory.path();
 		let first = FcntlPidLockManager::new(&dir).unwrap();
 		drop(first);
 		let _second = FcntlPidLockManager::new(&dir).unwrap();
@@ -239,7 +238,8 @@ mod test {
 
 	#[tokio::test]
 	async fn per_key_locking_works_in_process() {
-		let dir = tmp_dir();
+		let directory = tmp_dir();
+		let dir = directory.path();
 		let mgr = FcntlPidLockManager::new(&dir).unwrap();
 
 		let g = mgr.try_lock("foo").await;
@@ -256,8 +256,10 @@ mod test {
 
 	#[tokio::test]
 	async fn separate_wallets_do_not_share_named_locks() {
-		let first_dir = tmp_dir();
-		let second_dir = tmp_dir();
+		let first_directory = tmp_dir();
+		let second_directory = tmp_dir();
+		let first_dir = first_directory.path();
+		let second_dir = second_directory.path();
 		let first = FcntlPidLockManager::new(&first_dir).unwrap();
 		let second = FcntlPidLockManager::new(&second_dir).unwrap();
 		let _first_guard = first.try_lock("same-operation").await.unwrap();
