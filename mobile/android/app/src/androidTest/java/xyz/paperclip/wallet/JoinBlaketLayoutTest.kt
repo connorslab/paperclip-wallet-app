@@ -319,7 +319,7 @@ class JoinBlaketLayoutTest {
 				val notResponding = systemDialog && listOf("isn't responding", "isn’t responding", "not responding")
 					.any { root?.findAccessibilityNodeInfosByText(it)?.isNotEmpty() == true }
 				val subject = if (!notResponding) "none" else
-					listOf("System UI" to "system-ui", "Process system" to "system-process", "Pixel Launcher" to "launcher")
+					listOf("System UI" to "system-ui", "Process system" to "system-process", "Pixel Launcher" to "launcher", "Quickstep" to "quickstep")
 						.firstOrNull { root?.findAccessibilityNodeInfosByText(it.first)?.isNotEmpty() == true }?.second ?: "unknown"
 				JSONObject().put("expected_package", instrumentation.targetContext.packageName)
 					.put("active_package", root?.packageName?.toString() ?: JSONObject.NULL)

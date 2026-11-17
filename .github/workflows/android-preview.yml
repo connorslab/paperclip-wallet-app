@@ -96,6 +96,9 @@ jobs:
           arch: x86_64
           profile: pixel_6
           disable-animations: true
+          # The action default uses swiftshader_indirect, deprecated since emulator
+          # 36.4.9. Use the supported software renderer; keep ANR/visibility failures.
+          emulator-options: -no-window -gpu swiftshader -no-snapshot -noaudio -no-boot-anim
           # The runner invokes each script line separately; keep the shell loop in a file.
           script: bash mobile/android/scripts/test-emulator.sh
       - uses: actions/upload-artifact@v4

@@ -49,7 +49,7 @@ class WalletScreensTest {
 			// Fixed categories only: never include arbitrary dialog titles/text.
 			val systemSubject = if (dialog != "not-responding" || mentionsApp) "none" else
 				listOf("System UI" to "system-ui", "Process system" to "system-process",
-					"Pixel Launcher" to "launcher", "Google Play services" to "play-services")
+					"Pixel Launcher" to "launcher", "Quickstep" to "quickstep", "Google Play services" to "play-services")
 					.firstOrNull { root?.findAccessibilityNodeInfosByText(it.first)?.isNotEmpty() == true }?.second ?: "unknown"
 			// Only code symbols and line numbers, never message text, arguments,
 			// local values or the system ANR trace (which can include private data).

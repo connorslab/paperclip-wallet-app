@@ -20,7 +20,7 @@ checks from the required implementation and acceptance work.
 | Area | Verified in the current test pass | Still required |
 | --- | --- | --- |
 | iOS | 123 shared Swift tests; 17 safe UI cases on both regular-phone and open-Duo simulators | Physical signer, camera, accessibility and interrupted/folded payment acceptance; final signed candidate and upgrade |
-| Android | 100 JVM tests (four live cases excluded); 16 isolated API 35 UI cases; 46 API 36 ARM64 cases (including one visibility negative control); authenticated CLN/LND reads and pin rejection | Final release identity, Play/APK upgrade compatibility, physical/foldable acceptance and resolution of the current API 36 CI failure |
+| Android | 100 JVM tests (four live cases excluded); 16 isolated API 35 UI cases; 46 API 36 ARM64 cases (including one visibility negative control); authenticated CLN/LND reads and pin rejection | Final release identity, Play/APK upgrade compatibility, physical/foldable acceptance and resolution of the current API 35 launcher failure |
 | Shared desktop UI | All 17 existing browser-flow suites plus entropy, transport and QR checks; phone, foldable and desktop widths where each suite defines them | Installed-host and native desktop acceptance; complete multiple-hot-wallet and hardware-funded Ark workflows |
 | StartOS/Umbrel | Shared REST checks, authenticated CLN/LND reads; both StartOS candidate architectures built and source/checksums checked | Complete backup/restore, candidate installation, bundled Jam pairing/revocation/Tor and upgrades; matching frozen wrappers |
 | Linux/macOS/Windows | Isolated Apple Silicon daemon authentication, duplicate-instance rejection and crash/restart checks | Native launchers and bundled service lifecycle, supported OS matrix, signed installers, notarization where applicable and clean install/upgrade tests |
@@ -1946,3 +1946,27 @@ across 18 classes, including the one negative control. This exercises Jars after
 the preceding recovery and bridge cases, matching the CI ordering. The app was
 absent after Gradle cleanup and fixture images remained available. The x86_64 CI
 run `44017675684` is pending; no failure was retried into a passing result.
+
+
+## Android launcher failure identified — 2026-11-16
+
+Run `44017675684` at `0cf65d0` completed: native builds for both architectures and
+the API 36 app job passed. API 35 failed nine Jars capture checks. The newly retained
+screenshots show **Quickstep isn't responding** over the app; privacy-safe metadata
+also identifies an Android not-responding dialog. The negative control passed. This
+identifies the obstructing process in this run; it does not prove the cause of the
+earlier API 36 failure or establish emulator stability.
+
+The workflow inherited `-gpu swiftshader_indirect` from the emulator action while
+running emulator 37.2.13. Android's [graphics acceleration documentation](https://developer.android.com/studio/run/emulator-acceleration)
+lists that mode as deprecated since 36.4.9. The workflow now explicitly selects
+supported `-gpu swiftshader`, keeping the same API matrix, cold boot and test order.
+Quickstep is also a named diagnostic category. No ANR dialog is dismissed, test
+failure ignored, assertion removed or failed case automatically retried. This is
+a renderer compatibility change to validate, not a confirmed launcher-ANR cure.
+
+The supported renderer booted on native macOS with emulator 37.2.13; its log
+selected ANGLE/SwiftShader, unlike the earlier legacy GLES path. All eleven Jars
+cases passed on the isolated ARM64 API 36 emulator, including the blocked-window
+negative control. Kotlin compilation, workflow YAML parsing and `just checks`
+passed. The new Linux x86_64 API 35/36 CI run is still required.
