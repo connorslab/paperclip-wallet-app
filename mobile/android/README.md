@@ -79,6 +79,26 @@ bash gradlew -Pabis=x86_64 assembleDebug assembleDebugAndroidTest
 PAPERCLIP_TEST_SERIAL=emulator-5554 bash scripts/test-emulator.sh
 ```
 
+CI prepares a fresh `Paperclip_CI_35` or `Paperclip_CI_36` AVD in its own temporary
+AVD directory, then starts it with `scripts/run-emulator.py`. The launcher owns
+that process and waits for boot completion, an unlocked user and three consecutive
+focused-home observations before running the existing suite. It never injects
+boot-time key events. Any recorded startup ANR rejects the boot immediately;
+waiting for focus never erases or excuses an ANR. The emulator must exit on
+cleanup, and an already-used serial is refused rather than adopted. Boot logs,
+window/ANR evidence and screenshots go under `app/build/reports/emulator`.
+
+To use the same launcher with an already prepared, unfunded test AVD:
+
+```sh
+python3 scripts/run-emulator.py Paperclip_CI_35 --sdk "$ANDROID_HOME" --reports app/build/reports/emulator
+```
+
+The launcher permits only the CI AVD names and the existing isolated local
+`Paperclip_Recovery_20261117` fixture. It uses process-group ownership for cleanup;
+it never kills an independently started emulator through its serial. A failed boot
+or test is retained as a failure, with no automatic reboot or test retry.
+
 The runner rejects physical-device serials, installs the APKs once and clears only
 the two preview packages' data between classes. It runs each class directly and
 verifies named test starts/completions, declared totals, class identity and a

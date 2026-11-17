@@ -2832,3 +2832,29 @@ backup/restore acceptance. Unexpected files already in payment history still nee
 manual backup recovery. Windows ACL/durability acceptance, upgrade/downgrade policy
 and the other coordinated release gates remain open. No funded host, physical
 device, live payment or published package changed.
+
+## Android emulator boot readiness: 2026-11-17
+
+Backend run `44138984831` passed at `8166215`. Android run `44138985273`
+passed both native builds and all 47 API 36 instrumentation cases, but API 35
+failed before dispatching a test. Its retained ANR reports Quickstep had no focused
+window. The home activity started at 17:52:30; the former emulator action injected
+MENU immediately after the boot flag, and the ANR appeared at 17:52:35, before
+Paperclip APK installation at 17:52:39. This sequence identifies a boot-readiness
+gap; it does not prove that input timing explains every emulator ANR.
+
+CI now owns its disposable emulator process and waits for an unlocked user and
+three consecutive focused-home observations. It injects no boot-time input. Any
+recorded ANR still fails the boot immediately, without log clearing, dismissal or
+automatic retry. Existing named-test, completion, screenshot and ANR checks remain
+unchanged. Cleanup terminates only the owned process group; occupied emulator
+serials are refused. SDK/AVD creation uses a private per-job directory.
+
+All 17 Python runner checks pass. A local cold boot on the isolated API 35 ARM64
+fixture passed all 47 instrumentation cases across 18 classes, including Jars
+visibility checks, with no recorded ANR and no emulator left attached after
+cleanup. Repository checks pass. An initial local launch exposed an unsupported
+user-state command; it was stopped before app tests, corrected and covered by a
+regression. Both launch records are retained. The local image differs from CI's
+default x86_64 images; API 35/36 cloud acceptance for this launcher remains pending.
+No runtime wallet code, funded device, production service or payment changed.

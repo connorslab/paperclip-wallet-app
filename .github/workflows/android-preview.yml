@@ -90,17 +90,18 @@ jobs:
       - name: Enable emulator acceleration
         run: |
           sudo chmod 666 /dev/kvm
-      - uses: reactivecircus/android-emulator-runner@v2
-        with:
-          api-level: ${{ matrix.api }}
-          arch: x86_64
-          profile: pixel_6
-          disable-animations: true
-          # The action default uses swiftshader_indirect, deprecated since emulator
-          # 36.4.9. Use the supported software renderer; keep ANR/visibility failures.
-          emulator-options: -no-window -gpu swiftshader -no-snapshot -noaudio -no-boot-anim
-          # The runner invokes each script line separately; keep the shell loop in a file.
-          script: bash mobile/android/scripts/test-emulator.sh
+      - name: Run tests on an owned emulator after home readiness
+        env:
+          ANDROID_AVD_HOME: ${{ runner.temp }}/paperclip-avd-${{ matrix.api }}
+          PAPERCLIP_TEST_API: ${{ matrix.api }}
+        run: |
+          # The former action injected MENU immediately after sys.boot_completed,
+          # before Quickstep had a focused window. Do not inject boot-time input.
+          sdkmanager emulator "system-images;android-$PAPERCLIP_TEST_API;default;x86_64"
+          mkdir -p "$ANDROID_AVD_HOME"
+          printf 'no\n' | avdmanager create avd --name "Paperclip_CI_$PAPERCLIP_TEST_API" --package "system-images;android-$PAPERCLIP_TEST_API;default;x86_64" --device pixel_6
+          printf '\nhw.cpu.ncore=2\n' >> "$ANDROID_AVD_HOME/Paperclip_CI_$PAPERCLIP_TEST_API.avd/config.ini"
+          python3 mobile/android/scripts/run-emulator.py "Paperclip_CI_$PAPERCLIP_TEST_API" --sdk "$ANDROID_HOME" --reports mobile/android/app/build/reports/emulator
       - uses: actions/upload-artifact@v4
         if: always()
         with:
