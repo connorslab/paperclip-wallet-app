@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
   push:
     branches: ['codex/cross-platform-parity']
-    paths: ['.github/workflows/windows-desktop.yml', 'deployment/desktop/windows/**', 'deployment/desktop/linux/launcher.py', 'deployment/desktop/managed_daemon.py', 'deployment/desktop/pipe_io.py', 'deployment/desktop/test_pipe_io.py', 'deployment/desktop/test_native_daemon.py', 'deployment/jam/paperclip_jam/journal.py', 'deployment/jam/test_journal.py', 'deployment/jam/paperclip_jam/hosting.py', 'deployment/jam/test_runtime_lock.py', 'deployment/jam/test_certificate_handoff.py', 'bark/src/lock_manager/**', 'bark/Cargo.toml', 'bark-common/**', 'Cargo.lock']
+    paths: ['.github/workflows/windows-desktop.yml', 'deployment/desktop/windows/**', 'deployment/desktop/linux/launcher.py', 'deployment/desktop/managed_daemon.py', 'deployment/desktop/pipe_io.py', 'deployment/desktop/test_pipe_io.py', 'deployment/desktop/test_native_daemon.py', 'deployment/jam/paperclip_jam/journal.py', 'deployment/jam/test_journal.py', 'deployment/jam/paperclip_jam/hosting.py', 'deployment/jam/test_runtime_lock.py', 'deployment/jam/test_certificate_handoff.py', 'deployment/jam/install_windows_storage.py', 'deployment/jam/paperclip_jam/windows_storage.py', 'bark/src/lock_manager/**', 'bark/Cargo.toml', 'bark-common/**', 'Cargo.lock']
 permissions:
   contents: read
 jobs:
@@ -37,6 +37,18 @@ jobs:
           python deployment/jam/test_runtime_lock.py -v
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python deployment/jam/test_certificate_handoff.py -v
+      - name: Fetch the reviewed Jars file API
+        uses: actions/checkout@v4
+        with:
+          repository: Kilombino/joinblaket
+          ref: 40a29ae4f34930687f0c6be3e9e5bf14a44cc0f3
+          path: .native-jam-source
+          persist-credentials: false
+      - name: Verify the patched upstream Windows file API
+        timeout-minutes: 3
+        run: |
+          $env:PYTHONPATH = "$env:GITHUB_WORKSPACE/deployment/jam;$env:GITHUB_WORKSPACE/deployment/desktop"
+          python deployment/desktop/windows/test_jam_storage.py --upstream .native-jam-source/jmcore/src/jmcore/secure_files.py -v
       - name: Select the reviewed Rust toolchain
         run: rustup toolchain install 1.91.0 --profile minimal
       - name: Prepare native build dependencies
