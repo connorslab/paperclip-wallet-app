@@ -3052,3 +3052,20 @@ its synthetic page and route counts at the timeout boundary, rather than only a
 home-screen image after the class has finished. All 11 Jars cases pass on the
 local ARM64 emulator with this diagnostic change, but that does not establish a
 fix for the CI failure. Run `44168312445` carries the additional diagnostics.
+
+## Bounded desktop pipes and Linux Jars packaging: 2026-11-17
+
+Desktop control/readiness pipes now use bounded reads with deadlines on both
+POSIX and Windows. Native Windows run `44170342993` passes all eight pipe cases,
+including partial messages, binary bytes, deadlines, buffered EOF and child death.
+The rebuilt Mac package from `aad3e8f` passes all 13 relocated isolated-runtime
+cases with signature verification. This remains a development artifact.
+
+Linux can now package a frozen Jars runtime beside its frozen launcher. Its build
+records source/dependency fingerprints and bundles Python, CA data and the
+explicitly supplied crypto library and license. CI builds from the reviewed pinned
+JoinBlaket source with hash-checked runtime requirements and tests the relocated
+package through verified TLS, authenticated wallet proxy requests and the real
+window's crash/retry/close flow. This native Linux result is pending; local Python
+syntax and seven source-runtime Mac regression cases pass. No production service,
+funded wallet or distribution was changed.

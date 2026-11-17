@@ -46,7 +46,8 @@ async def serve(root):
     if getattr(sys, 'frozen', False):
         import bitcointx
         import certifi
-        library = Path(sys._MEIPASS) / 'libsecp256k1.dylib'
+        library_name = 'libsecp256k1.dylib' if sys.platform == 'darwin' else 'libsecp256k1.so'
+        library = Path(sys._MEIPASS) / library_name
         if not library.is_file():
             raise ValueError('Missing bundled crypto library')
         bitcointx.set_custom_secp256k1_path(str(library))

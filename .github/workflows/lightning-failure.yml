@@ -55,7 +55,7 @@ jobs:
       - name: Install isolated Linux window-test dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y python3-tk python3-venv xvfb xauth imagemagick
+          sudo apt-get install -y python3-tk python3-venv xvfb xauth imagemagick libsecp256k1-dev libsodium-dev
       - name: Test Linux development shell and package
         run: |
           python3 deployment/desktop/linux/test_launcher.py --binary "$PWD/target/debug/paperclip-walletd" -v
@@ -72,6 +72,40 @@ jobs:
           mv "$RUNNER_TEMP/Standalone Linux Preview" "$RUNNER_TEMP/Relocated Linux Preview"
           python3 -c 'import hashlib,json,pathlib,sys; p=pathlib.Path(sys.argv[1]); v=json.loads((p/"build-info.json").read_text()); assert v["daemon_sha256"]==hashlib.sha256((p/"bin/paperclip-walletd").read_bytes()).hexdigest(); assert v["helper"]["source_files"]' "$RUNNER_TEMP/Relocated Linux Preview"
           xvfb-run -a "$RUNNER_TEMP/Frozen Linux Helpers/PaperclipLauncherQA/PaperclipLauncherQA" --binary "$RUNNER_TEMP/Relocated Linux Preview/bin/paperclip-walletd" --screenshots "$RUNNER_TEMP/linux-frozen-screenshots" -v
+      - uses: actions/setup-python@v5
+        id: jars-python
+        with:
+          python-version: '3.13'
+          update-environment: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Kilombino/joinblaket
+          ref: 40a29ae4f34930687f0c6be3e9e5bf14a44cc0f3
+          path: .ci-joinblaket
+          persist-credentials: false
+      - name: Freeze the reviewed native Linux Jars runtime
+        env:
+          JARS_BUILD_PYTHON: ${{ steps.jars-python.outputs.python-path }}
+        run: |
+          "$JARS_BUILD_PYTHON" -m venv "$RUNNER_TEMP/jars-toolchain"
+          runtime="$RUNNER_TEMP/jars-toolchain/bin/python"
+          "$runtime" -m pip install --require-hashes -r .ci-joinblaket/jmcore/requirements.txt -r .ci-joinblaket/jmwallet/requirements.txt -r .ci-joinblaket/maker/requirements.txt -r .ci-joinblaket/taker/requirements.txt -r .ci-joinblaket/orderbook_watcher/requirements.txt -r .ci-joinblaket/jmwalletd/requirements.txt
+          "$runtime" -m pip install --no-deps ./.ci-joinblaket/jmcore ./.ci-joinblaket/jmwallet ./.ci-joinblaket/maker ./.ci-joinblaket/taker ./.ci-joinblaket/tumbler ./.ci-joinblaket/orderbook_watcher ./.ci-joinblaket/jmwalletd
+          "$runtime" -m pip install pyinstaller==6.22.3
+          api=$("$runtime" -c 'import importlib.util; print(importlib.util.find_spec("jmwalletd").submodule_search_locations[0] + "/app.py")')
+          "$runtime" deployment/jam/install.py "$api"
+          secp=$(readlink -f /usr/lib/$(gcc -dumpmachine)/libsecp256k1.so)
+          PYTHONPATH="$PWD/deployment/jam" "$runtime" deployment/desktop/linux/build_jars.py --source "$PWD/deployment" --secp256k1 "$secp" --secp256k1-license /usr/share/doc/libsecp256k1-dev/copyright --output "$RUNNER_TEMP/Frozen Jars" --work "$RUNNER_TEMP/jars-freeze-work"
+      - name: Verify relocated bundled Jars and wallet lifecycle
+        run: |
+          python3 deployment/desktop/linux/build_preview.py --binary "$PWD/target/debug/paperclip-walletd" --helper "$RUNNER_TEMP/Frozen Linux Helpers/PaperclipLauncher" --jam-helper "$RUNNER_TEMP/Frozen Jars/PaperclipJars" --output "$RUNNER_TEMP/Bundled Jars Preview"
+          mv "$RUNNER_TEMP/Bundled Jars Preview" "$RUNNER_TEMP/Relocated Jars Preview"
+          mv "$RUNNER_TEMP/jars-toolchain" "$RUNNER_TEMP/unused-jars-toolchain"
+          mv "$RUNNER_TEMP/Frozen Jars" "$RUNNER_TEMP/unused-jars-build"
+          mv .ci-joinblaket "$RUNNER_TEMP/unused-jars-source"
+          "$RUNNER_TEMP/Relocated Jars Preview/bin/paperclip-preview" --help
+          python3 deployment/desktop/test_managed_jam.py --python "$RUNNER_TEMP/Relocated Jars Preview/lib/PaperclipJars/PaperclipJars" --binary "$RUNNER_TEMP/Relocated Jars Preview/bin/paperclip-walletd" -v
+          xvfb-run -a "$RUNNER_TEMP/Frozen Linux Helpers/PaperclipLauncherQA/PaperclipLauncherQA" --binary "$RUNNER_TEMP/Relocated Jars Preview/bin/paperclip-walletd" --jam-executable "$RUNNER_TEMP/Relocated Jars Preview/lib/PaperclipJars/PaperclipJars" --screenshots "$RUNNER_TEMP/linux-jars-screenshots" -v
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -79,6 +113,7 @@ jobs:
           path: |
             ${{ runner.temp }}/linux-preview-screenshots/*.png
             ${{ runner.temp }}/linux-frozen-screenshots/*.png
+            ${{ runner.temp }}/linux-jars-screenshots/*.png
       - uses: actions/setup-node@v4
         with:
           node-version: '22'

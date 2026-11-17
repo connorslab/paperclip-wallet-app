@@ -14,6 +14,7 @@ import unittest
 BINARY = None
 LAUNCHER = None
 SCREENSHOTS = None
+JARS = None
 
 
 class PreviewWindow(unittest.TestCase):
@@ -42,7 +43,8 @@ class PreviewWindow(unittest.TestCase):
             data = Path(temporary) / 'app'
             self.root = tk.Tk()
             opened = []
-            self.window = module.Window(self.root, BINARY, data, opener=lambda url: opened.append(url) or True)
+            self.window = module.Window(self.root, BINARY, data, opener=lambda url: opened.append(url) or True,
+                                        jam_runtime=(JARS, None) if JARS else None)
             try:
                 self.pump(lambda: self.window.state == 'ready')
                 self.assertFalse(self.window.recovery)
@@ -74,6 +76,7 @@ class PreviewWindow(unittest.TestCase):
                 self.pump(lambda: self.window.closed)
                 self.assertFalse((data / 'session.active').exists())
                 self.assertFalse((data / 'wallet' / 'mnemonic').exists())
+                self.assertFalse(list(data.rglob('*.jmdat')))
             finally:
                 if not self.window.closed:
                     self.window.close()
@@ -85,7 +88,9 @@ if __name__ == '__main__':
     parser.add_argument('--binary', type=Path, required=True)
     parser.add_argument('--launcher', type=Path)
     parser.add_argument('--screenshots', type=Path)
+    parser.add_argument('--jam-executable', type=Path)
     args, remaining = parser.parse_known_args()
     BINARY, LAUNCHER = args.binary.resolve(strict=True), args.launcher.resolve(strict=True) if args.launcher else None
     SCREENSHOTS = args.screenshots
+    JARS = args.jam_executable.resolve(strict=True) if args.jam_executable else None
     unittest.main(argv=[sys.argv[0]] + remaining)

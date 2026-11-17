@@ -279,8 +279,22 @@ PyInstaller's private loader path cannot leak into the browser child. A controll
 test checks both absent and explicitly supplied original paths without changing
 the launcher's process environment.
 
-This packages Python/Tk, not the Linux Jars/Tor services or a signed installer.
-Native Linux execution must pass in CI before accepting the runtime packaging.
+`linux/build_jars.py` additionally freezes the reviewed Jars environment, its
+Python dependencies, CA bundle and explicitly supplied secp256k1 library. It
+requires the crypto license notice and records source/dependency fingerprints.
+Pass its `PaperclipJars` directory to `linux/build_preview.py --jam-helper` to
+package both runtimes. The wrapper supplies the bundled executable directly;
+no external interpreter is selected in this mode. The desktop entry point
+requires its bundled crypto library and fails if it is missing.
+
+The Linux workflow installs the pinned JoinBlaket source with hash-checked runtime
+requirements, applies the existing hash-checked companion registration, freezes
+Jars and packages it alongside the launcher and wallet daemon. It relocates the
+package and removes the original runtime/source paths before exercising verified
+TLS discovery, wallet proxy requests, child failure/retry and normal window close.
+These tests use empty storage and do not send payments. Native execution must pass
+before accepting this packaging; Tor/RPC setup and signed installation are
+separate acceptance requirements.
 
 
 ## Windows storage prerequisite
