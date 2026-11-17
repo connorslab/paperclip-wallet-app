@@ -3,7 +3,7 @@
 The broadcast boundary is a committed SQLite transition, not an HTTP response.
 An interrupted submission stays unresolved and cannot be dispatched again.
 """
-from contextlib import contextmanager
+from contextlib import contextmanager, ExitStack, nullcontext
 import hashlib
 import json
 import os
@@ -12,6 +12,9 @@ import re
 import sqlite3
 import stat
 import time
+
+if os.name == 'nt':
+    from windows import private_storage as windows_storage
 
 
 class PaymentConflict(ValueError):
@@ -25,23 +28,55 @@ def canonical(value):
 class Journal:
     def __init__(self, directory, clock=time.time):
         self.clock = clock
+        self.db = None
+        self._storage = ExitStack()
+        self._database_handle = None
+        self._rollback_path = None
+        try:
+            self._open(directory)
+        except BaseException:
+            self.close()
+            raise
+
+    def _open(self, directory):
         directory = Path(directory)
         if '..' in directory.parts or any(p.is_symlink() for p in (directory, *directory.parents)):
             raise ValueError('Unsafe payment journal directory')
-        directory.mkdir(mode=0o700, parents=True, exist_ok=True)
-        os.chmod(directory, 0o700)
         path = directory / 'payments.sqlite'
-        fd = os.open(path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
-        try:
-            if not stat.S_ISREG(os.fstat(fd).st_mode):
-                raise ValueError('Payment journal must be a regular file')
-            os.fchmod(fd, 0o600)
-        finally:
-            os.close(fd)
+        if os.name == 'nt':
+            windows_storage.private_directory(directory)
+            self._database_handle = self._storage.enter_context(windows_storage.writable_private_file(path))
+            self._rollback_path = path.with_name(path.name + '-journal')
+            # SQLite must recover a hot rollback journal itself. Validate before
+            # opening, but allow it to remove a recovered journal before PERSIST
+            # is selected. Never adopt an unreviewed WAL-mode database.
+            for suffix in ('-journal', '-wal', '-shm'):
+                try:
+                    with windows_storage.read_private_file(path.with_name(path.name + suffix)):
+                        if suffix != '-journal':
+                            raise ValueError('Unexpected payment journal storage mode')
+                except FileNotFoundError:
+                    pass
+        else:
+            directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+            os.chmod(directory, 0o700)
+            fd = os.open(path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+            try:
+                if not stat.S_ISREG(os.fstat(fd).st_mode):
+                    raise ValueError('Payment journal must be a regular file')
+                os.fchmod(fd, 0o600)
+            finally:
+                os.close(fd)
         self.db = sqlite3.connect(path, isolation_level=None, timeout=10, check_same_thread=False)
         self.db.row_factory = sqlite3.Row
-        self.db.execute('PRAGMA journal_mode=DELETE')
+        # Keep the Windows rollback file so every write uses explicit user ACLs
+        # instead of repeatedly creating files with the token's default owner.
+        mode = 'PERSIST' if os.name == 'nt' else 'DELETE'
+        if self.db.execute('PRAGMA journal_mode=' + mode).fetchone()[0].upper() != mode:
+            raise ValueError('Payment journal durability mode is unavailable')
         self.db.execute('PRAGMA synchronous=FULL')
+        if self.db.execute('PRAGMA synchronous').fetchone()[0] != 2:
+            raise ValueError('Payment journal synchronization is unavailable')
         version = self.db.execute('PRAGMA user_version').fetchone()[0]
         if version not in (0, 1):
             self.db.close()
@@ -59,16 +94,24 @@ class Journal:
 
     @contextmanager
     def transaction(self):
-        self.db.execute('BEGIN IMMEDIATE')
-        try:
-            yield
-            self.db.execute('COMMIT')
-        except BaseException:
-            self.db.execute('ROLLBACK')
-            raise
+        if os.name == 'nt':
+            windows_storage.validate_handle(self._database_handle, directory=False)
+        guard = windows_storage.writable_private_file(self._rollback_path) if os.name == 'nt' else nullcontext()
+        with guard:
+            self.db.execute('BEGIN IMMEDIATE')
+            try:
+                yield
+                self.db.execute('COMMIT')
+            except BaseException:
+                self.db.execute('ROLLBACK')
+                raise
 
     def close(self):
-        self.db.close()
+        try:
+            if self.db is not None:
+                self.db.close()
+        finally:
+            self._storage.close()
 
     def _row(self, wallet, identifier):
         row = self.db.execute('SELECT * FROM payment WHERE id=? AND wallet=?', (identifier, wallet)).fetchone()

@@ -137,6 +137,39 @@ def exclusive_file(path):
 
 
 @contextmanager
+def writable_private_file(path):
+    """Hold checked, non-replaceable storage while SQLite owns byte-range locks.
+
+    This does not take a competing byte lock or truncate an existing file. New
+    files have explicit owner/ACLs; existing files are never permission-repaired.
+    """
+    path = local_path(path)
+    if win32api.GetVolumeInformation(path.anchor)[-1] != 'NTFS':
+        raise UnsafeStorage('Private database storage requires a local NTFS volume.')
+    with ancestors(path):
+        access = win32con.GENERIC_READ | win32con.GENERIC_WRITE | win32con.READ_CONTROL
+        sharing = win32con.FILE_SHARE_READ | win32con.FILE_SHARE_WRITE
+        flags = win32file.FILE_FLAG_OPEN_REPARSE_POINT | win32file.FILE_FLAG_WRITE_THROUGH
+        created = True
+        try:
+            handle = win32file.CreateFile(str(path), access, sharing, private_attributes(),
+                win32con.CREATE_NEW, flags, None)
+        except pywintypes.error as error:
+            if error.winerror != 80:
+                raise
+            created = False
+            handle = win32file.CreateFile(str(path), access, sharing, None,
+                win32con.OPEN_EXISTING, flags, None)
+        try:
+            validate_handle(handle, directory=False)
+            if created:
+                win32file.FlushFileBuffers(handle)
+            yield handle
+        finally:
+            handle.Close()
+
+
+@contextmanager
 def read_private_file(path):
     """Validate the native handle before exposing a binary Python file object."""
     path = local_path(path)
