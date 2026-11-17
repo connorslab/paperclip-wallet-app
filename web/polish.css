@@ -338,3 +338,11 @@ button,a,summary {touch-action:manipulation}
 #jam-tool-status:empty{display:none}
 @media(max-width:640px){.jam-tools-sheet{margin:auto auto max(12px,env(safe-area-inset-bottom));max-height:92dvh}.jam-tool-header,.jam-tool-body{padding:20px}}
 @media(prefers-reduced-motion:reduce){.jam-tools-sheet[open]{animation:none}}
+
+#jam-send-form,#jam-send-review,#jam-send-recovery{display:flex;flex-direction:column;gap:16px}
+#jam-send-dialog [hidden]{display:none!important}
+#jam-send-dialog .payment-hero p{margin:0}
+#jam-send-dialog .toggle-row{display:flex;flex-direction:row;align-items:center;justify-content:space-between;gap:16px;min-height:44px}
+#jam-send-dialog input[type=checkbox]{width:22px;height:22px;accent-color:var(--orange);flex-shrink:0}
+#jam-send-destination{font-size:13px;overflow-wrap:anywhere}
+#jam-send-commit,#jam-send-prepare,#jam-send-activity{width:100%;min-height:48px}

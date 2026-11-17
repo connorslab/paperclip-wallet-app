@@ -158,7 +158,7 @@ mod tests {
 		for operation in ["status","coins","address","bond_address","start_maker","stop_maker","payments","check_payment","market"] {
 			assert!(authorize(&records, &record.id, &record.upstream, 99, &input(operation)).is_ok());
 		}
-		for operation in ["wallets","unlock","identity","create_wallet","backup_wallet","cancel_payment"] { assert!(authorize(&records,&record.id,&record.upstream,99,&input(operation)).is_err()); }
+		for operation in ["wallets","unlock","identity","create_wallet","backup_wallet","cancel_payment","prepare_payment","commit_payment"] { assert!(authorize(&records,&record.id,&record.upstream,99,&input(operation)).is_err()); }
 		assert!(authorize(&records,&record.id,&record.upstream,100,&input("status")).is_err());
 		assert!(authorize(&records,&record.id,"other-upstream",99,&input("status")).is_err());
 		assert!(authorize(&[],&record.id,&record.upstream,99,&input("status")).is_err());

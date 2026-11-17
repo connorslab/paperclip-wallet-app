@@ -134,7 +134,7 @@ public struct JoinBlaketPayment: Decodable, Identifiable, Sendable {
             }
         }
     }
-    public struct Quote: Decodable, Sendable {
+    public struct Quote: Decodable, Equatable, Sendable {
         public let wallet: String
         public let jar: UInt8
         public let purpose: String
@@ -283,8 +283,9 @@ public actor JoinBlaketClient {
     }
     deinit { session.invalidateAndCancel() }
 
-    private func request(_ components: [String], authorization: JoinBlaketAuthorization? = nil,
-                         body: [String: String]? = nil) async throws -> Data {
+    func request(_ components: [String], authorization: JoinBlaketAuthorization? = nil,
+                         body: [String: String]? = nil, jsonBody: Data? = nil) async throws -> Data {
+        guard jsonBody == nil || (pairing == nil && body == nil) else { throw JoinBlaketError.invalidResponse }
         var url = try EndpointPolicy.validate(connection.endpoint, tor: connection.useTor, credentials: true)
         let route = pairing == nil ? ["api", "v1"] + components : ["api", "v1", "paired-jars", "request"]
         for component in route {
@@ -306,6 +307,11 @@ public actor JoinBlaketClient {
             request.httpMethod = "POST"
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        }
+        if let jsonBody {
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.httpBody = jsonBody
         }
         do {
             let (bytes, response) = try await session.bytes(for: request)

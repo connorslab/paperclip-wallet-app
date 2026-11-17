@@ -94,6 +94,7 @@ internal fun JoinBlaketPage(state: JoinBlaketUiState) {
 	LaunchedEffect(showMarket) { while (showMarket) { marketNow = java.time.Instant.now().epochSecond; kotlinx.coroutines.delay(15_000) } }
 	val showMakerGuide = makerPage == "How earning works"
 	var showPayments by remember { mutableStateOf(false) }
+	var showSend by remember { mutableStateOf(false) }
 	var bondMonth by state.bondMonth
 	var bondAddress by state.bondAddress
 	val showBond = makerPage == "Fidelity bond"
@@ -102,7 +103,7 @@ internal fun JoinBlaketPage(state: JoinBlaketUiState) {
 	var pairingReview by remember { mutableStateOf<JoinBlaketPairing?>(null) }
 	var scanningPairing by remember { mutableStateOf(false) }
 	var separateJam by remember { mutableStateOf(false) }
-	LaunchedEffect(client, authorization, session == null) { makerPage = null; confirmMaker = false; reviewedBondMonth = null }
+	LaunchedEffect(client, authorization, session == null) { makerPage = null; confirmMaker = false; reviewedBondMonth = null; showSend = false }
 	var paired by state.paired
 	DisposableEffect(state) {
 		onDispose { if (state.authorization.value != null) state.needsRefresh.value = true }
@@ -245,6 +246,10 @@ internal fun JoinBlaketPage(state: JoinBlaketUiState) {
 		if (showPayments) ModalBottomSheet(onDismissRequest = { showPayments = false }, containerColor = MaterialTheme.colorScheme.background, tonalElevation = 0.dp, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
 			Box(Modifier.fillMaxHeight(0.94f)) { JoinBlaketRecoveryPage(checkNotNull(client), checkNotNull(authorization)) { showPayments = false } }
 		}
+		if (showSend) ModalBottomSheet(onDismissRequest = { showSend = false }, containerColor = MaterialTheme.colorScheme.background, tonalElevation = 0.dp, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
+			JarsSendPage(checkNotNull(client), checkNotNull(authorization), selected, jars.first { it.getInt("id") == selected }.getString("name"),
+				close = { showSend = false }, activity = { showSend = false; showPayments = true })
+		}
 		WalletColumns(primary = {
 		jars.firstOrNull { it.getInt("id") == selected }?.let { jar ->
 			WalletSurface {
@@ -254,6 +259,8 @@ internal fun JoinBlaketPage(state: JoinBlaketUiState) {
 						val amount = jar.getLong(field)
 						if (amount > 0 || field == "confirmed_sat") Row(Modifier.fillMaxWidth()) { Text(label, Modifier.weight(1f)); Text(unit.display(amount)) }
 					}
+					WalletPrimaryButton(enabled = !busy && !paired, modifier = Modifier.fillMaxWidth(), onClick = { showSend = true }) { Text("Send from ${jar.getString("name")}") }
+					if (paired) Text("This pairing manages jars. Sending requires a payment-authorized connection.", style = MaterialTheme.typography.bodySmall)
 					WalletPrimaryButton(enabled = !busy, onClick = { run { address = checkNotNull(client).receiveAddress(selected, checkNotNull(authorization)) } }) { Text("Receive into ${jar.getString("name")}") }
 					address?.let { NodeReceiveCode(it); SelectionContainer { Text(it) } }
 				}

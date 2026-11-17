@@ -1,0 +1,416 @@
+[
+  {
+    "name": "valid exact review",
+    "valid": true,
+    "review": {
+      "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "state": "prepared",
+      "expires": 2000000300,
+      "approval": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "quote": {
+        "wallet": "fixture.jmdat",
+        "wallet_identity": "xbt-regtest:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "network": "xbt-regtest",
+        "rbf": true,
+        "jar": 0,
+        "purpose": "send",
+        "destination": "bcrt1qsyntheticrecipient",
+        "txid": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "amount_sat": 20000,
+        "fee_sat": 200,
+        "total_sat": 20200
+      }
+    }
+  },
+  {
+    "name": "different id",
+    "valid": false,
+    "review": {
+      "id": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "state": "prepared",
+      "expires": 2000000300,
+      "approval": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "quote": {
+        "wallet": "fixture.jmdat",
+        "wallet_identity": "xbt-regtest:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "network": "xbt-regtest",
+        "rbf": true,
+        "jar": 0,
+        "purpose": "send",
+        "destination": "bcrt1qsyntheticrecipient",
+        "txid": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "amount_sat": 20000,
+        "fee_sat": 200,
+        "total_sat": 20200
+      }
+    }
+  },
+  {
+    "name": "submitted is not review",
+    "valid": false,
+    "review": {
+      "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "state": "submitted",
+      "expires": 2000000300,
+      "approval": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "quote": {
+        "wallet": "fixture.jmdat",
+        "wallet_identity": "xbt-regtest:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "network": "xbt-regtest",
+        "rbf": true,
+        "jar": 0,
+        "purpose": "send",
+        "destination": "bcrt1qsyntheticrecipient",
+        "txid": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "amount_sat": 20000,
+        "fee_sat": 200,
+        "total_sat": 20200
+      }
+    }
+  },
+  {
+    "name": "expired review",
+    "valid": false,
+    "review": {
+      "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "state": "prepared",
+      "expires": 2000000000,
+      "approval": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "quote": {
+        "wallet": "fixture.jmdat",
+        "wallet_identity": "xbt-regtest:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "network": "xbt-regtest",
+        "rbf": true,
+        "jar": 0,
+        "purpose": "send",
+        "destination": "bcrt1qsyntheticrecipient",
+        "txid": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "amount_sat": 20000,
+        "fee_sat": 200,
+        "total_sat": 20200
+      }
+    }
+  },
+  {
+    "name": "excessive lifetime",
+    "valid": false,
+    "review": {
+      "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "state": "prepared",
+      "expires": 2000000301,
+      "approval": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "quote": {
+        "wallet": "fixture.jmdat",
+        "wallet_identity": "xbt-regtest:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "network": "xbt-regtest",
+        "rbf": true,
+        "jar": 0,
+        "purpose": "send",
+        "destination": "bcrt1qsyntheticrecipient",
+        "txid": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "amount_sat": 20000,
+        "fee_sat": 200,
+        "total_sat": 20200
+      }
+    }
+  },
+  {
+    "name": "bad approval",
+    "valid": false,
+    "review": {
+      "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "state": "prepared",
+      "expires": 2000000300,
+      "approval": "bad",
+      "quote": {
+        "wallet": "fixture.jmdat",
+        "wallet_identity": "xbt-regtest:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "network": "xbt-regtest",
+        "rbf": true,
+        "jar": 0,
+        "purpose": "send",
+        "destination": "bcrt1qsyntheticrecipient",
+        "txid": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "amount_sat": 20000,
+        "fee_sat": 200,
+        "total_sat": 20200
+      }
+    }
+  },
+  {
+    "name": "missing approval",
+    "valid": false,
+    "review": {
+      "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "state": "prepared",
+      "expires": 2000000300,
+      "approval": null,
+      "quote": {
+        "wallet": "fixture.jmdat",
+        "wallet_identity": "xbt-regtest:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "network": "xbt-regtest",
+        "rbf": true,
+        "jar": 0,
+        "purpose": "send",
+        "destination": "bcrt1qsyntheticrecipient",
+        "txid": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "amount_sat": 20000,
+        "fee_sat": 200,
+        "total_sat": 20200
+      }
+    }
+  },
+  {
+    "name": "reject changed wallet",
+    "valid": false,
+    "review": {
+      "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "state": "prepared",
+      "expires": 2000000300,
+      "approval": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "quote": {
+        "wallet": "other.jmdat",
+        "wallet_identity": "xbt-regtest:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "network": "xbt-regtest",
+        "rbf": true,
+        "jar": 0,
+        "purpose": "send",
+        "destination": "bcrt1qsyntheticrecipient",
+        "txid": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "amount_sat": 20000,
+        "fee_sat": 200,
+        "total_sat": 20200
+      }
+    }
+  },
+  {
+    "name": "reject changed wallet_identity",
+    "valid": false,
+    "review": {
+      "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "state": "prepared",
+      "expires": 2000000300,
+      "approval": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "quote": {
+        "wallet": "fixture.jmdat",
+        "wallet_identity": "xbt-regtest:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "network": "xbt-regtest",
+        "rbf": true,
+        "jar": 0,
+        "purpose": "send",
+        "destination": "bcrt1qsyntheticrecipient",
+        "txid": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "amount_sat": 20000,
+        "fee_sat": 200,
+        "total_sat": 20200
+      }
+    }
+  },
+  {
+    "name": "reject changed network",
+    "valid": false,
+    "review": {
+      "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "state": "prepared",
+      "expires": 2000000300,
+      "approval": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "quote": {
+        "wallet": "fixture.jmdat",
+        "wallet_identity": "xbt-regtest:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "network": "xbt-mainnet",
+        "rbf": true,
+        "jar": 0,
+        "purpose": "send",
+        "destination": "bcrt1qsyntheticrecipient",
+        "txid": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "amount_sat": 20000,
+        "fee_sat": 200,
+        "total_sat": 20200
+      }
+    }
+  },
+  {
+    "name": "reject changed rbf",
+    "valid": false,
+    "review": {
+      "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "state": "prepared",
+      "expires": 2000000300,
+      "approval": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "quote": {
+        "wallet": "fixture.jmdat",
+        "wallet_identity": "xbt-regtest:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "network": "xbt-regtest",
+        "rbf": false,
+        "jar": 0,
+        "purpose": "send",
+        "destination": "bcrt1qsyntheticrecipient",
+        "txid": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "amount_sat": 20000,
+        "fee_sat": 200,
+        "total_sat": 20200
+      }
+    }
+  },
+  {
+    "name": "reject changed purpose",
+    "valid": false,
+    "review": {
+      "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "state": "prepared",
+      "expires": 2000000300,
+      "approval": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "quote": {
+        "wallet": "fixture.jmdat",
+        "wallet_identity": "xbt-regtest:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "network": "xbt-regtest",
+        "rbf": true,
+        "jar": 0,
+        "purpose": "fund_bond",
+        "destination": "bcrt1qsyntheticrecipient",
+        "txid": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "amount_sat": 20000,
+        "fee_sat": 200,
+        "total_sat": 20200
+      }
+    }
+  },
+  {
+    "name": "reject changed jar",
+    "valid": false,
+    "review": {
+      "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "state": "prepared",
+      "expires": 2000000300,
+      "approval": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "quote": {
+        "wallet": "fixture.jmdat",
+        "wallet_identity": "xbt-regtest:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "network": "xbt-regtest",
+        "rbf": true,
+        "jar": 1,
+        "purpose": "send",
+        "destination": "bcrt1qsyntheticrecipient",
+        "txid": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "amount_sat": 20000,
+        "fee_sat": 200,
+        "total_sat": 20200
+      }
+    }
+  },
+  {
+    "name": "reject changed destination",
+    "valid": false,
+    "review": {
+      "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "state": "prepared",
+      "expires": 2000000300,
+      "approval": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "quote": {
+        "wallet": "fixture.jmdat",
+        "wallet_identity": "xbt-regtest:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "network": "xbt-regtest",
+        "rbf": true,
+        "jar": 0,
+        "purpose": "send",
+        "destination": "bcrt1qotherrecipient",
+        "txid": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "amount_sat": 20000,
+        "fee_sat": 200,
+        "total_sat": 20200
+      }
+    }
+  },
+  {
+    "name": "reject changed amount_sat",
+    "valid": false,
+    "review": {
+      "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "state": "prepared",
+      "expires": 2000000300,
+      "approval": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "quote": {
+        "wallet": "fixture.jmdat",
+        "wallet_identity": "xbt-regtest:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "network": "xbt-regtest",
+        "rbf": true,
+        "jar": 0,
+        "purpose": "send",
+        "destination": "bcrt1qsyntheticrecipient",
+        "txid": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "amount_sat": 20001,
+        "fee_sat": 200,
+        "total_sat": 20201
+      }
+    }
+  },
+  {
+    "name": "reject changed fee_sat",
+    "valid": false,
+    "review": {
+      "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "state": "prepared",
+      "expires": 2000000300,
+      "approval": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "quote": {
+        "wallet": "fixture.jmdat",
+        "wallet_identity": "xbt-regtest:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "network": "xbt-regtest",
+        "rbf": true,
+        "jar": 0,
+        "purpose": "send",
+        "destination": "bcrt1qsyntheticrecipient",
+        "txid": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "amount_sat": 20000,
+        "fee_sat": 501,
+        "total_sat": 20501
+      }
+    }
+  },
+  {
+    "name": "reject changed total_sat",
+    "valid": false,
+    "review": {
+      "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "state": "prepared",
+      "expires": 2000000300,
+      "approval": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "quote": {
+        "wallet": "fixture.jmdat",
+        "wallet_identity": "xbt-regtest:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "network": "xbt-regtest",
+        "rbf": true,
+        "jar": 0,
+        "purpose": "send",
+        "destination": "bcrt1qsyntheticrecipient",
+        "txid": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "amount_sat": 20000,
+        "fee_sat": 200,
+        "total_sat": 20199
+      }
+    }
+  },
+  {
+    "name": "reject changed txid",
+    "valid": false,
+    "review": {
+      "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "state": "prepared",
+      "expires": 2000000300,
+      "approval": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "quote": {
+        "wallet": "fixture.jmdat",
+        "wallet_identity": "xbt-regtest:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "network": "xbt-regtest",
+        "rbf": true,
+        "jar": 0,
+        "purpose": "send",
+        "destination": "bcrt1qsyntheticrecipient",
+        "txid": "bad",
+        "amount_sat": 20000,
+        "fee_sat": 200,
+        "total_sat": 20200
+      }
+    }
+  }
+]

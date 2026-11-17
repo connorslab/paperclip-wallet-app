@@ -24,7 +24,7 @@ checks from the required implementation and acceptance work.
 | Shared desktop UI | All 17 existing browser-flow suites plus entropy, transport and QR checks; phone, foldable and desktop widths where each suite defines them | Installed-host and native desktop acceptance; complete multiple-hot-wallet and hardware-funded Ark workflows |
 | StartOS/Umbrel | Shared REST checks, authenticated CLN/LND reads; both StartOS candidate architectures built and source/checksums checked | Complete backup/restore, candidate installation, bundled Jam pairing/revocation/Tor and upgrades; matching frozen wrappers |
 | Linux/macOS/Windows | Isolated native Apple Silicon daemon authentication and restart smoke | Native launchers and bundled service lifecycle, supported OS matrix, signed installers, notarization where applicable and clean install/upgrade tests |
-| Jars | Real pinned signer, API, bond and interrupted-submission checks | Direct/CoinJoin client review and send flows, bond funding/withdrawal, payment-capable pairing, live maker and physical QR signer acceptance |
+| Jars | Real pinned signer, API, bond and interrupted-submission checks | CoinJoin client review and send flow, live direct-send acceptance, bond funding/withdrawal, payment-capable pairing, live maker and physical QR signer acceptance |
 | Payments and recovery | 291 shared wallet tests, exact-cost/RBF/unknown-outcome checks; unified-signature and Electrum-header checks | Live BOLT12/Ark/Bridge settlement, portable recovery/restore and current-source XBT consensus acceptance |
 
 The saved uncertain Ark attempt remains reserved in the private payment ledger.
@@ -140,6 +140,31 @@ pass at 390/1280/1440px, interrupted setup/backup tests at 390/1280px, and the s
 web contract suite passes. Native screenshots were inspected. These are synthetic
 checks, not live maker, payment or installed-host acceptance. No physical device,
 funded host or published candidate was changed.
+
+### Reviewed direct jar payments
+
+The owner desktop UI and independently authorized mobile Jam connections now have
+fixed-amount direct sends from the selected jar. Preparation returns an exact
+recipient amount, fee, total debit, expiry and approval before the separate Send
+button. All adapters bind the wallet identity, jar, destination, amount and fee
+limit, check the saved approval again, and never automatically repeat a commit.
+An interrupted response directs the user to saved payment activity. Node acceptance
+is displayed as submitted, not confirmed. Unsent reviews can be discarded.
+
+The jar send form includes a CoinJoin toggle on every client. In this increment,
+selecting it blocks preparation with an explicit unavailable explanation; it never
+falls back to direct sending. Reviewed CoinJoin execution is still a release gate,
+not a completed feature. Existing management-only phone pairings remain unable to
+prepare, commit or cancel payments; spending grants require a separate integration.
+
+Validation: 117 Swift tests; 94 Android JVM tests with four live cases skipped;
+12 targeted REST tests; six synthetic Android Jars UI cases; regular iPhone jar-grid
+and send-form/toggle checks. Browser send tests pass at 390/1280px, including a
+changed recipient, lost commit and wallet locking; existing Jars and setup/backup
+browser suites also pass. Repository checks pass. The first Apple build rejected
+multi-variable State declarations; separate declarations fixed it and the native
+rerun passed. These tests do not establish live direct-send settlement or complete
+any CoinJoin, bond funding, spending-pairing or signed-package acceptance gate.
 
 ## Source and artifacts
 

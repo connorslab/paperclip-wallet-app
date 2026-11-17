@@ -19,6 +19,67 @@
   new MutationObserver(() => { $('jam-tool-status').textContent = $('jam-status').textContent; })
     .observe($('jam-status'), {childList:true,subtree:true,characterData:true});
 
+  const sendDialog = $('jam-send-dialog');
+  let sendDraft = null, sendReview = null, sendAttempted = false, sendJar = 0, sendTicket = 0;
+  function renderSend() {
+    $('jam-send-form').hidden = sendAttempted;
+    $('jam-send-review').hidden = !sendReview;
+    $('jam-send-recovery').hidden = !sendAttempted || !!sendReview;
+    $('jam-send-mode').textContent = $('jam-send-coinjoin').checked ?
+      'CoinJoin sends require the reviewed CoinJoin integration. It is not available on this build. Your choice will never fall back to a direct send.' : 'Direct payment. This transaction will not use CoinJoin.';
+    sendDialog.querySelectorAll('button,input').forEach(el=>el.disabled=busy);
+    $('jam-send-close').disabled = false;
+    $('jam-send-prepare').disabled = busy || sendAttempted || $('jam-send-coinjoin').checked;
+  }
+  $('jam-send-coinjoin').onchange = renderSend;
+  $('jam-send').onclick = () => {
+    if (busy || !authorization) return;
+    sendTicket++; sendDraft=null; sendReview=null; sendAttempted=false; sendJar=selected;
+    $('jam-send-result').textContent='Check payment activity'; $('jam-send-status').textContent='';
+    $('jam-send-title').textContent='Send from '+jars.find(jar=>jar.id===sendJar).name;
+    renderSend(); sendDialog.showModal(); $('jam-send-address').focus();
+  };
+  $('jam-send-close').onclick = () => sendDialog.close();
+  sendDialog.addEventListener('close',()=>{ sendTicket++; sendReview=null; sendDraft=null; });
+  new MutationObserver(()=>{ if(panel.hidden || !$('jam-dashboard').hidden && !authorization) sendDialog.close(); }).observe(panel,{attributes:true,attributeFilter:['hidden']});
+  $('jam-send-prepare').onclick = () => work(async()=>{
+    if (sendAttempted || !sendDialog.open) return;
+    const terms=PaperclipJarSend.terms(sendJar,$('jam-send-address').value.trim(),$('jam-send-amount').value,$('jam-send-rate').value,$('jam-send-limit').value,$('jam-send-coinjoin').checked);
+    const id=Array.from(crypto.getRandomValues(new Uint8Array(32)),v=>v.toString(16).padStart(2,'0')).join('');
+    const ticket=sendTicket, wallet=authorization.wallet;
+    sendDraft={id,wallet,terms}; sendAttempted=true; renderSend();
+    const row=await call('prepare_payment',{payment_id:id,send:terms});
+    if(ticket!==sendTicket || !sendDialog.open) return;
+    sendReview=PaperclipJarSend.validate(row,id,wallet,terms);
+    $('jam-send-hero').textContent=amount(row.quote.amount_sat);
+    $('jam-send-costs').replaceChildren();
+    for(const [label,value] of [['Payment type','Direct · no CoinJoin'],['Wallet',wallet],['From',jars.find(jar=>jar.id===sendJar).name],['Mining fee',amount(row.quote.fee_sat)],['Total debit',amount(row.quote.total_sat)]]) {
+      const group=document.createElement('div'), dt=document.createElement('dt'), dd=document.createElement('dd'); dt.textContent=label;dd.textContent=value;group.append(dt,dd);$('jam-send-costs').append(group);
+    }
+    $('jam-send-destination').textContent=row.quote.destination;
+    $('jam-send-expiry').textContent='Review expires '+new Date(row.expires*1000).toLocaleTimeString();
+  });
+  $('jam-send-commit').onclick = () => work(async()=>{
+    if(!sendDraft || !sendReview || !sendDialog.open) return;
+    const {id,wallet,terms}=sendDraft, row=sendReview, ticket=sendTicket;
+    PaperclipJarSend.validate(row,id,wallet,terms);
+    if(authorization?.wallet!==wallet) throw new Error('Jam wallet changed since review.');
+    sendReview=null; renderSend();
+    const result=await call('commit_payment',{payment_id:id,approval:row.approval,wallet_identity:row.quote.wallet_identity});
+    if(ticket!==sendTicket || !sendDialog.open) return;
+    if(result.id!==id || !['submitted','submitting','unknown'].includes(result.state) || !['wallet','jar','purpose','destination','txid','amount_sat','fee_sat','total_sat'].every(key=>result.quote?.[key]===row.quote[key])) throw new Error('Check Jars payment activity before another action.');
+    $('jam-send-result').textContent=result.state==='submitted'?'Submitted · awaiting confirmation':'Status unknown';
+  });
+  $('jam-send-discard').onclick = () => work(async()=>{
+    if(!sendDraft || !sendReview) return;
+    const ticket=sendTicket, result=await call('cancel_payment',{payment_id:sendDraft.id});
+    if(ticket!==sendTicket) return;
+    if(result.id!==sendDraft.id || result.state!=='cancelled') throw new Error('Check Jars payment activity before another action.');
+    sendReview=null; sendDraft=null; sendAttempted=false;
+  });
+  $('jam-send-activity').onclick = () => { sendDialog.close(); $('jam-payments-panel').open=true; $('jam-payments-load').click(); $('jam-payments-panel').scrollIntoView({block:'start'}); };
+  new MutationObserver(()=>{ $('jam-send-status').textContent=$('jam-status').textContent; }).observe($('jam-status'),{childList:true,subtree:true,characterData:true});
+
   const colors = ['#ff9e54', '#7aabff', '#ff777b', '#ca9a75', '#bf98f4'];
   const amount = value => Number.isSafeInteger(value) && value >= 0 ? value.toLocaleString() + ' sats' : 'Unavailable';
   async function call(operation, fields = {}) {
@@ -373,6 +434,7 @@
     $('jam-create-name').disabled = busy || !!pendingSetup;
     $('jam-backup-finish').disabled = busy || !backupWords.length || [...$('jam-backup-challenges').querySelectorAll('input')].length !== 3 || [...$('jam-backup-challenges').querySelectorAll('input')].some(field => field.value.trim().toLowerCase() !== backupWords[Number(field.dataset.position)]);
     $('jam-maker').disabled = busy || needsRefresh || (!running && !readiness.canStart);
+    renderSend();
   }
   async function work(action) {
     if (busy) return;
@@ -462,6 +524,7 @@
   });
   new MutationObserver(() => {
     if (!$('wallet').hidden) return;
+    sendDialog.close();
     toolsDialog.close();
     closeBackup(); $('jam-create-password').value = ''; $('jam-create-confirm').value = '';
     clearPairingCode(); $('jam-pairing-list').replaceChildren(); $('jam-pairing-panel').open = false;

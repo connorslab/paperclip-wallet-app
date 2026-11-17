@@ -35,6 +35,47 @@ private final class JamStub: URLProtocol {
 }
 
 final class JoinBlaketTests: XCTestCase {
+    func testSendReviewMatchesSharedCases() throws {
+        let draft = try JoinBlaketSendDraft(jar: 0, destination: "bcrt1qsyntheticrecipient", amountSat: 20000, feeRateMillisatVb: 1000, maxFeeSat: 500, id: String(repeating: "a", count: 64))
+        let file = Bundle.module.url(forResource: "jam-send-review", withExtension: "json", subdirectory: "Fixtures")!
+        let cases = try JSONSerialization.jsonObject(with: Data(contentsOf: file)) as! [[String: Any]]
+        for item in cases {
+            do {
+                let review = try JoinBlaketSendReview(data: JSONSerialization.data(withJSONObject: item["review"]!))
+                try review.validate(draft: draft, wallet: "fixture.jmdat", identity: "xbt-regtest:" + String(repeating: "c", count: 64), now: 2000000000)
+                XCTAssertEqual(item["valid"] as? Bool, true, item["name"] as! String)
+            } catch { XCTAssertEqual(item["valid"] as? Bool, false, item["name"] as! String) }
+        }
+        XCTAssertThrowsError(try JoinBlaketSendDraft(jar: 0, destination: draft.destination, amountSat: UInt64.max, feeRateMillisatVb: 1000, maxFeeSat: 1))
+    }
+    func testDirectSendBindsReviewAndNeverRepeatsLostCommit() async throws {
+        let auth = try JoinBlaketAuthorization(wallet: "fixture.jmdat", token: "synthetic-token")
+        let draft = try JoinBlaketSendDraft(jar: 0, destination: "bcrt1qsyntheticrecipient", amountSat: 20000, feeRateMillisatVb: 1000, maxFeeSat: 500, id: String(repeating: "a", count: 64))
+        let file = Bundle.module.url(forResource: "jam-send-review", withExtension: "json", subdirectory: "Fixtures")!
+        let cases = try JSONSerialization.jsonObject(with: Data(contentsOf: file)) as! [[String: Any]]
+        var saved = cases[0]["review"] as! [String: Any]
+        saved["expires"] = Int64(Date().timeIntervalSince1970) + 200
+        var lost = false, identity = "xbt-regtest:" + String(repeating: "c", count: 64)
+        JamStub.route = { request in
+            let path = request.url!.path
+            if path.hasSuffix("/identity") { return (200, "{\"wallet\":\"fixture.jmdat\",\"identity\":\"\(identity)\"}") }
+            if path.hasSuffix("/capabilities") { return (200, "{\"version\":1,\"reviewed_direct_send\":true}") }
+            if path.hasSuffix("/commit") { saved["state"] = "unknown"; if lost { return (504, "{}") } }
+            return (200, String(decoding: try! JSONSerialization.data(withJSONObject: saved), as: UTF8.self))
+        }
+        let c = try client()
+        let review = try await c.prepareSend(draft, authorization: auth)
+        let request = try JSONSerialization.jsonObject(with: JamStub.bodies.last!) as! [String:Any]
+        XCTAssertEqual(request["amount_sat"] as? Int, 20000); XCTAssertEqual(request["max_total_sat"] as? Int, 20500)
+        identity = "xbt-regtest:" + String(repeating: "e", count: 64)
+        do { _ = try await c.commitSend(review, draft: draft, authorization: auth); XCTFail("Changed wallet") } catch {}
+        XCTAssertFalse(JamStub.requests.contains { $0.url!.path.hasSuffix("/commit") })
+        identity = review.walletIdentity; lost = true
+        do { _ = try await c.commitSend(review, draft: draft, authorization: auth); XCTFail("Lost response") } catch {}
+        let observed = try await c.commitSend(review, draft: draft, authorization: auth)
+        XCTAssertEqual(observed.state, .unknown)
+        XCTAssertEqual(JamStub.requests.filter { $0.url!.path.hasSuffix("/commit") }.count, 1)
+    }
     private func pairingText(_ changes: [String: Any] = [:]) throws -> String {
         var value: [String: Any] = ["kind":"paperclip-jars-v1", "scope":"jars_manage_v1", "endpoint":"https://host.example.invalid", "wallet":"fixture.jmdat",
                                   "token":"pj1_" + String(repeating: "a", count: 64), "expires":4_000_000_000, "certificate_sha256":""]
@@ -68,6 +109,8 @@ final class JoinBlaketTests: XCTestCase {
         JamStub.requests = []
         do { _ = try await c.unlock(wallet: pair.wallet, password: "synthetic"); XCTFail("No paired unlock") } catch {}
         do { _ = try await c.status(JoinBlaketAuthorization(wallet: "other.jmdat", token: "synthetic")); XCTFail("No other wallet") } catch {}
+        let draft = try JoinBlaketSendDraft(jar: 0, destination: "bcrt1qsyntheticrecipient", amountSat: 20000, feeRateMillisatVb: 1000, maxFeeSat: 500)
+        do { _ = try await c.prepareSend(draft, authorization: pair.authorization()); XCTFail("Management grant cannot prepare a send") } catch {}
         XCTAssertTrue(JamStub.requests.isEmpty)
     }
     func testRecoveryMatchesSharedCases() throws {

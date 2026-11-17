@@ -60,8 +60,12 @@ independently authorized mobile connections can discard an unsent review after
 confirmation. The companion atomically refuses cancellation once submission
 starts. A lost reply must be checked, not automatically retried. Existing
 management-only phone pairings cannot cancel; they direct the user to the host.
-Clients cannot yet prepare or commit payments. Direct/CoinJoin review, bond
-funding/withdrawal and payment-capable mobile pairing remain unfinished.
+Owner desktop and independently authorized mobile connections can now prepare
+and commit fixed-amount direct sends through this contract. They bind the wallet
+identity, recipient, jar, amount, maximum fee, approval and expiry. An interrupted
+commit opens recovery rather than a retry. Client CoinJoin toggles currently
+refuse preparation explicitly; no direct-send fallback exists. Reviewed CoinJoin,
+bond funding/withdrawal and payment-capable mobile pairing remain unfinished.
 
 The shared owner UI now creates separate Jam wallets and guides password-verified
 recovery-word backup. Creation responses expose only wallet authorization, not

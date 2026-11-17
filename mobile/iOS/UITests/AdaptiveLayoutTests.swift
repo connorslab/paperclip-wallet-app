@@ -104,6 +104,26 @@ final class AdaptiveLayoutTests: XCTestCase {
 		XCTAssertTrue(app.buttons["Receive into Elderberry"].exists)
 		XCTAssertFalse(app.buttons["Receive into Elderberry"].isEnabled)
 	}
+	func testJarSendCoinJoinChoiceNeverFallsBackInPreview() {
+		let app = XCUIApplication()
+		app.launchArguments = ["-build61-preview", "-joinblaket-preview", "-appearance", "dark"]
+		app.launch()
+		XCTAssertTrue(app.navigationBars["Jars"].waitForExistence(timeout: 15))
+		let send = app.buttons["Send from Apricot"]
+		for _ in 0..<8 { if send.isHittable { break }; app.scrollViews.firstMatch.swipeUp() }
+		XCTAssertTrue(send.isHittable); send.tap()
+		XCTAssertTrue(app.navigationBars["Jar payment"].waitForExistence(timeout: 5))
+		let toggle = app.switches["jars-send-coinjoin"]
+		XCTAssertTrue(toggle.exists); toggle.tap()
+		XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "never fall back")).firstMatch.exists)
+		XCTAssertFalse(app.buttons["Review payment"].isEnabled)
+		capture(app, "Jar send CoinJoin choice")
+		toggle.tap()
+		XCTAssertTrue(app.staticTexts["Direct payment. This transaction will not use CoinJoin."].exists)
+		XCTAssertFalse(app.buttons["Review payment"].isEnabled, "Preview cannot prepare a live payment")
+		app.buttons["Close"].tap()
+		XCTAssertTrue(app.navigationBars["Jars"].waitForExistence(timeout: 5))
+	}
 
 	func testMakerPercentagesAndMarketHelpStayReadOnlyInPreview() {
 		continueAfterFailure = false

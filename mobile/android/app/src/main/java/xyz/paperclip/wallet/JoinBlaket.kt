@@ -179,7 +179,7 @@ internal class JoinBlaketClient internal constructor(
 		}
 	}
 
-	private suspend fun request(
+	internal suspend fun request(
 		components: List<String>, authorization: JoinBlaketAuthorization? = null, body: JSONObject? = null,
 	): JSONObject {
 		connection.validate()

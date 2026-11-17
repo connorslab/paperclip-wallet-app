@@ -11,6 +11,40 @@ import org.junit.Test
 import org.json.JSONObject
 
 class JoinBlaketTest {
+	@Test fun sendReviewMatchesSharedCases() {
+		val draft = JoinBlaketSendDraft(0,"bcrt1qsyntheticrecipient",20000,1000,500,"a".repeat(64))
+		val cases = org.json.JSONArray(checkNotNull(javaClass.getResourceAsStream("/jam-send-review.json")).bufferedReader().use { it.readText() })
+		for (index in 0 until cases.length()) {
+			val item = cases.getJSONObject(index)
+			val result = runCatching { JoinBlaketSendReview.parse(item.getJSONObject("review"),"fixture.jmdat").validate(draft,"fixture.jmdat","xbt-regtest:"+"c".repeat(64),2000000000) }
+			assertEquals(item.getString("name"),item.getBoolean("valid"),result.isSuccess)
+		}
+		assertThrows(IllegalArgumentException::class.java) { JoinBlaketSendDraft(0,draft.destination,Long.MAX_VALUE,1000,1) }
+	}
+	@Test fun directSendBindsReviewAndNeverRepeatsLostCommit() = runBlocking {
+		val auth = JoinBlaketAuthorization("fixture.jmdat","synthetic-token")
+		val draft = JoinBlaketSendDraft(0,"bcrt1qsyntheticrecipient",20000,1000,500,"a".repeat(64))
+		val cases = org.json.JSONArray(checkNotNull(javaClass.getResourceAsStream("/jam-send-review.json")).bufferedReader().use { it.readText() })
+		val saved = cases.getJSONObject(0).getJSONObject("review").put("expires",java.time.Instant.now().epochSecond+200)
+		var identity = "xbt-regtest:"+"c".repeat(64); var lost = false; var commits = 0
+		val http = OkHttpClient.Builder().addInterceptor { chain ->
+			val path = chain.request().url.encodedPath
+			val result = when {
+				path.endsWith("/identity") -> JSONObject().put("wallet",auth.wallet).put("identity",identity)
+				path.endsWith("/capabilities") -> JSONObject().put("version",1).put("reviewed_direct_send",true)
+				else -> saved
+			}
+			if (path.endsWith("/commit")) { commits++; saved.put("state","unknown"); if (lost) throw SocketTimeoutException("Synthetic lost response") }
+			Response.Builder().request(chain.request()).protocol(Protocol.HTTP_1_1).code(200).message("OK").body(result.toString().toResponseBody()).build()
+		}.build()
+		val c = JoinBlaketClient(JoinBlaketConnection("https://jam.example.invalid"),http)
+		val review = c.prepareSend(draft,auth)
+		identity = "xbt-regtest:"+"e".repeat(64)
+		assertTrue(runCatching { c.commitSend(review,draft,auth) }.isFailure); assertEquals(0,commits)
+		identity = review.walletIdentity; lost = true
+		assertTrue(runCatching { c.commitSend(review,draft,auth) }.isFailure)
+		assertEquals("unknown",c.commitSend(review,draft,auth).state); assertEquals(1,commits)
+	}
 	private fun pairingText(changes: Map<String, Any> = emptyMap()): String {
 		val value = JSONObject().put("kind", "paperclip-jars-v1").put("scope", "jars_manage_v1").put("endpoint", "https://host.example.invalid")
 			.put("wallet", "fixture.jmdat").put("token", "pj1_" + "a".repeat(64)).put("expires", 4_000_000_000L).put("certificate_sha256", "")
@@ -104,6 +138,14 @@ class JoinBlaketTest {
 		requests.clear()
 		try { client.discardPayment("a".repeat(64),pair.authorization()); fail("Management grant cannot discard") } catch (_: IllegalArgumentException) {}
 		assertTrue(requests.isEmpty())
+	}
+	@Test fun managementPairingCannotPreparePayments() = runBlocking {
+		val pair = JoinBlaketPairing.parse(pairingText())
+		var calls = 0
+		val http = OkHttpClient.Builder().addInterceptor { calls++; error("No paired payment transport") }.build()
+		val client = JoinBlaketClient(pair.connection,http,pair)
+		assertTrue(runCatching { client.prepareSend(JoinBlaketSendDraft(0,"bcrt1qsyntheticrecipient",20000,1000,500),pair.authorization()) }.isFailure)
+		assertEquals(0,calls)
 	}
 	@Test fun marketSummaryRejectsWrongAmountAndExpires() {
 		val now = java.time.Instant.now().epochSecond

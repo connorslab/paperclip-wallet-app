@@ -35,11 +35,58 @@ pub struct Request {
 	comparison_sat: Option<u64>,
 	lock_month: Option<String>,
 	payment_id: Option<String>,
+	approval: Option<String>,
+	wallet_identity: Option<String>,
+	send: Option<SendTerms>,
 }
 
 #[derive(Deserialize)]
 #[serde(rename_all = "snake_case")]
-enum Operation { Wallets, CreateWallet, BackupWallet, Unlock, Status, Identity, Coins, Address, BondAddress, StartMaker, StopMaker, Payments, CheckPayment, CancelPayment, Market, #[serde(skip)] PairingSession }
+enum Operation { Wallets, CreateWallet, BackupWallet, Unlock, Status, Identity, Coins, Address, BondAddress, StartMaker, StopMaker, Payments, CheckPayment, CancelPayment, PreparePayment, CommitPayment, Market, #[serde(skip)] PairingSession }
+
+/// Fixed-amount direct sends only. Bond and CoinJoin reviews have separate contracts.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SendTerms {
+	jar: u8,
+	destination: String,
+	amount_sat: u64,
+	fee_rate_millisat_vb: u64,
+	max_fee_sat: u64,
+}
+impl SendTerms {
+	fn body(&self, id: &str) -> anyhow::Result<Value> {
+		ensure!(payment_identifier(id) && self.jar < 5, "Invalid Jam payment reference or jar");
+		ensure!((14..=90).contains(&self.destination.len()) && self.destination.bytes().all(|b| b.is_ascii_alphanumeric()), "Enter a valid XBT address");
+		ensure!(self.amount_sat > 0 && self.max_fee_sat > 0 && self.amount_sat.checked_add(self.max_fee_sat).is_some_and(|v| v <= 2_100_000_000_000_000), "Review the payment amount and maximum mining fee");
+		ensure!((1000..=10_000_000).contains(&self.fee_rate_millisat_vb), "Review the mining fee rate");
+		Ok(json!({"id":id,"purpose":"send","jar":self.jar,"destination":self.destination,
+			"amount_sat":self.amount_sat,"send_max":false,"fee_rate_millisat_vb":self.fee_rate_millisat_vb,
+			"max_fee_sat":self.max_fee_sat,"max_total_sat":self.amount_sat+self.max_fee_sat,"rbf":true}))
+	}
+}
+
+fn send_review(value: &Value, wallet: &str, identity: &str, now: i64) -> anyhow::Result<Value> {
+	let mut result = recovery_payment(value, wallet)?;
+	ensure!(result["state"] == "prepared", "This review cannot be submitted; check Jars payment activity");
+	ensure!(pairing::valid_identity(identity) && value["quote"]["wallet_identity"] == identity, "Jam wallet identity changed");
+	ensure!(value["quote"]["network"] == identity.split(':').next().unwrap() && value["quote"]["purpose"] == "send" && value["quote"]["rbf"] == true, "Unsupported Jam payment review");
+	let expiry = value["expires"].as_i64().context("Missing Jam review expiry")?;
+	ensure!(expiry > now && expiry <= now + 300, "Jam payment review expired; discard it before preparing another");
+	ensure!(value["approval"].as_str().is_some_and(payment_identifier), "Invalid Jam payment approval");
+	result["expires"] = expiry.into(); result["approval"] = value["approval"].clone();
+	result["quote"]["wallet_identity"] = identity.into();
+	result["quote"]["network"] = value["quote"]["network"].clone();
+	result["quote"]["rbf"] = true.into();
+	Ok(result)
+}
+
+fn verify_send_terms(review: &Value, terms: &SendTerms) -> anyhow::Result<()> {
+	let q = &review["quote"];
+	ensure!(q["jar"] == terms.jar && q["destination"] == terms.destination && q["amount_sat"] == terms.amount_sat
+		&& q["fee_sat"].as_u64().is_some_and(|v| v <= terms.max_fee_sat), "Jam changed the recipient, jar, amount or fee limit; check the saved review");
+	Ok(())
+}
 
 fn maker_body(input: &Request) -> anyhow::Result<Value> {
 	let minimum = input.minimum_sat.context("Enter a minimum CoinJoin amount")?;
@@ -198,6 +245,37 @@ async fn execute_bound(input: Request, expected_identity: Option<&str>) -> anyho
 		}
 	}
 	match input.operation {
+		Operation::PreparePayment | Operation::CommitPayment => {
+			let id = input.payment_id.as_deref().context("Missing Jam payment reference")?;
+			ensure!(payment_identifier(id), "Invalid Jam payment reference");
+			let identity = upstream(&client, &base, &["wallet", &input.wallet, "paperclip", "identity"], &input.token, None).await?;
+			let key = identity["identity"].as_str().context("Jam wallet identity unavailable")?;
+			ensure!(identity["wallet"] == input.wallet && pairing::valid_identity(key), "Jam wallet identity changed");
+			if matches!(input.operation, Operation::PreparePayment) {
+				let terms = input.send.as_ref().context("Review the payment details")?;
+				let body = terms.body(id)?;
+				let features = upstream(&client, &base, &["paperclip", "capabilities"], &input.token, None).await?;
+				ensure!(features["version"] == 1 && features["reviewed_direct_send"] == true, "Update the Jam companion before sending");
+				let result = upstream(&client, &base, &["wallet", &input.wallet, "paperclip", "payments"], &input.token, Some(body)).await?;
+				ensure!(result["id"] == id, "Jam returned a different payment");
+				let review = send_review(&result, &input.wallet, key, chrono::Utc::now().timestamp())?;
+				verify_send_terms(&review, terms)?;
+				return Ok(review);
+			}
+			ensure!(input.wallet_identity.as_deref() == Some(key), "Jam wallet changed since review");
+			let approval = input.approval.as_deref().context("Review the saved payment first")?;
+			ensure!(payment_identifier(approval), "Invalid Jam payment approval");
+			let current = upstream(&client, &base, &["wallet", &input.wallet, "paperclip", "payments", id], &input.token, None).await?;
+			ensure!(current["id"] == id, "Jam returned a different payment");
+			if matches!(current["state"].as_str(), Some("submitting" | "unknown" | "submitted")) {
+				return recovery_payment(&current, &input.wallet);
+			}
+			let review = send_review(&current, &input.wallet, key, chrono::Utc::now().timestamp())?;
+			ensure!(review["approval"] == approval, "Jam payment changed; review again");
+			let result = upstream(&client, &base, &["wallet", &input.wallet, "paperclip", "payments", id, "commit"], &input.token, Some(json!({"approval":approval}))).await?;
+			ensure!(result["id"] == id && matches!(result["state"].as_str(), Some("submitting" | "unknown" | "submitted")), "Check Jars payment activity before another action");
+			recovery_payment(&result, &input.wallet)
+		},
 		Operation::Status => Ok(json!({"session":true,"wallet_name":input.wallet,
 			"maker_running":session["maker_running"],"coinjoin_in_process":session["coinjoin_in_process"],"rescanning":session["rescanning"]})),
 		Operation::Market => {
@@ -316,6 +394,22 @@ async fn request(State(state): State<Arc<ServerState>>, Json(input): Json<Reques
 #[cfg(test)]
 mod tests {
 	use super::*;
+	#[test]
+	fn jam_send_reviews_bind_wallet_recipient_cost_and_expiry() {
+		let cases: Vec<Value> = serde_json::from_str(include_str!("../../../../mobile/Tests/PaperclipMobileTests/Fixtures/jam-send-review.json")).unwrap();
+		let terms = SendTerms { jar:0, destination:"bcrt1qsyntheticrecipient".into(), amount_sat:20000, fee_rate_millisat_vb:1000, max_fee_sat:500 };
+		let identity = format!("xbt-regtest:{}", "c".repeat(64));
+		for case in cases {
+			let result = send_review(&case["review"], "fixture.jmdat", &identity, 2000000000).and_then(|review| {
+				ensure!(review["id"] == "a".repeat(64), "Changed id"); verify_send_terms(&review, &terms)
+			});
+			assert_eq!(result.is_ok(), case["valid"].as_bool().unwrap(), "{}", case["name"]);
+		}
+		let body = terms.body(&"a".repeat(64)).unwrap();
+		assert_eq!(body["max_total_sat"], 20500); assert_eq!(body["send_max"], false);
+		let excessive = SendTerms { amount_sat:u64::MAX, ..terms };
+		assert!(excessive.body(&"a".repeat(64)).is_err());
+	}
 	#[test]
 	fn maker_fee_modes_bind_exact_supported_grid_values() {
 		for fee in MAKER_ABSOLUTE_FEES {

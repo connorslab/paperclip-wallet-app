@@ -23,6 +23,48 @@ import org.junit.Test
 
 /** Synthetic session only: no transport, wallet keys or funds. */
 class JoinBlaketLayoutTest {
+	@Test fun jarSendPreservesCoinJoinChoiceAndRecoversLostCommit() {
+		val paths = java.util.Collections.synchronizedList(mutableListOf<String>())
+		var saved = JSONObject()
+		val http = okhttp3.OkHttpClient.Builder().addInterceptor { chain ->
+			val path = chain.request().url.encodedPath; paths.add(path)
+			val result = when {
+				path.endsWith("/identity") -> JSONObject().put("wallet","fixture.jmdat").put("identity","xbt-regtest:"+"c".repeat(64))
+				path.endsWith("/capabilities") -> JSONObject().put("version",1).put("reviewed_direct_send",true)
+				path.endsWith("/payments") -> {
+					val buffer = okio.Buffer(); chain.request().body!!.writeTo(buffer); val request = JSONObject(buffer.readUtf8())
+					check(request.getString("purpose") == "send" && request.getLong("amount_sat") == 20000L)
+					saved = JSONObject().put("id",request.getString("id")).put("state","prepared").put("expires",java.time.Instant.now().epochSecond+200).put("approval","b".repeat(64))
+						.put("quote",JSONObject().put("wallet","fixture.jmdat").put("wallet_identity","xbt-regtest:"+"c".repeat(64)).put("network","xbt-regtest").put("rbf",true)
+							.put("jar",0).put("purpose","send").put("destination",request.getString("destination")).put("txid","d".repeat(64)).put("amount_sat",20000).put("fee_sat",200).put("total_sat",20200))
+					saved
+				}
+				path.endsWith("/commit") -> throw java.net.SocketTimeoutException("Synthetic lost commit")
+				else -> saved
+			}
+			okhttp3.Response.Builder().request(chain.request()).protocol(okhttp3.Protocol.HTTP_1_1).code(200).message("fixture").body(okhttp3.ResponseBody.create(null,result.toString())).build()
+		}.build()
+		var activity = false
+		val client = JoinBlaketClient(JoinBlaketConnection("https://jam.example.invalid"),http)
+		compose.setContent { MaterialTheme(colorScheme = paperclipColors(true)) { Surface {
+			JarsSendPage(client,JoinBlaketAuthorization("fixture.jmdat","synthetic-token"),0,"Apricot",close={},activity={activity=true})
+		} } }
+		compose.onNodeWithTag("jars-send-coinjoin").performScrollTo().performClick()
+		compose.onNodeWithText("Review payment").performScrollTo().assertIsNotEnabled()
+		assertTrue(paths.isEmpty())
+		compose.onNodeWithTag("jars-send-coinjoin").performScrollTo().performClick()
+		compose.onNodeWithText("XBT address").performScrollTo().performTextInput("bcrt1qsyntheticrecipient")
+		compose.onNodeWithText("Amount (sats)").performScrollTo().performTextInput("20000")
+		compose.onNodeWithText("Review payment").performScrollTo().performClick()
+		compose.waitUntil(10000) { compose.onAllNodesWithText("Send payment").fetchSemanticsNodes().isNotEmpty() }
+		compose.onNodeWithText("Direct · no CoinJoin").assertExists()
+		capture("android-jar-send-review")
+		compose.onNodeWithText("Send payment").performScrollTo().performClick()
+		compose.waitUntil(10000) { compose.onAllNodesWithText("Synthetic lost commit").fetchSemanticsNodes().isNotEmpty() }
+		compose.onNodeWithText("View payment activity").performScrollTo().performClick()
+		assertTrue(activity); assertEquals(1,paths.count { it.endsWith("/commit") })
+		compose.onNodeWithText("Send payment").assertDoesNotExist()
+	}
 	@Test fun pairingReviewShowsScopeAndCancelDoesNotConnect() {
 		val state = JoinBlaketUiState()
 		compose.setContent { MaterialTheme(colorScheme = paperclipColors(true)) { Surface {
