@@ -304,6 +304,41 @@ class RuntimeTest(unittest.TestCase):
             input_utxos=[self.coin.outpoint])
         return bond, script
 
+    def test_bond_inventory_uses_chain_time_and_scoped_read_access(self):
+        bond, _ = self.bond_withdrawal()
+        self.backend.get_median_time_past.return_value = bond.locktime
+        target = self.base.replace('/payments', '/bonds')
+        delegated = self.client.post(self.base.replace('/payments', '/pairing-session'), json={'scope':'jars_manage_v1'})
+        self.assertEqual(delegated.status_code, 200)
+        self.client.headers['Authorization'] = 'Bearer ' + delegated.json()['token']
+        result = self.client.get(target)
+        self.assertEqual(result.status_code, 200, result.text)
+        inventory = result.json()
+        self.assertEqual(inventory['chain_time'], bond.locktime)
+        self.assertEqual(inventory['bonds'], [{'outpoint':self.coin.outpoint, 'value_sat':100000,
+            'locktime':bond.locktime, 'confirmations':10, 'frozen':False, 'signable':True}])
+        self.coin.frozen = True
+        self.assertTrue(self.client.get(target).json()['bonds'][0]['frozen'])
+        self.backend.get_median_time_past.return_value = None
+        self.assertEqual(self.client.get(target).status_code,409)
+        self.backend.broadcast_transaction.assert_not_awaited()
+
+    def test_withdrawal_rejects_changed_value_and_never_repeats_lost_submission(self):
+        bond, _ = self.bond_withdrawal()
+        self.backend.get_median_time_past.return_value = bond.locktime + 1
+        self.body['max_total_sat'] = self.coin.value + 1
+        self.assertEqual(self.client.post(self.base,json=self.body).status_code,409)
+        self.body.update(id='b'*64,max_total_sat=self.coin.value)
+        delegated = self.client.post(self.base.replace('/payments','/pairing-session'),json={'scope':'jars_pay_v1'})
+        self.client.headers['Authorization']='Bearer '+delegated.json()['token']
+        review=self.prepare()
+        self.assertEqual(review['quote']['bond_outpoint'],self.coin.outpoint)
+        self.backend.broadcast_transaction.side_effect=TimeoutError('Synthetic lost withdrawal response')
+        target=self.base+'/'+self.body['id']+'/commit'
+        self.assertEqual(self.client.post(target,json={'approval':review['approval']}).status_code,504)
+        self.assertEqual(self.client.post(target,json={'approval':review['approval']}).json()['state'],'unknown')
+        self.backend.broadcast_transaction.assert_awaited_once()
+
     def test_registered_bond_funding_signs_only_after_exact_date_review(self):
         bond, script = self.registered_bond()
         self.body.update(purpose='fund_bond', destination=bond.address,
@@ -394,6 +429,22 @@ class RuntimeTest(unittest.TestCase):
         self.backend.get_median_time_past.return_value = bond.locktime + 1
         self.coin.frozen = True
         self.assertEqual(self.client.post(target, json={'approval':review['approval']}).status_code, 409)
+        self.backend.broadcast_transaction.assert_not_awaited()
+
+    def test_bond_withdrawal_rechecks_confirmation_and_spent_input(self):
+        bond, _ = self.bond_withdrawal()
+        self.backend.get_median_time_past.return_value = bond.locktime + 1
+        self.coin.confirmations = 0
+        self.assertEqual(self.client.post(self.base,json=self.body).status_code,409)
+        self.coin.confirmations = 6
+        self.body['id'] = 'b'*64
+        review = self.prepare()
+        target = self.base+'/'+self.body['id']+'/commit'
+        self.coin.confirmations = 0
+        self.assertEqual(self.client.post(target,json={'approval':review['approval']}).status_code,409)
+        self.coin.confirmations = 6
+        self.backend.get_utxo.return_value = None
+        self.assertEqual(self.client.post(target,json={'approval':review['approval']}).status_code,409)
         self.backend.broadcast_transaction.assert_not_awaited()
 
     def test_ordinary_send_never_spends_matured_bond_even_automatically(self):

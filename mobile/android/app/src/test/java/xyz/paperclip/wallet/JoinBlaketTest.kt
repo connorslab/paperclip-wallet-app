@@ -11,12 +11,37 @@ import org.junit.Test
 import org.json.JSONObject
 
 class JoinBlaketTest {
+    @Test fun pairedBondInventoryUsesReadOnlyHostRoute() = runBlocking {
+        val pair=JoinBlaketPairing.parse(pairingText())
+        val fixtures=org.json.JSONArray(checkNotNull(javaClass.getResourceAsStream("/jam-bonds.json")).bufferedReader().use { it.readText() })
+        val operations=mutableListOf<String>()
+        val http=OkHttpClient.Builder().addInterceptor { chain ->
+            assertEquals("/api/v1/paired-jars/request",chain.request().url.encodedPath)
+            val buffer=okio.Buffer();chain.request().body!!.writeTo(buffer);val fields=JSONObject(buffer.readUtf8())
+            val op=fields.getString("operation");operations.add(op)
+            val result=if(op=="status") JSONObject().put("session",true).put("maker_running",false).put("coinjoin_in_process",false).put("rescanning",false).put("wallet_name","fixture.jmdat") else { assertEquals("bonds",op);fixtures.getJSONObject(0).getJSONObject("inventory") }
+            Response.Builder().request(chain.request()).protocol(Protocol.HTTP_1_1).code(200).message("fixture").body(result.toString().toResponseBody()).build()
+        }.build()
+        val inventory=JoinBlaketClient(pair.connection,http,pair).bonds(pair.authorization())
+        assertEquals(1,inventory.bonds.size);assertEquals(listOf("status","bonds"),operations)
+    }
+
+    @Test fun bondInventoryMatchesSharedCases() {
+        val cases = org.json.JSONArray(checkNotNull(javaClass.getResourceAsStream("/jam-bonds.json")).bufferedReader().use { it.readText() })
+        for(index in 0 until cases.length()) {
+            val item=cases.getJSONObject(index)
+            val result=runCatching { JoinBlaketBondInventory.parse(item.getJSONObject("inventory"),"fixture.jmdat") }
+            assertEquals(item.getString("name"),item.getBoolean("valid"),result.isSuccess)
+            result.getOrNull()?.let { inventory -> inventory.bonds.forEachIndexed { i,coin -> assertEquals(item.getJSONArray("withdrawable").getBoolean(i),coin.canWithdraw(inventory.chainTime)) } }
+        }
+    }
+
 	@Test fun sendReviewMatchesSharedCases() {
 		val draft = JoinBlaketSendDraft(0,"bcrt1qsyntheticrecipient",20000,1000,500,"a".repeat(64))
 		val cases = org.json.JSONArray(checkNotNull(javaClass.getResourceAsStream("/jam-send-review.json")).bufferedReader().use { it.readText() })
 		for (index in 0 until cases.length()) {
 			val item = cases.getJSONObject(index)
-			val result = runCatching { JoinBlaketSendReview.parse(item.getJSONObject("review"),"fixture.jmdat").validate(draft.copy(coinjoin=item.optBoolean("coinjoin",false),bondLocktime=if(item.has("bond_locktime")) item.getLong("bond_locktime") else null),"fixture.jmdat","xbt-regtest:"+"c".repeat(64),2000000000) }
+			val result = runCatching { JoinBlaketSendReview.parse(item.getJSONObject("review"),"fixture.jmdat").validate(draft.copy(coinjoin=item.optBoolean("coinjoin",false),bondLocktime=if(item.has("bond_locktime")) item.getLong("bond_locktime") else null,bondOutpoint=if(item.has("bond_outpoint")) item.getString("bond_outpoint") else null),"fixture.jmdat","xbt-regtest:"+"c".repeat(64),2000000000) }
 			assertEquals(item.getString("name"),item.getBoolean("valid"),result.isSuccess)
 		}
 		assertThrows(IllegalArgumentException::class.java) { JoinBlaketSendDraft(0,draft.destination,Long.MAX_VALUE,1000,1) }
@@ -80,13 +105,13 @@ class JoinBlaketTest {
 		assertEquals("unknown",c.commitSend(review,draft,auth).state); assertEquals(1,commits)
 	}
 	@Test fun paymentPairingPreservesModeAndNeverRepeatsLostCommit() = runBlocking {
-		for (mode in 0..2) {
-			val coinjoin=mode==1; val bondTime:Long?=if(mode==2) 2100000000 else null
+		for (mode in 0..3) {
+			val coinjoin=mode==1; val bondTime:Long?=if(mode==3) 1800000000 else if(mode==2) 2100000000 else null
 			val pair = JoinBlaketPairing.parse(pairingText(mapOf("scope" to "jars_pay_v1")))
 			assertTrue(pair.canSend)
-			val draft = JoinBlaketSendDraft(0,"bcrt1qsyntheticrecipient",20000,1000,500,"a".repeat(64),coinjoin,bondTime)
+			val draft = JoinBlaketSendDraft(0,"bcrt1qsyntheticrecipient",20000,1000,500,"a".repeat(64),coinjoin,bondTime,if(mode==3) "1".repeat(64)+":0" else null)
 			val cases=org.json.JSONArray(checkNotNull(javaClass.getResourceAsStream("/jam-send-review.json")).bufferedReader().use { it.readText() })
-			val saved=(if (bondTime != null) (0 until cases.length()).map { cases.getJSONObject(it) }.first { it.getString("name") == "reviewed bond funding" } else if (coinjoin) (0 until cases.length()).map { cases.getJSONObject(it) }.first { it.getString("name") == "reviewed CoinJoin" } else cases.getJSONObject(0)).getJSONObject("review").put("expires",java.time.Instant.now().epochSecond+200)
+			val saved=(if (bondTime != null) (0 until cases.length()).map { cases.getJSONObject(it) }.first { it.getString("name") == if(mode==3) "reviewed bond withdrawal" else "reviewed bond funding" } else if (coinjoin) (0 until cases.length()).map { cases.getJSONObject(it) }.first { it.getString("name") == "reviewed CoinJoin" } else cases.getJSONObject(0)).getJSONObject("review").put("expires",java.time.Instant.now().epochSecond+200)
 			val operations=mutableListOf<String>(); var revoked=false; var fundingSupported=false
 			val http=OkHttpClient.Builder().retryOnConnectionFailure(false).addInterceptor { chain ->
 				assertEquals("/api/v1/paired-jars/request",chain.request().url.encodedPath)
@@ -96,7 +121,7 @@ class JoinBlaketTest {
 				var status=if(revoked) 401 else 200
 				val result=when(op) {
 					"identity" -> JSONObject().put("wallet",pair.wallet).put("identity","xbt-regtest:"+"c".repeat(64))
-					"payment_capabilities" -> JSONObject().put("version",2).put("reviewed_direct_send",true).put("coinjoin_payments",true).put("bond_funding",fundingSupported)
+					"payment_capabilities" -> JSONObject().put("version",2).put("reviewed_direct_send",true).put("coinjoin_payments",true).put("bond_funding",fundingSupported).put("bond_withdrawal",fundingSupported)
 					"prepare_payment" -> { assertEquals(bondTime,(body.getJSONObject("send").opt("bond_locktime") as? Number)?.toLong()); assertEquals(coinjoin,body.getJSONObject("send").getBoolean("coinjoin"));saved }
 					"payment_review" -> saved
 					"commit_payment" -> {

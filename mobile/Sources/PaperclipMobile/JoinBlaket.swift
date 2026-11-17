@@ -51,6 +51,7 @@ public struct JoinBlaketPairing: Decodable, Sendable, CustomStringConvertible, C
         else if components.count == 3 && components.prefix(2).elementsEqual(["paperclip", "market"]), body == nil, let amount = UInt64(components[2]), (27_300...2_100_000_000_000_000).contains(amount) {
             fields["operation"] = "market"; fields["comparison_sat"] = amount
         } else if path == "session" && body == nil { fields["operation"] = "status" }
+        else if path == prefix + "paperclip/bonds" && body == nil { fields["operation"] = "bonds" }
         else if path == prefix + "utxos" && body == nil { fields["operation"] = "coins" }
         else if components.count == 5 && components.prefix(4).elementsEqual(["wallet", wallet, "address", "new"]), body == nil, let jar = UInt8(components[4]), jar < 5 {
             fields["operation"] = "address"; fields["jar"] = jar
@@ -168,6 +169,7 @@ public struct JoinBlaketPayment: Decodable, Identifiable, Sendable {
         public let maker_fee_sat: UInt64?, mining_fee_sat: UInt64?, network_fee_sat: UInt64?
         public let maker_count: Int?, broadcast_policy: String?
         public let bond_locktime: Int64?
+        public let bond_outpoint: String?
         public var bondUnlockDescription: String {
             guard let stamp = bond_locktime else { return "Unavailable — check your Jam host" }
             let format = DateFormatter()
@@ -199,6 +201,9 @@ public struct JoinBlaketPayment: Decodable, Identifiable, Sendable {
               quote.amount_sat + quote.fee_sat == quote.total_sat else { throw JoinBlaketError.invalidResponse }
         if let stamp = quote.bond_locktime {
             guard quote.purpose != "send", (1_577_836_800...4_099_766_400).contains(stamp) else { throw JoinBlaketError.invalidResponse }
+        }
+        if let point = quote.bond_outpoint {
+            guard quote.purpose == "withdraw_bond", quote.jar == 0, JoinBlaketBondCoin.validOutpoint(point) else { throw JoinBlaketError.invalidResponse }
         }
         if quote.coinjoin == true {
             guard quote.purpose == "send", let maker = quote.maker_fee_sat, let mining = quote.mining_fee_sat,

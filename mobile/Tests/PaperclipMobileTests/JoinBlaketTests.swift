@@ -35,12 +35,45 @@ private final class JamStub: URLProtocol {
 }
 
 final class JoinBlaketTests: XCTestCase {
+    func testPairedBondInventoryUsesReadOnlyHostRoute() async throws {
+        let pair = try JoinBlaketPairing(text: pairingText())
+        let configuration = URLSessionConfiguration.ephemeral; configuration.protocolClasses = [JamStub.self]
+        let client = try JoinBlaketClient(connection: pair.connection, configuration: configuration, pairing: pair)
+        let file = Bundle.module.url(forResource: "jam-bonds", withExtension: "json", subdirectory: "Fixtures")!
+        let cases = try JSONSerialization.jsonObject(with: Data(contentsOf: file)) as! [[String: Any]]
+        var operations: [String] = []
+        JamStub.route = { request in
+            XCTAssertEqual(request.url!.path,"/api/v1/paired-jars/request")
+            let fields = try! JSONSerialization.jsonObject(with: JamStub.bodies.last!) as! [String: Any]
+            let operation = fields["operation"] as! String; operations.append(operation)
+            if operation == "status" { return (200,"{\"session\":true,\"maker_running\":false,\"coinjoin_in_process\":false,\"rescanning\":false,\"wallet_name\":\"fixture.jmdat\"}") }
+            XCTAssertEqual(operation,"bonds")
+            return (200,String(decoding:try! JSONSerialization.data(withJSONObject:cases[0]["inventory"]!),as:UTF8.self))
+        }
+        let inventory = try await client.bonds(pair.authorization())
+        XCTAssertEqual(inventory.bonds.count,1)
+        XCTAssertEqual(operations,["status","bonds"])
+    }
+    func testBondInventoryMatchesSharedCases() throws {
+        let file = Bundle.module.url(forResource: "jam-bonds", withExtension: "json", subdirectory: "Fixtures")!
+        let cases = try JSONSerialization.jsonObject(with: Data(contentsOf: file)) as! [[String: Any]]
+        for item in cases {
+            let data = try JSONSerialization.data(withJSONObject: item["inventory"]!)
+            let result = Result { let value = try JSONDecoder().decode(JoinBlaketBondInventory.self, from: data); try value.validate(wallet: "fixture.jmdat"); return value }
+            switch result {
+            case .success(let value):
+                XCTAssertEqual(item["valid"] as? Bool,true,item["name"] as! String)
+                XCTAssertEqual(value.bonds.map { $0.canWithdraw(chainTime: value.chain_time) },item["withdrawable"] as! [Bool])
+            case .failure: XCTAssertEqual(item["valid"] as? Bool,false,item["name"] as! String)
+            }
+        }
+    }
     func testSendReviewMatchesSharedCases() throws {
         let draft = try JoinBlaketSendDraft(jar: 0, destination: "bcrt1qsyntheticrecipient", amountSat: 20000, feeRateMillisatVb: 1000, maxFeeSat: 500, id: String(repeating: "a", count: 64))
         let file = Bundle.module.url(forResource: "jam-send-review", withExtension: "json", subdirectory: "Fixtures")!
         let cases = try JSONSerialization.jsonObject(with: Data(contentsOf: file)) as! [[String: Any]]
         for item in cases {
-            let selected = try JoinBlaketSendDraft(jar: draft.jar, destination: draft.destination, amountSat: draft.amountSat, feeRateMillisatVb: draft.feeRateMillisatVb, maxFeeSat: draft.maxFeeSat, coinjoin: item["coinjoin"] as? Bool ?? false, bondLocktime: item["bond_locktime"] as? Int64, id: draft.id)
+            let selected = try JoinBlaketSendDraft(jar: draft.jar, destination: draft.destination, amountSat: draft.amountSat, feeRateMillisatVb: draft.feeRateMillisatVb, maxFeeSat: draft.maxFeeSat, coinjoin: item["coinjoin"] as? Bool ?? false, bondLocktime: item["bond_locktime"] as? Int64, bondOutpoint: item["bond_outpoint"] as? String, id: draft.id)
             do {
                 let review = try JoinBlaketSendReview(data: JSONSerialization.data(withJSONObject: item["review"]!))
                 try review.validate(draft: selected, wallet: "fixture.jmdat", identity: "xbt-regtest:" + String(repeating: "c", count: 64), now: 2000000000)
@@ -115,19 +148,19 @@ final class JoinBlaketTests: XCTestCase {
         XCTAssertEqual(JamStub.requests.filter { $0.url!.path.hasSuffix("/commit") }.count, 1)
     }
     func testPaymentPairingPreservesModeAndNeverRepeatsLostCommit() async throws {
-        for mode in 0...2 {
-            let coinjoin = mode == 1, bond = mode == 2
-            let bondTime: Int64? = bond ? 2100000000 : nil
+        for mode in 0...3 {
+            let coinjoin = mode == 1, bond = mode == 2, withdrawal = mode == 3
+            let bondTime: Int64? = withdrawal ? 1800000000 : bond ? 2100000000 : nil
             JamStub.requests = []; JamStub.bodies = []
             let pair = try JoinBlaketPairing(text: pairingText(["scope":"jars_pay_v1"]))
             XCTAssertTrue(pair.canSend)
             let configuration = URLSessionConfiguration.ephemeral; configuration.protocolClasses = [JamStub.self]
             let client = try JoinBlaketClient(connection: pair.connection, configuration: configuration, pairing: pair)
             let auth = try pair.authorization()
-            let draft = try JoinBlaketSendDraft(jar: 0, destination: "bcrt1qsyntheticrecipient", amountSat: 20000, feeRateMillisatVb: 1000, maxFeeSat: 500, coinjoin: coinjoin, bondLocktime: bondTime, id: String(repeating: "a", count: 64))
+            let draft = try JoinBlaketSendDraft(jar: 0, destination: "bcrt1qsyntheticrecipient", amountSat: 20000, feeRateMillisatVb: 1000, maxFeeSat: 500, coinjoin: coinjoin, bondLocktime: bondTime, bondOutpoint: withdrawal ? String(repeating: "1", count: 64) + ":0" : nil, id: String(repeating: "a", count: 64))
             let file = Bundle.module.url(forResource: "jam-send-review", withExtension: "json", subdirectory: "Fixtures")!
             let cases = try JSONSerialization.jsonObject(with: Data(contentsOf: file)) as! [[String: Any]]
-            var saved = (bond ? cases.first { $0["name"] as? String == "reviewed bond funding" }! : coinjoin ? cases.first { $0["name"] as? String == "reviewed CoinJoin" }! : cases[0])["review"] as! [String: Any]
+            var saved = (withdrawal ? cases.first { $0["name"] as? String == "reviewed bond withdrawal" }! : bond ? cases.first { $0["name"] as? String == "reviewed bond funding" }! : coinjoin ? cases.first { $0["name"] as? String == "reviewed CoinJoin" }! : cases[0])["review"] as! [String: Any]
             saved["expires"] = Int64(Date().timeIntervalSince1970) + 200
             var operations: [String] = [], revoked = false, fundingSupported = false
             JamStub.route = { request in
@@ -137,12 +170,13 @@ final class JoinBlaketTests: XCTestCase {
                 let op = body["operation"] as! String; operations.append(op)
                 if revoked { return (401,"{}") }
                 if op == "identity" { return (200,"{\"wallet\":\"fixture.jmdat\",\"identity\":\"xbt-regtest:\(String(repeating: "c", count: 64))\"}") }
-                if op == "payment_capabilities" { return (200,"{\"version\":2,\"reviewed_direct_send\":true,\"coinjoin_payments\":true,\"bond_funding\":\(fundingSupported)}") }
+                if op == "payment_capabilities" { return (200,"{\"version\":2,\"reviewed_direct_send\":true,\"coinjoin_payments\":true,\"bond_funding\":\(fundingSupported),\"bond_withdrawal\":\(fundingSupported)}") }
                 if op == "prepare_payment" {
                     let terms = body["send"] as! [String: Any]
                     XCTAssertEqual(terms["coinjoin"] as? Bool,coinjoin)
                     XCTAssertEqual(terms["amount_sat"] as? Int,20000)
                     XCTAssertEqual(terms["bond_locktime"] as? Int64,bondTime)
+                    XCTAssertEqual(terms["bond_outpoint"] as? String,draft.bondOutpoint)
                 } else if op == "commit_payment" {
                     XCTAssertEqual(body["wallet_identity"] as? String,"xbt-regtest:" + String(repeating: "c", count: 64))
                     XCTAssertEqual(body["approval"] as? String,saved["approval"] as? String)
@@ -150,7 +184,7 @@ final class JoinBlaketTests: XCTestCase {
                 } else { XCTAssertEqual(op,"payment_review") }
                 return (200,String(decoding: try! JSONSerialization.data(withJSONObject: saved),as: UTF8.self))
             }
-            if bond {
+            if bond || withdrawal {
                 do { _ = try await client.prepareSend(draft,authorization: auth); XCTFail("Unsupported bond funding") } catch {}
                 XCTAssertFalse(operations.contains("prepare_payment"))
             }

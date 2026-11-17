@@ -43,9 +43,10 @@ pub struct Request {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "snake_case")]
-enum Operation { Wallets, CreateWallet, BackupWallet, Unlock, Status, Identity, Coins, Address, BondAddress, StartMaker, StopMaker, Payments, CheckPayment, CancelPayment, PreparePayment, CommitPayment, PaymentCapabilities, PaymentReview, Market, #[serde(skip)] PairingSession }
+enum Operation { Wallets, CreateWallet, BackupWallet, Unlock, Status, Identity, Coins, Bonds, Address, BondAddress, StartMaker, StopMaker, Payments, CheckPayment, CancelPayment, PreparePayment, CommitPayment, PaymentCapabilities, PaymentReview, Market, #[serde(skip)] PairingSession }
 
-/// Fixed-amount sends bind the selected mode through review and commit.
+/// Sends bind the selected mode through review and commit. A bond withdrawal
+/// binds its whole input value; the recipient receives that value less the fee.
 #[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct SendTerms {
@@ -56,19 +57,23 @@ struct SendTerms {
 	max_fee_sat: u64,
 	#[serde(default)] coinjoin: bool,
 	#[serde(default)] bond_locktime: Option<i64>,
+	#[serde(default)] bond_outpoint: Option<String>,
 }
 impl SendTerms {
+	fn purpose(&self) -> &'static str { if self.bond_outpoint.is_some() { "withdraw_bond" } else if self.bond_locktime.is_some() { "fund_bond" } else { "send" } }
 	fn body(&self, id: &str) -> anyhow::Result<Value> {
 		ensure!(payment_identifier(id) && self.jar < 5, "Invalid Jam payment reference or jar");
 		ensure!((14..=90).contains(&self.destination.len()) && self.destination.bytes().all(|b| b.is_ascii_alphanumeric()), "Enter a valid XBT address");
 		ensure!(self.amount_sat > 0 && self.max_fee_sat > 0 && self.amount_sat.checked_add(self.max_fee_sat).is_some_and(|v| v <= 2_100_000_000_000_000), "Review the payment amount and maximum mining fee");
 		ensure!((1000..=10_000_000).contains(&self.fee_rate_millisat_vb), "Review the mining fee rate");
-		if let Some(stamp) = self.bond_locktime {
+		if let Some(point) = &self.bond_outpoint {
+			ensure!(valid_bond_outpoint(point) && self.jar == 0 && !self.coinjoin && self.max_fee_sat < self.amount_sat && self.bond_locktime.is_some_and(|v| (1_577_836_800..=4_099_766_400).contains(&v)), "Select one bond for full withdrawal");
+		} else if let Some(stamp) = self.bond_locktime {
 			ensure!(!self.coinjoin && stamp > chrono::Utc::now().timestamp() && stamp <= 4_099_766_400, "Review the future bond unlock date; bond funding cannot use CoinJoin");
 		}
-		Ok(json!({"id":id,"purpose":if self.bond_locktime.is_some() { "fund_bond" } else { "send" },"bond_locktime":self.bond_locktime,"jar":self.jar,"destination":self.destination,
-			"amount_sat":self.amount_sat,"send_max":false,"fee_rate_millisat_vb":self.fee_rate_millisat_vb,
-			"max_fee_sat":self.max_fee_sat,"max_total_sat":self.amount_sat+self.max_fee_sat,"rbf":!self.coinjoin,"coinjoin":self.coinjoin}))
+		Ok(json!({"id":id,"purpose":self.purpose(),"input_utxos":self.bond_outpoint.as_ref().map(|p| vec![p]),"bond_locktime":self.bond_locktime,"jar":self.jar,"destination":self.destination,
+			"amount_sat":if self.bond_outpoint.is_some() { 0 } else { self.amount_sat },"send_max":self.bond_outpoint.is_some(),"fee_rate_millisat_vb":self.fee_rate_millisat_vb,
+			"max_fee_sat":self.max_fee_sat,"max_total_sat":if self.bond_outpoint.is_some() { self.amount_sat } else { self.amount_sat+self.max_fee_sat },"rbf":!self.coinjoin,"coinjoin":self.coinjoin}))
 	}
 }
 
@@ -76,7 +81,7 @@ fn send_review(value: &Value, wallet: &str, identity: &str, now: i64) -> anyhow:
 	let mut result = recovery_payment(value, wallet)?;
 	ensure!(result["state"] == "prepared", "This review cannot be submitted; check Jars payment activity");
 	ensure!(pairing::valid_identity(identity) && value["quote"]["wallet_identity"] == identity, "Jam wallet identity changed");
-	ensure!(value["quote"]["network"] == identity.split(':').next().unwrap() && (value["quote"]["purpose"] == "send" || (value["quote"]["purpose"] == "fund_bond" && value["quote"]["bond_locktime"].as_i64().is_some_and(|stamp| stamp > now))) && value["quote"]["rbf"] == (result["quote"]["coinjoin"] != true), "Unsupported Jam payment review");
+	ensure!(value["quote"]["network"] == identity.split(':').next().unwrap() && (value["quote"]["purpose"] == "send" || (value["quote"]["purpose"] == "withdraw_bond" && value["quote"]["bond_outpoint"].as_str().is_some_and(valid_bond_outpoint) && value["quote"]["bond_locktime"].as_i64().is_some()) || (value["quote"]["purpose"] == "fund_bond" && value["quote"]["bond_locktime"].as_i64().is_some_and(|stamp| stamp > now))) && value["quote"]["rbf"] == (result["quote"]["coinjoin"] != true), "Unsupported Jam payment review");
 	let expiry = value["expires"].as_i64().context("Missing Jam review expiry")?;
 	ensure!(expiry > now && expiry <= now + 300, "Jam payment review expired; discard it before preparing another");
 	ensure!(value["approval"].as_str().is_some_and(payment_identifier), "Invalid Jam payment approval");
@@ -89,11 +94,38 @@ fn send_review(value: &Value, wallet: &str, identity: &str, now: i64) -> anyhow:
 
 fn verify_send_terms(review: &Value, terms: &SendTerms) -> anyhow::Result<()> {
 	let q = &review["quote"];
-	let purpose = if terms.bond_locktime.is_some() { "fund_bond" } else { "send" };
+	let purpose = terms.purpose();
 	ensure!(q["purpose"] == purpose
-		&& q["bond_locktime"].as_i64() == terms.bond_locktime && q["coinjoin"].as_bool().unwrap_or(false) == terms.coinjoin && q["jar"] == terms.jar && q["destination"] == terms.destination && q["amount_sat"] == terms.amount_sat
+		&& q["bond_locktime"].as_i64() == terms.bond_locktime && q["coinjoin"].as_bool().unwrap_or(false) == terms.coinjoin && q["jar"] == terms.jar && q["destination"] == terms.destination && (if terms.bond_outpoint.is_some() { q["total_sat"] == terms.amount_sat } else { q["amount_sat"] == terms.amount_sat })
+		&& q["bond_outpoint"].as_str() == terms.bond_outpoint.as_deref()
 		&& q["fee_sat"].as_u64().is_some_and(|v| v <= terms.max_fee_sat), "Jam changed the recipient, jar, amount or fee limit; check the saved review");
 	Ok(())
+}
+
+
+fn valid_bond_outpoint(point: &str) -> bool {
+	let Some((txid, index)) = point.split_once(':') else { return false; };
+	payment_identifier(txid) && index.parse::<u32>().is_ok_and(|v| v.to_string() == index)
+}
+
+fn bond_inventory(value: &Value, wallet: &str) -> anyhow::Result<Value> {
+	ensure!(value["wallet"] == wallet && value["identity"].as_str().is_some_and(pairing::valid_identity), "Jam bond wallet changed");
+	ensure!(value["chain_time"].as_i64().is_some_and(|v| (1_577_836_800..=4_294_967_295).contains(&v)), "Node chain time unavailable");
+	let rows = value["bonds"].as_array().context("Bond inventory unavailable")?;
+	ensure!(rows.len() <= 100, "Too many bonds");
+	let mut seen = std::collections::HashSet::new();
+	let mut total = 0u64;
+	let mut clean = Vec::new();
+	for row in rows {
+		let point = row["outpoint"].as_str().context("Missing bond input")?;
+		ensure!(valid_bond_outpoint(point) && seen.insert(point), "Invalid or duplicate bond input");
+		let amount = row["value_sat"].as_u64().filter(|v| *v > 0 && *v <= 2_100_000_000_000_000).context("Invalid bond amount")?;
+		total = total.checked_add(amount).context("Bond amount overflow")?;
+		ensure!(total <= 2_100_000_000_000_000 && row["locktime"].as_i64().is_some_and(|v| (1_577_836_800..=4_099_766_400).contains(&v))
+			&& row["confirmations"].as_u64().is_some_and(|v| v <= u32::MAX as u64) && row["frozen"].is_boolean() && row["signable"].is_boolean(), "Invalid bond state");
+		clean.push(json!({"outpoint":point,"value_sat":amount,"locktime":row["locktime"],"confirmations":row["confirmations"],"frozen":row["frozen"],"signable":row["signable"]}));
+	}
+	Ok(json!({"wallet":wallet,"identity":value["identity"],"chain_time":value["chain_time"],"bonds":clean}))
 }
 
 fn maker_body(input: &Request) -> anyhow::Result<Value> {
@@ -267,7 +299,7 @@ async fn execute_bound(input: Request, expected_identity: Option<&str>) -> anyho
 				let features = upstream(&client, &base, &["paperclip", "capabilities"], &input.token, None).await?;
 				ensure!((features["version"] == 1 || features["version"] == 2) && features["reviewed_direct_send"] == true
 					&& (!terms.coinjoin || (features["version"] == 2 && features["coinjoin_payments"] == true)), "Update the Jam companion before sending");
-				ensure!(terms.bond_locktime.is_none() || features["bond_funding"] == true, "Update the Jam companion before funding a bond");
+				ensure!(terms.bond_locktime.is_none() || features[if terms.bond_outpoint.is_some() { "bond_withdrawal" } else { "bond_funding" }] == true, "Update the Jam companion before using bond payments");
 				let result = upstream(&client, &base, &["wallet", &input.wallet, "paperclip", "payments"], &input.token, Some(body)).await?;
 				ensure!(result["id"] == id, "Jam returned a different payment");
 				let review = send_review(&result, &input.wallet, key, chrono::Utc::now().timestamp())?;
@@ -290,7 +322,7 @@ async fn execute_bound(input: Request, expected_identity: Option<&str>) -> anyho
 		},
 		Operation::PaymentCapabilities => {
 			let result = upstream(&client, &base, &["paperclip", "capabilities"], &input.token, None).await?;
-			Ok(json!({"version":result["version"],"reviewed_direct_send":result["reviewed_direct_send"],"coinjoin_payments":result["coinjoin_payments"],"bond_funding":result["bond_funding"]}))
+			Ok(json!({"version":result["version"],"reviewed_direct_send":result["reviewed_direct_send"],"coinjoin_payments":result["coinjoin_payments"],"bond_funding":result["bond_funding"],"bond_withdrawal":result["bond_withdrawal"]}))
 		},
 		Operation::PaymentReview => {
 			let id = input.payment_id.as_deref().context("Select a saved payment")?;
@@ -338,6 +370,10 @@ async fn execute_bound(input: Request, expected_identity: Option<&str>) -> anyho
 			let result = upstream(&client, &base, &["wallet", &input.wallet, "paperclip", "payments", &id, "cancel"], &input.token, Some(json!({}))).await?;
 			ensure!(result["id"] == id && result["state"] == "cancelled", "Could not confirm cancellation; refresh saved payments");
 			recovery_payment(&result, &input.wallet)
+		},
+		Operation::Bonds => {
+			let result = upstream(&client, &base, &["wallet", &input.wallet, "paperclip", "bonds"], &input.token, None).await?;
+			bond_inventory(&result, &input.wallet)
 		},
 		Operation::Coins => {
 			let result = upstream(&client, &base, &["wallet", &input.wallet, "utxos"], &input.token, None).await?;
@@ -411,6 +447,10 @@ fn recovery_payment(value: &Value, wallet: &str) -> anyhow::Result<Value> {
 			ensure!(quote["purpose"] != "send" && stamp.as_i64().is_some_and(|v| (1_577_836_800..=4_099_766_400).contains(&v)), "Invalid saved bond unlock date");
 			clean["bond_locktime"] = stamp.clone();
 		}
+		if let Some(point) = quote.get("bond_outpoint").filter(|v| !v.is_null()) {
+			ensure!(quote["purpose"] == "withdraw_bond" && quote["jar"] == 0 && point.as_str().is_some_and(valid_bond_outpoint), "Invalid bond input");
+			clean["bond_outpoint"] = point.clone();
+		}
 		if mode {
 			let fees: Vec<u64> = ["maker_fee_sat", "mining_fee_sat", "network_fee_sat"].iter().map(|key| {
 				quote[key].as_u64().filter(|n| *n <= 2_100_000_000_000_000).context("Invalid CoinJoin fees")
@@ -437,13 +477,20 @@ async fn request(State(state): State<Arc<ServerState>>, Json(input): Json<Reques
 mod tests {
 	use super::*;
 	#[test]
+	fn bond_inventory_matches_shared_cases() {
+		let cases: Vec<serde_json::Value> = serde_json::from_str(include_str!("../../../../mobile/Tests/PaperclipMobileTests/Fixtures/jam-bonds.json")).unwrap();
+		for case in cases {
+			assert_eq!(super::bond_inventory(&case["inventory"], "fixture.jmdat").is_ok(), case["valid"].as_bool().unwrap(), "{}", case["name"]);
+		}
+	}
+	#[test]
 	fn jam_send_reviews_bind_wallet_recipient_cost_and_expiry() {
 		let cases: Vec<Value> = serde_json::from_str(include_str!("../../../../mobile/Tests/PaperclipMobileTests/Fixtures/jam-send-review.json")).unwrap();
-		let terms = SendTerms { jar:0, destination:"bcrt1qsyntheticrecipient".into(), amount_sat:20000, fee_rate_millisat_vb:1000, max_fee_sat:500, coinjoin:false, bond_locktime:None };
+		let terms = SendTerms { jar:0, destination:"bcrt1qsyntheticrecipient".into(), amount_sat:20000, fee_rate_millisat_vb:1000, max_fee_sat:500, coinjoin:false, bond_locktime:None, bond_outpoint:None };
 		let identity = format!("xbt-regtest:{}", "c".repeat(64));
 		for case in cases {
 			let result = send_review(&case["review"], "fixture.jmdat", &identity, 2000000000).and_then(|review| {
-				ensure!(review["id"] == "a".repeat(64), "Changed id"); verify_send_terms(&review, &SendTerms { coinjoin:case["coinjoin"].as_bool().unwrap_or(false), bond_locktime:case["bond_locktime"].as_i64(), ..terms.clone() })
+				ensure!(review["id"] == "a".repeat(64), "Changed id"); verify_send_terms(&review, &SendTerms { coinjoin:case["coinjoin"].as_bool().unwrap_or(false), bond_locktime:case["bond_locktime"].as_i64(), bond_outpoint:case["bond_outpoint"].as_str().map(str::to_owned), ..terms.clone() })
 			});
 			assert_eq!(result.is_ok(), case["valid"].as_bool().unwrap(), "{}", case["name"]);
 		}
@@ -454,6 +501,14 @@ mod tests {
 		assert_eq!(body["purpose"], "fund_bond"); assert_eq!(body["bond_locktime"], 2_100_000_000);
 		assert!(SendTerms { coinjoin:true, ..funding.clone() }.body(&"a".repeat(64)).is_err());
 		assert!(SendTerms { bond_locktime:Some(1), ..funding }.body(&"a".repeat(64)).is_err());
+		let withdrawal = SendTerms { bond_locktime:Some(1_800_000_000), bond_outpoint:Some(format!("{}:0", "1".repeat(64))), ..terms.clone() };
+		let body = withdrawal.body(&"a".repeat(64)).unwrap();
+		assert_eq!(body["purpose"], "withdraw_bond"); assert_eq!(body["amount_sat"], 0);
+		assert_eq!(body["send_max"], true); assert_eq!(body["max_total_sat"], 20000);
+		assert_eq!(body["input_utxos"], json!([format!("{}:0", "1".repeat(64))]));
+		assert!(SendTerms { jar:1, ..withdrawal.clone() }.body(&"a".repeat(64)).is_err());
+		assert!(SendTerms { coinjoin:true, ..withdrawal.clone() }.body(&"a".repeat(64)).is_err());
+		assert!(SendTerms { max_fee_sat:20000, ..withdrawal }.body(&"a".repeat(64)).is_err());
 		let excessive = SendTerms { amount_sat:u64::MAX, ..terms };
 		assert!(excessive.body(&"a".repeat(64)).is_err());
 	}

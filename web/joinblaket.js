@@ -20,7 +20,7 @@
     .observe($('jam-status'), {childList:true,subtree:true,characterData:true});
 
   const sendDialog = $('jam-send-dialog');
-  let sendDraft = null, sendReview = null, sendAttempted = false, sendJar = 0, sendTicket = 0, sendSubmitting = false, sendBond = null, bondTarget = null;
+  let sendDraft = null, sendReview = null, sendAttempted = false, sendJar = 0, sendTicket = 0, sendSubmitting = false, sendBond = null, bondTarget = null, sendWithdrawal = null;
   function renderSend() {
     $('jam-send-form').hidden = sendAttempted;
     $('jam-send-review').hidden = !sendReview;
@@ -28,23 +28,26 @@
     $('jam-send-progress').hidden = !busy || !sendAttempted || !!sendReview;
     $('jam-send-progress-title').textContent = sendSubmitting ? 'Submitting payment' : sendDraft?.terms.coinjoin ? 'Preparing CoinJoin' : 'Preparing payment';
     $('jam-send-progress-detail').textContent = sendSubmitting ? 'Waiting for your Jam node. Keep this screen open; the payment will not be sent again automatically.' : sendDraft?.terms.coinjoin ? 'Finding participants and checking the exact fees. This can take up to three minutes. Nothing is broadcast until you review and send.' : 'Checking the recipient, coins and fees before review.';
-    $('jam-send-mode').textContent = sendBond ? 'Unlocks '+sendBond.month+'-01 at 00:00 UTC. Back up your Jam wallet first; these coins will be locked. Bond funding is public and earnings are not guaranteed.' : $('jam-send-coinjoin').checked ?
+    $('jam-send-mode').textContent = sendWithdrawal ? 'Withdraws the entire bond, less the mining fee. This bond will no longer support your maker. Your node checks maturity again before sending.' : sendBond ? 'Unlocks '+sendBond.month+'-01 at 00:00 UTC. Back up your Jam wallet first; these coins will be locked. Bond funding is public and earnings are not guaranteed.' : $('jam-send-coinjoin').checked ?
       'Pay with other participants. Review maker and mining fees before sending. If CoinJoin is unavailable, no direct payment is made.' : 'Direct payment. This transaction will not use CoinJoin.';
     sendDialog.querySelectorAll('button,input').forEach(el=>el.disabled=busy);
     $('jam-send-address').readOnly = !!sendBond;
-    $('jam-send-coinjoin').closest('label').hidden = !!sendBond;
+    $('jam-send-coinjoin').closest('label').hidden = !!sendBond || !!sendWithdrawal;
+    $('jam-send-amount').readOnly = !!sendWithdrawal;
     $('jam-send-close').disabled = false;
     $('jam-send-prepare').disabled = busy || sendAttempted;
   }
   $('jam-send-coinjoin').onchange = renderSend;
-  function openSend(bond = null) {
+  function openSend(bond = null, withdrawal = null) {
     if (busy || !authorization) return;
-    const wasBond=!!sendBond; sendBond=bond;
+    const wasBond=!!sendBond, wasWithdrawal=!!sendWithdrawal; sendBond=bond; sendWithdrawal=withdrawal;
+    if(withdrawal) { $('jam-send-address').value=''; $('jam-send-amount').value=String(withdrawal.value_sat); $('jam-send-coinjoin').checked=false; }
+    else if(wasWithdrawal) $('jam-send-amount').value='';
     if(bond) { $('jam-send-address').value=bond.address; $('jam-send-coinjoin').checked=false; }
     else if(wasBond) { $('jam-send-address').value=''; }
-    sendTicket++; sendDraft=null; sendReview=null; sendAttempted=false; sendSubmitting=false; sendJar=selected;
+    sendTicket++; sendDraft=null; sendReview=null; sendAttempted=false; sendSubmitting=false; sendJar=withdrawal ? 0 : selected;
     $('jam-send-result').textContent='Check payment activity'; $('jam-send-status').textContent='';
-    $('jam-send-title').textContent=(bond?'Fund from ':'Send from ')+jars.find(jar=>jar.id===sendJar).name;
+    $('jam-send-title').textContent=withdrawal?'Withdraw fidelity bond':(bond?'Fund from ':'Send from ')+jars.find(jar=>jar.id===sendJar).name;
     renderSend(); sendDialog.showModal(); $('jam-send-address').focus();
   };
   $('jam-send').onclick = () => openSend();
@@ -54,21 +57,21 @@
   new MutationObserver(()=>{ if(panel.hidden || !$('jam-dashboard').hidden && !authorization) sendDialog.close(); }).observe(panel,{attributes:true,attributeFilter:['hidden']});
   $('jam-send-prepare').onclick = () => work(async()=>{
     if (sendAttempted || !sendDialog.open) return;
-    const terms=PaperclipJarSend.terms(sendJar,$('jam-send-address').value.trim(),$('jam-send-amount').value,$('jam-send-rate').value,$('jam-send-limit').value,$('jam-send-coinjoin').checked,sendBond?.locktime ?? null);
+    const terms=PaperclipJarSend.terms(sendJar,$('jam-send-address').value.trim(),$('jam-send-amount').value,$('jam-send-rate').value,$('jam-send-limit').value,$('jam-send-coinjoin').checked,sendWithdrawal?.locktime ?? sendBond?.locktime ?? null,sendWithdrawal?.outpoint ?? null);
     const id=Array.from(crypto.getRandomValues(new Uint8Array(32)),v=>v.toString(16).padStart(2,'0')).join('');
     const ticket=sendTicket, wallet=authorization.wallet;
     sendDraft={id,wallet,terms}; sendAttempted=true; renderSend();
     const row=await call('prepare_payment',{payment_id:id,send:terms});
     if(ticket!==sendTicket || !sendDialog.open) return;
     sendReview=PaperclipJarSend.validate(row,id,wallet,terms);
-    $('jam-send-review-title').textContent=terms.bond_locktime == null?'Review jar payment':'Review bond funding';
-    $('jam-send-caption').textContent=terms.bond_locktime == null?'Recipient receives':'Amount to lock';
+    $('jam-send-review-title').textContent=terms.bond_outpoint != null?'Review bond withdrawal':terms.bond_locktime == null?'Review jar payment':'Review bond funding';
+    $('jam-send-caption').textContent=terms.bond_outpoint != null || terms.bond_locktime == null?'Recipient receives':'Amount to lock';
     $('jam-send-hero').textContent=amount(row.quote.amount_sat);
     $('jam-send-costs').replaceChildren();
-    for(const [label,value] of [['Payment type',terms.bond_locktime != null?'Bond funding':terms.coinjoin?'CoinJoin':'Direct · no CoinJoin'],...(terms.bond_locktime != null?[['Bond unlock date',new Date(terms.bond_locktime*1000).toISOString().slice(0,16).replace('T',' ')+' UTC'],['Lock','Coins cannot be spent before this date; earnings are not guaranteed.']]:[]),['Wallet',wallet],['From',jars.find(jar=>jar.id===sendJar).name],...(terms.coinjoin?[['Maker fees',amount(row.quote.maker_fee_sat)],['Your mining fee',amount(row.quote.mining_fee_sat)],['Participants',row.quote.maker_count+' makers'],['Broadcast','Your Jam node · no RBF']]:[['Mining fee',amount(row.quote.fee_sat)]]),['Total debit',amount(row.quote.total_sat)]]) {
+    for(const [label,value] of [['Payment type',terms.bond_outpoint != null?'Bond withdrawal':terms.bond_locktime != null?'Bond funding':terms.coinjoin?'CoinJoin':'Direct · no CoinJoin'],...(terms.bond_locktime != null?[['Bond unlock date',new Date(terms.bond_locktime*1000).toISOString().slice(0,16).replace('T',' ')+' UTC'],[terms.bond_outpoint ? 'Withdrawal' : 'Lock',terms.bond_outpoint ? 'Withdraws the whole bond less fees; it will no longer support your maker.' : 'Coins cannot be spent before this date; earnings are not guaranteed.']]:[]),['Wallet',wallet],['From',jars.find(jar=>jar.id===sendJar).name],...(terms.coinjoin?[['Maker fees',amount(row.quote.maker_fee_sat)],['Your mining fee',amount(row.quote.mining_fee_sat)],['Participants',row.quote.maker_count+' makers'],['Broadcast','Your Jam node · no RBF']]:[['Mining fee',amount(row.quote.fee_sat)]]),['Total debit',amount(row.quote.total_sat)]]) {
       const group=document.createElement('div'), dt=document.createElement('dt'), dd=document.createElement('dd'); dt.textContent=label;dd.textContent=value;group.append(dt,dd);$('jam-send-costs').append(group);
     }
-    $('jam-send-commit').textContent=terms.bond_locktime == null?'Send payment':'Fund bond';
+    $('jam-send-commit').textContent=terms.bond_outpoint != null?'Withdraw bond':terms.bond_locktime == null?'Send payment':'Fund bond';
     $('jam-send-destination').textContent=row.quote.destination;
     sendDialog.querySelector('.jam-tool-body').scrollTop=0;
     $('jam-send-expiry').textContent='Review expires '+new Date(row.expires*1000).toLocaleTimeString()+(terms.coinjoin?'. Discarding may leave coins reserved briefly.':'');
@@ -81,7 +84,7 @@
     sendSubmitting=true; sendReview=null; renderSend();
     const result=await call('commit_payment',{payment_id:id,approval:row.approval,wallet_identity:row.quote.wallet_identity});
     if(ticket!==sendTicket || !sendDialog.open) return;
-    if(result.id!==id || !['submitted','submitting','unknown'].includes(result.state) || !['wallet','jar','purpose','destination','txid','amount_sat','fee_sat','total_sat','coinjoin','maker_fee_sat','mining_fee_sat','network_fee_sat','maker_count','broadcast_policy'].every(key=>result.quote?.[key]===row.quote[key])) throw new Error('Check Jars payment activity before another action.');
+    if(result.id!==id || !['submitted','submitting','unknown'].includes(result.state) || !['wallet','jar','purpose','destination','txid','amount_sat','fee_sat','total_sat','coinjoin','maker_fee_sat','mining_fee_sat','network_fee_sat','maker_count','broadcast_policy','bond_locktime','bond_outpoint'].every(key=>result.quote?.[key]===row.quote[key])) throw new Error('Check Jars payment activity before another action.');
     $('jam-send-result').textContent=result.state==='submitted'?'Submitted · awaiting confirmation':'Status unknown';
   });
   $('jam-send-discard').onclick = () => work(async()=>{
@@ -284,6 +287,7 @@
         ['maker_fee_sat','mining_fee_sat','network_fee_sat'].some(key => !Number.isSafeInteger(q[key]) || q[key] < 0 || q[key] > 2100000000000000) ||
         q.maker_fee_sat + q.mining_fee_sat !== q.fee_sat || q.mining_fee_sat > q.network_fee_sat ||
         !Number.isInteger(q.maker_count) || q.maker_count < 2 || q.maker_count > 20 || q.broadcast_policy !== 'self')) throw new Error('Invalid saved CoinJoin fees.');
+    if (q?.bond_outpoint != null && (q.purpose !== 'withdraw_bond' || q.jar !== 0 || !PaperclipBonds.outpoint(q.bond_outpoint))) throw new Error('Invalid saved bond outpoint.');
     if (q?.bond_locktime != null && (q.purpose === 'send' || !Number.isSafeInteger(q.bond_locktime) || q.bond_locktime < 1577836800 || q.bond_locktime > 4099766400)) throw new Error('Invalid saved bond unlock date.');
     return value;
   }
@@ -520,6 +524,26 @@
     $('jam-payments-load').textContent = 'Refresh saved payments';
   });
   $('jam-refresh').onclick = () => work(refresh);
+  $('jam-bonds-load').onclick = () => work(async () => {
+    $('jam-bonds').replaceChildren();
+    const inventory=PaperclipBonds.validate(await call('bonds'),authorization.wallet);
+    const root=$('jam-bonds');
+    if (!inventory.bonds.length) root.textContent='No bond coins found in this Jam wallet.';
+    for(const coin of inventory.bonds) {
+      const card=document.createElement('article'); card.className='action-card';
+      const heading=document.createElement('h3'); heading.textContent=amount(coin.value_sat);
+      const date=document.createElement('p'); date.textContent='Unlocks '+new Date(coin.locktime*1000).toISOString().slice(0,16).replace('T',' ')+' UTC';
+      const point=document.createElement('p'); point.className='mono'; point.textContent=coin.outpoint;
+      const status=document.createElement('p'); status.textContent=coin.frozen?'Frozen in Jam':!coin.signable?'Signer unavailable':coin.confirmations===0?'Awaiting confirmation':coin.locktime>=inventory.chain_time?'Locked · waiting for chain time':'Ready to withdraw';
+      card.append(heading,date,point,status);
+      if (PaperclipBonds.canWithdraw(coin,inventory.chain_time)) {
+        const button=document.createElement('button'); button.textContent='Review withdrawal';
+        button.onclick=()=>{ if(busy) return; toolsDialog.close(); openSend(null,{...coin}); }; card.append(button);
+      }
+      root.append(card);
+    }
+    const hint=document.createElement('p'); hint.className='hint'; hint.textContent='Stop your maker before withdrawing. Maturity uses your node’s chain time and is checked again before review and broadcast.'; root.append(hint);
+  });
   $('jam-bond-month').oninput = clearBond;
   $('jam-bond-review').onclick = () => work(async () => {
     const month = $('jam-bond-month').value, wallet = authorization?.wallet;
@@ -566,6 +590,6 @@
     generation++; payments = null; renderPayments(); $('jam-payments-panel').open = false; authorization = null; jars = []; session = null; selected = 0;
     $('jam-open').hidden = true; $('jam-open').removeAttribute('href');
     $('jam-password').value = ''; $('jam-passphrase').value = ''; needsRefresh = false; $('jam-wallet').replaceChildren(); $('jam-unlock-fields').hidden = true;
-    clearAddress(); clearBond(); $('jam-bond-month').value = ''; render();
+    clearAddress(); clearBond(); $('jam-bonds').replaceChildren(); $('jam-bond-month').value = ''; render();
   }).observe($('wallet'), {attributes:true, attributeFilter:['hidden']});
 })();

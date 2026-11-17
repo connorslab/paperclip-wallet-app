@@ -5,16 +5,19 @@ public struct JoinBlaketSendDraft: Sendable {
     public let id: String, jar: UInt8, destination: String
     public let coinjoin: Bool
     public let bondLocktime: Int64?
-    public var purpose: String { bondLocktime == nil ? "send" : "fund_bond" }
+    public let bondOutpoint: String?
+    public var purpose: String { bondOutpoint != nil ? "withdraw_bond" : bondLocktime == nil ? "send" : "fund_bond" }
     public let amountSat: UInt64, feeRateMillisatVb: UInt64, maxFeeSat: UInt64
-    public init(jar: UInt8, destination: String, amountSat: UInt64, feeRateMillisatVb: UInt64, maxFeeSat: UInt64, coinjoin: Bool = false, bondLocktime: Int64? = nil,
+    public init(jar: UInt8, destination: String, amountSat: UInt64, feeRateMillisatVb: UInt64, maxFeeSat: UInt64, coinjoin: Bool = false, bondLocktime: Int64? = nil, bondOutpoint: String? = nil,
                 id: String = (UUID().uuidString + UUID().uuidString).replacingOccurrences(of: "-", with: "").lowercased()) throws {
-        self.bondLocktime = bondLocktime; self.coinjoin = coinjoin; self.id = id; self.jar = jar; self.destination = destination
+        self.bondOutpoint = bondOutpoint; self.bondLocktime = bondLocktime; self.coinjoin = coinjoin; self.id = id; self.jar = jar; self.destination = destination
         self.amountSat = amountSat; self.feeRateMillisatVb = feeRateMillisatVb; self.maxFeeSat = maxFeeSat
         try validate()
     }
     func validate() throws {
-        if let stamp = bondLocktime {
+        if let point = bondOutpoint {
+            guard JoinBlaketBondCoin.validOutpoint(point), jar == 0, !coinjoin, maxFeeSat < amountSat, let stamp = bondLocktime, (1_577_836_800...4_099_766_400).contains(stamp) else { throw JoinBlaketError.invalidResponse }
+        } else if let stamp = bondLocktime {
             guard !coinjoin, stamp > Int64(Date().timeIntervalSince1970), stamp <= 4_099_766_400 else { throw JoinBlaketError.invalidResponse }
         }
         guard JoinBlaketPayment.validID(id), jar < 5, (14...90).contains(destination.utf8.count),
@@ -26,31 +29,35 @@ public struct JoinBlaketSendDraft: Sendable {
     func body() throws -> Data {
         try validate()
         var fields: [String: Any] = ["id": id, "purpose": purpose, "jar": jar,
-            "destination": destination, "amount_sat": amountSat, "send_max": false,
+            "destination": destination, "amount_sat": bondOutpoint == nil ? amountSat : 0, "send_max": bondOutpoint != nil,
             "fee_rate_millisat_vb": feeRateMillisatVb, "max_fee_sat": maxFeeSat,
-            "max_total_sat": amountSat + maxFeeSat, "rbf": !coinjoin, "coinjoin": coinjoin]
+            "max_total_sat": bondOutpoint == nil ? amountSat + maxFeeSat : amountSat, "rbf": !coinjoin, "coinjoin": coinjoin]
         if let bondLocktime { fields["bond_locktime"] = bondLocktime }
+        if let bondOutpoint { fields["input_utxos"] = [bondOutpoint] }
         return try JSONSerialization.data(withJSONObject: fields)
     }
 }
 
-/// Map only the exact fixed-send contract into the host proxy, never a generic Jam route.
+/// Map only the exact reviewed-send contract into the host proxy, never a generic Jam route.
 func pairedSendFields(_ data: Data, wallet: String) throws -> [String: Any] {
     struct Body: Decodable {
         let id: String, purpose: String, jar: UInt8, destination: String
         let amount_sat: UInt64, fee_rate_millisat_vb: UInt64, max_fee_sat: UInt64, max_total_sat: UInt64
         let send_max: Bool, rbf: Bool, coinjoin: Bool
         let bond_locktime: Int64?
+        let input_utxos: [String]?
     }
     let body = try JSONDecoder().decode(Body.self, from: data)
-    let value = try JoinBlaketSendDraft(jar: body.jar, destination: body.destination, amountSat: body.amount_sat,
-        feeRateMillisatVb: body.fee_rate_millisat_vb, maxFeeSat: body.max_fee_sat, coinjoin: body.coinjoin, bondLocktime: body.bond_locktime, id: body.id)
-    guard body.purpose == value.purpose, !body.send_max, body.rbf != body.coinjoin,
-          body.max_total_sat == value.amountSat + value.maxFeeSat,
-          let fields = try JSONSerialization.jsonObject(with: data) as? [String: Any], fields.count == (body.bond_locktime == nil ? 11 : 12) else { throw JoinBlaketError.invalidResponse }
+    let value = try JoinBlaketSendDraft(jar: body.jar, destination: body.destination, amountSat: body.send_max ? body.max_total_sat : body.amount_sat,
+        feeRateMillisatVb: body.fee_rate_millisat_vb, maxFeeSat: body.max_fee_sat, coinjoin: body.coinjoin, bondLocktime: body.bond_locktime, bondOutpoint: body.input_utxos?.first, id: body.id)
+    guard body.purpose == value.purpose, body.send_max == (value.bondOutpoint != nil),
+          body.input_utxos == value.bondOutpoint.map({ [$0] }), (!body.send_max || body.amount_sat == 0), body.rbf != body.coinjoin,
+          body.max_total_sat == (body.send_max ? value.amountSat : value.amountSat + value.maxFeeSat),
+          let fields = try JSONSerialization.jsonObject(with: data) as? [String: Any], fields.count == (body.send_max ? 13 : body.bond_locktime == nil ? 11 : 12) else { throw JoinBlaketError.invalidResponse }
     var terms: [String: Any] = ["jar": value.jar, "destination": value.destination, "amount_sat": value.amountSat,
                      "fee_rate_millisat_vb": value.feeRateMillisatVb, "max_fee_sat": value.maxFeeSat, "coinjoin": value.coinjoin]
     if let stamp = value.bondLocktime { terms["bond_locktime"] = stamp }
+    if let point = value.bondOutpoint { terms["bond_outpoint"] = point }
     return ["wallet": wallet, "operation": "prepare_payment", "payment_id": value.id, "send": terms]
 }
 
@@ -76,7 +83,7 @@ public struct JoinBlaketSendReview: Sendable {
               ["xbt-mainnet", "xbt-testnet", "xbt-signet", "xbt-regtest"].contains(network),
               identity.hasPrefix(network + ":"), JoinBlaketPayment.validID(String(identity.dropFirst(network.count + 1))),
               let q = payment.quote, q.purpose == draft.purpose, q.bond_locktime == draft.bondLocktime, q.jar == draft.jar,
-              q.destination == draft.destination, (q.coinjoin ?? false) == draft.coinjoin, q.amount_sat == draft.amountSat,
+              q.destination == draft.destination, (q.coinjoin ?? false) == draft.coinjoin, q.bond_outpoint == draft.bondOutpoint, (draft.bondOutpoint == nil ? q.amount_sat == draft.amountSat : q.total_sat == draft.amountSat),
               q.fee_sat <= draft.maxFeeSat else { throw JoinBlaketError.invalidResponse }
     }
 }
@@ -95,10 +102,10 @@ extension JoinBlaketClient {
         guard canDiscardReviews else { throw JoinBlaketError.invalidResponse }
         try draft.validate()
         let identity = try await sendIdentity(authorization)
-        struct Features: Decodable { let version: Int; let reviewed_direct_send: Bool; let coinjoin_payments: Bool?; let bond_funding: Bool? }
+        struct Features: Decodable { let version: Int; let reviewed_direct_send: Bool; let coinjoin_payments: Bool?; let bond_funding: Bool?; let bond_withdrawal: Bool? }
         let features = try JSONDecoder().decode(Features.self, from: await request(["paperclip", "capabilities"], authorization: authorization))
         guard [1, 2].contains(features.version), features.reviewed_direct_send else { throw JoinBlaketError.invalidResponse }
-        guard draft.bondLocktime == nil || features.bond_funding == true else { throw JoinBlaketError.invalidResponse }
+        guard draft.bondLocktime == nil || (draft.bondOutpoint == nil ? features.bond_funding : features.bond_withdrawal) == true else { throw JoinBlaketError.invalidResponse }
         if draft.coinjoin && !(features.version == 2 && features.coinjoin_payments == true) {
             throw JoinBlaketError.coinJoinUnavailable
         }

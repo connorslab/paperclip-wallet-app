@@ -26,20 +26,21 @@ import org.junit.Test
 class JoinBlaketLayoutTest {
 	@Test fun jarSendPreservesCoinJoinChoiceAndRecoversLostCommit() = reviewedPayment(false)
 	@Test fun bondFundingKeepsDateAndRecoversLostCommit() = reviewedPayment(true)
-	private fun reviewedPayment(bond: Boolean) {
+	@Test fun bondWithdrawalReviewsNetValueAndNeverRepeatsLostCommit() = reviewedPayment(false, true)
+	private fun reviewedPayment(bond: Boolean, withdrawal: Boolean = false) {
 		val paths = java.util.Collections.synchronizedList(mutableListOf<String>())
 		var saved = JSONObject()
 		val http = okhttp3.OkHttpClient.Builder().addInterceptor { chain ->
 			val path = chain.request().url.encodedPath; paths.add(path)
 			val result = when {
 				path.endsWith("/identity") -> JSONObject().put("wallet","fixture.jmdat").put("identity","xbt-regtest:"+"c".repeat(64))
-				path.endsWith("/capabilities") -> JSONObject().put("version",2).put("reviewed_direct_send",true).put("coinjoin_payments",true).put("bond_funding",true)
+				path.endsWith("/capabilities") -> JSONObject().put("version",2).put("reviewed_direct_send",true).put("coinjoin_payments",true).put("bond_funding",true).put("bond_withdrawal",true)
 				path.endsWith("/payments") -> {
 					val buffer = okio.Buffer(); chain.request().body!!.writeTo(buffer); val request = JSONObject(buffer.readUtf8())
-					check(request.getString("purpose") == (if(bond) "fund_bond" else "send") && request.getLong("amount_sat") == 20000L && request.getBoolean("coinjoin") == !bond && request.getBoolean("rbf") == bond)
+					check(request.getString("purpose") == (if(withdrawal) "withdraw_bond" else if(bond) "fund_bond" else "send") && request.getLong("amount_sat") == (if(withdrawal) 0L else 20000L) && request.getBoolean("coinjoin") == (!bond && !withdrawal) && request.getBoolean("rbf") == (bond || withdrawal))
 					saved = JSONObject().put("id",request.getString("id")).put("state","prepared").put("expires",java.time.Instant.now().epochSecond+200).put("approval","b".repeat(64))
-						.put("quote",JSONObject().put("wallet","fixture.jmdat").put("wallet_identity","xbt-regtest:"+"c".repeat(64)).put("network","xbt-regtest").put("rbf",bond).put("coinjoin",!bond).put("maker_fee_sat",100).put("mining_fee_sat",100).put("network_fee_sat",100).put("maker_count",2).put("broadcast_policy","self")
-							.put("jar",0).put("purpose",if(bond) "fund_bond" else "send").apply { if(bond) put("bond_locktime",request.getLong("bond_locktime")) }.put("destination",request.getString("destination")).put("txid","d".repeat(64)).put("amount_sat",20000).put("fee_sat",200).put("total_sat",20200))
+						.put("quote",JSONObject().put("wallet","fixture.jmdat").put("wallet_identity","xbt-regtest:"+"c".repeat(64)).put("network","xbt-regtest").put("rbf",bond || withdrawal).put("coinjoin",!bond && !withdrawal).put("maker_fee_sat",100).put("mining_fee_sat",100).put("network_fee_sat",100).put("maker_count",2).put("broadcast_policy","self")
+							.put("jar",0).put("purpose",if(withdrawal) "withdraw_bond" else if(bond) "fund_bond" else "send").apply { if(bond || withdrawal) put("bond_locktime",request.getLong("bond_locktime"));if(withdrawal) put("bond_outpoint","1".repeat(64)+":0") }.put("destination",request.getString("destination")).put("txid","d".repeat(64)).put("amount_sat",if(withdrawal) 19800 else 20000).put("fee_sat",200).put("total_sat",if(withdrawal) 20000 else 20200))
 					saved
 				}
 				path.endsWith("/commit") -> throw java.net.SocketTimeoutException("Synthetic lost commit")
@@ -52,26 +53,26 @@ class JoinBlaketLayoutTest {
 		compose.setContent { MaterialTheme(colorScheme = paperclipColors(true)) {
 			androidx.compose.material3.ModalBottomSheet(onDismissRequest={}, containerColor=MaterialTheme.colorScheme.background,
 				sheetState=androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded=true)) {
-				JarsSendPage(client,JoinBlaketAuthorization("fixture.jmdat","synthetic-token"),0,"Apricot",close={},activity={activity=true},bond=if(bond) Pair("bcrt1qsyntheticrecipient","2099-12") else null)
+				JarsSendPage(client,JoinBlaketAuthorization("fixture.jmdat","synthetic-token"),0,"Apricot",close={},activity={activity=true},bond=if(bond) Pair("bcrt1qsyntheticrecipient","2099-12") else null,withdrawal=if(withdrawal) JoinBlaketBondCoin("1".repeat(64)+":0",20000,1800000000,6,false,true) else null)
 			}
 		} }
-		if(bond) compose.onNodeWithTag("jars-send-coinjoin").assertDoesNotExist() else compose.onNodeWithTag("jars-send-coinjoin").performScrollTo().performClick()
+		if(bond || withdrawal) compose.onNodeWithTag("jars-send-coinjoin").assertDoesNotExist() else compose.onNodeWithTag("jars-send-coinjoin").performScrollTo().performClick()
 		compose.onNodeWithText("Review payment").performScrollTo().assertIsEnabled()
 		assertTrue(paths.isEmpty())
 		if(bond) compose.onNodeWithText("XBT address").assertDoesNotExist() else compose.onNodeWithText("XBT address").performScrollTo().performTextInput("bcrt1qsyntheticrecipient")
-		compose.onNodeWithText("Amount (sats)").performScrollTo().performTextInput("20000")
+		if(withdrawal) compose.onNodeWithText("Amount (sats)").assertDoesNotExist() else compose.onNodeWithText("Amount (sats)").performScrollTo().performTextInput("20000")
 		compose.onNodeWithText("Review payment").performScrollTo().performClick()
-		compose.waitUntil(10000) { compose.onAllNodesWithText(if(bond) "Fund bond" else "Send payment").fetchSemanticsNodes().isNotEmpty() }
-		if(bond) compose.onNodeWithText("2099-12-01 00:00 UTC").assertExists() else { compose.onNodeWithText("Maker fees").assertExists(); compose.onNodeWithText("Your mining fee").assertExists() }
+		compose.waitUntil(10000) { compose.onAllNodes(hasText(if(withdrawal) "Withdraw bond" else if(bond) "Fund bond" else "Send payment") and hasClickAction()).fetchSemanticsNodes().isNotEmpty() }
+		if(withdrawal) compose.onNodeWithText("19,800 sats").assertExists() else if(bond) compose.onNodeWithText("2099-12-01 00:00 UTC").assertExists() else { compose.onNodeWithText("Maker fees").assertExists(); compose.onNodeWithText("Your mining fee").assertExists() }
 		compose.waitUntil(5000) {
 			InstrumentationRegistry.getInstrumentation().uiAutomation.windows.none { it.type == android.view.accessibility.AccessibilityWindowInfo.TYPE_INPUT_METHOD }
 		}
-		capture(if(bond) "android-bond-funding-review" else "android-jar-coinjoin-review")
-		compose.onNodeWithText(if(bond) "Fund bond" else "Send payment").performScrollTo().performClick()
+		capture(if(withdrawal) "android-bond-withdrawal-review" else if(bond) "android-bond-funding-review" else "android-jar-coinjoin-review")
+		compose.onNode(hasText(if(withdrawal) "Withdraw bond" else if(bond) "Fund bond" else "Send payment") and hasClickAction()).performScrollTo().performClick()
 		compose.waitUntil(10000) { compose.onAllNodesWithText("Synthetic lost commit").fetchSemanticsNodes().isNotEmpty() }
 		compose.onNodeWithText("View payment activity").performScrollTo().performClick()
 		assertTrue(activity); assertEquals(1,paths.count { it.endsWith("/commit") })
-		compose.onNodeWithText(if(bond) "Fund bond" else "Send payment").assertDoesNotExist()
+		compose.onNode(hasText(if(withdrawal) "Withdraw bond" else if(bond) "Fund bond" else "Send payment") and hasClickAction()).assertDoesNotExist()
 	}
 	@Test fun pairingReviewShowsScopeAndCancelDoesNotConnect() = checkPairingReview("jars_manage_v1", "Sending, key export and your main wallet are not included.")
 	@Test fun paymentPairingReviewExplainsSpendingAndCancelDoesNotConnect() = checkPairingReview("jars_pay_v1", "Allows managing and sending funds")

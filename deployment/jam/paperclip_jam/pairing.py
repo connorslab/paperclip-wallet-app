@@ -45,7 +45,7 @@ class Delegations:
         prefix = '/api/v1/wallet/' + record['name'] + '/'
         if method == 'GET':
             allowed = bool(re.fullmatch(r'/api/v1/paperclip/market/[0-9]{1,16}', path)) or path == '/api/v1/session' or path in [prefix + suffix for suffix in (
-                'utxos', 'paperclip/identity', 'paperclip/payments', 'maker/stop')]
+                'utxos', 'paperclip/identity', 'paperclip/payments', 'paperclip/bonds', 'maker/stop')]
             if path.startswith(prefix):
                 suffix = path[len(prefix):].split('/')
                 allowed |= len(suffix) == 3 and suffix[:2] == ['address', 'new'] and suffix[2] in ('0', '1', '2', '3', '4')

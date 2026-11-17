@@ -1,0 +1,406 @@
+[
+  {
+    "name": "mature bond",
+    "valid": true,
+    "withdrawable": [
+      true
+    ],
+    "inventory": {
+      "wallet": "fixture.jmdat",
+      "identity": "xbt-regtest:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "chain_time": 1800000001,
+      "bonds": [
+        {
+          "outpoint": "1111111111111111111111111111111111111111111111111111111111111111:0",
+          "value_sat": 20000,
+          "locktime": 1800000000,
+          "confirmations": 6,
+          "frozen": false,
+          "signable": true
+        }
+      ]
+    }
+  },
+  {
+    "name": "unavailable frozenTrue",
+    "valid": true,
+    "withdrawable": [
+      false
+    ],
+    "inventory": {
+      "wallet": "fixture.jmdat",
+      "identity": "xbt-regtest:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "chain_time": 1800000001,
+      "bonds": [
+        {
+          "outpoint": "1111111111111111111111111111111111111111111111111111111111111111:0",
+          "value_sat": 20000,
+          "locktime": 1800000000,
+          "confirmations": 6,
+          "frozen": true,
+          "signable": true
+        }
+      ]
+    }
+  },
+  {
+    "name": "unavailable signableFalse",
+    "valid": true,
+    "withdrawable": [
+      false
+    ],
+    "inventory": {
+      "wallet": "fixture.jmdat",
+      "identity": "xbt-regtest:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "chain_time": 1800000001,
+      "bonds": [
+        {
+          "outpoint": "1111111111111111111111111111111111111111111111111111111111111111:0",
+          "value_sat": 20000,
+          "locktime": 1800000000,
+          "confirmations": 6,
+          "frozen": false,
+          "signable": false
+        }
+      ]
+    }
+  },
+  {
+    "name": "unavailable confirmations0",
+    "valid": true,
+    "withdrawable": [
+      false
+    ],
+    "inventory": {
+      "wallet": "fixture.jmdat",
+      "identity": "xbt-regtest:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "chain_time": 1800000001,
+      "bonds": [
+        {
+          "outpoint": "1111111111111111111111111111111111111111111111111111111111111111:0",
+          "value_sat": 20000,
+          "locktime": 1800000000,
+          "confirmations": 0,
+          "frozen": false,
+          "signable": true
+        }
+      ]
+    }
+  },
+  {
+    "name": "unavailable locktime1800000001",
+    "valid": true,
+    "withdrawable": [
+      false
+    ],
+    "inventory": {
+      "wallet": "fixture.jmdat",
+      "identity": "xbt-regtest:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "chain_time": 1800000001,
+      "bonds": [
+        {
+          "outpoint": "1111111111111111111111111111111111111111111111111111111111111111:0",
+          "value_sat": 20000,
+          "locktime": 1800000001,
+          "confirmations": 6,
+          "frozen": false,
+          "signable": true
+        }
+      ]
+    }
+  },
+  {
+    "name": "unavailable locktime1800000002",
+    "valid": true,
+    "withdrawable": [
+      false
+    ],
+    "inventory": {
+      "wallet": "fixture.jmdat",
+      "identity": "xbt-regtest:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "chain_time": 1800000001,
+      "bonds": [
+        {
+          "outpoint": "1111111111111111111111111111111111111111111111111111111111111111:0",
+          "value_sat": 20000,
+          "locktime": 1800000002,
+          "confirmations": 6,
+          "frozen": false,
+          "signable": true
+        }
+      ]
+    }
+  },
+  {
+    "name": "reject outpoint1111111111111111111111111111111111111111111111111111111111111111:01",
+    "valid": false,
+    "withdrawable": [
+      true
+    ],
+    "inventory": {
+      "wallet": "fixture.jmdat",
+      "identity": "xbt-regtest:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "chain_time": 1800000001,
+      "bonds": [
+        {
+          "outpoint": "1111111111111111111111111111111111111111111111111111111111111111:01",
+          "value_sat": 20000,
+          "locktime": 1800000000,
+          "confirmations": 6,
+          "frozen": false,
+          "signable": true
+        }
+      ]
+    }
+  },
+  {
+    "name": "reject outpoint1111111111111111111111111111111111111111111111111111111111111111:4294967296",
+    "valid": false,
+    "withdrawable": [
+      true
+    ],
+    "inventory": {
+      "wallet": "fixture.jmdat",
+      "identity": "xbt-regtest:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "chain_time": 1800000001,
+      "bonds": [
+        {
+          "outpoint": "1111111111111111111111111111111111111111111111111111111111111111:4294967296",
+          "value_sat": 20000,
+          "locktime": 1800000000,
+          "confirmations": 6,
+          "frozen": false,
+          "signable": true
+        }
+      ]
+    }
+  },
+  {
+    "name": "reject value_sat-1",
+    "valid": false,
+    "withdrawable": [
+      true
+    ],
+    "inventory": {
+      "wallet": "fixture.jmdat",
+      "identity": "xbt-regtest:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "chain_time": 1800000001,
+      "bonds": [
+        {
+          "outpoint": "1111111111111111111111111111111111111111111111111111111111111111:0",
+          "value_sat": -1,
+          "locktime": 1800000000,
+          "confirmations": 6,
+          "frozen": false,
+          "signable": true
+        }
+      ]
+    }
+  },
+  {
+    "name": "reject value_sat20000",
+    "valid": false,
+    "withdrawable": [
+      true
+    ],
+    "inventory": {
+      "wallet": "fixture.jmdat",
+      "identity": "xbt-regtest:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "chain_time": 1800000001,
+      "bonds": [
+        {
+          "outpoint": "1111111111111111111111111111111111111111111111111111111111111111:0",
+          "value_sat": "20000",
+          "locktime": 1800000000,
+          "confirmations": 6,
+          "frozen": false,
+          "signable": true
+        }
+      ]
+    }
+  },
+  {
+    "name": "reject confirmations-1",
+    "valid": false,
+    "withdrawable": [
+      true
+    ],
+    "inventory": {
+      "wallet": "fixture.jmdat",
+      "identity": "xbt-regtest:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "chain_time": 1800000001,
+      "bonds": [
+        {
+          "outpoint": "1111111111111111111111111111111111111111111111111111111111111111:0",
+          "value_sat": 20000,
+          "locktime": 1800000000,
+          "confirmations": -1,
+          "frozen": false,
+          "signable": true
+        }
+      ]
+    }
+  },
+  {
+    "name": "reject frozenfalse",
+    "valid": false,
+    "withdrawable": [
+      true
+    ],
+    "inventory": {
+      "wallet": "fixture.jmdat",
+      "identity": "xbt-regtest:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "chain_time": 1800000001,
+      "bonds": [
+        {
+          "outpoint": "1111111111111111111111111111111111111111111111111111111111111111:0",
+          "value_sat": 20000,
+          "locktime": 1800000000,
+          "confirmations": 6,
+          "frozen": "false",
+          "signable": true
+        }
+      ]
+    }
+  },
+  {
+    "name": "reject locktime0",
+    "valid": false,
+    "withdrawable": [
+      true
+    ],
+    "inventory": {
+      "wallet": "fixture.jmdat",
+      "identity": "xbt-regtest:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "chain_time": 1800000001,
+      "bonds": [
+        {
+          "outpoint": "1111111111111111111111111111111111111111111111111111111111111111:0",
+          "value_sat": 20000,
+          "locktime": 0,
+          "confirmations": 6,
+          "frozen": false,
+          "signable": true
+        }
+      ]
+    }
+  },
+  {
+    "name": "reject wallet",
+    "valid": false,
+    "withdrawable": [
+      true
+    ],
+    "inventory": {
+      "wallet": "other.jmdat",
+      "identity": "xbt-regtest:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "chain_time": 1800000001,
+      "bonds": [
+        {
+          "outpoint": "1111111111111111111111111111111111111111111111111111111111111111:0",
+          "value_sat": 20000,
+          "locktime": 1800000000,
+          "confirmations": 6,
+          "frozen": false,
+          "signable": true
+        }
+      ]
+    }
+  },
+  {
+    "name": "reject identity",
+    "valid": false,
+    "withdrawable": [
+      true
+    ],
+    "inventory": {
+      "wallet": "fixture.jmdat",
+      "identity": "xbt-regtest:bad",
+      "chain_time": 1800000001,
+      "bonds": [
+        {
+          "outpoint": "1111111111111111111111111111111111111111111111111111111111111111:0",
+          "value_sat": 20000,
+          "locktime": 1800000000,
+          "confirmations": 6,
+          "frozen": false,
+          "signable": true
+        }
+      ]
+    }
+  },
+  {
+    "name": "reject chain_time",
+    "valid": false,
+    "withdrawable": [
+      true
+    ],
+    "inventory": {
+      "wallet": "fixture.jmdat",
+      "identity": "xbt-regtest:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "chain_time": true,
+      "bonds": [
+        {
+          "outpoint": "1111111111111111111111111111111111111111111111111111111111111111:0",
+          "value_sat": 20000,
+          "locktime": 1800000000,
+          "confirmations": 6,
+          "frozen": false,
+          "signable": true
+        }
+      ]
+    }
+  },
+  {
+    "name": "reject chain_time",
+    "valid": false,
+    "withdrawable": [
+      true
+    ],
+    "inventory": {
+      "wallet": "fixture.jmdat",
+      "identity": "xbt-regtest:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "chain_time": null,
+      "bonds": [
+        {
+          "outpoint": "1111111111111111111111111111111111111111111111111111111111111111:0",
+          "value_sat": 20000,
+          "locktime": 1800000000,
+          "confirmations": 6,
+          "frozen": false,
+          "signable": true
+        }
+      ]
+    }
+  },
+  {
+    "name": "duplicate input",
+    "valid": false,
+    "withdrawable": [
+      true
+    ],
+    "inventory": {
+      "wallet": "fixture.jmdat",
+      "identity": "xbt-regtest:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "chain_time": 1800000001,
+      "bonds": [
+        {
+          "outpoint": "1111111111111111111111111111111111111111111111111111111111111111:0",
+          "value_sat": 20000,
+          "locktime": 1800000000,
+          "confirmations": 6,
+          "frozen": false,
+          "signable": true
+        },
+        {
+          "outpoint": "1111111111111111111111111111111111111111111111111111111111111111:0",
+          "value_sat": 20000,
+          "locktime": 1800000000,
+          "confirmations": 6,
+          "frozen": false,
+          "signable": true
+        }
+      ]
+    }
+  }
+]

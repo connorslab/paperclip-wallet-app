@@ -7,7 +7,7 @@ from jmcore.settings import get_settings
 from jmcore.timenumber import timestamp_to_timenumber
 from jmwallet.history import append_history_entry, create_send_history_entry, update_send_awaiting_broadcast, update_taker_awaiting_transaction_broadcast
 from jmwallet.wallet.bond_registry import load_registry
-from jmwallet.wallet.spend import prepare_direct_send, resolve_input_utxos
+from jmwallet.wallet.spend import prepare_direct_send, resolve_input_utxos, _is_signable_fidelity_bond
 from jmwalletd._backend import get_backend
 from jmwalletd.deps import require_wallet_session
 
@@ -45,6 +45,27 @@ class JamAdapter:
         self.authorize()
         return self.backend
 
+    async def bonds(self):
+        backend = await self.connect()
+        await self.wallet.sync_with_registered_bonds()
+        self.authorize()
+        cutoff = await backend.get_median_time_past()
+        self.authorize()
+        if type(cutoff) is not int or not 1_577_836_800 <= cutoff <= 4_294_967_295:
+            raise PaymentConflict('Node chain time is unavailable')
+        coins = await self.wallet.get_utxos(0)
+        self.authorize()
+        rows = []
+        for coin in coins:
+            if coin.locktime is None:
+                continue
+            rows.append({'outpoint': f'{coin.txid}:{coin.vout}', 'value_sat': coin.value,
+                'locktime': coin.locktime, 'confirmations': coin.confirmations,
+                'frozen': coin.frozen, 'signable': _is_signable_fidelity_bond(self.wallet, coin)})
+        if len(rows) > 100:
+            raise PaymentConflict('Too many bonds to review at once; use the Jam host')
+        return {'wallet': self.walletname, 'identity': self.identity, 'chain_time': cutoff, 'bonds': rows}
+
     async def prepare(self, request):
         self.idle()
         if request.get('coinjoin'):
@@ -70,7 +91,7 @@ class JamAdapter:
             if not selected or len(selected) != 1 or not request['send_max']:
                 raise PaymentConflict('Choose one matured bond and review its full withdrawal')
             coin = by_outpoint.get(selected[0])
-            if coin is None or coin.locktime is None or coin.locktime != request['bond_locktime']:
+            if coin is None or coin.confirmations <= 0 or coin.locktime is None or coin.locktime != request['bond_locktime']:
                 raise PaymentConflict('Selected bond or unlock date changed')
         elif selected and any(by_outpoint.get(point) is None or by_outpoint[point].locktime is not None for point in selected):
             raise PaymentConflict('Ordinary jar sends cannot include bond coins')
@@ -100,6 +121,10 @@ class JamAdapter:
                         'scriptpubkey': coin.scriptpubkey, 'locktime': coin.locktime} for coin in used]}
         if sum(coin.value for coin in used) != total + prepared.change_amount or get_txid(prepared.tx_hex) != prepared.txid:
             raise PaymentConflict('Prepared payment does not conserve the selected value')
+        if purpose == 'withdraw_bond':
+            if len(used) != 1 or prepared.change_amount != 0 or total != request['max_total_sat'] or f'{used[0].txid}:{used[0].vout}' != selected[0]:
+                raise PaymentConflict('Bond withdrawal changed the selected input or value')
+            quote['bond_outpoint'] = selected[0]
         # Persist address use without inventing a failed/successful payment.
         self.wallet.metadata_store.mark_addresses_used(
             [address for address in (prepared.destination, prepared.change_address) if address],
@@ -126,6 +151,8 @@ class JamAdapter:
             coin = current.get(item['outpoint'])
             if coin is None or coin.value != item['amount_sat'] or coin.scriptpubkey != item['scriptpubkey'] or coin.locktime != item['locktime']:
                 raise PaymentConflict('Selected coins changed; create a new payment review')
+            if quote['purpose'] == 'withdraw_bond' and coin.confirmations <= 0:
+                raise PaymentConflict('Bond confirmation changed; wait for confirmation before withdrawing')
             chain_coin = await backend.get_utxo(coin.txid, coin.vout)
             self.idle()
             if chain_coin is None or chain_coin.value != coin.value or chain_coin.scriptpubkey != coin.scriptpubkey:

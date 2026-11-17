@@ -172,6 +172,23 @@ final class AdaptiveLayoutTests: XCTestCase {
 		XCTAssertTrue(app.navigationBars[title].waitForExistence(timeout: 5))
 	}
 
+	func testBondWithdrawalKeepsSelectedValueFixedWithoutCoinJoin() {
+		let app = XCUIApplication()
+		app.launchArguments = ["-build61-preview", "-joinblaket-preview", "-jam-bond-withdraw-preview", "-appearance", "dark"]
+		app.launch()
+		XCTAssertTrue(app.navigationBars["Jars"].waitForExistence(timeout: 15))
+		openJarsTool(app, "bond", "Fidelity bond")
+		let withdraw = app.buttons["Review withdrawal"]
+		XCTAssertTrue(withdraw.waitForExistence(timeout: 5)); withdraw.tap()
+		XCTAssertTrue(app.buttons["Review payment"].waitForExistence(timeout: 5))
+		XCTAssertEqual(app.staticTexts["jars-withdraw-value"].label,"Bond value, 20,000 sats")
+		XCTAssertTrue(app.textFields["XBT address"].exists)
+		XCTAssertFalse(app.textFields["Amount (sats)"].exists)
+		XCTAssertFalse(app.switches["jars-send-coinjoin"].exists)
+		XCTAssertFalse(app.buttons["Review payment"].isEnabled)
+		capture(app, "Bond withdrawal fixed input")
+		app.buttons["Close"].tap()
+	}
 	func testBondFundingKeepsRegisteredAddressAndDateFixed() {
 		let app = XCUIApplication()
 		app.launchArguments = ["-build61-preview", "-joinblaket-preview", "-jam-bond-funding-preview", "-appearance", "dark"]

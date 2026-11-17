@@ -48,12 +48,15 @@ internal class JoinBlaketPairing private constructor(val endpoint: String, val w
 			canSend && path == prefix + "paperclip/identity" && body == null -> fields.put("operation","identity")
 			canSend && path == prefix + "paperclip/payments" && body != null -> {
 				val lock = if (body.isNull("bond_locktime")) null else body.get("bond_locktime").also { require(it is Long || it is Int) }.let { (it as Number).toLong() }
-				require(body.length() == (if (lock == null) 11 else 12) && body.get("purpose") == (if (lock == null) "send" else "fund_bond") && body.get("send_max") == false && body.get("coinjoin") is Boolean && body.get("rbf") == !body.getBoolean("coinjoin"))
-				val draft = JoinBlaketSendDraft(body.getInt("jar"),body.getString("destination"),body.getLong("amount_sat"),body.getLong("fee_rate_millisat_vb"),body.getLong("max_fee_sat"),body.getString("id"),body.getBoolean("coinjoin"),lock)
-				require(body.getLong("max_total_sat") == draft.amountSat + draft.maxFeeSat)
+				val points = body.optJSONArray("input_utxos")
+				val point = points?.let { require(it.length() == 1); it.getString(0) }
+				require(body.length() == (if(point != null) 13 else if (lock == null) 11 else 12) && body.get("purpose") == (if(point != null) "withdraw_bond" else if (lock == null) "send" else "fund_bond") && body.get("send_max") == (point != null) && (point == null || body.getLong("amount_sat") == 0L) && body.get("coinjoin") is Boolean && body.get("rbf") == !body.getBoolean("coinjoin"))
+				val draft = JoinBlaketSendDraft(body.getInt("jar"),body.getString("destination"),(if(point == null) body.getLong("amount_sat") else body.getLong("max_total_sat")),body.getLong("fee_rate_millisat_vb"),body.getLong("max_fee_sat"),body.getString("id"),body.getBoolean("coinjoin"),lock,point)
+				require(body.getLong("max_total_sat") == (if(point == null) draft.amountSat + draft.maxFeeSat else draft.amountSat))
 				val terms = JSONObject()
 				for (key in listOf("jar","destination","amount_sat","fee_rate_millisat_vb","max_fee_sat","coinjoin")) terms.put(key,body.get(key))
 				lock?.let { terms.put("bond_locktime",it) }
+				point?.let { terms.put("bond_outpoint",it).put("amount_sat",draft.amountSat) }
 				fields.put("operation","prepare_payment").put("payment_id",draft.id).put("send",terms)
 			}
 			canSend && parts.size == 6 && parts.take(4) == listOf("wallet",wallet,"paperclip","payments") && JoinBlaketPayment.validId(parts[4]) -> {
@@ -71,6 +74,7 @@ internal class JoinBlaketPairing private constructor(val endpoint: String, val w
 				fields.put("operation", "market").put("comparison_sat", amount)
 			}
 			path == "session" && body == null -> fields.put("operation", "status")
+			path == prefix + "paperclip/bonds" && body == null -> fields.put("operation","bonds")
 			path == prefix + "utxos" && body == null -> fields.put("operation", "coins")
 			parts.size == 5 && parts.take(4) == listOf("wallet", wallet, "address", "new") && body == null -> {
 				val jar = parts[4].toIntOrNull(); require(jar != null && jar in 0..4)
@@ -146,7 +150,7 @@ internal data class JoinBlaketPayment(val id: String, val state: String, val quo
 	val canDiscard: Boolean get() = state in setOf("preparing", "prepared")
 	data class Quote(val wallet: String, val jar: Int, val purpose: String, val destination: String,
 		val txid: String, val amountSat: Long, val feeSat: Long, val totalSat: Long, val coinjoin: Boolean = false, val makerFeeSat: Long? = null,
-		val miningFeeSat: Long? = null, val networkFeeSat: Long? = null, val makerCount: Int? = null, val broadcastPolicy: String? = null, val bondLocktime: Long? = null) {
+		val miningFeeSat: Long? = null, val networkFeeSat: Long? = null, val makerCount: Int? = null, val broadcastPolicy: String? = null, val bondLocktime: Long? = null, val bondOutpoint: String? = null) {
 		val bondUnlockDescription: String get() = bondLocktime?.let {
 			java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm 'UTC'", java.util.Locale.ROOT)
 				.withZone(java.time.ZoneOffset.UTC).format(Instant.ofEpochSecond(it))
@@ -184,6 +188,8 @@ internal data class JoinBlaketPayment(val id: String, val state: String, val quo
 				destination.matches(Regex("[A-Za-z0-9]{14,90}")) && amount > 0 && amount + fee == total) { "Invalid Jam payment details" }
 			val bondTime = if (q.isNull("bond_locktime")) null else integer("bond_locktime")
 			require(bondTime == null || (purpose != "send" && bondTime in 1_577_836_800L..4_099_766_400L)) { "Invalid saved bond unlock date" }
+			val point = if(q.isNull("bond_outpoint")) null else q.getString("bond_outpoint")
+			require(point == null || (purpose == "withdraw_bond" && jar == 0L && JoinBlaketBondCoin.validOutpoint(point))) { "Invalid bond input" }
 			val mode = if (q.has("coinjoin")) q.get("coinjoin") else false
 			require(mode is Boolean) { "Invalid Jam payment mode" }
 			if (mode) {
@@ -191,7 +197,7 @@ internal data class JoinBlaketPayment(val id: String, val state: String, val quo
 				require(purpose == "send" && maker + mining == fee && mining <= networkFee && count in 2..20 && q.get("broadcast_policy") == "self") { "Invalid CoinJoin fee review" }
 				return JoinBlaketPayment(id,state,Quote(wallet,jar.toInt(),purpose,destination,txid,amount,fee,total,true,maker,mining,networkFee,count.toInt(),"self"))
 			}
-			return JoinBlaketPayment(id, state, Quote(wallet, jar.toInt(), purpose, destination, txid, amount, fee, total, bondLocktime = bondTime))
+			return JoinBlaketPayment(id, state, Quote(wallet, jar.toInt(), purpose, destination, txid, amount, fee, total, bondLocktime = bondTime, bondOutpoint = point))
 		}
 	}
 }

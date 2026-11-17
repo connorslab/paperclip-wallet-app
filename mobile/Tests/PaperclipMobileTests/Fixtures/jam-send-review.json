@@ -838,5 +838,195 @@
         "coinjoin": true
       }
     }
+  },
+  {
+    "name": "reviewed bond withdrawal",
+    "valid": true,
+    "review": {
+      "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "state": "prepared",
+      "expires": 2000000300,
+      "approval": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "quote": {
+        "wallet": "fixture.jmdat",
+        "wallet_identity": "xbt-regtest:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "network": "xbt-regtest",
+        "rbf": true,
+        "jar": 0,
+        "purpose": "withdraw_bond",
+        "destination": "bcrt1qsyntheticrecipient",
+        "txid": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "amount_sat": 19800,
+        "fee_sat": 200,
+        "total_sat": 20000,
+        "bond_locktime": 1800000000,
+        "bond_outpoint": "1111111111111111111111111111111111111111111111111111111111111111:0"
+      }
+    },
+    "bond_locktime": 1800000000,
+    "bond_outpoint": "1111111111111111111111111111111111111111111111111111111111111111:0"
+  },
+  {
+    "name": "withdrawal rejects changed bond_outpoint",
+    "valid": false,
+    "review": {
+      "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "state": "prepared",
+      "expires": 2000000300,
+      "approval": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "quote": {
+        "wallet": "fixture.jmdat",
+        "wallet_identity": "xbt-regtest:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "network": "xbt-regtest",
+        "rbf": true,
+        "jar": 0,
+        "purpose": "withdraw_bond",
+        "destination": "bcrt1qsyntheticrecipient",
+        "txid": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "amount_sat": 19800,
+        "fee_sat": 200,
+        "total_sat": 20000,
+        "bond_locktime": 1800000000,
+        "bond_outpoint": "2222222222222222222222222222222222222222222222222222222222222222:0"
+      }
+    },
+    "bond_locktime": 1800000000,
+    "bond_outpoint": "1111111111111111111111111111111111111111111111111111111111111111:0"
+  },
+  {
+    "name": "withdrawal rejects changed bond_locktime",
+    "valid": false,
+    "review": {
+      "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "state": "prepared",
+      "expires": 2000000300,
+      "approval": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "quote": {
+        "wallet": "fixture.jmdat",
+        "wallet_identity": "xbt-regtest:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "network": "xbt-regtest",
+        "rbf": true,
+        "jar": 0,
+        "purpose": "withdraw_bond",
+        "destination": "bcrt1qsyntheticrecipient",
+        "txid": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "amount_sat": 19800,
+        "fee_sat": 200,
+        "total_sat": 20000,
+        "bond_locktime": 1800000001,
+        "bond_outpoint": "1111111111111111111111111111111111111111111111111111111111111111:0"
+      }
+    },
+    "bond_locktime": 1800000000,
+    "bond_outpoint": "1111111111111111111111111111111111111111111111111111111111111111:0"
+  },
+  {
+    "name": "withdrawal rejects changed total_sat",
+    "valid": false,
+    "review": {
+      "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "state": "prepared",
+      "expires": 2000000300,
+      "approval": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "quote": {
+        "wallet": "fixture.jmdat",
+        "wallet_identity": "xbt-regtest:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "network": "xbt-regtest",
+        "rbf": true,
+        "jar": 0,
+        "purpose": "withdraw_bond",
+        "destination": "bcrt1qsyntheticrecipient",
+        "txid": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "amount_sat": 19800,
+        "fee_sat": 200,
+        "total_sat": 20200,
+        "bond_locktime": 1800000000,
+        "bond_outpoint": "1111111111111111111111111111111111111111111111111111111111111111:0"
+      }
+    },
+    "bond_locktime": 1800000000,
+    "bond_outpoint": "1111111111111111111111111111111111111111111111111111111111111111:0"
+  },
+  {
+    "name": "withdrawal rejects changed purpose",
+    "valid": false,
+    "review": {
+      "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "state": "prepared",
+      "expires": 2000000300,
+      "approval": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "quote": {
+        "wallet": "fixture.jmdat",
+        "wallet_identity": "xbt-regtest:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "network": "xbt-regtest",
+        "rbf": true,
+        "jar": 0,
+        "purpose": "send",
+        "destination": "bcrt1qsyntheticrecipient",
+        "txid": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "amount_sat": 19800,
+        "fee_sat": 200,
+        "total_sat": 20000,
+        "bond_locktime": 1800000000,
+        "bond_outpoint": "1111111111111111111111111111111111111111111111111111111111111111:0"
+      }
+    },
+    "bond_locktime": 1800000000,
+    "bond_outpoint": "1111111111111111111111111111111111111111111111111111111111111111:0"
+  },
+  {
+    "name": "withdrawal rejects changed jar",
+    "valid": false,
+    "review": {
+      "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "state": "prepared",
+      "expires": 2000000300,
+      "approval": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "quote": {
+        "wallet": "fixture.jmdat",
+        "wallet_identity": "xbt-regtest:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "network": "xbt-regtest",
+        "rbf": true,
+        "jar": 1,
+        "purpose": "withdraw_bond",
+        "destination": "bcrt1qsyntheticrecipient",
+        "txid": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "amount_sat": 19800,
+        "fee_sat": 200,
+        "total_sat": 20000,
+        "bond_locktime": 1800000000,
+        "bond_outpoint": "1111111111111111111111111111111111111111111111111111111111111111:0"
+      }
+    },
+    "bond_locktime": 1800000000,
+    "bond_outpoint": "1111111111111111111111111111111111111111111111111111111111111111:0"
+  },
+  {
+    "name": "withdrawal rejects changed coinjoin",
+    "valid": false,
+    "review": {
+      "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "state": "prepared",
+      "expires": 2000000300,
+      "approval": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "quote": {
+        "wallet": "fixture.jmdat",
+        "wallet_identity": "xbt-regtest:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "network": "xbt-regtest",
+        "rbf": true,
+        "jar": 0,
+        "purpose": "withdraw_bond",
+        "destination": "bcrt1qsyntheticrecipient",
+        "txid": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "amount_sat": 19800,
+        "fee_sat": 200,
+        "total_sat": 20000,
+        "bond_locktime": 1800000000,
+        "bond_outpoint": "1111111111111111111111111111111111111111111111111111111111111111:0",
+        "coinjoin": true
+      }
+    },
+    "bond_locktime": 1800000000,
+    "bond_outpoint": "1111111111111111111111111111111111111111111111111111111111111111:0"
   }
 ]

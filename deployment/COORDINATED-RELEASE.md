@@ -19,12 +19,12 @@ checks from the required implementation and acceptance work.
 
 | Area | Verified in the current test pass | Still required |
 | --- | --- | --- |
-| iOS | 119 shared Swift tests; 17 safe UI cases on both regular-phone and open-Duo simulators | Physical signer, camera, accessibility and interrupted/folded payment acceptance; final signed candidate and upgrade |
-| Android | 96 JVM tests (four live cases excluded); 16 isolated API 35 UI cases; authenticated CLN/LND reads and pin rejection | Final release identity, Play/APK upgrade compatibility, physical/foldable acceptance and current CI completion |
+| iOS | 123 shared Swift tests; 17 safe UI cases on both regular-phone and open-Duo simulators | Physical signer, camera, accessibility and interrupted/folded payment acceptance; final signed candidate and upgrade |
+| Android | 100 JVM tests (four live cases excluded); 16 isolated API 35 UI cases; authenticated CLN/LND reads and pin rejection | Final release identity, Play/APK upgrade compatibility, physical/foldable acceptance and current CI completion |
 | Shared desktop UI | All 17 existing browser-flow suites plus entropy, transport and QR checks; phone, foldable and desktop widths where each suite defines them | Installed-host and native desktop acceptance; complete multiple-hot-wallet and hardware-funded Ark workflows |
 | StartOS/Umbrel | Shared REST checks, authenticated CLN/LND reads; both StartOS candidate architectures built and source/checksums checked | Complete backup/restore, candidate installation, bundled Jam pairing/revocation/Tor and upgrades; matching frozen wrappers |
 | Linux/macOS/Windows | Isolated native Apple Silicon daemon authentication and restart smoke | Native launchers and bundled service lifecycle, supported OS matrix, signed installers, notarization where applicable and clean install/upgrade tests |
-| Jars | Reviewed direct/CoinJoin toggle on every client; pinned signer, API, bond and interrupted-submission checks | Live CoinJoin, direct-send and bond-funding acceptance, bond withdrawal, installed payment-pairing acceptance, live maker and physical QR signer acceptance |
+| Jars | Reviewed direct/CoinJoin toggle and bond funding/withdrawal clients; pinned signer, API, bond and interrupted-submission checks | Live CoinJoin, direct-send and bond-funding/withdrawal acceptance, installed payment-pairing acceptance, live maker and physical QR signer acceptance |
 | Payments and recovery | 291 shared wallet tests, exact-cost/RBF/unknown-outcome checks; unified-signature and Electrum-header checks | Live BOLT12/Ark/Bridge settlement, portable recovery/restore and current-source XBT consensus acceptance |
 
 The saved uncertain Ark attempt remains reserved in the private payment ledger.
@@ -1853,3 +1853,49 @@ seven shared Rust signer checks; and the hardware browser suite at 390/840/1280p
 The browser suite includes 22 source-generated signer/transport vectors and the
 shared malformed-input cases. This pass made no physical-device or live-payment
 claim. `just checks` also passes.
+
+## Reviewed bond withdrawals — 2026-11-16
+
+The client implementation gate is closed for the server-owned Jam wallet. iOS,
+Android and the shared desktop/StartOS/Umbrel UI can read a bounded bond inventory,
+select one eligible bond, enter a destination and review the net recipient amount
+and exact mining fee. The selected outpoint, whole input value and UTC unlock date
+remain bound through pairing, preparation, approval, commit and recovery. A
+withdrawal is a single-input sweep, with no change and no CoinJoin fallback.
+
+Maturity comes from node median-time-past, not the phone or desktop clock. Frozen,
+unconfirmed, immature and unsignable coins remain unavailable. The companion
+rechecks ownership, maturity, confirmation, freeze state and the node's unspent
+output before broadcast. Management-only pairings can inspect bonds but cannot
+prepare or commit payments. A lost submission stays unresolved and is observed
+through payment activity; a second commit cannot broadcast again.
+
+Validation in this pass:
+
+- 123 Swift tests and 100 Android JVM tests passed; four live Android cases were
+  excluded. Eighteen shared inventory cases and forty payment-review cases cover
+  eligibility, malformed data and changed review terms across native clients,
+  Rust and browser validation.
+- Fourteen REST tests passed, including exact withdrawal request mapping and
+  pairing permissions. The pinned Jam suite passed 70 tests with one container-only
+  test skipped. It exercises real CLTV signing against a synthetic chain, the
+  exact maturity boundary, changed value/confirmation/freeze/spent state and a
+  lost delegated submission with one broadcast.
+- The browser payment suite passed direct, CoinJoin, bond funding and withdrawal
+  flows at 390 and 1280 pixels, plus the broader Jars browser regression suite.
+  Native iPhone and Duo active-display entry checks, plus Android funding/withdrawal
+  review checks, cover fixed
+  bond values, no CoinJoin switch and interrupted submission handling where the
+  test supplies a transport. iOS entry previews deliberately cannot send. The Duo capture shows its compact
+  display with the second display black; this run does not establish unfolded
+  or hinge-transition visual acceptance.
+- Native iOS/Android builds, three package-generator checks and `just checks`
+  passed. Initial native UI assertions were corrected to select the merged iOS
+  accessibility value and the Android button rather than its matching title;
+  the screenshots did not show a payment-state or value defect.
+
+This is not live withdrawal acceptance or production readiness. Installed-host
+pairing, a live matured-bond withdrawal and confirmation/recovery acceptance remain
+open. No production wallet was changed and no test payment was made. Krux and
+SeedSigner remain separate signing wallets: this flow neither imports their keys
+nor claims support for their unresolved CLTV withdrawal review/signing gates.

@@ -149,6 +149,10 @@ def install(app, state):
     async def pairing_session(request: Request, walletname: str, body: PairingPermission):
         return delegations.issue(adapter(request, walletname), body.scope)
 
+    @router.get('/wallet/{walletname}/paperclip/bonds')
+    async def bonds(request: Request, walletname: str):
+        return await bounded(adapter(request, walletname).bonds())
+
     @router.get('/wallet/{walletname}/paperclip/payments')
     async def history(request: Request, walletname: str):
         current = adapter(request, walletname)

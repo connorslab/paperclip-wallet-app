@@ -92,7 +92,7 @@ fn credential(headers: &HeaderMap) -> anyhow::Result<String> {
 fn authorize(records: &[Record], id: &str, upstream: &str, now: i64, input: &Request) -> anyhow::Result<Record> {
 	let record = records.iter().find(|r| r.id == id && r.expires > now && r.upstream == upstream).context("Pairing expired or revoked; pair this device again")?;
 	ensure!(input.wallet == record.wallet && input.token.is_empty() && input.password.is_empty() && input.bip39_passphrase.is_empty(), "Pairing belongs to a different wallet");
-	ensure!(matches!(input.operation, Operation::Status | Operation::Coins | Operation::Address | Operation::BondAddress |
+	ensure!(matches!(input.operation, Operation::Status | Operation::Coins | Operation::Bonds | Operation::Address | Operation::BondAddress |
 		Operation::StartMaker | Operation::StopMaker | Operation::Payments | Operation::CheckPayment | Operation::Market)
 		|| (record.scope == Scope::Pay && matches!(input.operation, Operation::Identity | Operation::PaymentCapabilities | Operation::PaymentReview | Operation::PreparePayment | Operation::CommitPayment | Operation::CancelPayment)), "This pairing does not permit that operation");
 	Ok(record.clone())

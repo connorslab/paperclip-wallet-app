@@ -95,6 +95,8 @@ internal fun JoinBlaketPage(state: JoinBlaketUiState) {
 	val showMakerGuide = makerPage == "How earning works"
 	var showPayments by remember { mutableStateOf(false) }
 	var showSend by remember { mutableStateOf(false) }
+	var sendWithdrawal by remember { mutableStateOf<JoinBlaketBondCoin?>(null) }
+	var bondInventory by remember(client, authorization) { mutableStateOf<JoinBlaketBondInventory?>(null) }
 	var sendBond by remember { mutableStateOf<Pair<String,String>?>(null) }
 	var bondMonth by state.bondMonth
 	var bondAddress by state.bondAddress
@@ -248,8 +250,8 @@ internal fun JoinBlaketPage(state: JoinBlaketUiState) {
 			Box(Modifier.fillMaxHeight(0.94f)) { JoinBlaketRecoveryPage(checkNotNull(client), checkNotNull(authorization)) { showPayments = false } }
 		}
 		if (showSend) ModalBottomSheet(onDismissRequest = { showSend = false }, containerColor = MaterialTheme.colorScheme.background, tonalElevation = 0.dp, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
-			JarsSendPage(checkNotNull(client), checkNotNull(authorization), selected, jars.first { it.getInt("id") == selected }.getString("name"),
-				close = { showSend = false }, activity = { showSend = false; showPayments = true }, bond = sendBond)
+			JarsSendPage(checkNotNull(client), checkNotNull(authorization), if(sendWithdrawal != null) 0 else selected, jars.first { it.getInt("id") == if(sendWithdrawal != null) 0 else selected }.getString("name"),
+				close = { showSend = false }, activity = { showSend = false; showPayments = true }, bond = sendBond, withdrawal = sendWithdrawal)
 		}
 		WalletColumns(primary = {
 		jars.firstOrNull { it.getInt("id") == selected }?.let { jar ->
@@ -260,7 +262,7 @@ internal fun JoinBlaketPage(state: JoinBlaketUiState) {
 						val amount = jar.getLong(field)
 						if (amount > 0 || field == "confirmed_sat") Row(Modifier.fillMaxWidth()) { Text(label, Modifier.weight(1f)); Text(unit.display(amount)) }
 					}
-					WalletPrimaryButton(enabled = !busy && (!paired || client?.canDiscardReviews == true), modifier = Modifier.fillMaxWidth(), onClick = { sendBond = null; showSend = true }) { Text("Send from ${jar.getString("name")}") }
+					WalletPrimaryButton(enabled = !busy && (!paired || client?.canDiscardReviews == true), modifier = Modifier.fillMaxWidth(), onClick = { sendWithdrawal = null; sendBond = null; showSend = true }) { Text("Send from ${jar.getString("name")}") }
 					if (paired && client?.canDiscardReviews != true) Text("This pairing manages jars. Sending requires a payment-authorized connection.", style = MaterialTheme.typography.bodySmall)
 					WalletPrimaryButton(enabled = !busy, onClick = { run { address = checkNotNull(client).receiveAddress(selected, checkNotNull(authorization)) } }) { Text("Receive into ${jar.getString("name")}") }
 					address?.let { NodeReceiveCode(it); SelectionContainer { Text(it) } }
@@ -355,6 +357,21 @@ internal fun JoinBlaketPage(state: JoinBlaketUiState) {
 								Text("1. Fund a jar and wait for confirmation. 2. Register a bond address, fund it separately and wait for confirmation. 3. Refresh and review your maker terms.")
 							}
 							if (showBond) {
+                                TextButton(enabled = !busy, onClick = { run { bondInventory = null; bondInventory = checkNotNull(client).bonds(checkNotNull(authorization)) } }) { Text("Check existing bonds") }
+                                bondInventory?.let { inventory ->
+                                    if (inventory.bonds.isEmpty()) Text("No bond coins found in this Jam wallet.")
+                                    inventory.bonds.forEach { coin ->
+                                        Text("${java.text.NumberFormat.getIntegerInstance().format(coin.valueSat)} sats",style=MaterialTheme.typography.titleMedium)
+                                        Text("Unlocks ${coin.unlockDescription}",style=MaterialTheme.typography.bodySmall)
+                                        Text(coin.outpoint,style=MaterialTheme.typography.bodySmall)
+                                        Text(when { coin.frozen -> "Frozen in Jam"; !coin.signable -> "Signer unavailable"; coin.confirmations == 0L -> "Awaiting confirmation"; coin.locktime >= inventory.chainTime -> "Locked · waiting for chain time"; else -> "Ready to withdraw" },style=MaterialTheme.typography.bodySmall)
+                                        if (coin.canWithdraw(inventory.chainTime)) WalletPrimaryButton(enabled = !busy && !running && client?.canDiscardReviews == true, onClick = { sendBond = null; sendWithdrawal = coin; makerPage = null; showSend = true }) { Text("Review withdrawal") }
+                                        HorizontalDivider()
+                                    }
+                                    if (running) Text("Stop your maker before withdrawing a bond.",style=MaterialTheme.typography.bodySmall)
+                                    Text("Maturity uses your node’s chain time. Withdrawals are checked again before review and broadcast.",style=MaterialTheme.typography.bodySmall)
+                                }
+                                Text("Create a new bond",style=MaterialTheme.typography.titleMedium)
 								Text("A bond locks coins until your chosen month. It may help your maker get selected; earnings are not guaranteed.")
 								BondMonthPicker(bondMonth, enabled = !busy) { bondMonth = it; bondAddress = null }
 								Text("Unlocks on the first day at 00:00 UTC. Creating the address sends no funds.", style = MaterialTheme.typography.bodySmall)
@@ -364,7 +381,7 @@ internal fun JoinBlaketPage(state: JoinBlaketUiState) {
 								}) { Text("Review bond address") }
 								bondAddress?.let {
 									Text("Wallet: $wallet · Unlocks $bondMonth-01 at 00:00 UTC.")
-									WalletPrimaryButton(enabled = !busy && client?.canDiscardReviews == true, onClick = { sendBond = Pair(it,bondMonth); makerPage = null; showSend = true }) { Text("Fund from ${jars.first { jar -> jar.getInt("id") == selected }.getString("name")}") }
+									WalletPrimaryButton(enabled = !busy && client?.canDiscardReviews == true, onClick = { sendWithdrawal = null; sendBond = Pair(it,bondMonth); makerPage = null; showSend = true }) { Text("Fund from ${jars.first { jar -> jar.getInt("id") == selected }.getString("name")}") }
 									Text("Uses your selected jar. Choose another jar on the Jars overview.",style=MaterialTheme.typography.bodySmall)
 									Text("Address ready; no funds sent. Back up your Jam wallet, then review the amount and mining fee in the wallet you fund it from.", style = MaterialTheme.typography.bodySmall)
 									NodeReceiveCode(it); SelectionContainer { Text(it) }

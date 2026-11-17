@@ -148,5 +148,26 @@ reviewed payment API. The client binds `fund_bond`, address, UTC locktime, jar,
 fixed amount and fee cap. It negotiates `bond_funding` before preparation and
 never substitutes an ordinary send or CoinJoin. The companion's existing address
 ownership, registry, future-date and one-shot broadcast checks remain authoritative.
-The funding UI does not start the maker or claim confirmation. Withdrawal still
-requires a separate client integration and chain-maturity acceptance.
+The funding UI does not start the maker or claim confirmation.
+
+## Withdrawing a matured bond
+
+In Jars → Fidelity bond, **Check existing bonds** reads the selected Jam wallet's
+bond outpoints, values, unlock dates, confirmation/freeze state, signing support
+and node median-time-past. This read is available to management-only pairings;
+preparing or committing a withdrawal requires payment permission.
+
+Choose **Review withdrawal**, enter an XBT destination and fee limit, then review
+the net recipient amount and exact mining fee. One selected bond is withdrawn in
+full, less that fee. The request binds `withdraw_bond`, jar 0, the exact outpoint,
+input value and unlock date; it cannot substitute another coin or use CoinJoin.
+Stop the maker before sending. Maturity uses chain time, never the device clock.
+The companion rechecks maturity, confirmation, freeze state, ownership and the
+node's unspent output before its one permitted broadcast. Unknown submission
+outcomes must be checked in Jars payment activity, never automatically retried.
+
+The same client contract is implemented in iOS, Android and the shared desktop
+interface used by StartOS/Umbrel and standalone packaging. Automated tests use
+synthetic chain data and the real pinned signer; installed-host/live acceptance
+remains separate. This spends from the server's Jam wallet. It does not enable
+Krux/SeedSigner CLTV signing or import a QR signer's seed into Jam.
