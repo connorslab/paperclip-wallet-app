@@ -48,6 +48,21 @@ jobs:
           python3 deployment/desktop/test_native_daemon.py --binary "$PWD/target/debug/paperclip-walletd"
           python3 deployment/desktop/test_managed_daemon.py --binary "$PWD/target/debug/paperclip-walletd" -v
           python3 deployment/desktop/test_launcher_bridge.py --binary "$PWD/target/debug/paperclip-walletd" -v
+      - name: Install isolated Linux window-test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-tk xvfb xauth imagemagick
+      - name: Test Linux development shell and package
+        run: |
+          python3 deployment/desktop/linux/test_launcher.py --binary "$PWD/target/debug/paperclip-walletd" -v
+          python3 deployment/desktop/linux/build_preview.py --binary "$PWD/target/debug/paperclip-walletd" --python /usr/bin/python3 --output "$RUNNER_TEMP/Paperclip Linux Preview"
+          "$RUNNER_TEMP/Paperclip Linux Preview/bin/paperclip-preview" --help
+          xvfb-run -a python3 deployment/desktop/linux/test_launcher_ui.py --binary "$RUNNER_TEMP/Paperclip Linux Preview/bin/paperclip-walletd" --launcher "$RUNNER_TEMP/Paperclip Linux Preview/lib/launcher.py" --screenshots "$RUNNER_TEMP/linux-preview-screenshots" -v
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: linux-preview-screenshots
+          path: ${{ runner.temp }}/linux-preview-screenshots/*.png
       - name: Generate API documentation
         run: nix develop .#build --command cargo run --locked -p bark-rest --example dump_api_docs > bark-rest/openapi.json
       - uses: actions/upload-artifact@v4

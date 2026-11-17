@@ -2564,3 +2564,31 @@ Linux CI for this change, installed-host acceptance, active-payment shutdown,
 Windows lifecycle/runtime support, bundled desktop Jam/Tor, live settlement,
 physical signers and signed installers remain open. No production service,
 funded device, payment or published candidate changed.
+
+
+## Linux desktop shell implementation: 2026-11-17
+
+Backend and native macOS CI passed at `b5a0a75`. A Linux development shell now uses
+the same managed daemon, private storage, authenticated one-use browser handoff
+and persistent unclean-session notice. Startup, daemon requests, browser opening
+and shutdown run outside the UI thread. Explicit actions open the browser or retry
+a stopped service; neither recovery nor startup automatically opens or repeats a
+request. The browser accepts only the exact local handoff URL format.
+
+The development packager embeds the native daemon and launcher modules, refuses
+existing output directories, preserves paths containing spaces and invokes an
+explicit external Python/Tk interpreter in isolated mode. It is unsigned and does
+not establish standalone runtime delivery or installer acceptance.
+
+Local controller tests passed with the native Apple-built daemon: valid/invalid
+handoff URLs, open/close, crash/restart, preserved authentication and recovery
+warning, and closing before startup without creating storage. Python syntax
+checks passed. Linux graphical acceptance is newly wired into backend CI: build
+the preview, execute its wrapper, exercise its packaged daemon/modules under Xvfb,
+inspect compact-screen bounds and save screenshots. Those Linux results and visual
+inspection are still required before the UI prerequisite can be accepted.
+
+The Linux installed default-browser, Wayland/accessibility and clean-machine
+runtime checks remain open, as do Windows shell/runtime support, bundled desktop
+Jam/Tor, installed StartOS/Umbrel acceptance, live settlements, physical signers and
+signed distribution. No production service or funded device changed.

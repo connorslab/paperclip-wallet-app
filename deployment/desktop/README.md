@@ -102,7 +102,7 @@ packaged interpreter/runtime delivery, full OS ACL acceptance, Windows ownership
 support and installed shell acceptance remain release gates. Do not distribute this module
 as a complete desktop app or point its acceptance tests at funded storage.
 
-Open work includes Linux/Windows visible launchers and installed browser handoff
+Open work includes the Windows visible launcher and installed browser handoff
 acceptance, full private data/ACL checks, bundled Tor/Jam,
 signing/notarization, installer upgrades, wallet migrations and full backup/restore.
 The pinned Jam runtime and companion currently use POSIX `fcntl` locks; Windows
@@ -135,3 +135,38 @@ Again, successful retry and window-close cleanup. No wallet was created. The
 five stdio bridge tests run on the built native daemon in backend CI; the macOS
 workflow compiles AppKit separately. Older macOS versions, Intel execution,
 clean-machine Python/runtime bundling and installed upgrades remain unverified.
+
+
+## Development Linux preview
+
+The Linux shell uses the same daemon ownership, private storage, one-use browser
+handoff and unclean-session advisory as the macOS preview. A worker owns the daemon;
+startup, requests and shutdown do not block the window. Browser opening runs outside
+the UI thread, validates the exact loopback handoff URL and requires an explicit
+action. Crashes expose Try Again; restarting does not replay a browser request.
+The window supports keyboard activation and a compact recovery layout.
+
+Build on Linux with a reviewed native daemon and an explicit Python interpreter
+that includes Tk. Existing output directories are never overwritten:
+
+```
+python3 deployment/desktop/linux/build_preview.py \
+  --binary /absolute/path/to/paperclip-walletd \
+  --python /usr/bin/python3 \
+  --output '/absolute/new/path/Paperclip Linux Preview'
+'/absolute/new/path/Paperclip Linux Preview/bin/paperclip-preview'
+```
+
+The preview embeds the daemon and launcher modules. It uses Python isolated mode
+and an external interpreter/Tk runtime; it is unsigned and is not a standalone
+installer. The default data root follows XDG data locations. `--qa-root` must be
+an explicit absolute isolated directory. Do not use funded storage for acceptance.
+
+Controller tests run with `test_launcher.py --binary /absolute/path/to/paperclip-walletd`.
+Linux CI builds the preview in a path with spaces, checks its executable wrapper,
+and runs `test_launcher_ui.py` under Xvfb against its packaged daemon/modules.
+The GUI test opens only a captured handoff (no real browser), exercises crash/retry,
+checks the compact recovery layout, and closes without creating a wallet.
+Wayland/desktop integration, real default-browser behavior on installed Linux,
+accessibility, runtime bundling, bundled Jam/Tor, signed installers and upgrades
+remain separate acceptance requirements.
