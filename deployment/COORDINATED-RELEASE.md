@@ -229,8 +229,14 @@ Required before release:
   provenance alongside mobile and host-package artifacts. Do not publish until
   these gates and the existing payment/security gates pass.
 
-Signing identities and actual supported OS versions remain to be verified. No
-native desktop candidate has been accepted merely because the shared UI builds.
+Signing identities and actual supported OS versions remain to be verified. A
+read-only local code-signing inventory on November 17 found Apple Distribution
+and Apple Development identities, but no valid Developer ID Application identity.
+The existing App Store identity does not satisfy the macOS direct-distribution
+gate; see [Apple's certificate types](https://developer.apple.com/help/account/certificates/certificates-overview/).
+Identities held elsewhere and installer/notarization credentials remain
+unverified; no certificates were created or revoked. No native desktop candidate
+has been accepted merely because the shared UI builds.
 
 ### Current release blockers and Jars scope: 2026-11-16
 
@@ -2617,6 +2623,7 @@ codes travel only through stdin; failures report a fixed stage without credentia
 The combined check, existing ten browser fixtures, web contracts and repository
 checks pass on the native Apple environment. Linux CI now runs the same combined
 check against the packaged preview daemon and triggers on shared UI changes.
-Linux CI acceptance is still pending. This does not establish installed default-
-browser integration, full backup/restore, active-payment shutdown, bundled native
-Jam/Tor, signed installation or any live settlement gate.
+At `22c00ed`, the Linux combined check passed, as did the separate full browser
+workflow. This does not establish installed default-browser integration, full
+backup/restore, active-payment shutdown, bundled native Jam/Tor, signed
+installation or any live settlement gate.
