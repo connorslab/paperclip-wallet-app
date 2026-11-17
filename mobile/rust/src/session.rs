@@ -126,35 +126,39 @@ mod tests {
 
 	#[test]
 	fn payment_attempt_survives_native_backup_without_restoring_approval() {
-		let base = tempfile::tempdir().unwrap();
-		let original = base.path().join("original");
-		let restored = base.path().join("restored");
-		let seed = [29;64];
-		let binding = payment_attempt::owner(Network::Regtest, &seed);
-		let mut state = None;
-		dispatch(&mut state, json!({"op":"create", "network":"xbt-regtest", "directory":original}), seed).unwrap();
-		assert!(dispatch(&mut state, json!({"op":"outgoing_payment"}), seed).unwrap()["attempt"].is_null());
-		let mut attempt = Attempt::new("ark", "public restore fixture".into(), 1000, 1100);
-		attempt.payment_hash = Some("ab".repeat(32));
-		payment_attempt::begin(&original, &binding, &attempt).unwrap();
-		let archive = dispatch(&mut state, json!({"op":"backup"}), seed).unwrap();
-		dispatch(&mut state, json!({"op":"close"}), seed).unwrap();
-		dispatch(&mut state, json!({"op":"restore", "network":"xbt-regtest", "directory":restored, "database":archive["database"]}), seed).unwrap();
-		dispatch(&mut state, json!({"op":"open", "network":"xbt-regtest", "directory":restored}), seed).unwrap();
-		let saved = dispatch(&mut state, json!({"op":"outgoing_payment"}), seed).unwrap();
-		assert_eq!(saved["attempt"]["attempt_id"], attempt.attempt_id);
-		assert_eq!(saved["attempt"]["payment_hash"], attempt.payment_hash.unwrap());
-		assert_eq!(saved["attempt"]["state"], "unknown");
-		assert!(state.as_ref().unwrap().quote.is_none());
-		for op in ["send", "send_onchain", "quote", "quote_onchain"] {
-			let error = dispatch(&mut state, json!({"op":op}), seed).unwrap_err();
-			assert!(error.to_string().contains("previous payment"));
+		for direct_ark in [false, true] {
+			let base = tempfile::tempdir().unwrap();
+			let original = base.path().join("original");
+			let restored = base.path().join("restored");
+			let seed = [29;64];
+			let binding = payment_attempt::owner(Network::Regtest, &seed);
+			let mut state = None;
+			dispatch(&mut state, json!({"op":"create", "network":"xbt-regtest", "directory":original}), seed).unwrap();
+			assert!(dispatch(&mut state, json!({"op":"outgoing_payment"}), seed).unwrap()["attempt"].is_null());
+			let mut attempt = Attempt::new("ark", "public restore fixture".into(), 1000, 1100);
+			if direct_ark { attempt.ark_action_id = Some("ab".repeat(16)); }
+			else { attempt.payment_hash = Some("ab".repeat(32)); }
+			payment_attempt::begin(&original, &binding, &attempt).unwrap();
+			let archive = dispatch(&mut state, json!({"op":"backup"}), seed).unwrap();
+			dispatch(&mut state, json!({"op":"close"}), seed).unwrap();
+			dispatch(&mut state, json!({"op":"restore", "network":"xbt-regtest", "directory":restored, "database":archive["database"]}), seed).unwrap();
+			dispatch(&mut state, json!({"op":"open", "network":"xbt-regtest", "directory":restored}), seed).unwrap();
+			let saved = dispatch(&mut state, json!({"op":"outgoing_payment"}), seed).unwrap();
+			assert_eq!(saved["attempt"]["attempt_id"], attempt.attempt_id);
+			assert_eq!(saved["attempt"]["payment_hash"].as_str(), attempt.payment_hash.as_deref());
+			assert_eq!(saved["attempt"]["ark_action_id"].as_str(), attempt.ark_action_id.as_deref());
+			assert_eq!(saved["attempt"]["state"], "unknown");
+			assert!(state.as_ref().unwrap().quote.is_none());
+			for op in ["send", "send_onchain", "quote", "quote_onchain"] {
+				let error = dispatch(&mut state, json!({"op":op}), seed).unwrap_err();
+				assert!(error.to_string().contains("previous payment"));
+			}
+			// A mismatched recovery record must fail before installing a restored DB.
+			let conn = rusqlite::Connection::open(restored.join("db.sqlite")).unwrap();
+			conn.execute("UPDATE paperclip_payment_attempt SET owner='another wallet'", []).unwrap();
+			let damaged = dispatch(&mut state, json!({"op":"backup"}), seed).unwrap();
+			assert!(dispatch(&mut state, json!({"op":"verify_backup", "network":"xbt-regtest", "directory":base.path(), "database":damaged["database"]}), seed).is_err());
 		}
-		// A mismatched recovery record must fail before installing a restored DB.
-		let conn = rusqlite::Connection::open(restored.join("db.sqlite")).unwrap();
-		conn.execute("UPDATE paperclip_payment_attempt SET owner='another wallet'", []).unwrap();
-		let damaged = dispatch(&mut state, json!({"op":"backup"}), seed).unwrap();
-		assert!(dispatch(&mut state, json!({"op":"verify_backup", "network":"xbt-regtest", "directory":base.path(), "database":damaged["database"]}), seed).is_err());
 	}
 
 	#[test]
@@ -921,6 +925,9 @@ pub fn dispatch(state: &mut Option<Session>, request: Value, seed: [u8; 64]) -> 
 						LightningSendState::Paid(_) => "paid", LightningSendState::InProgress(_) => "pending",
 						LightningSendState::Unknown => "unknown",
 					}})
+				} else if let Some(action) = &attempt.ark_action_id {
+					// Read the exact persisted action's movement without driving it.
+					payment_attempt::ark_result(&attempt, w.movement_for_action(action).await?.as_ref())?
 				} else if let Some(txid) = &attempt.txid {
 					let mut state = "unknown";
 					let mut confirmed = None;
@@ -1337,6 +1344,9 @@ pub fn dispatch(state: &mut Option<Session>, request: Value, seed: [u8; 64]) -> 
 				let result = if let Some(ids) = offboard_inputs {
 					let bark::movement::PaymentMethod::Bitcoin(address) = method else { bail!("invalid withdrawal quote"); };
 					PaymentInitOutput::Onchain(w.offboard_vtxos(ids, address.assume_checked()).await?.txid)
+				} else if let bark::movement::PaymentMethod::Ark(address) = &method {
+					PaymentInitOutput::Ark(w.send_arkoor_payment_tracked(address, Amount::from_sat(amount), Some(Amount::from_sat(total)),
+						payment_attempt::ark_observer(dir, &payment_owner, &attempt.attempt_id)).await?)
 				} else {
 					let opts = LightningSendOptions::default().max_total(
 						(!method.is_bitcoin()).then(|| Amount::from_sat(total)),
@@ -1344,7 +1354,14 @@ pub fn dispatch(state: &mut Option<Session>, request: Value, seed: [u8; 64]) -> 
 					w.send_payment_with(&method, Some(Amount::from_sat(amount)), None::<&str>, opts).await?
 				};
 				let mut result = match result {
-					PaymentInitOutput::Ark(movement_id) => json!({"state": "completed", "movement_id": movement_id}),
+					PaymentInitOutput::Ark(movement_id) => {
+						let saved = payment_attempt::load(dir, &payment_owner)?.context("Saved payment is missing")?;
+						ensure!(saved.attempt_id == attempt.attempt_id, "Saved payment changed; check the current attempt");
+						let action = saved.ark_action_id.as_deref().context("Saved Ark action is missing")?;
+						let movement = w.movement_for_action(action).await?.context("Ark movement is not available yet")?;
+						ensure!(movement.id == movement_id, "Ark movement changed; check the saved payment");
+						payment_attempt::ark_result(&saved, Some(&movement))?
+					},
 					PaymentInitOutput::Lightning(invoice) => json!({"state": "pending", "invoice": invoice.to_string(), "payment_hash": invoice.payment_hash().to_string()}),
 					PaymentInitOutput::Onchain(txid) => json!({"state": "submitted", "txid": txid.to_string()}),
 				};

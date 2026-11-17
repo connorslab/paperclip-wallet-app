@@ -19,6 +19,9 @@ class WalletSettingsScreensTest {
 	private fun capture(name: String) {
 		compose.waitForIdle()
 		val instrumentation = InstrumentationRegistry.getInstrumentation()
+		compose.waitUntil(10_000) {
+			instrumentation.uiAutomation.rootInActiveWindow?.packageName?.toString() == instrumentation.targetContext.packageName
+		}
 		instrumentation.waitForIdleSync()
 		val image = checkNotNull(instrumentation.uiAutomation.takeScreenshot())
 		File(instrumentation.targetContext.cacheDir, "$name.png").outputStream().use { image.compress(Bitmap.CompressFormat.PNG, 100, it) }
@@ -85,7 +88,8 @@ class WalletSettingsScreensTest {
 					click("Save a backup")
 					compose.onNodeWithText("Prepare encrypted backup").assertIsDisplayed()
 					click("What this backup includes")
-					compose.onNodeWithText("App payment warnings", substring = true).assertExists()
+					compose.onNodeWithText("saved native sends", substring = true).assertExists()
+					compose.onNodeWithText("Older app payment warnings, Bridge history and node connections stay on this device", substring = true).assertExists()
 					capture("compact-backup-save")
 					back("Your recovery plan")
 					click("Check a saved backup")

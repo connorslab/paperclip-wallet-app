@@ -27,6 +27,13 @@ final class PaymentReceiptTests: XCTestCase {
         XCTAssertEqual(sent.transactionID, "test")
         XCTAssertFalse(PaymentReceipt(state: "pending_broadcast").completed)
         XCTAssertTrue(PaymentReceipt(state: "completed").completed)
+        XCTAssertTrue(PaymentReceipt(state: "paid").completed)
+        for state in ["unknown", "failed", "canceled", "future-state"] {
+            let receipt = PaymentReceipt(state: state)
+            XCTAssertFalse(receipt.completed)
+            XCTAssertEqual(receipt.title, "Payment needs checking")
+            XCTAssertTrue(receipt.message.contains("uncertain"))
+        }
     }
     func testBoardingPendingDoesNotClaimRegistration() {
         let receipt = PaymentReceipt(state: "pending", boarding: true)

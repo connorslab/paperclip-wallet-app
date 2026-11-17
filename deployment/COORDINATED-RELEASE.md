@@ -2343,3 +2343,40 @@ Xcode build, iOS bundle verification and just checks passed. Android receipt
 selection was unit-tested and compiled in this pass; its screen was not rerun on
 an emulator. No live invoice, transaction confirmation, funded device operation,
 service restart or publication was performed.
+## Direct-Ark mobile send recovery: 2026-11-17
+
+Ordinary mobile sends to an Ark address now save the exact native action ID before
+the core creates its checkpoint or submits the payment. The shared Rust path
+retains the reviewed maximum debit. iOS and Android can look up that action's
+movement after an interrupted reply or backup restore without finding a payment
+by recipient/amount or submitting another send. This uses the same tracked core
+API already used by desktop submissions.
+
+A returned movement ID alone no longer produces a completed mobile receipt.
+Both the immediate reply and recovery check require the exact action's successful
+direct-Ark send movement, with the expected subsystem, direction and amount.
+Pending remains pending; missing, failed or canceled movements remain unresolved.
+These outcomes do not establish that funds can safely be sent again. Status
+checks read existing evidence and do not drive the action. iOS also distinguishes
+an uncertain receipt from a submitted payment, matching Android's existing policy.
+
+Validation: 42 mobile Rust tests passed, with one existing live test ignored.
+Coverage includes immutable action references, failed storage before submission,
+abrupt process exit, backup/restore without restoring approval, incorrect movement
+types and failed/canceled outcomes. Four Swift receipt tests passed. Native ARM64
+iOS and Android libraries rebuilt; the native Xcode simulator build, two iOS
+recovery UI tests, two Android JNI tests and two Android settings/wallet-switch
+tests passed. iOS bundle verification and repository checks passed. Android UI
+testing used an unfunded API 35 emulator, with foreground-window checks before
+accepting screen captures. No new live payment or physical-device test occurred.
+
+Backend CI at the preceding revision passed. Both API 35 and API 36 Android CI
+jobs at that revision reached a stale backup-screen copy assertion after the
+earlier dependency/emulator failures. The assertion now checks both saved native
+sends and the recovery data still excluded from the backup; the revised test
+passed locally. Fresh CI must pass before this gate is accepted.
+
+This does not close direct-Ark live-delivery acceptance, Ark-to-onchain withdrawal
+action correlation, pre-callback failure recovery, portable remote-node/Bridge
+recovery, or the installed-host, hardware, consensus and signed-distribution
+gates. No release candidate was published or deployed.

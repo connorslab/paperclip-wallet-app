@@ -298,10 +298,11 @@ struct SendView: View {
                     status = "Not sent: \(result["reason"] ?? "Review a new quote.")"
                     return
                 }
-                outcome = result["state"] as? String == "completed" ? "Payment completed" : "Payment submitted"
+                let received = PaymentReceipt(state: result["state"] as? String ?? "unknown", transactionID: result["txid"] as? String)
+                outcome = received.title
                 recovery = result
                 status = ""
-                receipt = PaymentReceipt(state: result["state"] as? String ?? "pending", transactionID: result["txid"] as? String)
+                receipt = received
                 try? await store.refreshActivity()
             } catch {
                 status = "Payment outcome needs checking: \(error.localizedDescription). Check Activity before retrying."

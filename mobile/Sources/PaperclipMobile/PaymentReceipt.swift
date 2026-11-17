@@ -27,7 +27,7 @@ public struct PaymentReceipt: Identifiable, Equatable, Sendable {
     public let completed: Bool
     public init(state: String, transactionID: String? = nil, boarding: Bool = false) {
         self.transactionID = transactionID
-        completed = state == "completed" || state == "confirmed"
+        completed = state == "completed" || state == "confirmed" || state == "paid"
         if boarding {
             title = completed ? "Ark deposit ready" : "Ark deposit started"
             message = completed ? "Your deposit is available in Ark." : "Your deposit is not yet available in Ark. It needs network confirmations and registration with the Ark server. Check Activity for progress and save an updated encrypted backup. Do not make another deposit to retry this one."
@@ -40,9 +40,12 @@ public struct PaymentReceipt: Identifiable, Equatable, Sendable {
         } else if state == "pending_broadcast" {
             title = "Broadcast needs checking"
             message = "The transaction is signed, but broadcast is not confirmed. Check Activity before trying again."
-        } else {
+        } else if state == "pending" {
             title = "Payment pending"
             message = "Your payment request is recorded. Check Activity for its final outcome before making another attempt."
+        } else {
+            title = "Payment needs checking"
+            message = "The outcome is uncertain. Check payment status and Activity before making another attempt."
         }
     }
 }

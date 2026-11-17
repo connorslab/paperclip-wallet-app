@@ -2,6 +2,8 @@ use std::path::Path;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::{ensure, Context};
+use bark::movement::{Movement, MovementStatus};
+use bark::subsystem::Subsystem;
 use bitcoin::{Network, bip32::{Xpriv, Xpub}, hashes::{sha256, Hash}};
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior};
 use serde::{Deserialize, Serialize};
@@ -26,6 +28,9 @@ pub struct Attempt {
 	pub confirmed_txid: Option<String>,
 	#[serde(skip_serializing_if = "Option::is_none")]
 	pub payment_hash: Option<String>,
+	/// Exact direct-Ark action, saved before the core can submit it.
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub ark_action_id: Option<String>,
 	#[serde(default)]
 	pub replacement_txids: Vec<String>,
 }
@@ -35,7 +40,7 @@ impl Attempt {
 		Self { version: 1, attempt_id: sha256::Hash::hash(&bitcoin::secp256k1::rand::random::<[u8;32]>()).to_string(),
 			state: "unknown".into(), source: source.into(), destination, amount_sat, total_sat,
 			created_at: SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs(),
-			txid: None, confirmed_txid: None, payment_hash: None, replacement_txids: Vec::new() }
+			txid: None, confirmed_txid: None, payment_hash: None, ark_action_id: None, replacement_txids: Vec::new() }
 	}
 	pub fn unresolved(&self) -> bool { !matches!(self.state.as_str(), "completed" | "paid" | "not_sent") }
 	fn validate(&self) -> anyhow::Result<()> {
@@ -47,6 +52,9 @@ impl Attempt {
 			&& self.txid.as_deref().is_none_or(hash) && self.payment_hash.as_deref().is_none_or(hash)
 			&& self.replacement_txids.len() <= 16 && self.replacement_txids.iter().all(|v| hash(v)),
 			"Saved payment needs recovery; no new payment was started");
+		ensure!(self.ark_action_id.as_ref().is_none_or(|id| id.len() == 32 && id.bytes().all(|b| b.is_ascii_hexdigit())
+			&& self.source == "ark" && self.txid.is_none() && self.payment_hash.is_none()),
+			"Saved Ark action does not belong to this payment type");
 		ensure!(self.confirmed_txid.as_ref().is_none_or(|confirmed| self.txid.is_some() && self.state == "completed"
 			&& (self.txid.as_ref() == Some(confirmed) || self.replacement_txids.contains(confirmed))),
 			"Confirmed transaction does not belong to the saved payment");
@@ -93,6 +101,34 @@ pub fn lightning_observer(dir: &Path, owner: &str, id: &str)
 		Ok(())
 	}
 }
+
+pub fn ark_observer(dir: &Path, owner: &str, id: &str)
+	-> impl FnOnce(&str) -> anyhow::Result<()> + Send + 'static
+{
+	let dir = dir.to_path_buf(); let owner = owner.to_owned(); let id = id.to_owned();
+	move |action| {
+		update(&dir, &owner, &id, &serde_json::json!({"state":"unknown", "ark_action_id":action}))?;
+		Ok(())
+	}
+}
+
+/// Only classify a movement looked up by the saved action, never by recipient
+/// or amount. A failed movement is not evidence that funds are safe to resend.
+pub fn ark_result(attempt: &Attempt, movement: Option<&Movement>) -> anyhow::Result<Value> {
+	attempt.validate()?;
+	ensure!(attempt.ark_action_id.is_some(), "Saved Ark action is missing");
+	let Some(movement) = movement else { return Ok(serde_json::json!({"state":"unknown"})); };
+	ensure!(movement.subsystem.is_subsystem(Subsystem::ARKOOR) && movement.subsystem.kind == "send"
+		&& movement.intended_balance.to_sat().checked_neg().and_then(|v| u64::try_from(v).ok()) == Some(attempt.amount_sat)
+		&& movement.sent_to.len() == 1 && movement.sent_to[0].destination.is_ark()
+		&& movement.sent_to[0].amount.to_sat() == attempt.amount_sat,
+		"Saved Ark action has an unexpected movement; keep checking the original payment");
+	Ok(serde_json::json!({"state":match movement.status {
+		MovementStatus::Successful => "completed",
+		MovementStatus::Pending => "pending",
+		MovementStatus::Failed | MovementStatus::Canceled => "unknown",
+	}, "movement_id":movement.id}))
+}
 pub fn begin(dir: &Path, owner: &str, attempt: &Attempt) -> anyhow::Result<()> {
 	attempt.validate()?;
 	ensure!(attempt.state == "unknown", "New payment must start unresolved");
@@ -116,7 +152,8 @@ pub fn update(dir: &Path, owner: &str, id: &str, result: &Value) -> anyhow::Resu
 	let state = result["state"].as_str().context("Payment state is missing")?;
 	ensure!(attempt.unresolved() || attempt.state == state,
 		"A verified payment outcome cannot be replaced by a delayed result");
-	for (key, saved) in [("txid", &mut attempt.txid), ("payment_hash", &mut attempt.payment_hash), ("confirmed_txid", &mut attempt.confirmed_txid)] {
+	for (key, saved) in [("txid", &mut attempt.txid), ("payment_hash", &mut attempt.payment_hash),
+		("confirmed_txid", &mut attempt.confirmed_txid), ("ark_action_id", &mut attempt.ark_action_id)] {
 		if let Some(value) = result[key].as_str() {
 			ensure!(saved.as_deref().is_none_or(|old| old == value), "Payment reference changed; keep checking the original attempt");
 			*saved = Some(value.into());
@@ -186,9 +223,72 @@ mod tests {
 		assert!(value.get("txid").is_none());
 		assert!(value.get("confirmed_txid").is_none());
 		assert!(value.get("payment_hash").is_none());
+		assert!(value.get("ark_action_id").is_none());
 		let restored: Attempt = serde_json::from_value(value).unwrap();
 		assert_eq!(restored.attempt_id, attempt.attempt_id);
 		assert!(restored.txid.is_none() && restored.payment_hash.is_none());
+	}
+	#[test]
+	fn ark_action_is_durable_immutable_and_fails_closed_before_submission() {
+		let (dir, owner) = setup();
+		let attempt = Attempt::new("ark", "public Ark fixture".into(), 1000, 1100);
+		begin(dir.path(), &owner, &attempt).unwrap();
+		let action = "ab".repeat(16);
+		let observe = |id: &str, action: &str| ark_observer(dir.path(), &owner, id)(action);
+		assert!(observe(&attempt.attempt_id, "invalid").is_err());
+		observe(&attempt.attempt_id, &action).unwrap();
+		assert_eq!(load(dir.path(), &owner).unwrap().unwrap().ark_action_id.as_deref(), Some(action.as_str()));
+		assert!(observe(&attempt.attempt_id, &"cd".repeat(16)).is_err());
+		assert!(observe(&"00".repeat(32), &action).is_err());
+		assert!(update(dir.path(), &owner, &attempt.attempt_id, &json!({"state":"unknown", "payment_hash":"ab".repeat(32)})).is_err());
+		assert!(update(dir.path(), &owner, &attempt.attempt_id, &json!({"state":"unknown", "txid":"ab".repeat(32)})).is_err());
+		let conn = connection(dir.path()).unwrap();
+		conn.execute_batch("CREATE TRIGGER reject_ark_reference BEFORE UPDATE ON paperclip_payment_attempt BEGIN SELECT RAISE(FAIL, 'fixture failure'); END;").unwrap();
+		assert!(observe(&attempt.attempt_id, &action).is_err());
+		assert!(require_resolved(dir.path(), &owner).is_err());
+		conn.execute_batch("DROP TRIGGER reject_ark_reference;").unwrap();
+		update(dir.path(), &owner, &attempt.attempt_id, &json!({"state":"completed"})).unwrap();
+		assert!(observe(&attempt.attempt_id, &action).is_err());
+		let next = Attempt::new("onchain", "public chain fixture".into(), 1000, 1100);
+		begin(dir.path(), &owner, &next).unwrap();
+		assert!(observe(&next.attempt_id, &action).is_err());
+	}
+	#[test]
+	fn ark_recovery_needs_the_exact_send_outcome_not_just_a_movement_id() {
+		let (dir, owner) = setup();
+		let mut attempt = Attempt::new("ark", "public Ark fixture".into(), 1000, 1100);
+		attempt.ark_action_id = Some("ab".repeat(16));
+		begin(dir.path(), &owner, &attempt).unwrap();
+		let subsystem = bark::movement::MovementSubsystem { name: Subsystem::ARKOOR.as_name().into(), kind: "send".into() };
+		let mut movement = Movement::new(bark::movement::MovementId(1), MovementStatus::Pending, &subsystem,
+			"2026-11-17T00:00:00+00:00".parse().unwrap());
+		movement.intended_balance = bitcoin::SignedAmount::from_sat(-1000);
+		movement.sent_to = vec![bark::movement::MovementDestination::ark(
+			"tark1pwh9vsmezqqpharv69q4z8m6x364d5m5prnmcalcalq9pdmzw0y7mpveck4pcfhezqypczkrrj3lkx5ue4qrf4jc7ztpt9htdttmh2judhqnu7aue8p0y9mq47jn9z".parse().unwrap(),
+			bitcoin::Amount::from_sat(1000))];
+		assert_eq!(ark_result(&attempt, None).unwrap()["state"], "unknown");
+		for (status, expected) in [(MovementStatus::Pending, "pending"), (MovementStatus::Failed, "unknown"), (MovementStatus::Canceled, "unknown")] {
+			movement.status = status;
+			let result = ark_result(&attempt, Some(&movement)).unwrap();
+			assert_eq!(result["state"], expected);
+			assert!(update(dir.path(), &owner, &attempt.attempt_id, &result).unwrap().unresolved());
+			assert!(require_resolved(dir.path(), &owner).is_err());
+		}
+		movement.status = MovementStatus::Successful;
+		movement.subsystem.kind = "receive".into();
+		assert!(ark_result(&attempt, Some(&movement)).is_err());
+		movement.subsystem.kind = "send".into();
+		movement.subsystem.name = "bark.lightning".into();
+		assert!(ark_result(&attempt, Some(&movement)).is_err());
+		movement.subsystem = subsystem;
+		movement.sent_to[0].amount = bitcoin::Amount::from_sat(999);
+		assert!(ark_result(&attempt, Some(&movement)).is_err());
+		movement.sent_to[0].amount = bitcoin::Amount::from_sat(1000);
+		let result = ark_result(&attempt, Some(&movement)).unwrap();
+		assert_eq!(result["state"], "completed");
+		assert_eq!(result["movement_id"], 1);
+		update(dir.path(), &owner, &attempt.attempt_id, &result).unwrap();
+		assert!(!load(dir.path(), &owner).unwrap().unwrap().unresolved());
 	}
 	#[test]
 	fn resolved_invoice_hash_is_durable_before_a_send_can_continue() {
@@ -289,7 +389,9 @@ mod tests {
 		const CHILD: &str = "PAPERCLIP_ATTEMPT_TEST_CHILD";
 		if let Some(path) = std::env::var_os(CHILD) {
 			let binding = owner(Network::Regtest, &[21;64]);
-			begin(Path::new(&path), &binding, &Attempt::new("ark", "public process fixture".into(), 1000, 1100)).unwrap();
+			let attempt = Attempt::new("ark", "public process fixture".into(), 1000, 1100);
+			begin(Path::new(&path), &binding, &attempt).unwrap();
+			ark_observer(Path::new(&path), &binding, &attempt.attempt_id)(&"ab".repeat(16)).unwrap();
 			std::process::exit(0);
 		}
 		let (dir, binding) = setup();
@@ -298,6 +400,7 @@ mod tests {
 			.env(CHILD, dir.path()).status().unwrap();
 		assert!(status.success());
 		assert_eq!(load(dir.path(), &binding).unwrap().unwrap().destination, "public process fixture");
+		assert_eq!(load(dir.path(), &binding).unwrap().unwrap().ark_action_id, Some("ab".repeat(16)));
 		assert!(require_resolved(dir.path(), &binding).is_err());
 	}
 }
