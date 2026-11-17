@@ -123,6 +123,10 @@ getrandom = { version = "0.4.2", features = ["wasm_js"], optional = true }
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
 
+# Windows locks protect a reserved byte so the diagnostic PID stays readable.
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_System_IO"] }
+
 # tokio/fs is not available on wasm32 (no filesystem).
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 tokio = { workspace = true, features = ["fs"] }

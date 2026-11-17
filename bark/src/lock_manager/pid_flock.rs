@@ -5,8 +5,9 @@
 //! Prevents concurrent access by callers within the **current OS
 //! process**. Construction additionally **refuses to start a second
 //! process** holding the same datadir: an exclusive OS-level lock is
-//! acquired on `<datadir>/LOCK` via `std::fs::File::try_lock`
-//! (`flock(2)` on Unix, `LockFileEx` on Windows). The OS releases that
+//! acquired on `<datadir>/LOCK` (`flock(2)` on Unix, `LockFileEx` on
+//! Windows). Windows reserves a byte beyond the PID so other handles can
+//! still read the diagnostic PID. The OS releases that
 //! lock when the process exits, even on SIGKILL or a crash.
 //!
 //! From that point on, all per-key locking is in-memory: by
@@ -29,12 +30,50 @@ use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
 use anyhow::Context;
+#[cfg(windows)]
+use std::os::windows::io::AsRawHandle;
+#[cfg(windows)]
+use windows_sys::Win32::{
+	Foundation::ERROR_LOCK_VIOLATION,
+	Storage::FileSystem::{LockFileEx, LOCKFILE_EXCLUSIVE_LOCK, LOCKFILE_FAIL_IMMEDIATELY},
+	System::IO::{OVERLAPPED, OVERLAPPED_0, OVERLAPPED_0_0},
+};
 
 use super::{LockGuard, LockManager, PidLockError};
 use super::internal_memory::InternalMemoryLockManager;
 
 /// File name used for the datadir-level PID lock.
 pub const LOCK_FILE: &str = "LOCK";
+
+#[cfg(not(windows))]
+fn try_pid_lock(file: &File) -> Result<(), TryLockError> {
+	file.try_lock()
+}
+
+#[cfg(windows)]
+fn try_pid_lock(file: &File) -> Result<(), TryLockError> {
+	// Windows byte-range locks deny reads through *other handles*, including
+	// handles in this process. Locking the PID bytes would break daemon discovery.
+	// This byte remains covered by legacy whole-file locks, preserving exclusion.
+	let mut overlap = OVERLAPPED {
+		Anonymous: OVERLAPPED_0 { Anonymous: OVERLAPPED_0_0 { Offset: u32::MAX, OffsetHigh: 0 } },
+		..Default::default()
+	};
+	// The file is synchronous and FAIL_IMMEDIATELY forbids pending acquisition;
+	// the OVERLAPPED buffer therefore need only live for this call. File drop
+	// releases the lock through CloseHandle, including after process death.
+	let locked = unsafe {
+		LockFileEx(file.as_raw_handle(), LOCKFILE_EXCLUSIVE_LOCK | LOCKFILE_FAIL_IMMEDIATELY,
+			0, 1, 0, &mut overlap)
+	};
+	if locked != 0 { return Ok(()); }
+	let error = std::io::Error::last_os_error();
+	if error.raw_os_error() == Some(ERROR_LOCK_VIOLATION as i32) {
+		Err(TryLockError::WouldBlock)
+	} else {
+		Err(TryLockError::Error(error))
+	}
+}
 
 fn open_lock_file(path: &Path) -> anyhow::Result<File> {
 	File::options()
@@ -82,7 +121,7 @@ impl FlockPidLockManager {
 		let path = datadir.join(lock_file);
 		let mut file = open_lock_file(&path).map_err(setup)?;
 
-		match file.try_lock() {
+		match try_pid_lock(&file) {
 			Ok(()) => {}
 			Err(TryLockError::WouldBlock) => {
 				let mut holder = String::new();
@@ -171,6 +210,32 @@ mod test {
 		);
 		drop(_held);
 		let _ = fs::remove_dir_all(&dir);
+	}
+
+	#[test]
+	fn whole_file_probe_observes_owner_without_blocking_pid_reads() {
+		let dir = tmp_dir();
+		let held = FlockPidLockManager::new(&dir).unwrap();
+		let probe = File::open(dir.join(LOCK_FILE)).unwrap();
+		assert!(matches!(probe.try_lock(), Err(TryLockError::WouldBlock)));
+		assert_eq!(fs::read_to_string(dir.join(LOCK_FILE)).unwrap(), std::process::id().to_string());
+		drop(held);
+		probe.try_lock().unwrap();
+		drop(probe);
+		fs::remove_dir_all(dir).unwrap();
+	}
+
+	#[test]
+	fn legacy_whole_file_owner_prevents_pid_lock_acquisition() {
+		let dir = tmp_dir();
+		fs::create_dir_all(&dir).unwrap();
+		let legacy = open_lock_file(&dir.join(LOCK_FILE)).unwrap();
+		legacy.try_lock().unwrap();
+		assert!(matches!(FlockPidLockManager::new(&dir), Err(PidLockError::AlreadyHeld { .. })));
+		drop(legacy);
+		let owner = FlockPidLockManager::new(&dir).unwrap();
+		drop(owner);
+		fs::remove_dir_all(dir).unwrap();
 	}
 
 	#[tokio::test]

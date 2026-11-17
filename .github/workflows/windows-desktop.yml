@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
   push:
     branches: ['codex/cross-platform-parity']
-    paths: ['.github/workflows/windows-desktop.yml', 'deployment/desktop/windows/**']
+    paths: ['.github/workflows/windows-desktop.yml', 'deployment/desktop/windows/**', 'bark/src/lock_manager/**', 'bark/Cargo.toml', 'Cargo.lock']
 permissions:
   contents: read
 jobs:
@@ -48,8 +48,15 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
           key: windows-native-${{ hashFiles('Cargo.lock') }}-${{ github.sha }}
-          restore-keys: windows-native-${{ hashFiles('Cargo.lock') }}-
+          restore-keys: |
+            windows-native-${{ hashFiles('Cargo.lock') }}-
+            windows-native-
       - name: Build the shared daemon with embedded UI and SQLite
         run: cargo +1.91.0 build --locked -p bark-cli --bin paperclip-walletd --features barkd-web-ui,sqlite-bundled
       - name: Verify the native executable starts without wallet storage
         run: ./target/debug/paperclip-walletd.exe --version
+      - name: Verify Windows PID ownership and readable discovery
+        run: |
+          cargo +1.91.0 test --locked -p bark-wallet --features onchain-bdk,sqlite-bundled --lib lock_manager::pid_flock
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo +1.91.0 test --locked -p bark-cli --features sqlite-bundled --lib connection::test
