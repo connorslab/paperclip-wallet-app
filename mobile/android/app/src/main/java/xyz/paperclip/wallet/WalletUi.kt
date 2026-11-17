@@ -974,9 +974,7 @@ internal fun Send(s: WalletState, model: WalletModel) {
 					Text(status.detail, style = MaterialTheme.typography.titleMedium)
 				}
 				if (result.optLong("amount_sat") > 0) ReviewDetailRow("Amount", sats(result.getLong("amount_sat")))
-				val replacements = result.optJSONArray("replacement_txids")
-				(replacements?.takeIf { it.length() > 0 }?.let { it.optString(it.length() - 1) } ?: result.optString("txid"))
-					.takeIf { it.isNotEmpty() }
+				PendingPaymentRecovery.transactionID(result)
 					?.let {
 						Text("Transaction ID", style = MaterialTheme.typography.labelMedium)
 						SelectionContainer {

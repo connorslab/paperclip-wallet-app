@@ -2,6 +2,18 @@ import XCTest
 
 /// Synthetic fixtures only: no wallet credentials, synchronization or payments.
 final class AdaptiveLayoutTests: XCTestCase {
+	func testRecoveredConfirmationShowsOriginalWhenReplacementLostRace() {
+		continueAfterFailure = false
+		let app = XCUIApplication()
+		app.launchArguments = ["-build61-preview", "-recovered-send-preview", "-confirmed-send-preview", "-appearance", "dark"]
+		app.launch()
+		XCTAssertTrue(app.staticTexts["Payment completed"].waitForExistence(timeout: 15))
+		XCTAssertTrue(app.staticTexts[String(repeating: "ab", count: 32)].exists)
+		XCTAssertFalse(app.staticTexts[String(repeating: "cd", count: 32)].exists)
+		XCTAssertTrue(app.staticTexts["This payment is complete. View Activity for its details."].exists)
+		XCTAssertFalse(app.buttons["Confirm and send"].exists)
+		XCTAssertFalse(app.buttons["Review payment"].exists)
+	}
 	func testSavedSendHasStatusActionAndNoReplayControl() {
 		continueAfterFailure = false
 		let app = XCUIApplication()

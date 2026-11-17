@@ -14,7 +14,7 @@ struct Build61Preview: View {
             if ProcessInfo.processInfo.arguments.contains("-wallet-health-preview") {
                 WalletHealthView()
             } else if ProcessInfo.processInfo.arguments.contains("-recovered-send-preview") {
-                SendView.recoveredPaymentPreview()
+                SendView.recoveredPaymentPreview(confirmed: ProcessInfo.processInfo.arguments.contains("-confirmed-send-preview"))
             } else if ProcessInfo.processInfo.arguments.contains("-backup-center-preview") {
                 BackupView(engine: nil)
             } else if ProcessInfo.processInfo.arguments.contains("-payment-assistance-preview") {

@@ -2,6 +2,23 @@ import XCTest
 @testable import PaperclipMobile
 
 final class PaymentReceiptTests: XCTestCase {
+    func testRecoveredReceiptUsesTheConfirmedCandidateNotTheLatestProposal() {
+        let original = String(repeating: "ab", count: 32), replacement = String(repeating: "cd", count: 32)
+        var result: [String: Any] = ["state":"submitted", "txid":original, "replacement_txids":[replacement]]
+        XCTAssertEqual(PaymentReceipt.recoveredTransactionID(result), replacement)
+        result["state"] = "completed"
+        XCTAssertNil(PaymentReceipt.recoveredTransactionID(result), "An older receipt does not prove which candidate confirmed")
+        for winner in [original, replacement] {
+            result["confirmed_txid"] = winner
+            XCTAssertEqual(PaymentReceipt.recoveredTransactionID(result), winner)
+        }
+        result["confirmed_txid"] = String(repeating: "ef", count: 32)
+        XCTAssertNil(PaymentReceipt.recoveredTransactionID(result))
+        result["confirmed_txid"] = original; result["state"] = "unknown"
+        XCTAssertNil(PaymentReceipt.recoveredTransactionID(result))
+        XCTAssertEqual(PaymentReceipt.recoveredTransactionID(["state":"completed", "txid":original]), original)
+        XCTAssertNil(PaymentReceipt.recoveredTransactionID(["state":"pending", "txid":NSNull()]))
+    }
     func testSubmissionIsNotConfirmation() {
         let sent = PaymentReceipt(state: "submitted", transactionID: "test")
         XCTAssertFalse(sent.completed)

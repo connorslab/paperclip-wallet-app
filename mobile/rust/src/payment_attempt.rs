@@ -21,6 +21,9 @@ pub struct Attempt {
 	pub created_at: u64,
 	#[serde(skip_serializing_if = "Option::is_none")]
 	pub txid: Option<String>,
+	/// The candidate actually observed confirmed, which may precede an RBF attempt.
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub confirmed_txid: Option<String>,
 	#[serde(skip_serializing_if = "Option::is_none")]
 	pub payment_hash: Option<String>,
 	#[serde(default)]
@@ -32,7 +35,7 @@ impl Attempt {
 		Self { version: 1, attempt_id: sha256::Hash::hash(&bitcoin::secp256k1::rand::random::<[u8;32]>()).to_string(),
 			state: "unknown".into(), source: source.into(), destination, amount_sat, total_sat,
 			created_at: SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs(),
-			txid: None, payment_hash: None, replacement_txids: Vec::new() }
+			txid: None, confirmed_txid: None, payment_hash: None, replacement_txids: Vec::new() }
 	}
 	pub fn unresolved(&self) -> bool { !matches!(self.state.as_str(), "completed" | "paid" | "not_sent") }
 	fn validate(&self) -> anyhow::Result<()> {
@@ -44,6 +47,9 @@ impl Attempt {
 			&& self.txid.as_deref().is_none_or(hash) && self.payment_hash.as_deref().is_none_or(hash)
 			&& self.replacement_txids.len() <= 16 && self.replacement_txids.iter().all(|v| hash(v)),
 			"Saved payment needs recovery; no new payment was started");
+		ensure!(self.confirmed_txid.as_ref().is_none_or(|confirmed| self.txid.is_some() && self.state == "completed"
+			&& (self.txid.as_ref() == Some(confirmed) || self.replacement_txids.contains(confirmed))),
+			"Confirmed transaction does not belong to the saved payment");
 		Ok(())
 	}
 }
@@ -76,6 +82,17 @@ pub fn require_resolved(dir: &Path, owner: &str) -> anyhow::Result<()> {
 	ensure!(!load(dir, owner)?.is_some_and(|a| a.unresolved()), "Check the previous payment before starting another send");
 	Ok(())
 }
+/// The core calls this with the resolved invoice hash before checkpoint creation
+/// or a resumed drive. Persist it even if the subsequent send reply is lost.
+pub fn lightning_observer(dir: &Path, owner: &str, id: &str)
+	-> impl Fn(ark::lightning::PaymentHash) -> anyhow::Result<()> + Send + Sync + 'static
+{
+	let dir = dir.to_path_buf(); let owner = owner.to_owned(); let id = id.to_owned();
+	move |hash| {
+		update(&dir, &owner, &id, &serde_json::json!({"state":"unknown", "payment_hash":hash.to_string()}))?;
+		Ok(())
+	}
+}
 pub fn begin(dir: &Path, owner: &str, attempt: &Attempt) -> anyhow::Result<()> {
 	attempt.validate()?;
 	ensure!(attempt.state == "unknown", "New payment must start unresolved");
@@ -96,13 +113,18 @@ pub fn update(dir: &Path, owner: &str, id: &str, result: &Value) -> anyhow::Resu
 	let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
 	let mut attempt = read(&tx, owner)?.context("Saved payment is missing")?;
 	ensure!(attempt.attempt_id == id, "Saved payment changed; check the current attempt");
-	for (key, saved) in [("txid", &mut attempt.txid), ("payment_hash", &mut attempt.payment_hash)] {
+	let state = result["state"].as_str().context("Payment state is missing")?;
+	ensure!(attempt.unresolved() || attempt.state == state,
+		"A verified payment outcome cannot be replaced by a delayed result");
+	for (key, saved) in [("txid", &mut attempt.txid), ("payment_hash", &mut attempt.payment_hash), ("confirmed_txid", &mut attempt.confirmed_txid)] {
 		if let Some(value) = result[key].as_str() {
 			ensure!(saved.as_deref().is_none_or(|old| old == value), "Payment reference changed; keep checking the original attempt");
 			*saved = Some(value.into());
 		}
 	}
-	attempt.state = result["state"].as_str().context("Payment state is missing")?.into();
+	attempt.state = state.into();
+	ensure!(attempt.state != "completed" || attempt.txid.is_none() || attempt.confirmed_txid.is_some(),
+		"A completed on-chain payment must identify its confirmed transaction");
 	attempt.validate()?;
 	let body = serde_json::to_string(&attempt)?;
 	ensure!(body.len() <= 32768, "Payment result is too large to save safely");
@@ -153,7 +175,7 @@ mod tests {
 		assert!(update(dir.path(), &owner, &attempt.attempt_id, &json!({"state":"completed", "txid":"cd".repeat(32)})).is_err());
 		assert!(update(dir.path(), &owner, &"00".repeat(32), &json!({"state":"paid"})).is_err());
 		assert_eq!(load(dir.path(), &owner).unwrap().unwrap().state, "unknown");
-		update(dir.path(), &owner, &attempt.attempt_id, &json!({"state":"completed"})).unwrap();
+		update(dir.path(), &owner, &attempt.attempt_id, &json!({"state":"completed", "confirmed_txid":attempt.txid})).unwrap();
 		assert!(!load(dir.path(), &owner).unwrap().unwrap().unresolved());
 		begin(dir.path(), &owner, &Attempt::new("ark", "next".into(), 2000, 2100)).unwrap();
 	}
@@ -162,10 +184,37 @@ mod tests {
 		let attempt = Attempt::new("ark", "public fixture".into(), 1000, 1100);
 		let value = serde_json::to_value(&attempt).unwrap();
 		assert!(value.get("txid").is_none());
+		assert!(value.get("confirmed_txid").is_none());
 		assert!(value.get("payment_hash").is_none());
 		let restored: Attempt = serde_json::from_value(value).unwrap();
 		assert_eq!(restored.attempt_id, attempt.attempt_id);
 		assert!(restored.txid.is_none() && restored.payment_hash.is_none());
+	}
+	#[test]
+	fn resolved_invoice_hash_is_durable_before_a_send_can_continue() {
+		let (dir, owner) = setup();
+		let attempt = Attempt::new("ark", "public offer fixture".into(), 1000, 1100);
+		begin(dir.path(), &owner, &attempt).unwrap();
+		let hash = "ab".repeat(32);
+		let observer = lightning_observer(dir.path(), &owner, &attempt.attempt_id);
+		observer(hash.parse().unwrap()).unwrap();
+		drop(observer);
+		let reopened = load(dir.path(), &owner).unwrap().unwrap();
+		assert_eq!(reopened.payment_hash.as_deref(), Some(hash.as_str()));
+		assert_eq!(reopened.state, "unknown");
+		assert!(require_resolved(dir.path(), &owner).is_err());
+		let observer = lightning_observer(dir.path(), &owner, &attempt.attempt_id);
+		observer(hash.parse().unwrap()).unwrap(); // Same callback can be observed again.
+		assert!(observer("cd".repeat(32).parse().unwrap()).is_err());
+		assert!(lightning_observer(dir.path(), &owner, &"00".repeat(32))(hash.parse().unwrap()).is_err());
+		let conn = connection(dir.path()).unwrap();
+		conn.execute_batch("CREATE TRIGGER reject_payment_reference BEFORE UPDATE ON paperclip_payment_attempt BEGIN SELECT RAISE(FAIL, 'fixture failure'); END;").unwrap();
+		assert!(observer(hash.parse().unwrap()).is_err(), "Storage failure must reach the core submission guard");
+		assert_eq!(load(dir.path(), &owner).unwrap().unwrap().payment_hash, reopened.payment_hash);
+		conn.execute_batch("DROP TRIGGER reject_payment_reference;").unwrap();
+		update(dir.path(), &owner, &attempt.attempt_id, &json!({"state":"paid"})).unwrap();
+		assert!(observer(hash.parse().unwrap()).is_err(), "A delayed observer cannot regress a verified payment");
+		assert_eq!(load(dir.path(), &owner).unwrap().unwrap().state, "paid");
 	}
 	#[test]
 	fn replacement_keeps_original_and_candidate_references_until_reconciliation() {
@@ -184,6 +233,41 @@ mod tests {
 		assert_eq!(saved.total_sat, 1300);
 		assert!(saved.unresolved());
 		assert!(require_resolved(dir.path(), &owner).is_err());
+	}
+	#[test]
+	fn confirmation_preserves_the_candidate_that_actually_settled() {
+		for confirmed_is_original in [true, false] {
+			let (dir, owner) = setup();
+			let original = "ab".repeat(32); let candidate = "cd".repeat(32);
+			let mut attempt = Attempt::new("onchain", "public RBF fixture".into(), 1000, 1100);
+			attempt.txid = Some(original.clone());
+			begin(dir.path(), &owner, &attempt).unwrap();
+			replacement(dir.path(), &owner, &original, &candidate, 200).unwrap();
+			assert!(update(dir.path(), &owner, &attempt.attempt_id, &json!({"state":"completed"})).is_err());
+			assert!(update(dir.path(), &owner, &attempt.attempt_id,
+				&json!({"state":"completed", "confirmed_txid":"ef".repeat(32)})).is_err());
+			assert!(require_resolved(dir.path(), &owner).is_err());
+			let confirmed = if confirmed_is_original { &original } else { &candidate };
+			update(dir.path(), &owner, &attempt.attempt_id,
+				&json!({"state":"completed", "confirmed_txid":confirmed})).unwrap();
+			let reopened = load(dir.path(), &owner).unwrap().unwrap();
+			assert_eq!(reopened.txid.as_ref(), Some(&original));
+			assert_eq!(reopened.confirmed_txid.as_ref(), Some(confirmed));
+			assert_eq!(reopened.replacement_txids, vec![candidate.clone()]);
+			require_resolved(dir.path(), &owner).unwrap();
+			let other = if confirmed_is_original { &candidate } else { &original };
+			assert!(update(dir.path(), &owner, &attempt.attempt_id,
+				&json!({"state":"completed", "confirmed_txid":other})).is_err());
+			assert!(update(dir.path(), &owner, &attempt.attempt_id, &json!({"state":"pending"})).is_err());
+			// Older snapshots retain completion but lack a selected candidate.
+			// Readers must not invent which replacement confirmed.
+			let mut legacy = serde_json::to_value(&reopened).unwrap();
+			legacy.as_object_mut().unwrap().remove("confirmed_txid");
+			connection(dir.path()).unwrap().execute("UPDATE paperclip_payment_attempt SET body=?1 WHERE id=1", [legacy.to_string()]).unwrap();
+			let restored = load(dir.path(), &owner).unwrap().unwrap();
+			assert!(restored.confirmed_txid.is_none());
+			assert!(!restored.unresolved());
+		}
 	}
 	#[test]
 	fn wrong_owner_corruption_and_failed_storage_never_release_an_attempt() {

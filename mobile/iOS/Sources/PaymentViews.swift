@@ -32,13 +32,18 @@ struct SendView: View {
     @State private var amountIssue: ArkAmountIssue?
     init(onchain: Bool = true) { _onchain = State(initialValue: onchain) }
     #if DEBUG && targetEnvironment(simulator)
-    static func recoveredPaymentPreview() -> SendView {
+    static func recoveredPaymentPreview(confirmed: Bool = false) -> SendView {
         var view = SendView()
         view._submitted = State(initialValue: true)
         view._recoveryLoaded = State(initialValue: true)
-        view._outcome = State(initialValue: "Saved payment needs checking")
-        view._recovery = State(initialValue: ["state":"unknown", "source":"onchain", "amount_sat":12000, "txid":String(repeating:"ab",count:32)])
-        view._status = State(initialValue: "This attempt is saved with your wallet. A missing result does not mean it failed. Do not repeat the payment.")
+        view._outcome = State(initialValue: confirmed ? "Payment completed" : "Saved payment needs checking")
+        var record: [String: Any] = ["state":confirmed ? "completed" : "unknown", "source":"onchain", "amount_sat":12000, "txid":String(repeating:"ab",count:32)]
+        if confirmed {
+            record["confirmed_txid"] = String(repeating:"ab",count:32)
+            record["replacement_txids"] = [String(repeating:"cd",count:32)]
+        }
+        view._recovery = State(initialValue: record)
+        view._status = State(initialValue: confirmed ? "" : "This attempt is saved with your wallet. A missing result does not mean it failed. Do not repeat the payment.")
         return view
     }
     static func arkFeePreview(sendMax: Bool) -> SendView {
@@ -159,8 +164,9 @@ struct SendView: View {
                     }
                     if submitted {
                         WalletSection {
-                            Label(outcome, systemImage: "clock")
-                            Text("Check Activity for the final result before making another attempt.").font(.subheadline)
+                            let complete = ["completed", "paid"].contains(recovery?["state"] as? String ?? "")
+                            Label(outcome, systemImage: complete ? "checkmark.circle" : "clock")
+                            Text(complete ? "This payment is complete. View Activity for its details." : "Check Activity for the final result before making another attempt.").font(.subheadline)
                             if let recovery {
                                 LabeledContent("From") {
                                     Text(recovery["source"] as? String == "ark" ? "Ark" : "On-chain").foregroundStyle(PaperclipTheme.muted)
@@ -168,7 +174,7 @@ struct SendView: View {
                                 if let amount = recovery["amount_sat"] as? NSNumber {
                                     LabeledContent("Amount") { Text(unit.display(amount.uint64Value)).foregroundStyle(PaperclipTheme.muted) }
                                 }
-                                if let txid = (recovery["replacement_txids"] as? [String])?.last ?? (recovery["txid"] as? String) {
+                                if let txid = PaymentReceipt.recoveredTransactionID(recovery) {
                                     Text("Transaction ID").font(.caption).foregroundStyle(PaperclipTheme.muted)
                                     Text(txid).font(.caption.monospaced()).textSelection(.enabled)
                                 }
@@ -221,7 +227,7 @@ struct SendView: View {
     @MainActor private func loadRecovery(check: Bool = false) async {
         #if DEBUG && targetEnvironment(simulator)
         if ProcessInfo.processInfo.arguments.contains("-build61-preview") && ProcessInfo.processInfo.arguments.contains("-recovered-send-preview") {
-            status = "Status unavailable. The saved attempt remains unresolved."
+            status = recovery?["state"] as? String == "completed" ? "This payment is complete. View Activity for its details." : "Status unavailable. The saved attempt remains unresolved."
             return
         }
         #endif

@@ -2,6 +2,24 @@ import Foundation
 
 /// A successful API response can still describe a payment awaiting settlement.
 public struct PaymentReceipt: Identifiable, Equatable, Sendable {
+    /// Native recovery keeps the original and proposed replacements separately.
+    /// A proposal is not proof that this transaction was the one that confirmed.
+    public static func recoveredTransactionID(_ result: [String: Any]) -> String? {
+        func transactionID(_ value: Any?) -> String? {
+            guard let text = value as? String, text.utf8.count == 64,
+                  text.utf8.allSatisfy({ (48...57).contains($0) || (65...70).contains($0) || (97...102).contains($0) }) else { return nil }
+            return text
+        }
+        let original = transactionID(result["txid"])
+        let replacements = (result["replacement_txids"] as? [Any] ?? []).compactMap(transactionID)
+        if let confirmed = transactionID(result["confirmed_txid"]) {
+            guard result["state"] as? String == "completed", confirmed == original || replacements.contains(confirmed) else { return nil }
+            return confirmed
+        }
+        // Older completed receipts did not retain which candidate confirmed.
+        if result["state"] as? String == "completed", !replacements.isEmpty { return nil }
+        return replacements.last ?? original
+    }
     public let id = UUID()
     public let title: String
     public let message: String

@@ -923,12 +923,13 @@ pub fn dispatch(state: &mut Option<Session>, request: Value, seed: [u8; 64]) -> 
 					}})
 				} else if let Some(txid) = &attempt.txid {
 					let mut state = "unknown";
+					let mut confirmed = None;
 					for candidate in std::iter::once(txid).chain(attempt.replacement_txids.iter()) {
 						let status = chain_wallet.chain().tx_status(candidate.parse()?).await?;
-						if status.is_confirmed() { state = "completed"; break; }
+						if status.is_confirmed() { state = "completed"; confirmed = Some(candidate); break; }
 						if status.is_known() { state = "submitted"; }
 					}
-					json!({"state":state})
+					json!({"state":state, "confirmed_txid":confirmed})
 				} else { return Ok(json!({"attempt":attempt})); };
 				Ok(json!({"attempt":payment_attempt::update(dir, &payment_owner, &attempt.attempt_id, &result)?}))
 			},
@@ -1339,7 +1340,7 @@ pub fn dispatch(state: &mut Option<Session>, request: Value, seed: [u8; 64]) -> 
 				} else {
 					let opts = LightningSendOptions::default().max_total(
 						(!method.is_bitcoin()).then(|| Amount::from_sat(total)),
-					);
+					).before_submit(payment_attempt::lightning_observer(dir, &payment_owner, &attempt.attempt_id));
 					w.send_payment_with(&method, Some(Amount::from_sat(amount)), None::<&str>, opts).await?
 				};
 				let mut result = match result {

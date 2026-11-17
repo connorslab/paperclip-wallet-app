@@ -2292,3 +2292,54 @@ accepted. The new visibility check correctly rejected that AVD, including after
 cold boot and a software-rendering/memory change. A fresh phone AVD passed with
 software rendering. This does not resolve the separate failed API 36 CI gate.
 No live payment, physical-device change, deployment or publication occurred.
+
+
+## Exact mobile recovery references: 2026-11-17
+
+Native Ark-funded Lightning sends now use the core's existing pre-submission
+observer. It saves the resolved invoice hash before a new action checkpoint or a
+resumed payment drive. This covers offers, Lightning addresses and LNURL requests
+whose hash is not available when the user first reviews the destination. A lost
+send reply can no longer be the only place that carried this reference after
+submission. The callback is bound to the saved wallet owner and attempt ID. A
+changed hash, failed write or delayed result after a verified outcome is rejected.
+The desktop submission flow already uses this observer; its behavior is unchanged.
+
+On-chain recovery now retains the transaction that actually confirmed separately
+from the original transaction and proposed RBF replacements. The original can win
+that race. Both mobile receipt selectors show the confirmed candidate, rather
+than always showing the newest proposal. Confirmation must name an original or
+recorded replacement; a different transaction cannot resolve the saved attempt.
+Older completed receipts with multiple candidates and no selected confirmation
+omit the transaction ID instead of guessing. They remain readable. This reference
+fix does not compute the final mined fee: total_sat remains the latest reviewed
+debit. iOS completion guidance now also uses a completion icon and message.
+
+The shared desktop replacement UI still distinguishes submitted from confirmed;
+its separate submission records retain the exact replacement ID. The mobile
+receipt-selection bug does not require a change to that path.
+
+Failed Lightning movements are deliberately not used alone to clear a mobile
+attempt. They can also describe HTLCs entering an exit, and an action's payment-
+hash index can outlive an earlier attempt. A timeout, missing checkpoint or old
+failed movement is not proof that the current attempt can be repeated. Direct Ark
+and offboard correlation, failures before the observer, complete portable node/
+Bridge recovery and live settlement acceptance remain open.
+
+At da1dd97, Android CI `44060825841` completed both native ABI jobs, but API35 failed
+before app tests because Gradle could not resolve the pinned Compose plugin 2.2.10.
+API36 and backend CI `44060826258` were still running when this change was checked.
+This is separate from the earlier emulator ANR failure. Dependency pins and test
+visibility guards remain unchanged; a passing current-source CI run is required.
+
+Validation: 40 shared mobile Rust tests passed with one existing ignored case.
+The core observer-failure and changed-invoice/amount tests both passed. Four Swift
+receipt tests and 107 Android JVM tests passed (four live cases excluded). Tests
+cover either RBF candidate confirming, foreign/changed references, reopen/legacy
+records, reference-write failure and delayed callbacks after a paid result. Two
+iOS fixture UI tests passed for unresolved and completed recovery screens, with
+no send/review controls. Native ARM64 builds, the Android debug package, native
+Xcode build, iOS bundle verification and just checks passed. Android receipt
+selection was unit-tested and compiled in this pass; its screen was not rerun on
+an emulator. No live invoice, transaction confirmation, funded device operation,
+service restart or publication was performed.
