@@ -2603,3 +2603,20 @@ The Linux installed default-browser, Wayland/accessibility and clean-machine
 runtime checks remain open, as do Windows shell/runtime support, bundled desktop
 Jam/Tor, installed StartOS/Umbrel acceptance, live settlements, physical signers and
 signed distribution. No production service or funded device changed.
+
+## Combined native browser acceptance: 2026-11-17
+
+The desktop handoff now has a repeatable combined acceptance check using an
+owned native daemon and isolated Chromium profiles. It verifies authenticated
+empty-wallet setup at 390px and 1280px, removal of the handoff fragment, no saved
+tab credential, refresh locking, real-server rejection of a consumed grant, no
+automatic retry and successful use of a fresh grant. The runner also verifies
+preserved authentication, clean shutdown and no wallet creation. Private handoff
+codes travel only through stdin; failures report a fixed stage without credentials.
+
+The combined check, existing ten browser fixtures, web contracts and repository
+checks pass on the native Apple environment. Linux CI now runs the same combined
+check against the packaged preview daemon and triggers on shared UI changes.
+Linux CI acceptance is still pending. This does not establish installed default-
+browser integration, full backup/restore, active-payment shutdown, bundled native
+Jam/Tor, signed installation or any live settlement gate.

@@ -1,5 +1,6 @@
 const {chromium} = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const fs = require('node:fs'), path = require('node:path'), assert = require('node:assert/strict');
+let nativeStage = 'launch';
 (async () => {
   const browser = await chromium.launch({headless:true, ...(process.env.BROWSER_CHANNEL ? {channel:process.env.BROWSER_CHANNEL} : {})});
   try {
@@ -8,17 +9,53 @@ const fs = require('node:fs'), path = require('node:path'), assert = require('no
       const url = fs.readFileSync(0, 'utf8').trim(), parsed = new URL(url);
       assert.equal(parsed.hostname, '127.0.0.1');
       assert.equal(parsed.protocol, 'http:');
-      const page = await browser.newPage(), mutations = [], errors = [];
-      page.on('pageerror', error => errors.push(error.message));
-      page.on('request', request => { if (request.method() !== 'GET') mutations.push(new URL(request.url()).pathname); });
+      const width = Number(process.env.NATIVE_VIEWPORT || 1280);
+      assert([390, 1280].includes(width));
+      const page = await browser.newPage({viewport:{width,height:1000}}), mutations = [], errors = [];
+      let authenticatedWalletRead = false;
+      const track = target => {
+        target.setDefaultTimeout(10000);
+        target.on('pageerror', error => errors.push(error.message));
+        target.on('request', request => {
+          const path = new URL(request.url()).pathname;
+          if (request.method() !== 'GET') mutations.push(path);
+          if (path === '/api/v1/wallet') authenticatedWalletRead ||= /^Bearer [A-Za-z0-9_-]{44}$/.test(request.headers().authorization || '');
+        });
+      };
+      track(page);
+      nativeStage = 'sign-in';
       await page.goto(url);
       await page.locator('#setup').waitFor({state:'visible',timeout:10000});
       assert.equal(await page.evaluate(() => location.hash), '');
       assert.equal(await page.locator('#token').inputValue(), '');
       assert.equal(await page.evaluate(() => sessionStorage.getItem('paperclip.session')), null);
+      assert.equal(authenticatedWalletRead, true);
       assert.deepEqual(mutations, ['/api/desktop/handoff/redeem']);
+
+      // A reload must not recover an owner credential from browser storage.
+      nativeStage = 'refresh';
+      await page.reload();
+      await page.locator('#unlock').waitFor({state:'visible'});
+      assert.equal(await page.locator('#setup').isVisible(), false);
+      assert.equal(await page.locator('#token').inputValue(), '');
+      assert.equal(await page.evaluate(() => sessionStorage.getItem('paperclip.session')), null);
+      assert.deepEqual(mutations, ['/api/desktop/handoff/redeem']);
+
+      // Reuse the consumed grant against the real daemon, not a fixture route.
+      // Use a new tab: adding only a fragment to the current URL does not load
+      // the document again and therefore does not attempt another redemption.
+      nativeStage = 'replay';
+      const replay = await browser.newPage({viewport:{width,height:1000}});
+      track(replay);
+      await replay.goto(url);
+      await replay.waitForFunction(() => document.querySelector('#status').textContent.includes('Desktop sign-in expired or was interrupted'));
+      assert.equal(await replay.evaluate(() => location.hash), '');
+      assert.equal(await replay.locator('#setup').isVisible(), false);
+      assert.equal(await replay.evaluate(() => Array.from(document.querySelector('#unlock').elements).some(control => control.disabled)), false);
+      assert.equal(await replay.evaluate(async () => { try { await PaperclipDesktopHandoff.redeem(); return true; } catch { return false; } }), false);
+      assert.deepEqual(mutations, ['/api/desktop/handoff/redeem', '/api/desktop/handoff/redeem']);
       assert.deepEqual(errors, []);
-      console.log('PASS native browser handoff: real daemon sign-in to empty-wallet setup; no keys created or payment submitted');
+      console.log('PASS native browser handoff: authenticated setup, refresh locks, consumed grant rejected, no automatic retry or wallet mutation');
       return;
     }
     for (const width of [390, 1280]) for (const scenario of ['success', 'expired', 'interrupted', 'malformed', 'nonlocal']) {
@@ -66,4 +103,4 @@ const fs = require('node:fs'), path = require('node:path'), assert = require('no
     }
     console.log('PASS desktop handoff browser: empty-wallet setup, URL removal, no credential persistence, expired/interrupted/malformed/nonlocal rejection, no replay; phone and desktop widths');
   } finally { await browser.close(); }
-})().catch(error => { console.error(process.argv.includes('--native') ? 'Native desktop browser handoff failed; credentials omitted.' : error); process.exit(1); });
+})().catch(error => { console.error(process.argv.includes('--native') ? `Native desktop browser handoff failed at ${nativeStage}; credentials omitted.` : error); process.exit(1); });

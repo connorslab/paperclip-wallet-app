@@ -74,6 +74,17 @@ their existing authentication flow. Browser fixtures cover successful empty-wall
 setup, expired/interrupted/malformed codes, nonlocal pages and no retry at phone
 and desktop widths; real-daemon checks cover authenticated issue and one use.
 
+`test_browser_handoff.py --binary /absolute/path/to/paperclip-walletd` combines
+the real owned daemon with isolated Chromium profiles through Playwright. It
+checks authenticated empty-wallet setup at phone and desktop widths, refresh
+locking, consumed-code rejection in a new tab, no automatic retry, a fresh grant
+after rejection, preserved authentication and clean shutdown without creating
+keys. Codes travel only over private stdin. Browser failures report a fixed stage
+instead of URLs or credentials. Node and the pinned Playwright/Chromium runtime
+must be installed before this test runs. Linux CI uses the packaged preview's
+daemon; the shared frontend files also trigger this combined check. This test
+does not invoke the OS default-browser handler or accept an installed package.
+
 The development macOS shell in `macos/Launcher.swift` now opens the OS browser
 using that handoff. It shows startup, ready, open and retry states, monitors the
 owned helper without blocking AppKit, and quits through the lifetime chain.

@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
   push:
     branches: ['fix/lightning-failed-payment-costs', 'codex/cross-platform-parity']
-    paths: ['bark/**', 'bark-cli/**', 'bark-json/**', 'bark-rest/**', 'mobile/rust/**', 'Cargo.lock', 'deployment/desktop/**', 'deployment/managed-chain.py', 'deployment/node_tor.py', 'deployment/test_managed_chain.py', 'deployment/test_node_tor.py', 'justfile', '.github/workflows/lightning-failure.yml']
+    paths: ['bark/**', 'bark-cli/**', 'bark-json/**', 'bark-rest/**', 'mobile/rust/**', 'Cargo.lock', 'web/**', 'scripts/test-desktop-handoff-browser.cjs', 'deployment/desktop/**', 'deployment/managed-chain.py', 'deployment/node_tor.py', 'deployment/test_managed_chain.py', 'deployment/test_node_tor.py', 'justfile', '.github/workflows/lightning-failure.yml']
 permissions:
   contents: read
 jobs:
@@ -63,6 +63,14 @@ jobs:
         with:
           name: linux-preview-screenshots
           path: ${{ runner.temp }}/linux-preview-screenshots/*.png
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Test real Chromium with the packaged native daemon
+        run: |
+          npm install --no-save playwright@1.57.0
+          npx playwright install --with-deps chromium
+          python3 deployment/desktop/test_browser_handoff.py --binary "$RUNNER_TEMP/Paperclip Linux Preview/bin/paperclip-walletd"
       - name: Generate API documentation
         run: nix develop .#build --command cargo run --locked -p bark-rest --example dump_api_docs > bark-rest/openapi.json
       - uses: actions/upload-artifact@v4
