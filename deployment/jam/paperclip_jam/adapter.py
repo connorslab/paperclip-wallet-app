@@ -5,13 +5,14 @@ import time
 from jmcore.bitcoin import get_txid
 from jmcore.settings import get_settings
 from jmcore.timenumber import timestamp_to_timenumber
-from jmwallet.history import append_history_entry, create_send_history_entry, update_send_awaiting_broadcast
+from jmwallet.history import append_history_entry, create_send_history_entry, update_send_awaiting_broadcast, update_taker_awaiting_transaction_broadcast
 from jmwallet.wallet.bond_registry import load_registry
 from jmwallet.wallet.spend import prepare_direct_send, resolve_input_utxos
 from jmwalletd._backend import get_backend
 from jmwalletd.deps import require_wallet_session
 
 from .journal import PaymentConflict
+from . import coinjoin
 
 
 class JamAdapter:
@@ -46,6 +47,8 @@ class JamAdapter:
 
     async def prepare(self, request):
         self.idle()
+        if request.get('coinjoin'):
+            return await coinjoin.prepare(self, request)
         backend = await self.connect()
         await self.wallet.sync_with_registered_bonds()
         self.idle()
@@ -111,6 +114,9 @@ class JamAdapter:
         await self.wallet.sync_with_registered_bonds()
         self.idle()
         # Upstream verifies wallet ownership, jar, freeze state and chain MTP for bonds.
+        if quote.get('coinjoin'):
+            await coinjoin.validate_inputs(self, quote)
+            return
         coins, _ = await resolve_input_utxos(wallet=self.wallet, backend=backend,
             mixdepth=quote['jar'], input_utxos=[item['outpoint'] for item in quote['inputs']],
             allow_fidelity_bonds=quote['purpose'] == 'withdraw_bond')
@@ -127,6 +133,16 @@ class JamAdapter:
 
     async def broadcast(self, signed, quote):
         self.authorize()
+        if quote.get('coinjoin'):
+            # The durable claim is already committed. Upstream negotiation has
+            # stopped and this is the only permitted network submission.
+            txid = await self.backend.broadcast_transaction(signed)
+            if txid == quote['txid']:
+                update_taker_awaiting_transaction_broadcast(destination_address=quote['destination'],
+                    change_address=quote['change_address'], txid=txid,
+                    mining_fee=quote['mining_fee_sat'], broadcast_method='self', broadcast_policy='self',
+                    data_dir=self.wallet.data_dir, wallet_fingerprint=self.wallet.wallet_fingerprint)
+            return txid
         entry = create_send_history_entry(destination=quote['destination'],
             change_address=quote['change_address'], amount=quote['amount_sat'],
             mining_fee=quote['fee_sat'], source_mixdepth=quote['jar'],

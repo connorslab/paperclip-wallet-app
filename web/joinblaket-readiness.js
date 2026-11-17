@@ -33,23 +33,27 @@ const PaperclipMakerReadiness = {
 const PaperclipJarSend = {
   id: value => typeof value === 'string' && /^[0-9a-f]{64}$/.test(value),
   terms(jar, destination, amount, rate, limit, coinjoin = false) {
-    if (coinjoin) throw new Error('Reviewed CoinJoin sends are not available on this build. No direct payment was requested.');
+    if (typeof coinjoin !== 'boolean') throw new Error('Choose a payment type.');
     if (![amount,rate,limit].every(v=>/^\d+$/.test(v))) throw new Error('Use whole sats and a whole sat/vB rate.');
     const n=Number(amount), r=Number(rate), fee=Number(limit);
     if (!Number.isInteger(jar) || jar<0 || jar>4 || !/^[A-Za-z0-9]{14,90}$/.test(destination) ||
         ![n,r,fee,n+fee].every(Number.isSafeInteger) || n<=0 || fee<=0 || n+fee>2100000000000000 || r<1 || r>10000)
       throw new Error('Review the jar, XBT address, amount and mining fee limit.');
-    return {jar,destination,amount_sat:n,fee_rate_millisat_vb:r*1000,max_fee_sat:fee};
+    return {jar,destination,amount_sat:n,fee_rate_millisat_vb:r*1000,max_fee_sat:fee,coinjoin};
   },
   validate(row, id, wallet, terms, now = Math.floor(Date.now()/1000)) {
     const q=row?.quote;
     if (!this.id(id) || row?.id!==id || row.state!=='prepared' || !this.id(row.approval) || !Number.isSafeInteger(row.expires) || row.expires<=now || row.expires>now+300 ||
         !q || q.wallet!==wallet || q.jar!==terms.jar || q.purpose!=='send' || q.destination!==terms.destination || q.amount_sat!==terms.amount_sat ||
         ![q.amount_sat,q.fee_sat,q.total_sat].every(v=>Number.isSafeInteger(v)&&v>=0&&v<=2100000000000000) ||
-        q.fee_sat>terms.max_fee_sat || q.amount_sat+q.fee_sat!==q.total_sat || !this.id(q.txid) || q.rbf!==true ||
+        q.fee_sat>terms.max_fee_sat || q.amount_sat+q.fee_sat!==q.total_sat || !this.id(q.txid) || q.rbf!==!Boolean(terms.coinjoin) || (q.coinjoin??false)!==(terms.coinjoin??false) ||
         !['xbt-mainnet','xbt-testnet','xbt-signet','xbt-regtest'].includes(q.network) ||
         typeof q.wallet_identity!=='string' || !q.wallet_identity.startsWith(q.network+':') || !this.id(q.wallet_identity.slice(q.network.length+1)))
       throw new Error('Jam review changed or expired. Check payment activity before another action.');
+    if (q.coinjoin && (![q.maker_fee_sat,q.mining_fee_sat,q.network_fee_sat].every(v=>Number.isSafeInteger(v)&&v>=0&&v<=2100000000000000) ||
+        q.maker_fee_sat+q.mining_fee_sat!==q.fee_sat || q.mining_fee_sat>q.network_fee_sat ||
+        !Number.isInteger(q.maker_count) || q.maker_count<2 || q.maker_count>20 || q.broadcast_policy!=='self'))
+      throw new Error('Invalid CoinJoin fee review.');
     return row;
   }
 };

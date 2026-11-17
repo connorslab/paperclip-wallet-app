@@ -26,10 +26,10 @@
     $('jam-send-review').hidden = !sendReview;
     $('jam-send-recovery').hidden = !sendAttempted || !!sendReview;
     $('jam-send-mode').textContent = $('jam-send-coinjoin').checked ?
-      'CoinJoin sends require the reviewed CoinJoin integration. It is not available on this build. Your choice will never fall back to a direct send.' : 'Direct payment. This transaction will not use CoinJoin.';
+      'Pay with other participants. Review maker and mining fees before sending. If CoinJoin is unavailable, no direct payment is made.' : 'Direct payment. This transaction will not use CoinJoin.';
     sendDialog.querySelectorAll('button,input').forEach(el=>el.disabled=busy);
     $('jam-send-close').disabled = false;
-    $('jam-send-prepare').disabled = busy || sendAttempted || $('jam-send-coinjoin').checked;
+    $('jam-send-prepare').disabled = busy || sendAttempted;
   }
   $('jam-send-coinjoin').onchange = renderSend;
   $('jam-send').onclick = () => {
@@ -53,11 +53,11 @@
     sendReview=PaperclipJarSend.validate(row,id,wallet,terms);
     $('jam-send-hero').textContent=amount(row.quote.amount_sat);
     $('jam-send-costs').replaceChildren();
-    for(const [label,value] of [['Payment type','Direct · no CoinJoin'],['Wallet',wallet],['From',jars.find(jar=>jar.id===sendJar).name],['Mining fee',amount(row.quote.fee_sat)],['Total debit',amount(row.quote.total_sat)]]) {
+    for(const [label,value] of [['Payment type',terms.coinjoin?'CoinJoin':'Direct · no CoinJoin'],['Wallet',wallet],['From',jars.find(jar=>jar.id===sendJar).name],...(terms.coinjoin?[['Maker fees',amount(row.quote.maker_fee_sat)],['Your mining fee',amount(row.quote.mining_fee_sat)],['Participants',row.quote.maker_count+' makers'],['Broadcast','Your Jam node · no RBF']]:[['Mining fee',amount(row.quote.fee_sat)]]),['Total debit',amount(row.quote.total_sat)]]) {
       const group=document.createElement('div'), dt=document.createElement('dt'), dd=document.createElement('dd'); dt.textContent=label;dd.textContent=value;group.append(dt,dd);$('jam-send-costs').append(group);
     }
     $('jam-send-destination').textContent=row.quote.destination;
-    $('jam-send-expiry').textContent='Review expires '+new Date(row.expires*1000).toLocaleTimeString();
+    $('jam-send-expiry').textContent='Review expires '+new Date(row.expires*1000).toLocaleTimeString()+(terms.coinjoin?'. Discarding may leave coins reserved briefly.':'');
   });
   $('jam-send-commit').onclick = () => work(async()=>{
     if(!sendDraft || !sendReview || !sendDialog.open) return;
@@ -67,7 +67,7 @@
     sendReview=null; renderSend();
     const result=await call('commit_payment',{payment_id:id,approval:row.approval,wallet_identity:row.quote.wallet_identity});
     if(ticket!==sendTicket || !sendDialog.open) return;
-    if(result.id!==id || !['submitted','submitting','unknown'].includes(result.state) || !['wallet','jar','purpose','destination','txid','amount_sat','fee_sat','total_sat'].every(key=>result.quote?.[key]===row.quote[key])) throw new Error('Check Jars payment activity before another action.');
+    if(result.id!==id || !['submitted','submitting','unknown'].includes(result.state) || !['wallet','jar','purpose','destination','txid','amount_sat','fee_sat','total_sat','coinjoin','maker_fee_sat','mining_fee_sat','network_fee_sat','maker_count','broadcast_policy'].every(key=>result.quote?.[key]===row.quote[key])) throw new Error('Check Jars payment activity before another action.');
     $('jam-send-result').textContent=result.state==='submitted'?'Submitted · awaiting confirmation':'Status unknown';
   });
   $('jam-send-discard').onclick = () => work(async()=>{

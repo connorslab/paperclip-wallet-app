@@ -29,9 +29,14 @@ private struct JarsSendView: View {
                     WalletSection("Review jar payment") {
                         PaymentReviewHero(amount: "\(draft.amountSat.formatted()) sats", source: jar.name)
                         LabeledContent("From", value: jar.name)
-                        LabeledContent("Payment type", value: "Direct · no CoinJoin")
+                        LabeledContent("Payment type", value: draft.coinjoin ? "CoinJoin" : "Direct · no CoinJoin")
                         if let q = review.payment.quote {
-                            WalletReviewDetail(title: "Mining fee", value: "\(q.fee_sat.formatted()) sats")
+                            if draft.coinjoin {
+                                WalletReviewDetail(title: "Maker fees", value: "\((q.maker_fee_sat ?? 0).formatted()) sats")
+                                WalletReviewDetail(title: "Your mining fee", value: "\((q.mining_fee_sat ?? 0).formatted()) sats")
+                                Text("With \(q.maker_count ?? 0) makers · sent through your Jam node").font(.caption)
+                                Text("CoinJoin does not use RBF. Discarding a review may leave coins reserved briefly.").font(.caption).foregroundStyle(PaperclipTheme.muted)
+                            } else { WalletReviewDetail(title: "Mining fee", value: "\(q.fee_sat.formatted()) sats") }
                             WalletReviewDetail(title: "Total debit", value: "\(q.total_sat.formatted()) sats", emphasized: true)
                         }
                         Text(draft.destination).font(.footnote.monospaced()).textSelection(.enabled)
@@ -56,18 +61,18 @@ private struct JarsSendView: View {
                         TextField("XBT address", text: $destination).textInputAutocapitalization(.never).autocorrectionDisabled()
                         TextField("Amount (sats)", text: $amount).keyboardType(.numberPad)
                         Toggle("CoinJoin", isOn: $coinjoin).accessibilityIdentifier("jars-send-coinjoin")
-                        Text(coinjoin ? "CoinJoin sends require the reviewed CoinJoin integration. It is not available on this build. Your choice will never fall back to a direct send." : "Direct payment. This transaction will not use CoinJoin.")
+                        Text(coinjoin ? "Pay with other participants. Review maker and mining fees before sending. If CoinJoin is unavailable, no direct payment is made." : "Direct payment. This transaction will not use CoinJoin.")
                             .font(.caption).foregroundStyle(PaperclipTheme.muted)
                         LabeledContent("Mining rate (sat/vB)") { TextField("1", text: $rate).keyboardType(.numberPad).multilineTextAlignment(.trailing) }
-                        LabeledContent("Maximum mining fee (sats)") { TextField("1000", text: $feeLimit).keyboardType(.numberPad).multilineTextAlignment(.trailing) }
+                        LabeledContent("Maximum total fees (sats)") { TextField("1000", text: $feeLimit).keyboardType(.numberPad).multilineTextAlignment(.trailing) }
                         Button("Review payment") {
                             run {
-                                guard let sats = UInt64(amount), let rate = UInt64(rate), rate <= 10000, let maxFee = UInt64(feeLimit), !coinjoin else { throw JoinBlaketError.invalidResponse }
-                                let value = try JoinBlaketSendDraft(jar: jar.id, destination: destination.trimmingCharacters(in: .whitespacesAndNewlines), amountSat: sats, feeRateMillisatVb: rate * 1000, maxFeeSat: maxFee)
+                                guard let sats = UInt64(amount), let rate = UInt64(rate), rate <= 10000, let maxFee = UInt64(feeLimit) else { throw JoinBlaketError.invalidResponse }
+                                let value = try JoinBlaketSendDraft(jar: jar.id, destination: destination.trimmingCharacters(in: .whitespacesAndNewlines), amountSat: sats, feeRateMillisatVb: rate * 1000, maxFeeSat: maxFee, coinjoin: coinjoin)
                                 draft = value; attempted = true
                                 review = try await prepare(value)
                             }
-                        }.buttonStyle(WalletPrimaryButtonStyle()).disabled(previewOnly || coinjoin)
+                        }.buttonStyle(WalletPrimaryButtonStyle()).disabled(previewOnly)
                     }
                 }
                 if busy { ProgressView().frame(maxWidth: .infinity) }

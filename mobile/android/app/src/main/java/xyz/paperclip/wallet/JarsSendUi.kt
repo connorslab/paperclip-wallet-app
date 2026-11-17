@@ -8,6 +8,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.CancellationException
@@ -23,8 +25,12 @@ import kotlinx.coroutines.launch
 	var review by remember { mutableStateOf<JoinBlaketSendReview?>(null) }
 	var result by remember { mutableStateOf<JoinBlaketPayment?>(null) }
 	val scope = rememberCoroutineScope()
+	val focus = LocalFocusManager.current
+	val keyboard = LocalSoftwareKeyboardController.current
+	fun sats(value: Long) = java.text.NumberFormat.getIntegerInstance().format(value) + " sats"
 	fun run(action: suspend () -> Unit) {
 		if (busy) return
+		focus.clearFocus(); keyboard?.hide()
 		busy = true; message = null
 		scope.launch {
 			try { action() } catch (e: CancellationException) { throw e }
@@ -44,10 +50,15 @@ import kotlinx.coroutines.launch
 					when {
 						saved != null && terms != null && receipt == null -> {
 							Text("Review jar payment", style = MaterialTheme.typography.titleLarge)
-							ReviewAmountHero("${terms.amountSat} sats", name, "Direct · no CoinJoin")
+							ReviewAmountHero(sats(terms.amountSat), name, if (terms.coinjoin) "CoinJoin" else "Direct · no CoinJoin")
 							val q = checkNotNull(saved.payment.quote)
-							ReviewDetailRow("Mining fee", "${q.feeSat} sats")
-							ReviewDetailRow("Total debit", "${q.totalSat} sats", emphasized = true)
+							if (terms.coinjoin) {
+								ReviewDetailRow("Maker fees", sats(checkNotNull(q.makerFeeSat)))
+								ReviewDetailRow("Your mining fee", sats(checkNotNull(q.miningFeeSat)))
+								Text("With ${q.makerCount} makers · sent through your Jam node", style = MaterialTheme.typography.bodySmall)
+								Text("CoinJoin does not use RBF. Discarding a review may leave coins reserved briefly.", style = MaterialTheme.typography.bodySmall)
+							} else ReviewDetailRow("Mining fee", sats(q.feeSat))
+							ReviewDetailRow("Total debit", sats(q.totalSat), emphasized = true)
 							Text(terms.destination, style = MaterialTheme.typography.bodySmall)
 							Text("Wallet: ${auth.wallet}", style = MaterialTheme.typography.bodySmall)
 							Text("Review expires " + java.time.Instant.ofEpochSecond(saved.expires).atZone(java.time.ZoneId.systemDefault()).toLocalTime().withNano(0), style = MaterialTheme.typography.bodySmall)
@@ -69,12 +80,12 @@ import kotlinx.coroutines.launch
 							OutlinedTextField(destination, { destination = it }, label = { Text("XBT address") }, modifier = Modifier.fillMaxWidth(), enabled = !busy)
 							OutlinedTextField(amount, { amount = it }, label = { Text("Amount (sats)") }, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), enabled = !busy)
 							Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { Text("CoinJoin"); Switch(coinjoin, { coinjoin = it }, enabled = !busy, modifier = Modifier.testTag("jars-send-coinjoin")) }
-							Text(if (coinjoin) "CoinJoin sends require the reviewed CoinJoin integration. It is not available on this build. Your choice will never fall back to a direct send." else "Direct payment. This transaction will not use CoinJoin.", style = MaterialTheme.typography.bodySmall)
+							Text(if (coinjoin) "Pay with other participants. Review maker and mining fees before sending. If CoinJoin is unavailable, no direct payment is made." else "Direct payment. This transaction will not use CoinJoin.", style = MaterialTheme.typography.bodySmall)
 							OutlinedTextField(rate, { rate = it }, label = { Text("Mining rate (sat/vB)") }, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), enabled = !busy)
-							OutlinedTextField(feeLimit, { feeLimit = it }, label = { Text("Maximum mining fee (sats)") }, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), enabled = !busy)
-							WalletPrimaryButton(enabled = !busy && !coinjoin, modifier = Modifier.fillMaxWidth(), onClick = { run {
-								val feeRate = rate.toLong(); require(feeRate in 1..10000 && !coinjoin)
-								val value = JoinBlaketSendDraft(jar,destination.trim(),amount.toLong(),feeRate*1000,feeLimit.toLong())
+							OutlinedTextField(feeLimit, { feeLimit = it }, label = { Text("Maximum total fees (sats)") }, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), enabled = !busy)
+							WalletPrimaryButton(enabled = !busy, modifier = Modifier.fillMaxWidth(), onClick = { run {
+								val feeRate = rate.toLong(); require(feeRate in 1..10000)
+								val value = JoinBlaketSendDraft(jar,destination.trim(),amount.toLong(),feeRate*1000,feeLimit.toLong(), coinjoin = coinjoin)
 								draft = value; attempted = true; review = client.prepareSend(value,auth)
 							} }) { Text("Review payment") }
 						}

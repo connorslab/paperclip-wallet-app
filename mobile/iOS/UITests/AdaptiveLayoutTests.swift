@@ -115,7 +115,7 @@ final class AdaptiveLayoutTests: XCTestCase {
 		XCTAssertTrue(app.navigationBars["Jar payment"].waitForExistence(timeout: 5))
 		let toggle = app.switches["jars-send-coinjoin"]
 		XCTAssertTrue(toggle.exists); toggle.tap()
-		XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "never fall back")).firstMatch.exists)
+		XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "no direct payment is made")).firstMatch.exists)
 		XCTAssertFalse(app.buttons["Review payment"].isEnabled)
 		capture(app, "Jar send CoinJoin choice")
 		toggle.tap()

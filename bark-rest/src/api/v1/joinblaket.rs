@@ -44,8 +44,8 @@ pub struct Request {
 #[serde(rename_all = "snake_case")]
 enum Operation { Wallets, CreateWallet, BackupWallet, Unlock, Status, Identity, Coins, Address, BondAddress, StartMaker, StopMaker, Payments, CheckPayment, CancelPayment, PreparePayment, CommitPayment, Market, #[serde(skip)] PairingSession }
 
-/// Fixed-amount direct sends only. Bond and CoinJoin reviews have separate contracts.
-#[derive(Deserialize)]
+/// Fixed-amount sends bind the selected mode through review and commit.
+#[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct SendTerms {
 	jar: u8,
@@ -53,6 +53,7 @@ struct SendTerms {
 	amount_sat: u64,
 	fee_rate_millisat_vb: u64,
 	max_fee_sat: u64,
+	#[serde(default)] coinjoin: bool,
 }
 impl SendTerms {
 	fn body(&self, id: &str) -> anyhow::Result<Value> {
@@ -62,7 +63,7 @@ impl SendTerms {
 		ensure!((1000..=10_000_000).contains(&self.fee_rate_millisat_vb), "Review the mining fee rate");
 		Ok(json!({"id":id,"purpose":"send","jar":self.jar,"destination":self.destination,
 			"amount_sat":self.amount_sat,"send_max":false,"fee_rate_millisat_vb":self.fee_rate_millisat_vb,
-			"max_fee_sat":self.max_fee_sat,"max_total_sat":self.amount_sat+self.max_fee_sat,"rbf":true}))
+			"max_fee_sat":self.max_fee_sat,"max_total_sat":self.amount_sat+self.max_fee_sat,"rbf":!self.coinjoin,"coinjoin":self.coinjoin}))
 	}
 }
 
@@ -70,20 +71,20 @@ fn send_review(value: &Value, wallet: &str, identity: &str, now: i64) -> anyhow:
 	let mut result = recovery_payment(value, wallet)?;
 	ensure!(result["state"] == "prepared", "This review cannot be submitted; check Jars payment activity");
 	ensure!(pairing::valid_identity(identity) && value["quote"]["wallet_identity"] == identity, "Jam wallet identity changed");
-	ensure!(value["quote"]["network"] == identity.split(':').next().unwrap() && value["quote"]["purpose"] == "send" && value["quote"]["rbf"] == true, "Unsupported Jam payment review");
+	ensure!(value["quote"]["network"] == identity.split(':').next().unwrap() && value["quote"]["purpose"] == "send" && value["quote"]["rbf"] == (result["quote"]["coinjoin"] != true), "Unsupported Jam payment review");
 	let expiry = value["expires"].as_i64().context("Missing Jam review expiry")?;
 	ensure!(expiry > now && expiry <= now + 300, "Jam payment review expired; discard it before preparing another");
 	ensure!(value["approval"].as_str().is_some_and(payment_identifier), "Invalid Jam payment approval");
 	result["expires"] = expiry.into(); result["approval"] = value["approval"].clone();
 	result["quote"]["wallet_identity"] = identity.into();
 	result["quote"]["network"] = value["quote"]["network"].clone();
-	result["quote"]["rbf"] = true.into();
+	result["quote"]["rbf"] = value["quote"]["rbf"].clone();
 	Ok(result)
 }
 
 fn verify_send_terms(review: &Value, terms: &SendTerms) -> anyhow::Result<()> {
 	let q = &review["quote"];
-	ensure!(q["jar"] == terms.jar && q["destination"] == terms.destination && q["amount_sat"] == terms.amount_sat
+	ensure!(q["coinjoin"].as_bool().unwrap_or(false) == terms.coinjoin && q["jar"] == terms.jar && q["destination"] == terms.destination && q["amount_sat"] == terms.amount_sat
 		&& q["fee_sat"].as_u64().is_some_and(|v| v <= terms.max_fee_sat), "Jam changed the recipient, jar, amount or fee limit; check the saved review");
 	Ok(())
 }
@@ -186,8 +187,9 @@ async fn execute_bound(input: Request, expected_identity: Option<&str>) -> anyho
 	let address = std::env::var("BARKD_JOINBLAKET_URL").context("Connect your JoinBlaket service in the wallet server settings")?;
 	let proxy = std::env::var("BARKD_JOINBLAKET_TOR_PROXY").ok();
 	let base = endpoint(&address, proxy.as_deref())?;
+	let preparing_coinjoin = matches!(input.operation, Operation::PreparePayment) && input.send.as_ref().is_some_and(|s| s.coinjoin);
 	let mut builder = Client::builder().redirect(reqwest::redirect::Policy::none()).retry(reqwest::retry::never())
-		.no_proxy().timeout(Duration::from_secs(60)).connect_timeout(Duration::from_secs(15));
+		.no_proxy().timeout(Duration::from_secs(if preparing_coinjoin { 190 } else { 60 })).connect_timeout(Duration::from_secs(15));
 	if let Some(proxy) = proxy {
 		let proxy_url: Url = proxy.parse().context("Invalid Jam Tor proxy")?;
 		ensure!(proxy_url.scheme() == "socks5h" && proxy_url.host_str().is_some() && proxy_url.port().is_some()
@@ -255,7 +257,8 @@ async fn execute_bound(input: Request, expected_identity: Option<&str>) -> anyho
 				let terms = input.send.as_ref().context("Review the payment details")?;
 				let body = terms.body(id)?;
 				let features = upstream(&client, &base, &["paperclip", "capabilities"], &input.token, None).await?;
-				ensure!(features["version"] == 1 && features["reviewed_direct_send"] == true, "Update the Jam companion before sending");
+				ensure!((features["version"] == 1 || features["version"] == 2) && features["reviewed_direct_send"] == true
+					&& (!terms.coinjoin || (features["version"] == 2 && features["coinjoin_payments"] == true)), "Update the Jam companion before sending");
 				let result = upstream(&client, &base, &["wallet", &input.wallet, "paperclip", "payments"], &input.token, Some(body)).await?;
 				ensure!(result["id"] == id, "Jam returned a different payment");
 				let review = send_review(&result, &input.wallet, key, chrono::Utc::now().timestamp())?;
@@ -375,9 +378,20 @@ fn recovery_payment(value: &Value, wallet: &str) -> anyhow::Result<Value> {
 			quote[key].as_u64().filter(|n| *n <= 2_100_000_000_000_000).context("Invalid Jam payment amount")
 		}).collect::<anyhow::Result<_>>()?;
 		ensure!(amounts[0] > 0 && amounts[0] + amounts[1] == amounts[2], "Inconsistent Jam payment total");
-		json!({"wallet": wallet, "jar": quote["jar"], "purpose": quote["purpose"],
+		let mode = quote.get("coinjoin").map(|v| v.as_bool().context("Invalid Jam payment mode")).transpose()?.unwrap_or(false);
+		let mut clean = json!({"wallet": wallet, "jar": quote["jar"], "purpose": quote["purpose"],
 			"destination": destination, "txid": quote["txid"], "amount_sat": amounts[0],
-			"fee_sat": amounts[1], "total_sat": amounts[2]})
+			"fee_sat": amounts[1], "total_sat": amounts[2]});
+		if quote.get("coinjoin").is_some() { clean["coinjoin"] = mode.into(); }
+		if mode {
+			let fees: Vec<u64> = ["maker_fee_sat", "mining_fee_sat", "network_fee_sat"].iter().map(|key| {
+				quote[key].as_u64().filter(|n| *n <= 2_100_000_000_000_000).context("Invalid CoinJoin fees")
+			}).collect::<anyhow::Result<_>>()?;
+			ensure!(quote["purpose"] == "send" && fees[0]+fees[1] == amounts[1] && fees[1] <= fees[2]
+				&& quote["maker_count"].as_u64().is_some_and(|n| (2..=20).contains(&n)) && quote["broadcast_policy"] == "self", "Invalid CoinJoin review");
+			for key in ["maker_fee_sat", "mining_fee_sat", "network_fee_sat", "maker_count", "broadcast_policy"] { clean[key] = quote[key].clone(); }
+		}
+		clean
 	};
 	Ok(json!({"id": id, "state": state, "quote": quote}))
 }
@@ -397,11 +411,11 @@ mod tests {
 	#[test]
 	fn jam_send_reviews_bind_wallet_recipient_cost_and_expiry() {
 		let cases: Vec<Value> = serde_json::from_str(include_str!("../../../../mobile/Tests/PaperclipMobileTests/Fixtures/jam-send-review.json")).unwrap();
-		let terms = SendTerms { jar:0, destination:"bcrt1qsyntheticrecipient".into(), amount_sat:20000, fee_rate_millisat_vb:1000, max_fee_sat:500 };
+		let terms = SendTerms { jar:0, destination:"bcrt1qsyntheticrecipient".into(), amount_sat:20000, fee_rate_millisat_vb:1000, max_fee_sat:500, coinjoin:false };
 		let identity = format!("xbt-regtest:{}", "c".repeat(64));
 		for case in cases {
 			let result = send_review(&case["review"], "fixture.jmdat", &identity, 2000000000).and_then(|review| {
-				ensure!(review["id"] == "a".repeat(64), "Changed id"); verify_send_terms(&review, &terms)
+				ensure!(review["id"] == "a".repeat(64), "Changed id"); verify_send_terms(&review, &SendTerms { coinjoin:case["coinjoin"].as_bool().unwrap_or(false), ..terms.clone() })
 			});
 			assert_eq!(result.is_ok(), case["valid"].as_bool().unwrap(), "{}", case["name"]);
 		}

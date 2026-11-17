@@ -1,12 +1,13 @@
 import Foundation
 
-/// Fixed-amount direct sends. A fresh reference is created only for a new user draft.
+/// Fixed-amount sends with an immutable CoinJoin choice. A fresh reference is created only for a new user draft.
 public struct JoinBlaketSendDraft: Sendable {
     public let id: String, jar: UInt8, destination: String
+    public let coinjoin: Bool
     public let amountSat: UInt64, feeRateMillisatVb: UInt64, maxFeeSat: UInt64
-    public init(jar: UInt8, destination: String, amountSat: UInt64, feeRateMillisatVb: UInt64, maxFeeSat: UInt64,
+    public init(jar: UInt8, destination: String, amountSat: UInt64, feeRateMillisatVb: UInt64, maxFeeSat: UInt64, coinjoin: Bool = false,
                 id: String = (UUID().uuidString + UUID().uuidString).replacingOccurrences(of: "-", with: "").lowercased()) throws {
-        self.id = id; self.jar = jar; self.destination = destination
+        self.coinjoin = coinjoin; self.id = id; self.jar = jar; self.destination = destination
         self.amountSat = amountSat; self.feeRateMillisatVb = feeRateMillisatVb; self.maxFeeSat = maxFeeSat
         try validate()
     }
@@ -22,7 +23,7 @@ public struct JoinBlaketSendDraft: Sendable {
         return try JSONSerialization.data(withJSONObject: ["id": id, "purpose": "send", "jar": jar,
             "destination": destination, "amount_sat": amountSat, "send_max": false,
             "fee_rate_millisat_vb": feeRateMillisatVb, "max_fee_sat": maxFeeSat,
-            "max_total_sat": amountSat + maxFeeSat, "rbf": true])
+            "max_total_sat": amountSat + maxFeeSat, "rbf": !coinjoin, "coinjoin": coinjoin])
     }
 }
 
@@ -37,7 +38,7 @@ public struct JoinBlaketSendReview: Sendable {
         }
         payment = try JSONDecoder().decode(JoinBlaketPayment.self, from: data)
         let extra = try JSONDecoder().decode(Extra.self, from: data)
-        guard extra.quote.rbf else { throw JoinBlaketError.invalidResponse }
+        guard extra.quote.rbf == (payment.quote?.coinjoin != true) else { throw JoinBlaketError.invalidResponse }
         approval = extra.approval; expires = extra.expires
         walletIdentity = extra.quote.wallet_identity; network = extra.quote.network
     }
@@ -48,7 +49,7 @@ public struct JoinBlaketSendReview: Sendable {
               ["xbt-mainnet", "xbt-testnet", "xbt-signet", "xbt-regtest"].contains(network),
               identity.hasPrefix(network + ":"), JoinBlaketPayment.validID(String(identity.dropFirst(network.count + 1))),
               let q = payment.quote, q.purpose == "send", q.jar == draft.jar,
-              q.destination == draft.destination, q.amount_sat == draft.amountSat,
+              q.destination == draft.destination, (q.coinjoin ?? false) == draft.coinjoin, q.amount_sat == draft.amountSat,
               q.fee_sat <= draft.maxFeeSat else { throw JoinBlaketError.invalidResponse }
     }
 }
@@ -67,10 +68,11 @@ extension JoinBlaketClient {
         guard canDiscardReviews else { throw JoinBlaketError.invalidResponse }
         try draft.validate()
         let identity = try await sendIdentity(authorization)
-        struct Features: Decodable { let version: Int; let reviewed_direct_send: Bool }
+        struct Features: Decodable { let version: Int; let reviewed_direct_send: Bool; let coinjoin_payments: Bool? }
         let features = try JSONDecoder().decode(Features.self, from: await request(["paperclip", "capabilities"], authorization: authorization))
-        guard features.version == 1, features.reviewed_direct_send else { throw JoinBlaketError.invalidResponse }
-        let review = try JoinBlaketSendReview(data: await request(["wallet", authorization.wallet, "paperclip", "payments"], authorization: authorization, jsonBody: draft.body()))
+        guard [1, 2].contains(features.version), features.reviewed_direct_send,
+              !draft.coinjoin || (features.version == 2 && features.coinjoin_payments == true) else { throw JoinBlaketError.invalidResponse }
+        let review = try JoinBlaketSendReview(data: await request(["wallet", authorization.wallet, "paperclip", "payments"], authorization: authorization, jsonBody: draft.body(), preparingCoinJoin: draft.coinjoin))
         try review.validate(draft: draft, wallet: authorization.wallet, identity: identity)
         return review
     }

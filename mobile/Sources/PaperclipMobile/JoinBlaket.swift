@@ -143,6 +143,9 @@ public struct JoinBlaketPayment: Decodable, Identifiable, Sendable {
         public let amount_sat: UInt64
         public let fee_sat: UInt64
         public let total_sat: UInt64
+        public let coinjoin: Bool?
+        public let maker_fee_sat: UInt64?, mining_fee_sat: UInt64?, network_fee_sat: UInt64?
+        public let maker_count: Int?, broadcast_policy: String?
     }
     public let id: String
     public let state: State
@@ -165,6 +168,13 @@ public struct JoinBlaketPayment: Decodable, Identifiable, Sendable {
               quote.amount_sat > 0,
               [quote.amount_sat, quote.fee_sat, quote.total_sat].allSatisfy({ $0 <= 2_100_000_000_000_000 }),
               quote.amount_sat + quote.fee_sat == quote.total_sat else { throw JoinBlaketError.invalidResponse }
+        if quote.coinjoin == true {
+            guard quote.purpose == "send", let maker = quote.maker_fee_sat, let mining = quote.mining_fee_sat,
+                  let networkFee = quote.network_fee_sat, let count = quote.maker_count,
+                  maker <= quote.fee_sat, mining <= quote.fee_sat, maker + mining == quote.fee_sat,
+                  networkFee <= 2_100_000_000_000_000, mining <= networkFee,
+                  (2...20).contains(count), quote.broadcast_policy == "self" else { throw JoinBlaketError.invalidResponse }
+        }
     }
 }
 
@@ -269,7 +279,7 @@ public actor JoinBlaketClient {
         configuration.urlCache = nil
         configuration.requestCachePolicy = .reloadIgnoringLocalAndRemoteCacheData
         configuration.timeoutIntervalForRequest = 30
-        configuration.timeoutIntervalForResource = 60
+        configuration.timeoutIntervalForResource = 190
         if connection.useTor {
             let proxy = try EndpointPolicy.proxy(connection.torProxy)
             if #available(iOS 17, macOS 14, *) {
@@ -284,7 +294,7 @@ public actor JoinBlaketClient {
     deinit { session.invalidateAndCancel() }
 
     func request(_ components: [String], authorization: JoinBlaketAuthorization? = nil,
-                         body: [String: String]? = nil, jsonBody: Data? = nil) async throws -> Data {
+                         body: [String: String]? = nil, jsonBody: Data? = nil, preparingCoinJoin: Bool = false) async throws -> Data {
         guard jsonBody == nil || (pairing == nil && body == nil) else { throw JoinBlaketError.invalidResponse }
         var url = try EndpointPolicy.validate(connection.endpoint, tor: connection.useTor, credentials: true)
         let route = pairing == nil ? ["api", "v1"] + components : ["api", "v1", "paired-jars", "request"]
@@ -295,6 +305,7 @@ public actor JoinBlaketClient {
             url.appendPathComponent(component)
         }
         var request = URLRequest(url: url)
+        request.timeoutInterval = preparingCoinJoin ? 190 : 30
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         if let pairing {
             guard authorization?.wallet == pairing.wallet, authorization?.token == pairing.token else { throw JoinBlaketError.wrongWallet }

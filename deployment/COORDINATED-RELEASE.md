@@ -24,7 +24,7 @@ checks from the required implementation and acceptance work.
 | Shared desktop UI | All 17 existing browser-flow suites plus entropy, transport and QR checks; phone, foldable and desktop widths where each suite defines them | Installed-host and native desktop acceptance; complete multiple-hot-wallet and hardware-funded Ark workflows |
 | StartOS/Umbrel | Shared REST checks, authenticated CLN/LND reads; both StartOS candidate architectures built and source/checksums checked | Complete backup/restore, candidate installation, bundled Jam pairing/revocation/Tor and upgrades; matching frozen wrappers |
 | Linux/macOS/Windows | Isolated native Apple Silicon daemon authentication and restart smoke | Native launchers and bundled service lifecycle, supported OS matrix, signed installers, notarization where applicable and clean install/upgrade tests |
-| Jars | Real pinned signer, API, bond and interrupted-submission checks | CoinJoin client review and send flow, live direct-send acceptance, bond funding/withdrawal, payment-capable pairing, live maker and physical QR signer acceptance |
+| Jars | Reviewed direct/CoinJoin toggle on every client; pinned signer, API, bond and interrupted-submission checks | Live CoinJoin and direct-send acceptance, bond funding/withdrawal, payment-capable pairing, live maker and physical QR signer acceptance |
 | Payments and recovery | 291 shared wallet tests, exact-cost/RBF/unknown-outcome checks; unified-signature and Electrum-header checks | Live BOLT12/Ark/Bridge settlement, portable recovery/restore and current-source XBT consensus acceptance |
 
 The saved uncertain Ark attempt remains reserved in the private payment ledger.
@@ -151,20 +151,46 @@ limit, check the saved approval again, and never automatically repeat a commit.
 An interrupted response directs the user to saved payment activity. Node acceptance
 is displayed as submitted, not confirmed. Unsent reviews can be discarded.
 
-The jar send form includes a CoinJoin toggle on every client. In this increment,
-selecting it blocks preparation with an explicit unavailable explanation; it never
-falls back to direct sending. Reviewed CoinJoin execution is still a release gate,
-not a completed feature. Existing management-only phone pairings remain unable to
-prepare, commit or cancel payments; spending grants require a separate integration.
+The jar send form now supports both direct and CoinJoin payments. The selected
+mode is immutable through review and commit; unsupported servers are rejected
+before preparation, and failed CoinJoins never fall back to direct sending.
+Existing management-only phone pairings remain unable to prepare, commit or cancel
+payments; spending grants require a separate integration.
 
-Validation: 117 Swift tests; 94 Android JVM tests with four live cases skipped;
-12 targeted REST tests; six synthetic Android Jars UI cases; regular iPhone jar-grid
-and send-form/toggle checks. Browser send tests pass at 390/1280px, including a
-changed recipient, lost commit and wallet locking; existing Jars and setup/backup
-browser suites also pass. Repository checks pass. The first Apple build rejected
-multi-variable State declarations; separate declarations fixed it and the native
-rerun passed. These tests do not establish live direct-send settlement or complete
-any CoinJoin, bond funding, spending-pairing or signed-package acceptance gate.
+### Reviewed CoinJoin jar payments
+
+Companion capability version 2 negotiates a fixed-amount CoinJoin using the pinned
+Jam taker. Its final callback captures the signed transaction and always declines
+automatic broadcast. The private journal saves those exact bytes; only a separate,
+durable commit can broadcast them through the owner's Jam node. The install step
+also verifies the taker source hash before enabling this integration.
+
+Each client binds the mode, recipient, jar, amount, wallet identity and total fee
+limit. Review shows maker fees, the owner's mining share, maker count and total
+debit. CoinJoin transactions are non-RBF. Cancellation retains upstream input
+safety reservations; it does not promise immediate reuse. Commit rechecks every
+participant's unspent input and renews only the original wallet input leases.
+Unknown submissions survive restart and cannot be sent again by another commit.
+Preparation has a bounded three-minute window, with client timeouts long enough
+to receive the result. Signed transaction bytes never leave the companion.
+
+Validation: 118 Swift tests; 95 Android JVM tests passed with four live cases
+skipped; 12 targeted REST tests; six synthetic Android Jars UI cases, including
+CoinJoin review and lost-response recovery; regular iPhone toggle/preview test.
+Browser direct and CoinJoin send tests pass at 390/1280px. The pinned local Jam
+suite passes 64 tests with one container-only case skipped, including the actual
+taker final-confirmation method, real XBT-signed fixture transactions, successful
+single commit, interrupted commit/reopen and cancellation. Repository checks pass.
+Visual inspection caught a retained Android keyboard covering review controls;
+review now clears focus and closes the keyboard, and the test uses the actual
+bottom-sheet container. Android initially lacked the SDK environment; rerunning with the existing SDK
+resolved it. A REST compatibility assertion initially caught an added field in
+legacy recovery records; preserving their original shape fixed it.
+
+These are synthetic and local checks. Live CoinJoin/direct settlement, mobile
+spending pairing, bond payment flows, installed-host acceptance, current Linux
+container CI and signed packaging remain release gates. No payment, funded-device
+installation, production service change or publication occurred in this pass.
 
 ## Source and artifacts
 

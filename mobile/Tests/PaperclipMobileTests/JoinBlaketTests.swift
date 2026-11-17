@@ -40,9 +40,10 @@ final class JoinBlaketTests: XCTestCase {
         let file = Bundle.module.url(forResource: "jam-send-review", withExtension: "json", subdirectory: "Fixtures")!
         let cases = try JSONSerialization.jsonObject(with: Data(contentsOf: file)) as! [[String: Any]]
         for item in cases {
+            let selected = try JoinBlaketSendDraft(jar: draft.jar, destination: draft.destination, amountSat: draft.amountSat, feeRateMillisatVb: draft.feeRateMillisatVb, maxFeeSat: draft.maxFeeSat, coinjoin: item["coinjoin"] as? Bool ?? false, id: draft.id)
             do {
                 let review = try JoinBlaketSendReview(data: JSONSerialization.data(withJSONObject: item["review"]!))
-                try review.validate(draft: draft, wallet: "fixture.jmdat", identity: "xbt-regtest:" + String(repeating: "c", count: 64), now: 2000000000)
+                try review.validate(draft: selected, wallet: "fixture.jmdat", identity: "xbt-regtest:" + String(repeating: "c", count: 64), now: 2000000000)
                 XCTAssertEqual(item["valid"] as? Bool, true, item["name"] as! String)
             } catch { XCTAssertEqual(item["valid"] as? Bool, false, item["name"] as! String) }
         }
@@ -66,6 +67,39 @@ final class JoinBlaketTests: XCTestCase {
         let c = try client()
         let review = try await c.prepareSend(draft, authorization: auth)
         let request = try JSONSerialization.jsonObject(with: JamStub.bodies.last!) as! [String:Any]
+        XCTAssertEqual(request["amount_sat"] as? Int, 20000); XCTAssertEqual(request["max_total_sat"] as? Int, 20500)
+        identity = "xbt-regtest:" + String(repeating: "e", count: 64)
+        do { _ = try await c.commitSend(review, draft: draft, authorization: auth); XCTFail("Changed wallet") } catch {}
+        XCTAssertFalse(JamStub.requests.contains { $0.url!.path.hasSuffix("/commit") })
+        identity = review.walletIdentity; lost = true
+        do { _ = try await c.commitSend(review, draft: draft, authorization: auth); XCTFail("Lost response") } catch {}
+        let observed = try await c.commitSend(review, draft: draft, authorization: auth)
+        XCTAssertEqual(observed.state, .unknown)
+        XCTAssertEqual(JamStub.requests.filter { $0.url!.path.hasSuffix("/commit") }.count, 1)
+    }
+    func testCoinJoinSendBindsReviewAndNeverRepeatsLostCommit() async throws {
+        let auth = try JoinBlaketAuthorization(wallet: "fixture.jmdat", token: "synthetic-token")
+        let draft = try JoinBlaketSendDraft(jar: 0, destination: "bcrt1qsyntheticrecipient", amountSat: 20000, feeRateMillisatVb: 1000, maxFeeSat: 500, coinjoin: true, id: String(repeating: "a", count: 64))
+        let file = Bundle.module.url(forResource: "jam-send-review", withExtension: "json", subdirectory: "Fixtures")!
+        let cases = try JSONSerialization.jsonObject(with: Data(contentsOf: file)) as! [[String: Any]]
+        var saved = cases.first { $0["name"] as? String == "reviewed CoinJoin" }!["review"] as! [String: Any]
+        saved["expires"] = Int64(Date().timeIntervalSince1970) + 200
+        var supported = false
+        var lost = false, identity = "xbt-regtest:" + String(repeating: "c", count: 64)
+        JamStub.route = { request in
+            let path = request.url!.path
+            if path.hasSuffix("/identity") { return (200, "{\"wallet\":\"fixture.jmdat\",\"identity\":\"\(identity)\"}") }
+            if path.hasSuffix("/capabilities") { return (200, supported ? "{\"version\":2,\"reviewed_direct_send\":true,\"coinjoin_payments\":true}" : "{\"version\":1,\"reviewed_direct_send\":true}") }
+            if path.hasSuffix("/commit") { saved["state"] = "unknown"; if lost { return (504, "{}") } }
+            return (200, String(decoding: try! JSONSerialization.data(withJSONObject: saved), as: UTF8.self))
+        }
+        let c = try client()
+        do { _ = try await c.prepareSend(draft, authorization: auth); XCTFail("Unsupported CoinJoin cannot use direct sends") } catch {}
+        XCTAssertFalse(JamStub.requests.contains { $0.httpMethod == "POST" })
+        supported = true
+        let review = try await c.prepareSend(draft, authorization: auth)
+        let request = try JSONSerialization.jsonObject(with: JamStub.bodies.last!) as! [String:Any]
+        XCTAssertEqual(request["coinjoin"] as? Bool, true); XCTAssertEqual(request["rbf"] as? Bool, false)
         XCTAssertEqual(request["amount_sat"] as? Int, 20000); XCTAssertEqual(request["max_total_sat"] as? Int, 20500)
         identity = "xbt-regtest:" + String(repeating: "e", count: 64)
         do { _ = try await c.commitSend(review, draft: draft, authorization: auth); XCTFail("Changed wallet") } catch {}

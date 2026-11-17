@@ -119,7 +119,8 @@ internal data class JoinBlaketConnection(
 internal data class JoinBlaketPayment(val id: String, val state: String, val quote: Quote?) {
 	val canDiscard: Boolean get() = state in setOf("preparing", "prepared")
 	data class Quote(val wallet: String, val jar: Int, val purpose: String, val destination: String,
-		val txid: String, val amountSat: Long, val feeSat: Long, val totalSat: Long)
+		val txid: String, val amountSat: Long, val feeSat: Long, val totalSat: Long, val coinjoin: Boolean = false, val makerFeeSat: Long? = null,
+		val miningFeeSat: Long? = null, val networkFeeSat: Long? = null, val makerCount: Int? = null, val broadcastPolicy: String? = null)
 	val needsCheck: Boolean get() = state in setOf("submitting", "unknown")
 	val label: String get() = when (state) {
 		"preparing" -> "Review incomplete"
@@ -150,6 +151,13 @@ internal data class JoinBlaketPayment(val id: String, val state: String, val quo
 			require(q.getString("wallet") == wallet) { "The saved payment belongs to a different Jam wallet" }
 			require(jar in 0..4 && purpose in setOf("send", "fund_bond", "withdraw_bond") && validId(txid) &&
 				destination.matches(Regex("[A-Za-z0-9]{14,90}")) && amount > 0 && amount + fee == total) { "Invalid Jam payment details" }
+			val mode = if (q.has("coinjoin")) q.get("coinjoin") else false
+			require(mode is Boolean) { "Invalid Jam payment mode" }
+			if (mode) {
+				val maker = integer("maker_fee_sat"); val mining = integer("mining_fee_sat"); val networkFee = integer("network_fee_sat"); val count = integer("maker_count")
+				require(purpose == "send" && maker + mining == fee && mining <= networkFee && count in 2..20 && q.get("broadcast_policy") == "self") { "Invalid CoinJoin fee review" }
+				return JoinBlaketPayment(id,state,Quote(wallet,jar.toInt(),purpose,destination,txid,amount,fee,total,true,maker,mining,networkFee,count.toInt(),"self"))
+			}
 			return JoinBlaketPayment(id, state, Quote(wallet, jar.toInt(), purpose, destination, txid, amount, fee, total))
 		}
 	}
@@ -180,7 +188,7 @@ internal class JoinBlaketClient internal constructor(
 	}
 
 	internal suspend fun request(
-		components: List<String>, authorization: JoinBlaketAuthorization? = null, body: JSONObject? = null,
+		components: List<String>, authorization: JoinBlaketAuthorization? = null, body: JSONObject? = null, preparingCoinJoin: Boolean = false,
 	): JSONObject {
 		connection.validate()
 		val url = connection.endpoint.toHttpUrl().newBuilder()
@@ -197,7 +205,10 @@ internal class JoinBlaketClient internal constructor(
 			authorization?.let { request.header("Authorization", "Bearer " + it.token) }
 			body?.let { request.post(it.toString().toRequestBody("application/json".toMediaType())) }
 		}
-		val call = client.newCall(request.build())
+		val transport = if (preparingCoinJoin) client.newBuilder()
+			.readTimeout(190, java.util.concurrent.TimeUnit.SECONDS).callTimeout(190, java.util.concurrent.TimeUnit.SECONDS)
+			.retryOnConnectionFailure(false).build() else client
+		val call = transport.newCall(request.build())
 		return suspendCancellableCoroutine { continuation ->
 			continuation.invokeOnCancellation { call.cancel() }
 			call.enqueue(object : Callback {

@@ -22,6 +22,7 @@ import org.junit.Rule
 import org.junit.Test
 
 /** Synthetic session only: no transport, wallet keys or funds. */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 class JoinBlaketLayoutTest {
 	@Test fun jarSendPreservesCoinJoinChoiceAndRecoversLostCommit() {
 		val paths = java.util.Collections.synchronizedList(mutableListOf<String>())
@@ -30,12 +31,12 @@ class JoinBlaketLayoutTest {
 			val path = chain.request().url.encodedPath; paths.add(path)
 			val result = when {
 				path.endsWith("/identity") -> JSONObject().put("wallet","fixture.jmdat").put("identity","xbt-regtest:"+"c".repeat(64))
-				path.endsWith("/capabilities") -> JSONObject().put("version",1).put("reviewed_direct_send",true)
+				path.endsWith("/capabilities") -> JSONObject().put("version",2).put("reviewed_direct_send",true).put("coinjoin_payments",true)
 				path.endsWith("/payments") -> {
 					val buffer = okio.Buffer(); chain.request().body!!.writeTo(buffer); val request = JSONObject(buffer.readUtf8())
-					check(request.getString("purpose") == "send" && request.getLong("amount_sat") == 20000L)
+					check(request.getString("purpose") == "send" && request.getLong("amount_sat") == 20000L && request.getBoolean("coinjoin") && !request.getBoolean("rbf"))
 					saved = JSONObject().put("id",request.getString("id")).put("state","prepared").put("expires",java.time.Instant.now().epochSecond+200).put("approval","b".repeat(64))
-						.put("quote",JSONObject().put("wallet","fixture.jmdat").put("wallet_identity","xbt-regtest:"+"c".repeat(64)).put("network","xbt-regtest").put("rbf",true)
+						.put("quote",JSONObject().put("wallet","fixture.jmdat").put("wallet_identity","xbt-regtest:"+"c".repeat(64)).put("network","xbt-regtest").put("rbf",false).put("coinjoin",true).put("maker_fee_sat",100).put("mining_fee_sat",100).put("network_fee_sat",100).put("maker_count",2).put("broadcast_policy","self")
 							.put("jar",0).put("purpose","send").put("destination",request.getString("destination")).put("txid","d".repeat(64)).put("amount_sat",20000).put("fee_sat",200).put("total_sat",20200))
 					saved
 				}
@@ -46,19 +47,24 @@ class JoinBlaketLayoutTest {
 		}.build()
 		var activity = false
 		val client = JoinBlaketClient(JoinBlaketConnection("https://jam.example.invalid"),http)
-		compose.setContent { MaterialTheme(colorScheme = paperclipColors(true)) { Surface {
-			JarsSendPage(client,JoinBlaketAuthorization("fixture.jmdat","synthetic-token"),0,"Apricot",close={},activity={activity=true})
-		} } }
+		compose.setContent { MaterialTheme(colorScheme = paperclipColors(true)) {
+			androidx.compose.material3.ModalBottomSheet(onDismissRequest={}, containerColor=MaterialTheme.colorScheme.background,
+				sheetState=androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded=true)) {
+				JarsSendPage(client,JoinBlaketAuthorization("fixture.jmdat","synthetic-token"),0,"Apricot",close={},activity={activity=true})
+			}
+		} }
 		compose.onNodeWithTag("jars-send-coinjoin").performScrollTo().performClick()
-		compose.onNodeWithText("Review payment").performScrollTo().assertIsNotEnabled()
+		compose.onNodeWithText("Review payment").performScrollTo().assertIsEnabled()
 		assertTrue(paths.isEmpty())
-		compose.onNodeWithTag("jars-send-coinjoin").performScrollTo().performClick()
 		compose.onNodeWithText("XBT address").performScrollTo().performTextInput("bcrt1qsyntheticrecipient")
 		compose.onNodeWithText("Amount (sats)").performScrollTo().performTextInput("20000")
 		compose.onNodeWithText("Review payment").performScrollTo().performClick()
 		compose.waitUntil(10000) { compose.onAllNodesWithText("Send payment").fetchSemanticsNodes().isNotEmpty() }
-		compose.onNodeWithText("Direct · no CoinJoin").assertExists()
-		capture("android-jar-send-review")
+		compose.onNodeWithText("Maker fees").assertExists(); compose.onNodeWithText("Your mining fee").assertExists()
+		compose.waitUntil(5000) {
+			InstrumentationRegistry.getInstrumentation().uiAutomation.windows.none { it.type == android.view.accessibility.AccessibilityWindowInfo.TYPE_INPUT_METHOD }
+		}
+		capture("android-jar-coinjoin-review")
 		compose.onNodeWithText("Send payment").performScrollTo().performClick()
 		compose.waitUntil(10000) { compose.onAllNodesWithText("Synthetic lost commit").fetchSemanticsNodes().isNotEmpty() }
 		compose.onNodeWithText("View payment activity").performScrollTo().performClick()

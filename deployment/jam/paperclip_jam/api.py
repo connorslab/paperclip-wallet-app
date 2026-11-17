@@ -33,11 +33,14 @@ class Prepare(BaseModel):
     max_fee_sat: Sats
     max_total_sat: Sats
     rbf: bool
+    coinjoin: bool = False
     input_utxos: Annotated[list[Outpoint], Field(min_length=1, max_length=200)] | None = None
     bond_locktime: Annotated[int, Field(ge=1_577_836_800, le=4_099_766_400)] | None = None
 
     @model_validator(mode='after')
     def consistent(self):
+        if self.coinjoin and (self.purpose != 'send' or self.send_max or self.rbf or self.input_utxos or self.bond_locktime is not None):
+            raise ValueError('CoinJoin requires a fixed-amount send without RBF or selected bond inputs')
         if self.send_max != (self.amount_sat == 0):
             raise ValueError('Send max requires zero amount; fixed sends require a positive amount')
         if self.max_fee_sat == 0 or self.max_total_sat <= self.max_fee_sat or self.amount_sat > self.max_total_sat:
@@ -105,9 +108,9 @@ def install(app, state):
     async def conflict(_request, error):
         return JSONResponse(status_code=409, content={'message': str(error)})
 
-    async def bounded(operation):
+    async def bounded(operation, seconds=120):
         try:
-            async with asyncio.timeout(120):
+            async with asyncio.timeout(seconds):
                 return await operation
         except PaymentConflict:
             raise
@@ -121,8 +124,8 @@ def install(app, state):
 
     @router.get('/paperclip/capabilities')
     async def capabilities():
-        return {'version': 1, 'reviewed_direct_send': True, 'bond_funding': True,
-                'bond_withdrawal': True, 'coinjoin_payments': False}
+        return {'version': 2, 'reviewed_direct_send': True, 'bond_funding': True,
+                'bond_withdrawal': True, 'coinjoin_payments': True}
 
     @router.get('/paperclip/market/{amount}')
     async def market(amount: Annotated[int, Field(ge=27_300, le=2_100_000_000_000_000)]):
@@ -148,7 +151,7 @@ def install(app, state):
 
     @router.post('/wallet/{walletname}/paperclip/payments')
     async def prepare(request: Request, walletname: str, body: Prepare):
-        return await bounded(service.prepare(adapter(request, walletname), body.id, body.model_dump(exclude={'id'})))
+        return await bounded(service.prepare(adapter(request, walletname), body.id, body.model_dump(exclude={'id'})), seconds=180 if body.coinjoin else 120)
 
     @router.post('/wallet/{walletname}/paperclip/payments/{identifier}/commit')
     async def commit(request: Request, walletname: str, identifier: Identifier, body: Commit):

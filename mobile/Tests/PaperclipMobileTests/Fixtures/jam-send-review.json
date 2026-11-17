@@ -412,5 +412,305 @@
         "total_sat": 20200
       }
     }
+  },
+  {
+    "name": "reviewed CoinJoin",
+    "valid": true,
+    "coinjoin": true,
+    "review": {
+      "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "state": "prepared",
+      "expires": 2000000300,
+      "approval": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "quote": {
+        "wallet": "fixture.jmdat",
+        "wallet_identity": "xbt-regtest:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "network": "xbt-regtest",
+        "rbf": false,
+        "jar": 0,
+        "purpose": "send",
+        "destination": "bcrt1qsyntheticrecipient",
+        "txid": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "amount_sat": 20000,
+        "fee_sat": 200,
+        "total_sat": 20200,
+        "coinjoin": true,
+        "maker_fee_sat": 100,
+        "mining_fee_sat": 100,
+        "network_fee_sat": 150,
+        "maker_count": 2,
+        "broadcast_policy": "self"
+      }
+    }
+  },
+  {
+    "name": "CoinJoin silently downgraded",
+    "valid": false,
+    "coinjoin": true,
+    "review": {
+      "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "state": "prepared",
+      "expires": 2000000300,
+      "approval": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "quote": {
+        "wallet": "fixture.jmdat",
+        "wallet_identity": "xbt-regtest:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "network": "xbt-regtest",
+        "rbf": false,
+        "jar": 0,
+        "purpose": "send",
+        "destination": "bcrt1qsyntheticrecipient",
+        "txid": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "amount_sat": 20000,
+        "fee_sat": 200,
+        "total_sat": 20200,
+        "coinjoin": false,
+        "maker_fee_sat": 100,
+        "mining_fee_sat": 100,
+        "network_fee_sat": 150,
+        "maker_count": 2,
+        "broadcast_policy": "self"
+      }
+    }
+  },
+  {
+    "name": "CoinJoin RBF mismatch",
+    "valid": false,
+    "coinjoin": true,
+    "review": {
+      "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "state": "prepared",
+      "expires": 2000000300,
+      "approval": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "quote": {
+        "wallet": "fixture.jmdat",
+        "wallet_identity": "xbt-regtest:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "network": "xbt-regtest",
+        "rbf": true,
+        "jar": 0,
+        "purpose": "send",
+        "destination": "bcrt1qsyntheticrecipient",
+        "txid": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "amount_sat": 20000,
+        "fee_sat": 200,
+        "total_sat": 20200,
+        "coinjoin": true,
+        "maker_fee_sat": 100,
+        "mining_fee_sat": 100,
+        "network_fee_sat": 150,
+        "maker_count": 2,
+        "broadcast_policy": "self"
+      }
+    }
+  },
+  {
+    "name": "CoinJoin fees changed",
+    "valid": false,
+    "coinjoin": true,
+    "review": {
+      "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "state": "prepared",
+      "expires": 2000000300,
+      "approval": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "quote": {
+        "wallet": "fixture.jmdat",
+        "wallet_identity": "xbt-regtest:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "network": "xbt-regtest",
+        "rbf": false,
+        "jar": 0,
+        "purpose": "send",
+        "destination": "bcrt1qsyntheticrecipient",
+        "txid": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "amount_sat": 20000,
+        "fee_sat": 200,
+        "total_sat": 20200,
+        "coinjoin": true,
+        "maker_fee_sat": 101,
+        "mining_fee_sat": 100,
+        "network_fee_sat": 150,
+        "maker_count": 2,
+        "broadcast_policy": "self"
+      }
+    }
+  },
+  {
+    "name": "CoinJoin fees missing",
+    "valid": false,
+    "coinjoin": true,
+    "review": {
+      "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "state": "prepared",
+      "expires": 2000000300,
+      "approval": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "quote": {
+        "wallet": "fixture.jmdat",
+        "wallet_identity": "xbt-regtest:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "network": "xbt-regtest",
+        "rbf": false,
+        "jar": 0,
+        "purpose": "send",
+        "destination": "bcrt1qsyntheticrecipient",
+        "txid": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "amount_sat": 20000,
+        "fee_sat": 200,
+        "total_sat": 20200,
+        "coinjoin": true,
+        "maker_fee_sat": 100,
+        "mining_fee_sat": null,
+        "network_fee_sat": 150,
+        "maker_count": 2,
+        "broadcast_policy": "self"
+      }
+    }
+  },
+  {
+    "name": "CoinJoin mining share exceeds network",
+    "valid": false,
+    "coinjoin": true,
+    "review": {
+      "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "state": "prepared",
+      "expires": 2000000300,
+      "approval": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "quote": {
+        "wallet": "fixture.jmdat",
+        "wallet_identity": "xbt-regtest:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "network": "xbt-regtest",
+        "rbf": false,
+        "jar": 0,
+        "purpose": "send",
+        "destination": "bcrt1qsyntheticrecipient",
+        "txid": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "amount_sat": 20000,
+        "fee_sat": 200,
+        "total_sat": 20200,
+        "coinjoin": true,
+        "maker_fee_sat": 100,
+        "mining_fee_sat": 100,
+        "network_fee_sat": 99,
+        "maker_count": 2,
+        "broadcast_policy": "self"
+      }
+    }
+  },
+  {
+    "name": "CoinJoin missing participants",
+    "valid": false,
+    "coinjoin": true,
+    "review": {
+      "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "state": "prepared",
+      "expires": 2000000300,
+      "approval": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "quote": {
+        "wallet": "fixture.jmdat",
+        "wallet_identity": "xbt-regtest:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "network": "xbt-regtest",
+        "rbf": false,
+        "jar": 0,
+        "purpose": "send",
+        "destination": "bcrt1qsyntheticrecipient",
+        "txid": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "amount_sat": 20000,
+        "fee_sat": 200,
+        "total_sat": 20200,
+        "coinjoin": true,
+        "maker_fee_sat": 100,
+        "mining_fee_sat": 100,
+        "network_fee_sat": 150,
+        "maker_count": 1,
+        "broadcast_policy": "self"
+      }
+    }
+  },
+  {
+    "name": "CoinJoin fractional participants",
+    "valid": false,
+    "coinjoin": true,
+    "review": {
+      "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "state": "prepared",
+      "expires": 2000000300,
+      "approval": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "quote": {
+        "wallet": "fixture.jmdat",
+        "wallet_identity": "xbt-regtest:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "network": "xbt-regtest",
+        "rbf": false,
+        "jar": 0,
+        "purpose": "send",
+        "destination": "bcrt1qsyntheticrecipient",
+        "txid": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "amount_sat": 20000,
+        "fee_sat": 200,
+        "total_sat": 20200,
+        "coinjoin": true,
+        "maker_fee_sat": 100,
+        "mining_fee_sat": 100,
+        "network_fee_sat": 150,
+        "maker_count": 2.5,
+        "broadcast_policy": "self"
+      }
+    }
+  },
+  {
+    "name": "CoinJoin changed broadcast policy",
+    "valid": false,
+    "coinjoin": true,
+    "review": {
+      "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "state": "prepared",
+      "expires": 2000000300,
+      "approval": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "quote": {
+        "wallet": "fixture.jmdat",
+        "wallet_identity": "xbt-regtest:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "network": "xbt-regtest",
+        "rbf": false,
+        "jar": 0,
+        "purpose": "send",
+        "destination": "bcrt1qsyntheticrecipient",
+        "txid": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "amount_sat": 20000,
+        "fee_sat": 200,
+        "total_sat": 20200,
+        "coinjoin": true,
+        "maker_fee_sat": 100,
+        "mining_fee_sat": 100,
+        "network_fee_sat": 150,
+        "maker_count": 2,
+        "broadcast_policy": "peer"
+      }
+    }
+  },
+  {
+    "name": "direct silently upgraded",
+    "valid": false,
+    "coinjoin": false,
+    "review": {
+      "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "state": "prepared",
+      "expires": 2000000300,
+      "approval": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "quote": {
+        "wallet": "fixture.jmdat",
+        "wallet_identity": "xbt-regtest:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "network": "xbt-regtest",
+        "rbf": false,
+        "jar": 0,
+        "purpose": "send",
+        "destination": "bcrt1qsyntheticrecipient",
+        "txid": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "amount_sat": 20000,
+        "fee_sat": 200,
+        "total_sat": 20200,
+        "coinjoin": true,
+        "maker_fee_sat": 100,
+        "mining_fee_sat": 100,
+        "network_fee_sat": 150,
+        "maker_count": 2,
+        "broadcast_policy": "self"
+      }
+    }
   }
 ]

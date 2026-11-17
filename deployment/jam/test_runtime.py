@@ -64,6 +64,19 @@ class RuntimeTest(unittest.TestCase):
             'max_fee_sat': 1000, 'max_total_sat': 21_000, 'rbf': False,
             'input_utxos': [self.coin.outpoint]}
 
+    def test_coinjoin_capability_and_request_constraints(self):
+        features = self.client.get('/api/v1/paperclip/capabilities').json()
+        self.assertEqual(features['version'],2)
+        self.assertTrue(features['coinjoin_payments'])
+        # Invalid choices fail before the network-facing negotiation can start.
+        with patch('paperclip_jam.adapter.coinjoin.prepare', AsyncMock()) as prepare:
+            for extra in ({'rbf':True}, {'input_utxos':[self.coin.outpoint]}, {'amount_sat':0,'send_max':True}):
+                body={**self.body,'coinjoin':True,'input_utxos':None,**extra}
+                response=self.client.post(self.base,json=body)
+                self.assertEqual(response.status_code,422)
+            prepare.assert_not_awaited()
+        self.backend.broadcast_transaction.assert_not_awaited()
+
     def tearDown(self):
         self.backend_patch.stop()
         self.client.close()

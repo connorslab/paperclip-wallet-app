@@ -1,7 +1,7 @@
 # Paperclip's bundled Jam runtime
 
 This companion extends Kilombino's JoinBlaket runtime. It is not yet a release
-package. Installed host wiring, mobile pairing acceptance, client payment flows, CoinJoin payments,
+package. Installed host wiring, mobile pairing acceptance, live payment acceptance,
 backup/restore and installed-package acceptance remain release blockers.
 
 The base is `ghcr.io/kilombino/jam-xbt:0.43.0-xbt7`, pinned in `Dockerfile` to its
@@ -61,11 +61,17 @@ confirmation. The companion atomically refuses cancellation once submission
 starts. A lost reply must be checked, not automatically retried. Existing
 management-only phone pairings cannot cancel; they direct the user to the host.
 Owner desktop and independently authorized mobile connections can now prepare
-and commit fixed-amount direct sends through this contract. They bind the wallet
+and commit fixed-amount direct or CoinJoin sends through this contract. They bind the wallet
 identity, recipient, jar, amount, maximum fee, approval and expiry. An interrupted
-commit opens recovery rather than a retry. Client CoinJoin toggles currently
-refuse preparation explicitly; no direct-send fallback exists. Reviewed CoinJoin,
-bond funding/withdrawal and payment-capable mobile pairing remain unfinished.
+commit opens recovery rather than a retry. The CoinJoin toggle requires companion
+capability version 2. Its pinned taker callback always refuses automatic broadcast;
+the exact signed transaction is journaled for separate review/commit. The review
+includes maker fees, the owner's mining share, total debit and maker count.
+Broadcast uses the owner's Jam node and is non-RBF. No direct-send fallback exists.
+Commit rechecks every prevout and the original owner-qualified input leases;
+cancelling a signed review can leave coins reserved until the upstream safety
+window ends. Live CoinJoin settlement, bond funding/withdrawal client flows and
+payment-capable mobile pairing remain release gates.
 
 The shared owner UI now creates separate Jam wallets and guides password-verified
 recovery-word backup. Creation responses expose only wallet authorization, not

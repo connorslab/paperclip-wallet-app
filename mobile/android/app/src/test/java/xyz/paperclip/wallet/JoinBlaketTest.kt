@@ -16,7 +16,7 @@ class JoinBlaketTest {
 		val cases = org.json.JSONArray(checkNotNull(javaClass.getResourceAsStream("/jam-send-review.json")).bufferedReader().use { it.readText() })
 		for (index in 0 until cases.length()) {
 			val item = cases.getJSONObject(index)
-			val result = runCatching { JoinBlaketSendReview.parse(item.getJSONObject("review"),"fixture.jmdat").validate(draft,"fixture.jmdat","xbt-regtest:"+"c".repeat(64),2000000000) }
+			val result = runCatching { JoinBlaketSendReview.parse(item.getJSONObject("review"),"fixture.jmdat").validate(draft.copy(coinjoin=item.optBoolean("coinjoin",false)),"fixture.jmdat","xbt-regtest:"+"c".repeat(64),2000000000) }
 			assertEquals(item.getString("name"),item.getBoolean("valid"),result.isSuccess)
 		}
 		assertThrows(IllegalArgumentException::class.java) { JoinBlaketSendDraft(0,draft.destination,Long.MAX_VALUE,1000,1) }
@@ -39,6 +39,38 @@ class JoinBlaketTest {
 		}.build()
 		val c = JoinBlaketClient(JoinBlaketConnection("https://jam.example.invalid"),http)
 		val review = c.prepareSend(draft,auth)
+		identity = "xbt-regtest:"+"e".repeat(64)
+		assertTrue(runCatching { c.commitSend(review,draft,auth) }.isFailure); assertEquals(0,commits)
+		identity = review.walletIdentity; lost = true
+		assertTrue(runCatching { c.commitSend(review,draft,auth) }.isFailure)
+		assertEquals("unknown",c.commitSend(review,draft,auth).state); assertEquals(1,commits)
+	}
+	@Test fun coinJoinSendBindsReviewAndNeverRepeatsLostCommit() = runBlocking {
+		val auth = JoinBlaketAuthorization("fixture.jmdat","synthetic-token")
+		val draft = JoinBlaketSendDraft(0,"bcrt1qsyntheticrecipient",20000,1000,500,"a".repeat(64),coinjoin=true)
+		val cases = org.json.JSONArray(checkNotNull(javaClass.getResourceAsStream("/jam-send-review.json")).bufferedReader().use { it.readText() })
+		val saved = (0 until cases.length()).map { cases.getJSONObject(it) }.first { it.getString("name") == "reviewed CoinJoin" }.getJSONObject("review").put("expires",java.time.Instant.now().epochSecond+200)
+		var supported = false; var prepares = 0
+		var identity = "xbt-regtest:"+"c".repeat(64); var lost = false; var commits = 0
+		val http = OkHttpClient.Builder().addInterceptor { chain ->
+			val path = chain.request().url.encodedPath
+			if (path.endsWith("/payments") && chain.request().method == "POST") {
+				prepares++; val buffer = okio.Buffer(); chain.request().body!!.writeTo(buffer)
+				val body = JSONObject(buffer.readUtf8()); check(body.getBoolean("coinjoin") && !body.getBoolean("rbf"))
+			}
+			val result = when {
+				path.endsWith("/identity") -> JSONObject().put("wallet",auth.wallet).put("identity",identity)
+				path.endsWith("/capabilities") -> JSONObject().put("version",if(supported) 2 else 1).put("reviewed_direct_send",true).put("coinjoin_payments",supported)
+				else -> saved
+			}
+			if (path.endsWith("/commit")) { commits++; saved.put("state","unknown"); if (lost) throw SocketTimeoutException("Synthetic lost response") }
+			Response.Builder().request(chain.request()).protocol(Protocol.HTTP_1_1).code(200).message("OK").body(result.toString().toResponseBody()).build()
+		}.build()
+		val c = JoinBlaketClient(JoinBlaketConnection("https://jam.example.invalid"),http)
+		assertTrue(runCatching { c.prepareSend(draft,auth) }.isFailure); assertEquals(0,prepares)
+		supported = true
+		val review = c.prepareSend(draft,auth)
+		assertEquals(1,prepares)
 		identity = "xbt-regtest:"+"e".repeat(64)
 		assertTrue(runCatching { c.commitSend(review,draft,auth) }.isFailure); assertEquals(0,commits)
 		identity = review.walletIdentity; lost = true

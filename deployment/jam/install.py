@@ -8,6 +8,9 @@ MARKER = '    app.include_router(wallet_router, prefix="/api/v1")'
 
 
 def patch(path):
+    taker = path.parent.parent / 'taker' / 'taker.py'
+    if hashlib.sha256(taker.read_bytes()).hexdigest() != '03b5f87c82bc1fe1af2e38234bceddc5d5c07bc2c0fa30b4ee423467b118a744':
+        raise ValueError('Jam CoinJoin confirmation source does not match the reviewed pinned runtime')
     original = path.read_bytes()
     if hashlib.sha256(original).hexdigest() != EXPECTED:
         raise ValueError('Jam API source does not match the reviewed pinned runtime')
