@@ -193,3 +193,28 @@ checks the compact recovery layout, and closes without creating a wallet.
 Wayland/desktop integration, real default-browser behavior on installed Linux,
 accessibility, runtime bundling, bundled Jam/Tor, signed installers and upgrades
 remain separate acceptance requirements.
+
+## Owned Jars in development previews
+
+Both preview builders accept `--jam-python /absolute/pinned-runtime/bin/python`.
+They copy the companion and native entry point into the package, and preserve the
+interpreter path so a development virtual environment remains selected. The
+launcher starts Jam in a separate `jars/` directory, verifies its loopback TLS and
+capability response, then supplies only its endpoint and public certificate to the
+wallet daemon. Inherited service overrides cannot replace that connection.
+
+The visible shells monitor both children. Normal close drains wallet requests
+before closing Jam; failure of either service retains the shared recovery marker.
+Explicit retry creates new owned children and displays the recovery warning. It
+never replays a payment. The marker is cleared only after both close cleanly.
+
+`test_managed_jam.py --python /absolute/pinned-runtime/bin/python --entry
+/absolute/source/deployment/jam/desktop-entry.py --binary /absolute/paperclip-walletd`
+checks the real owned service and the wallet's authenticated HTTPS proxy without
+creating a wallet. Omitting `--binary` runs the independent Jam ownership checks,
+as done inside the two-architecture pinned companion CI. The native Mac package
+was also opened through AppKit, queried through its authenticated wallet proxy,
+then checked for visible crash/retry and normal window-close cleanup.
+
+This development option still references an external interpreter. It does not
+stand in for a bundled runtime, Tor/RPC setup or installed signed distribution.

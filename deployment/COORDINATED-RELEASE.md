@@ -2905,3 +2905,24 @@ desktop shells do not yet automatically launch this child. Native Python/runtime
 delivery, Tor, restricted node RPC wiring, combined shell supervision and recovery,
 mobile pairing, installed backup/restore, Windows ownership, signed packages and
 live settlement remain open.
+
+## Native desktop owns Jars: 2026-11-17
+
+Companion CI `44153834552` passed on both Linux architectures at `d46cf05`.
+The Linux and macOS development shells now optionally start their packaged Jars
+entry point, verify its loopback certificate and capability response, and configure
+the wallet's existing authenticated Jars proxy. Storage remains separate. Both
+children are monitored; normal shutdown drains wallet requests before stopping
+Jam. Any child failure preserves the recovery warning through explicit retry.
+
+Seven real ownership/combined-proxy cases pass locally, alongside 15 existing
+daemon ownership cases, three active-request shutdown cases, six shell-protocol
+cases and four Linux controller cases. A native ad-hoc Mac package reached Ready,
+opened its browser, read its empty Jars wallet list through authenticated verified
+HTTPS, reported a deliberately killed QA Jam child, and displayed Review Wallet
+after explicit retry. Closing its window released both locks and cleared the
+warning. No wallet was created and no live node was contacted.
+
+The preview includes the companion scripts but still uses an explicit external
+interpreter. Standalone runtime delivery and full installed-host acceptance are
+not implied by these results.

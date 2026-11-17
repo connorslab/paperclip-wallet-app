@@ -22,8 +22,9 @@ def valid_handoff(value):
 
 class Session:
     """One worker owns the daemon; UI never waits on startup, network or shutdown."""
-    def __init__(self, binary, root):
+    def __init__(self, binary, root, jam_runtime=None):
         self.binary, self.root = binary, root
+        self.jam_runtime = jam_runtime
         self.events = queue.Queue()
         self.commands = queue.Queue(maxsize=1)
         self.stopping = threading.Event()
@@ -47,13 +48,12 @@ class Session:
         try:
             if self.stopping.is_set():
                 return
-            runner = ManagedDaemon(self.binary, self.root)
+            runner = ManagedDaemon(self.binary, self.root, jam_runtime=self.jam_runtime)
             runner.start()
             if not self.stopping.is_set():
                 self.events.put(('ready', runner.recovery_required))
             while not self.stopping.is_set():
-                if runner.process.poll() is not None:
-                    raise StartupError('Your wallet stopped unexpectedly. Open it again to recover.')
+                runner.ensure_running()
                 try:
                     command = self.commands.get(timeout=0.1)
                 except queue.Empty:
@@ -75,10 +75,11 @@ class Session:
 
 
 class Window:
-    def __init__(self, root, binary, data_root, opener=webbrowser.open):
+    def __init__(self, root, binary, data_root, opener=webbrowser.open, jam_runtime=None):
         import tkinter as tk
         from tkinter import ttk
         self.root, self.binary, self.data_root, self.opener = root, binary, data_root, opener
+        self.jam_runtime = jam_runtime
         self.session = None
         self.state = 'starting'
         self.quitting = False
@@ -132,7 +133,7 @@ class Window:
         self.action.configure(text='Open Wallet', state='disabled')
         self.progress.pack(before=self.action, fill='x', padx=65, pady=12)
         self.progress.start(12)
-        self.session = Session(self.binary, self.data_root)
+        self.session = Session(self.binary, self.data_root, self.jam_runtime)
         self.session.start()
 
     def activate(self):
@@ -217,12 +218,17 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--binary', required=True, type=Path)
     parser.add_argument('--qa-root', type=Path)
+    parser.add_argument('--jam-python', type=Path)
+    parser.add_argument('--jam-entry', type=Path)
     args = parser.parse_args()
+    if bool(args.jam_python) != bool(args.jam_entry):
+        parser.error('Supply both packaged Jars runtime paths')
     if args.qa_root is not None and not args.qa_root.is_absolute():
         parser.error('QA storage must be an absolute, isolated path.')
     import tkinter as tk
     root = tk.Tk()
-    Window(root, args.binary.resolve(strict=True), args.qa_root or default_data_root())
+    Window(root, args.binary.resolve(strict=True), args.qa_root or default_data_root(),
+           jam_runtime=(args.jam_python, args.jam_entry) if args.jam_python else None)
     root.mainloop()
 
 

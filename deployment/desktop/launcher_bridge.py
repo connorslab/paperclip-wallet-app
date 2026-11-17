@@ -20,8 +20,7 @@ def emit(event, **values):
 def commands(runner):
     pending = b''
     while True:
-        if runner.process.poll() is not None:
-            raise StartupError('The local wallet stopped unexpectedly. Open it again to recover.')
+        runner.ensure_running()
         if b'\n' in pending:
             line, pending = pending.split(b'\n', 1)
             if len(line) > 256:
@@ -43,8 +42,8 @@ def commands(runner):
         pending += chunk
 
 
-def serve(binary, root):
-    runner = ManagedDaemon(binary, root)
+def serve(binary, root, jam_runtime=None):
+    runner = ManagedDaemon(binary, root, jam_runtime=jam_runtime)
     try:
         runner.start()
         emit('ready', recovery_required=runner.recovery_required)
@@ -66,9 +65,13 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--binary', type=Path, required=True)
     parser.add_argument('--root', type=Path, required=True)
+    parser.add_argument('--jam-python', type=Path)
+    parser.add_argument('--jam-entry', type=Path)
     args = parser.parse_args()
+    if bool(args.jam_python) != bool(args.jam_entry):
+        parser.error('Supply both packaged Jars runtime paths')
     try:
-        serve(args.binary, args.root)
+        serve(args.binary, args.root, (args.jam_python, args.jam_entry) if args.jam_python else None)
     except BrokenPipeError:
         # Shell death already closes the lifetime chain; never print a traceback.
         sys.exit(1)

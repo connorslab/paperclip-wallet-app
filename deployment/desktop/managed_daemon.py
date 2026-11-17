@@ -84,10 +84,10 @@ class ManagedDaemon:
     """Own one child; never attach to, terminate or authenticate an unknown daemon.
 
     The shell must call close on normal quit. Its lifetime pipe also closes on
-    abrupt death; bundled Jam/Tor supervision and the visible shell are separate.
+    abrupt death. An explicitly supplied Jars runtime shares this lifetime.
     """
 
-    def __init__(self, binary, root, startup_timeout=30, shutdown_timeout=20):
+    def __init__(self, binary, root, startup_timeout=30, shutdown_timeout=20, jam_runtime=None):
         self.binary = Path(binary).resolve(strict=True)
         self.root = Path(root).absolute()
         self.data = self.root / 'wallet'
@@ -98,6 +98,8 @@ class ManagedDaemon:
         self.endpoint = None
         self.recovery_required = False
         self._marker_identity = None
+        self.jam_runtime = jam_runtime
+        self.jam = None
 
     def _mark_session(self):
         marker = self.root / 'session.active'
@@ -163,6 +165,10 @@ class ManagedDaemon:
             # Inherited auth, bind, node, TLS, loader and proxy overrides must not
             # alter the packaged daemon. Persisted wallet settings remain intact.
             env = {key: os.environ[key] for key in ('PATH', 'HOME', 'TMPDIR', 'LANG') if key in os.environ}
+            if self.jam_runtime is not None:
+                from managed_jam import ManagedJam
+                self.jam = ManagedJam(*self.jam_runtime, self.root / 'jars')
+                env.update(self.jam.start())
             self.process = subprocess.Popen([
                 str(self.binary), '--quiet', '--no-logfile', '--datadir', str(self.data),
                 '--host', '127.0.0.1', '--port', '0', '--exit-on-stdin-close', '--desktop-handoff',
@@ -199,6 +205,8 @@ class ManagedDaemon:
                         raise StartupError('The local daemon returned an invalid readiness response.')
                     if self.process.poll() is not None:
                         raise StartupError('The wallet service stopped during startup.')
+                    if self.jam is not None:
+                        self.jam.ensure_running()
                     self.endpoint = endpoint
                     return endpoint
                 except HTTPError as error:
@@ -216,10 +224,17 @@ class ManagedDaemon:
             self.close()
             raise
 
+    def ensure_running(self):
+        if self.endpoint is None or self.process is None or self.process.poll() is not None:
+            raise StartupError('The local wallet stopped unexpectedly. Open it again to recover.')
+        if self.jam is not None:
+            self.jam.ensure_running()
+
     def browser_url(self):
         """Return an expiring, single-use URL; caller must not log or persist it."""
         if self.endpoint is None or self.process is None or self.process.poll() is not None:
             raise StartupError('Open the desktop wallet before opening its browser window.')
+        self.ensure_running()
         try:
             with private_file(self.data / 'auth_token') as credential:
                 token = credential.read(128).decode('ascii').strip()
@@ -243,15 +258,21 @@ class ManagedDaemon:
     def close(self):
         was_running = self.process is not None and self.process.poll() is None
         try:
-            if self.process is not None and self.process.stdin is not None:
-                self.process.stdin.close()
-            if self.process is not None and self.process.poll() is None:
-                try:
-                    self.process.wait(timeout=self.shutdown_timeout)
-                except subprocess.TimeoutExpired:
-                    self.process.kill()
-                    self.process.wait(timeout=5)
-                    raise StartupError('The wallet service required forced shutdown; check recovery on next launch.') from None
+            try:
+                if self.process is not None and self.process.stdin is not None:
+                    self.process.stdin.close()
+                if self.process is not None and self.process.poll() is None:
+                    try:
+                        self.process.wait(timeout=self.shutdown_timeout)
+                    except subprocess.TimeoutExpired:
+                        self.process.kill()
+                        self.process.wait(timeout=5)
+                        raise StartupError('The wallet service required forced shutdown; check recovery on next launch.') from None
+            finally:
+                # Stop accepting wallet requests and drain them before closing Jam.
+                # Never clear the shared recovery marker if either child failed.
+                if self.jam is not None:
+                    self.jam.close()
             if was_running and self.endpoint is not None and self.process.returncode == 0:
                 self._clear_session()
         finally:

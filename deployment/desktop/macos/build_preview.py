@@ -14,7 +14,7 @@ import sys
 import tempfile
 
 
-def build(binary, python, output):
+def build(binary, python, output, jam_python=None):
     if sys.platform != 'darwin':
         raise RuntimeError('Build this preview with native Apple tools on macOS.')
     if output.exists() or output.is_symlink():
@@ -36,9 +36,17 @@ def build(binary, python, output):
         subprocess.run(['xcrun', 'swiftc', '-swift-version', '5', '-target', architecture + '-apple-macosx13.0',
             '-framework', 'AppKit', str(source / 'Launcher.swift'), '-o', str(executable / 'PaperclipLauncher')], check=True)
         shutil.copy2(binary, executable / 'paperclip-walletd')
-        for name in ('launcher_entry.py', 'launcher_bridge.py', 'managed_daemon.py'):
+        for name in ('launcher_entry.py', 'launcher_bridge.py', 'managed_daemon.py', 'managed_jam.py'):
             shutil.copy2(source.parent / name, resources / name)
-        (resources / 'runtime.json').write_text(json.dumps({'pythonExecutable':str(python)}))
+        configuration = {'pythonExecutable':str(python)}
+        if jam_python is not None:
+            if not jam_python.is_file():
+                raise RuntimeError('Supply the pinned Jars runtime interpreter.')
+            jam = resources / 'jam-runtime'; jam.mkdir()
+            shutil.copy2(source.parent.parent / 'jam' / 'desktop-entry.py', jam)
+            shutil.copytree(source.parent.parent / 'jam' / 'paperclip_jam', jam / 'paperclip_jam', ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
+            configuration['jamPythonExecutable'] = str(jam_python)
+        (resources / 'runtime.json').write_text(json.dumps(configuration))
         with (contents / 'Info.plist').open('wb') as file:
             plistlib.dump({
                 'CFBundleName':'Paperclip Preview', 'CFBundleDisplayName':'Paperclip Preview',
@@ -59,5 +67,6 @@ if __name__ == '__main__':
     parser.add_argument('--binary', type=Path, required=True)
     parser.add_argument('--python', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
+    parser.add_argument('--jam-python', type=Path)
     args = parser.parse_args()
-    build(args.binary.resolve(strict=True), args.python.resolve(strict=True), args.output.absolute())
+    build(args.binary.resolve(strict=True), args.python.resolve(strict=True), args.output.absolute(), args.jam_python.absolute() if args.jam_python else None)

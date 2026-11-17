@@ -4,6 +4,7 @@ import Darwin
 
 private struct RuntimeConfiguration: Decodable {
 	let pythonExecutable: String
+	let jamPythonExecutable: String?
 }
 
 private struct BridgeEvent: Decodable {
@@ -108,6 +109,9 @@ final class Launcher: NSObject, NSApplicationDelegate {
 			process.executableURL = URL(fileURLWithPath: configuration.pythonExecutable)
 			process.arguments = ["-I", resources.appendingPathComponent("launcher_entry.py").path,
 				"--binary", executables.appendingPathComponent("paperclip-walletd").path, "--root", root.path]
+			if let jamPython = configuration.jamPythonExecutable {
+				process.arguments! += ["--jam-python", jamPython, "--jam-entry", resources.appendingPathComponent("jam-runtime/desktop-entry.py").path]
+			}
 			process.environment = ProcessInfo.processInfo.environment.filter { ["PATH", "HOME", "TMPDIR", "LANG"].contains($0.key) }
 			process.standardInput = incoming
 			process.standardOutput = outgoing
