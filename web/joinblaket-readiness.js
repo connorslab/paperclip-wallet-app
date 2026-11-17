@@ -32,19 +32,21 @@ const PaperclipMakerReadiness = {
 
 const PaperclipJarSend = {
   id: value => typeof value === 'string' && /^[0-9a-f]{64}$/.test(value),
-  terms(jar, destination, amount, rate, limit, coinjoin = false) {
+  terms(jar, destination, amount, rate, limit, coinjoin = false, bondLocktime = null) {
+    if (bondLocktime !== null && (coinjoin || !Number.isSafeInteger(bondLocktime) || bondLocktime <= Date.now()/1000 || bondLocktime > 4099766400)) throw new Error('Review the future bond unlock date. Bond funding cannot use CoinJoin.');
     if (typeof coinjoin !== 'boolean') throw new Error('Choose a payment type.');
     if (![amount,rate,limit].every(v=>/^\d+$/.test(v))) throw new Error('Use whole sats and a whole sat/vB rate.');
     const n=Number(amount), r=Number(rate), fee=Number(limit);
     if (!Number.isInteger(jar) || jar<0 || jar>4 || !/^[A-Za-z0-9]{14,90}$/.test(destination) ||
         ![n,r,fee,n+fee].every(Number.isSafeInteger) || n<=0 || fee<=0 || n+fee>2100000000000000 || r<1 || r>10000)
       throw new Error('Review the jar, XBT address, amount and mining fee limit.');
-    return {jar,destination,amount_sat:n,fee_rate_millisat_vb:r*1000,max_fee_sat:fee,coinjoin};
+    return {jar,destination,amount_sat:n,fee_rate_millisat_vb:r*1000,max_fee_sat:fee,coinjoin,...(bondLocktime === null ? {} : {bond_locktime:bondLocktime})};
   },
   validate(row, id, wallet, terms, now = Math.floor(Date.now()/1000)) {
     const q=row?.quote;
+    if (terms.bond_locktime != null && (terms.coinjoin || terms.bond_locktime <= now)) throw new Error('Bond unlock date passed. Create a new review.');
     if (!this.id(id) || row?.id!==id || row.state!=='prepared' || !this.id(row.approval) || !Number.isSafeInteger(row.expires) || row.expires<=now || row.expires>now+300 ||
-        !q || q.wallet!==wallet || q.jar!==terms.jar || q.purpose!=='send' || q.destination!==terms.destination || q.amount_sat!==terms.amount_sat ||
+        !q || q.wallet!==wallet || q.jar!==terms.jar || q.purpose!==(terms.bond_locktime == null ? 'send' : 'fund_bond') || (q.bond_locktime??null)!==(terms.bond_locktime??null) || q.destination!==terms.destination || q.amount_sat!==terms.amount_sat ||
         ![q.amount_sat,q.fee_sat,q.total_sat].every(v=>Number.isSafeInteger(v)&&v>=0&&v<=2100000000000000) ||
         q.fee_sat>terms.max_fee_sat || q.amount_sat+q.fee_sat!==q.total_sat || !this.id(q.txid) || q.rbf!==!Boolean(terms.coinjoin) || (q.coinjoin??false)!==(terms.coinjoin??false) ||
         !['xbt-mainnet','xbt-testnet','xbt-signet','xbt-regtest'].includes(q.network) ||

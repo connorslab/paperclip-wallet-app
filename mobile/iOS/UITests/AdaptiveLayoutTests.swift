@@ -172,6 +172,25 @@ final class AdaptiveLayoutTests: XCTestCase {
 		XCTAssertTrue(app.navigationBars[title].waitForExistence(timeout: 5))
 	}
 
+	func testBondFundingKeepsRegisteredAddressAndDateFixed() {
+		let app = XCUIApplication()
+		app.launchArguments = ["-build61-preview", "-joinblaket-preview", "-jam-bond-funding-preview", "-appearance", "dark"]
+		app.launch()
+		XCTAssertTrue(app.navigationBars["Jars"].waitForExistence(timeout: 15))
+		openJarsTool(app, "bond", "Fidelity bond")
+		let fund = app.buttons["Fund from Apricot"]
+		for _ in 0..<8 { if fund.isHittable { break }; app.scrollViews.firstMatch.swipeUp() }
+		XCTAssertTrue(fund.isHittable); fund.tap()
+		XCTAssertTrue(app.buttons["Review payment"].waitForExistence(timeout: 5))
+		XCTAssertTrue(app.staticTexts["bcrt1qsyntheticrecipient"].exists)
+		XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "Unlocks 2099-12-01 at 00:00 UTC")).firstMatch.exists)
+		XCTAssertFalse(app.textFields["XBT address"].exists)
+		XCTAssertFalse(app.switches["jars-send-coinjoin"].exists)
+		XCTAssertFalse(app.buttons["Review payment"].isEnabled)
+		capture(app, "Bond funding fixed terms")
+		app.buttons["Close"].tap()
+		XCTAssertFalse(app.buttons["Review payment"].exists)
+	}
 	func testBondSetupKeepsLockDateAndNoFundingExplanationVisible() {
 		continueAfterFailure = false
 		defer { XCUIDevice.shared.orientation = .portrait }

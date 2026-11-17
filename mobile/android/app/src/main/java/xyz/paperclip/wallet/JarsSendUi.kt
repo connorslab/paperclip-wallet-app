@@ -16,7 +16,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
 @Composable internal fun JarsSendPage(client: JoinBlaketClient, auth: JoinBlaketAuthorization, jar: Int, name: String,
-	close: () -> Unit, activity: () -> Unit) {
+	close: () -> Unit, activity: () -> Unit, bond: Pair<String, String>? = null) {
 	var destination by remember { mutableStateOf("") }; var amount by remember { mutableStateOf("") }
 	var rate by remember { mutableStateOf("1") }; var feeLimit by remember { mutableStateOf("1000") }
 	var coinjoin by remember { mutableStateOf(false) }; var busy by remember { mutableStateOf(false) }
@@ -43,7 +43,7 @@ import kotlinx.coroutines.launch
 	}
 	Column(Modifier.fillMaxHeight(0.94f).fillMaxWidth().padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
 		Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-			Text("Jar payment", style = MaterialTheme.typography.headlineSmall)
+			Text(if(bond == null) "Jar payment" else "Fund fidelity bond", style = MaterialTheme.typography.headlineSmall)
 			TextButton(onClick = close) { Text("Close") }
 		}
 		Column(Modifier.weight(1f).verticalScroll(scroll).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -52,8 +52,8 @@ import kotlinx.coroutines.launch
 					val saved = review; val terms = draft; val receipt = result
 					when {
 						saved != null && terms != null && receipt == null -> {
-							Text("Review jar payment", style = MaterialTheme.typography.titleLarge)
-							ReviewAmountHero(sats(terms.amountSat), name, if (terms.coinjoin) "CoinJoin" else "Direct · no CoinJoin")
+							Text(if(terms.bondLocktime == null) "Review jar payment" else "Review bond funding", style = MaterialTheme.typography.titleLarge)
+							ReviewAmountHero(sats(terms.amountSat), name, if (terms.bondLocktime != null) "Amount to lock" else if (terms.coinjoin) "CoinJoin" else "Direct · no CoinJoin")
 							val q = checkNotNull(saved.payment.quote)
 							if (terms.coinjoin) {
 								ReviewDetailRow("Maker fees", sats(checkNotNull(q.makerFeeSat)))
@@ -62,10 +62,14 @@ import kotlinx.coroutines.launch
 								Text("CoinJoin does not use RBF. Discarding a review may leave coins reserved briefly.", style = MaterialTheme.typography.bodySmall)
 							} else ReviewDetailRow("Mining fee", sats(q.feeSat))
 							ReviewDetailRow("Total debit", sats(q.totalSat), emphasized = true)
+							if (terms.bondLocktime != null) {
+								ReviewDetailRow("Bond unlock date",q.bondUnlockDescription)
+								Text("These coins cannot be spent before the unlock date. Bond funding is public; earnings are not guaranteed.",style=MaterialTheme.typography.bodySmall)
+							}
 							Text(terms.destination, style = MaterialTheme.typography.bodySmall)
 							Text("Wallet: ${auth.wallet}", style = MaterialTheme.typography.bodySmall)
 							Text("Review expires " + java.time.Instant.ofEpochSecond(saved.expires).atZone(java.time.ZoneId.systemDefault()).toLocalTime().withNano(0), style = MaterialTheme.typography.bodySmall)
-							WalletPrimaryButton(enabled = !busy, modifier = Modifier.fillMaxWidth(), onClick = { run { submitting = true; review = null; result = client.commitSend(saved,terms,auth) } }) { Text("Send payment") }
+							WalletPrimaryButton(enabled = !busy, modifier = Modifier.fillMaxWidth(), onClick = { run { submitting = true; review = null; result = client.commitSend(saved,terms,auth) } }) { Text(if (terms.bondLocktime == null) "Send payment" else "Fund bond") }
 							TextButton(enabled = !busy, onClick = { run { client.discardPayment(terms.id,auth); review = null; draft = null; attempted = false } }) { Text("Discard unsent review") }
 						}
 						receipt != null -> {
@@ -83,16 +87,19 @@ import kotlinx.coroutines.launch
 							WalletPrimaryButton(enabled = !busy, onClick = activity, modifier = Modifier.fillMaxWidth()) { Text("View payment activity") }
 						}
 						else -> {
-							Text("Send from $name", style = MaterialTheme.typography.titleLarge)
-							OutlinedTextField(destination, { destination = it }, label = { Text("XBT address") }, modifier = Modifier.fillMaxWidth(), enabled = !busy)
+							Text("${if(bond == null) "Send" else "Fund"} from $name", style = MaterialTheme.typography.titleLarge)
+							if (bond != null) {
+								Text("Unlocks ${bond.second}-01 at 00:00 UTC. Back up your Jam wallet first; these coins will be locked.")
+								Text(bond.first,style=MaterialTheme.typography.bodySmall)
+							} else OutlinedTextField(destination, { destination = it }, label = { Text("XBT address") }, modifier = Modifier.fillMaxWidth(), enabled = !busy)
 							OutlinedTextField(amount, { amount = it }, label = { Text("Amount (sats)") }, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), enabled = !busy)
-							Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { Text("CoinJoin"); Switch(coinjoin, { coinjoin = it }, enabled = !busy, modifier = Modifier.testTag("jars-send-coinjoin")) }
-							Text(if (coinjoin) "Pay with other participants. Review maker and mining fees before sending. If CoinJoin is unavailable, no direct payment is made." else "Direct payment. This transaction will not use CoinJoin.", style = MaterialTheme.typography.bodySmall)
+							if (bond == null) { Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { Text("CoinJoin"); Switch(coinjoin, { coinjoin = it }, enabled = !busy, modifier = Modifier.testTag("jars-send-coinjoin")) }
+							Text(if (coinjoin) "Pay with other participants. Review maker and mining fees before sending. If CoinJoin is unavailable, no direct payment is made." else "Direct payment. This transaction will not use CoinJoin.", style = MaterialTheme.typography.bodySmall) }
 							OutlinedTextField(rate, { rate = it }, label = { Text("Mining rate (sat/vB)") }, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), enabled = !busy)
 							OutlinedTextField(feeLimit, { feeLimit = it }, label = { Text("Maximum total fees (sats)") }, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), enabled = !busy)
 							WalletPrimaryButton(enabled = !busy, modifier = Modifier.fillMaxWidth(), onClick = { run {
 								val feeRate = rate.toLong(); require(feeRate in 1..10000)
-								val value = JoinBlaketSendDraft(jar,destination.trim(),amount.toLong(),feeRate*1000,feeLimit.toLong(), coinjoin = coinjoin)
+								val value = JoinBlaketSendDraft(jar,bond?.first ?: destination.trim(),amount.toLong(),feeRate*1000,feeLimit.toLong(), coinjoin = coinjoin, bondLocktime = bond?.let { JoinBlaketBond.locktime(it.second) })
 								submitting = false; draft = value; attempted = true; review = client.prepareSend(value,auth)
 							} }) { Text("Review payment") }
 						}

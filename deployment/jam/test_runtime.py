@@ -7,6 +7,7 @@ import asyncio
 from datetime import datetime, timezone
 from pathlib import Path
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest.mock import AsyncMock, patch
 
@@ -320,6 +321,23 @@ class RuntimeTest(unittest.TestCase):
             if output.script == script_to_p2wsh_scriptpubkey(script)]
         self.assertEqual(len(outputs), 1)
         self.assertEqual(outputs[0].value, self.body['amount_sat'])
+
+    def test_delegated_bond_funding_preserves_date_and_never_repeats_submission(self):
+        bond, _ = self.registered_bond()
+        delegated = self.client.post(self.base.replace('/payments', '/pairing-session'),
+            json={'scope':'jars_pay_v1'})
+        self.assertEqual(delegated.status_code,200)
+        self.client.headers['Authorization']='Bearer '+delegated.json()['token']
+        self.body.update(purpose='fund_bond',destination=bond.address,bond_locktime=bond.locktime)
+        with patch('paperclip_jam.adapter.time',SimpleNamespace(time=lambda:bond.locktime-3600)):
+            review=self.prepare()
+            self.assertEqual(review['quote']['bond_locktime'],bond.locktime)
+            self.backend.broadcast_transaction.assert_not_awaited()
+            self.backend.broadcast_transaction.side_effect=TimeoutError('Synthetic lost bond submission')
+            target=self.base+'/'+self.body['id']+'/commit'
+            self.assertEqual(self.client.post(target,json={'approval':review['approval']}).status_code,504)
+            self.assertEqual(self.client.post(target,json={'approval':review['approval']}).json()['state'],'unknown')
+            self.backend.broadcast_transaction.assert_awaited_once()
 
     def test_bond_funding_rejects_wrong_date_and_ordinary_send_bypass(self):
         bond, _ = self.registered_bond()

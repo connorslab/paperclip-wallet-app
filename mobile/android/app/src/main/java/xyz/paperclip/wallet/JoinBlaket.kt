@@ -47,11 +47,13 @@ internal class JoinBlaketPairing private constructor(val endpoint: String, val w
 			canSend && path == "paperclip/capabilities" && body == null -> fields.put("operation","payment_capabilities")
 			canSend && path == prefix + "paperclip/identity" && body == null -> fields.put("operation","identity")
 			canSend && path == prefix + "paperclip/payments" && body != null -> {
-				require(body.length() == 11 && body.get("purpose") == "send" && body.get("send_max") == false && body.get("coinjoin") is Boolean && body.get("rbf") == !body.getBoolean("coinjoin"))
-				val draft = JoinBlaketSendDraft(body.getInt("jar"),body.getString("destination"),body.getLong("amount_sat"),body.getLong("fee_rate_millisat_vb"),body.getLong("max_fee_sat"),body.getString("id"),body.getBoolean("coinjoin"))
+				val lock = if (body.isNull("bond_locktime")) null else body.get("bond_locktime").also { require(it is Long || it is Int) }.let { (it as Number).toLong() }
+				require(body.length() == (if (lock == null) 11 else 12) && body.get("purpose") == (if (lock == null) "send" else "fund_bond") && body.get("send_max") == false && body.get("coinjoin") is Boolean && body.get("rbf") == !body.getBoolean("coinjoin"))
+				val draft = JoinBlaketSendDraft(body.getInt("jar"),body.getString("destination"),body.getLong("amount_sat"),body.getLong("fee_rate_millisat_vb"),body.getLong("max_fee_sat"),body.getString("id"),body.getBoolean("coinjoin"),lock)
 				require(body.getLong("max_total_sat") == draft.amountSat + draft.maxFeeSat)
 				val terms = JSONObject()
 				for (key in listOf("jar","destination","amount_sat","fee_rate_millisat_vb","max_fee_sat","coinjoin")) terms.put(key,body.get(key))
+				lock?.let { terms.put("bond_locktime",it) }
 				fields.put("operation","prepare_payment").put("payment_id",draft.id).put("send",terms)
 			}
 			canSend && parts.size == 6 && parts.take(4) == listOf("wallet",wallet,"paperclip","payments") && JoinBlaketPayment.validId(parts[4]) -> {
@@ -100,6 +102,10 @@ internal class JoinBlaketPairing private constructor(val endpoint: String, val w
 }
 
 internal object JoinBlaketBond {
+	fun locktime(month: String): Long {
+		validate(month)
+		return YearMonth.parse(month).atDay(1).atStartOfDay().toEpochSecond(ZoneOffset.UTC)
+	}
 	fun validate(month: String, now: Instant = Instant.now()) {
 		require(month.matches(Regex("[0-9]{4}-[0-9]{2}"))) { "Choose an unlock month in YYYY-MM format" }
 		val date = runCatching { YearMonth.parse(month) }.getOrNull()

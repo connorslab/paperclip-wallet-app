@@ -24,7 +24,7 @@ checks from the required implementation and acceptance work.
 | Shared desktop UI | All 17 existing browser-flow suites plus entropy, transport and QR checks; phone, foldable and desktop widths where each suite defines them | Installed-host and native desktop acceptance; complete multiple-hot-wallet and hardware-funded Ark workflows |
 | StartOS/Umbrel | Shared REST checks, authenticated CLN/LND reads; both StartOS candidate architectures built and source/checksums checked | Complete backup/restore, candidate installation, bundled Jam pairing/revocation/Tor and upgrades; matching frozen wrappers |
 | Linux/macOS/Windows | Isolated native Apple Silicon daemon authentication and restart smoke | Native launchers and bundled service lifecycle, supported OS matrix, signed installers, notarization where applicable and clean install/upgrade tests |
-| Jars | Reviewed direct/CoinJoin toggle on every client; pinned signer, API, bond and interrupted-submission checks | Live CoinJoin and direct-send acceptance, bond funding/withdrawal, installed payment-pairing acceptance, live maker and physical QR signer acceptance |
+| Jars | Reviewed direct/CoinJoin toggle on every client; pinned signer, API, bond and interrupted-submission checks | Live CoinJoin, direct-send and bond-funding acceptance, bond withdrawal, installed payment-pairing acceptance, live maker and physical QR signer acceptance |
 | Payments and recovery | 291 shared wallet tests, exact-cost/RBF/unknown-outcome checks; unified-signature and Electrum-header checks | Live BOLT12/Ark/Bridge settlement, portable recovery/restore and current-source XBT consensus acceptance |
 
 The saved uncertain Ark attempt remains reserved in the private payment ledger.
@@ -1790,3 +1790,40 @@ CoinJoin fees. The same 119 Swift, 96 Android JVM and 13 targeted REST cases pas
 with the expanded fixtures; native ARM64 Apple and Android debug builds pass.
 The expanded browser history checks pass at 390/1280/1440px; screenshots were
 inspected. Bond funding and withdrawal client workflows remain open.
+
+### Reviewed bond funding from jars
+
+After creating a registered bond address, iOS, Android and the shared desktop UI
+can fund it from the selected jar. The funding sheet fixes the registered address
+and UTC unlock date, accepts a fixed amount and fee limit, and shows a separate
+review before Fund bond. Bond funding cannot use CoinJoin. Existing ordinary jar
+sends retain their CoinJoin toggle. The UI explains that the coins become locked,
+funding is public and earnings are not guaranteed.
+
+The draft, host proxy, native adapters and saved review bind the funding purpose
+and unlock date. Old companions without the funding capability are refused before
+preparation. The pinned Jam signer independently checks the wallet's registered
+address and date, rechecks the future lock date before commit, and retains the
+existing one-shot submission journal. Payment-enabled pairings support this flow;
+management-only pairings remain unable to spend. A timeout opens payment recovery,
+not an automatic retry. Bond withdrawal and live funding acceptance remain open.
+
+Validation: 119 Swift tests, 96 Android JVM tests (four opt-in live cases skipped),
+13 targeted REST tests, and 67 local pinned-Jam tests (one container-only case
+skipped) pass. Shared fixtures reject a changed or missing bond date, changed
+purpose and CoinJoin funding. The delegated signer test checks lost-response
+recovery with one broadcast. Browser direct, CoinJoin and bond flows pass at
+390/1280px; general Jars flows pass at 390/1280/1440px. Web contracts and native
+Apple/Android builds pass. These use synthetic payments, not live settlement.
+
+The regular iPhone simulator passed both funding entry and ordinary CoinJoin
+selection checks with a finalized successful Xcode result. This caught and fixed
+an initial sheet-state bug that opened an ordinary send form for bond funding.
+All nine local Android API 35 Jars cases passed. Screenshot inspection then found
+a Digital Wellbeing error dialog in a separate capture; Jars captures now require
+the app to own the active accessibility window. Android CI at `e855ad7` remains
+failed on API 36 because a System UI not-responding dialog covered onboarding;
+the app thread was idle and no app exit was recorded. This does not establish
+current Android 16 acceptance; a complete clean run is still required.
+After rebooting only the isolated local emulator, all nine Jars tests passed
+again with the active-window capture guard. The clean bond review was inspected.

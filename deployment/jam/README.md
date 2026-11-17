@@ -70,7 +70,7 @@ includes maker fees, the owner's mining share, total debit and maker count.
 Broadcast uses the owner's Jam node and is non-RBF. No direct-send fallback exists.
 Commit rechecks every prevout and the original owner-qualified input leases;
 cancelling a signed review can leave coins reserved until the upstream safety
-window ends. Live CoinJoin settlement, bond funding/withdrawal client flows and
+window ends. Live CoinJoin settlement, live bond funding, bond withdrawal client flows and
 installed-host pairing acceptance remain release gates.
 
 The host can issue either a management-only phone pairing (the default) or an
@@ -140,3 +140,13 @@ The JoinBlaket daemon is GPL-3.0-only and Jam's UI has its own license. Before
 distribution, package the license notices and complete corresponding source for
 the pinned runtime and modifications alongside the image. This remains a release
 gate; the main wallet's MIT license alone does not cover this companion image.
+
+## Funding a registered bond
+
+Paperclip can fund a newly registered bond from its selected jar through the
+reviewed payment API. The client binds `fund_bond`, address, UTC locktime, jar,
+fixed amount and fee cap. It negotiates `bond_funding` before preparation and
+never substitutes an ordinary send or CoinJoin. The companion's existing address
+ownership, registry, future-date and one-shot broadcast checks remain authoritative.
+The funding UI does not start the maker or claim confirmation. Withdrawal still
+requires a separate client integration and chain-maturity acceptance.

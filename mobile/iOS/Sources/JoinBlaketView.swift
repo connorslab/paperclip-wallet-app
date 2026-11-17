@@ -5,6 +5,7 @@ private struct JarsSendView: View {
     let jar: JoinBlaketJar
     let wallet: String
     let previewOnly: Bool
+    var bond: (address: String, month: String)? = nil
     let prepare: (JoinBlaketSendDraft) async throws -> JoinBlaketSendReview
     let commit: (JoinBlaketSendReview, JoinBlaketSendDraft) async throws -> JoinBlaketPayment
     let discard: (String) async throws -> JoinBlaketPayment
@@ -28,10 +29,10 @@ private struct JarsSendView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     if let review, let draft, result == nil {
-                        WalletSection("Review jar payment") {
-                            PaymentReviewHero(amount: "\(draft.amountSat.formatted()) sats", source: jar.name)
+                        WalletSection(draft.bondLocktime == nil ? "Review jar payment" : "Review bond funding") {
+                            PaymentReviewHero(amount: "\(draft.amountSat.formatted()) sats", source: jar.name, caption: draft.bondLocktime == nil ? "Recipient receives" : "Amount to lock")
                             LabeledContent("From", value: jar.name)
-                            LabeledContent("Payment type", value: draft.coinjoin ? "CoinJoin" : "Direct · no CoinJoin")
+                            LabeledContent("Payment type", value: draft.bondLocktime != nil ? "Bond funding" : draft.coinjoin ? "CoinJoin" : "Direct · no CoinJoin")
                             if let q = review.payment.quote {
                                 if draft.coinjoin {
                                     WalletReviewDetail(title: "Maker fees", value: "\((q.maker_fee_sat ?? 0).formatted()) sats")
@@ -41,10 +42,14 @@ private struct JarsSendView: View {
                                 } else { WalletReviewDetail(title: "Mining fee", value: "\(q.fee_sat.formatted()) sats") }
                                 WalletReviewDetail(title: "Total debit", value: "\(q.total_sat.formatted()) sats", emphasized: true)
                             }
+                            if draft.bondLocktime != nil, let q = review.payment.quote {
+                                WalletReviewDetail(title: "Bond unlock date", value: q.bondUnlockDescription)
+                                Text("These coins cannot be spent before the unlock date. Bond funding is public; earnings are not guaranteed.").font(.caption)
+                            }
                             Text(draft.destination).font(.footnote.monospaced()).textSelection(.enabled)
                             Text("Wallet: \(wallet)").font(.caption).foregroundStyle(PaperclipTheme.muted)
                             Text("Review expires \(Date(timeIntervalSince1970: Double(review.expires)), style: .time)").font(.caption)
-                            Button("Send payment") { run { submitting = true; self.review = nil; result = try await commit(review, draft) } }
+                            Button(draft.bondLocktime == nil ? "Send payment" : "Fund bond") { run { submitting = true; self.review = nil; result = try await commit(review, draft) } }
                                 .buttonStyle(WalletPrimaryButtonStyle())
                             Button("Discard unsent review", role: .cancel) { run { _ = try await discard(draft.id); self.review = nil; self.draft = nil; attempted = false } }
                         }
@@ -63,18 +68,21 @@ private struct JarsSendView: View {
                             Button("View payment activity", action: activity).buttonStyle(WalletPrimaryButtonStyle())
                         }
                     } else {
-                        WalletSection("Send from \(jar.name)") {
-                            TextField("XBT address", text: $destination).textInputAutocapitalization(.never).autocorrectionDisabled()
+                        WalletSection("\(bond == nil ? "Send" : "Fund") from \(jar.name)") {
+                            if let bond {
+                                Text("Unlocks \(bond.month)-01 at 00:00 UTC. Back up your Jam wallet first; these coins will be locked.").font(.subheadline)
+                                Text(bond.address).font(.footnote.monospaced())
+                            } else { TextField("XBT address", text: $destination).textInputAutocapitalization(.never).autocorrectionDisabled() }
                             TextField("Amount (sats)", text: $amount).keyboardType(.numberPad)
-                            Toggle("CoinJoin", isOn: $coinjoin).accessibilityIdentifier("jars-send-coinjoin")
+                            if bond == nil { Toggle("CoinJoin", isOn: $coinjoin).accessibilityIdentifier("jars-send-coinjoin")
                             Text(coinjoin ? "Pay with other participants. Review maker and mining fees before sending. If CoinJoin is unavailable, no direct payment is made." : "Direct payment. This transaction will not use CoinJoin.")
-                                .font(.caption).foregroundStyle(PaperclipTheme.muted)
+                                .font(.caption).foregroundStyle(PaperclipTheme.muted) }
                             LabeledContent("Mining rate (sat/vB)") { TextField("1", text: $rate).keyboardType(.numberPad).multilineTextAlignment(.trailing) }
                             LabeledContent("Maximum total fees (sats)") { TextField("1000", text: $feeLimit).keyboardType(.numberPad).multilineTextAlignment(.trailing) }
                             Button("Review payment") {
                                 run {
                                     guard let sats = UInt64(amount), let rate = UInt64(rate), rate <= 10000, let maxFee = UInt64(feeLimit) else { throw JoinBlaketError.invalidResponse }
-                                    let value = try JoinBlaketSendDraft(jar: jar.id, destination: destination.trimmingCharacters(in: .whitespacesAndNewlines), amountSat: sats, feeRateMillisatVb: rate * 1000, maxFeeSat: maxFee, coinjoin: coinjoin)
+                                    let value = try JoinBlaketSendDraft(jar: jar.id, destination: bond?.address ?? destination.trimmingCharacters(in: .whitespacesAndNewlines), amountSat: sats, feeRateMillisatVb: rate * 1000, maxFeeSat: maxFee, coinjoin: coinjoin, bondLocktime: try bond.map { try JoinBlaketBond.locktime(month: $0.month) })
                                     submitting = false; draft = value; attempted = true
                                     review = try await prepare(value)
                                 }
@@ -84,7 +92,7 @@ private struct JarsSendView: View {
                     if busy { ProgressView().frame(maxWidth: .infinity) }
                     if let message { Text(message).font(.subheadline) }
                 }.walletPageContent().id("jar-send-content").textFieldStyle(WalletInputStyle()).disabled(busy)
-            }.walletPageBackground().navigationTitle("Jar payment").navigationBarTitleDisplayMode(.inline)
+            }.walletPageBackground().navigationTitle(bond == nil ? "Jar payment" : "Fund fidelity bond").navigationBarTitleDisplayMode(.inline)
                 .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } } }
                 .onDisappear { task?.cancel() }
                 .onChange(of: review?.payment.id) { _, _ in proxy.scrollTo("jar-send-content", anchor: .top) }
@@ -229,6 +237,7 @@ private struct JarsSendView: View {
     }
     func preview() async throws {
         previewOnly = true
+        if ProcessInfo.processInfo.arguments.contains("-jam-bond-funding-preview") { bondMonth = "2099-12"; bondAddress = "bcrt1qsyntheticrecipient" }
         selectedWallet = "UI test fixture · no live funds"
         let rows: [[String: Any]] = [
             ["utxo": String(repeating: "00", count: 32) + ":0", "value": 200000, "mixdepth": 0, "confirmations": 6, "frozen": false],
@@ -247,7 +256,12 @@ struct JoinBlaketView: View {
         case settings = "Maker settings", market = "Market fees", bond = "Fidelity bond", guide = "How earning works"
     }
     @State private var makerPage: MakerPage?
-    @State private var sendJar: JoinBlaketJar?
+    private struct SendContext: Identifiable {
+        let id = UUID()
+        let jar: JoinBlaketJar
+        var bond: (address: String, month: String)? = nil
+    }
+    @State private var sendContext: SendContext?
     @State private var openSendActivity = false
 
     @StateObject private var model = JoinBlaketModel()
@@ -291,16 +305,16 @@ struct JoinBlaketView: View {
             }.walletPageContent()
         }.walletPageBackground().navigationTitle("Jars").navigationBarTitleDisplayMode(.inline)
             .onChange(of: comparisonAmount) { _, _ in market = nil; marketUnavailable = false }
-            .onChange(of: model.connection.endpoint) { _, _ in makerPage = nil; market = nil; marketUnavailable = false }
-            .onChange(of: model.selectedWallet) { _, _ in makerPage = nil; market = nil; marketUnavailable = false }
+            .onChange(of: model.connection.endpoint) { _, _ in makerPage = nil; market = nil; marketUnavailable = false; sendContext = nil }
+            .onChange(of: model.selectedWallet) { _, _ in makerPage = nil; market = nil; marketUnavailable = false; sendContext = nil }
             .onChange(of: makerPage) { _, _ in confirmMaker = false; confirmBond = false }
             .disabled(model.busy)
             .navigationDestination(item: $makerPage) { toolPage($0) }
-            .sheet(item: $sendJar, onDismiss: { if openSendActivity { openSendActivity = false; showPayments = true } }) { jar in
+            .sheet(item: $sendContext, onDismiss: { if openSendActivity { openSendActivity = false; showPayments = true } }) { context in
                 NavigationStack {
-                    JarsSendView(jar: jar, wallet: model.selectedWallet, previewOnly: model.previewOnly,
+                    JarsSendView(jar: context.jar, wallet: model.selectedWallet, previewOnly: model.previewOnly, bond: context.bond,
                         prepare: model.prepareSend, commit: model.commitSend, discard: model.discardPayment,
-                        activity: { openSendActivity = true; sendJar = nil })
+                        activity: { openSendActivity = true; sendContext = nil })
                 }
             }
             .sheet(isPresented: $showPayments) {
@@ -356,7 +370,7 @@ struct JoinBlaketView: View {
                     if jar.pending_sat > 0 { LabeledContent("Pending", value: unit.display(jar.pending_sat)) }
                     if jar.frozen_sat > 0 { LabeledContent("Frozen", value: unit.display(jar.frozen_sat)) }
                     if jar.bond_sat > 0 { LabeledContent("Fidelity bonds", value: unit.display(jar.bond_sat)) }
-                    Button { sendJar = jar } label: { Label("Send from \(jar.name)", systemImage: "arrow.up.right").frame(maxWidth: .infinity) }
+                    Button { sendContext = SendContext(jar: jar) } label: { Label("Send from \(jar.name)", systemImage: "arrow.up.right").frame(maxWidth: .infinity) }
                         .buttonStyle(WalletPrimaryButtonStyle()).disabled(!model.canSend)
                     if !model.canSend { Text("This pairing manages jars. Sending requires a payment-authorized connection.").font(.caption).foregroundStyle(PaperclipTheme.muted) }
                     Button { model.perform { try await model.receive(jar) } } label: { Label("Receive into \(jar.name)", systemImage: "arrow.down.left").frame(maxWidth: .infinity) }.modifier(GlassAction()).disabled(model.previewOnly)
@@ -620,6 +634,11 @@ struct JoinBlaketView: View {
                 ReceiveCode(value: address).frame(maxWidth: .infinity)
                 Text(address).font(.footnote.monospaced()).textSelection(.enabled)
                 ShareLink(item: address) { Label("Share bond address", systemImage: "square.and.arrow.up") }
+                if let jar = model.jars.first(where: { $0.id == selectedJar }) {
+                    Button("Fund from \(jar.name)") { sendContext = SendContext(jar: jar, bond: (address, model.bondMonth)) }
+                        .buttonStyle(WalletPrimaryButtonStyle()).disabled(!model.canSend)
+                    Text("Uses your selected jar. Choose another jar on the Jars overview.").font(.caption).foregroundStyle(PaperclipTheme.muted)
+                }
             }
         }
     }

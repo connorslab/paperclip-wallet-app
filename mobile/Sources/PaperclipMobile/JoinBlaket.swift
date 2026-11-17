@@ -106,6 +106,11 @@ public enum JoinBlaketError: LocalizedError {
 }
 
 public enum JoinBlaketBond {
+    public static func locktime(month: String) throws -> Int64 {
+        try validate(month: month)
+        guard let date = ISO8601DateFormatter().date(from: month + "-01T00:00:00Z") else { throw JoinBlaketError.invalidResponse }
+        return Int64(date.timeIntervalSince1970)
+    }
     public static func validate(month: String, now: Date = Date()) throws {
         let bytes = Array(month.utf8)
         guard bytes.count == 7, bytes[4] == 45,

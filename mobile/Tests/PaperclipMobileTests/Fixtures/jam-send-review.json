@@ -712,5 +712,131 @@
         "broadcast_policy": "self"
       }
     }
+  },
+  {
+    "name": "reviewed bond funding",
+    "valid": true,
+    "bond_locktime": 2100000000,
+    "review": {
+      "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "state": "prepared",
+      "expires": 2000000300,
+      "approval": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "quote": {
+        "wallet": "fixture.jmdat",
+        "wallet_identity": "xbt-regtest:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "network": "xbt-regtest",
+        "rbf": true,
+        "jar": 0,
+        "purpose": "fund_bond",
+        "destination": "bcrt1qsyntheticrecipient",
+        "txid": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "amount_sat": 20000,
+        "fee_sat": 200,
+        "total_sat": 20200,
+        "bond_locktime": 2100000000
+      }
+    }
+  },
+  {
+    "name": "reject bond funding bond_locktime 2100000001",
+    "valid": false,
+    "bond_locktime": 2100000000,
+    "review": {
+      "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "state": "prepared",
+      "expires": 2000000300,
+      "approval": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "quote": {
+        "wallet": "fixture.jmdat",
+        "wallet_identity": "xbt-regtest:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "network": "xbt-regtest",
+        "rbf": true,
+        "jar": 0,
+        "purpose": "fund_bond",
+        "destination": "bcrt1qsyntheticrecipient",
+        "txid": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "amount_sat": 20000,
+        "fee_sat": 200,
+        "total_sat": 20200,
+        "bond_locktime": 2100000001
+      }
+    }
+  },
+  {
+    "name": "reject bond funding bond_locktime None",
+    "valid": false,
+    "bond_locktime": 2100000000,
+    "review": {
+      "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "state": "prepared",
+      "expires": 2000000300,
+      "approval": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "quote": {
+        "wallet": "fixture.jmdat",
+        "wallet_identity": "xbt-regtest:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "network": "xbt-regtest",
+        "rbf": true,
+        "jar": 0,
+        "purpose": "fund_bond",
+        "destination": "bcrt1qsyntheticrecipient",
+        "txid": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "amount_sat": 20000,
+        "fee_sat": 200,
+        "total_sat": 20200,
+        "bond_locktime": null
+      }
+    }
+  },
+  {
+    "name": "reject bond funding purpose send",
+    "valid": false,
+    "bond_locktime": 2100000000,
+    "review": {
+      "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "state": "prepared",
+      "expires": 2000000300,
+      "approval": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "quote": {
+        "wallet": "fixture.jmdat",
+        "wallet_identity": "xbt-regtest:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "network": "xbt-regtest",
+        "rbf": true,
+        "jar": 0,
+        "purpose": "send",
+        "destination": "bcrt1qsyntheticrecipient",
+        "txid": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "amount_sat": 20000,
+        "fee_sat": 200,
+        "total_sat": 20200,
+        "bond_locktime": 2100000000
+      }
+    }
+  },
+  {
+    "name": "reject bond funding coinjoin True",
+    "valid": false,
+    "bond_locktime": 2100000000,
+    "review": {
+      "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "state": "prepared",
+      "expires": 2000000300,
+      "approval": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "quote": {
+        "wallet": "fixture.jmdat",
+        "wallet_identity": "xbt-regtest:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "network": "xbt-regtest",
+        "rbf": true,
+        "jar": 0,
+        "purpose": "fund_bond",
+        "destination": "bcrt1qsyntheticrecipient",
+        "txid": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "amount_sat": 20000,
+        "fee_sat": 200,
+        "total_sat": 20200,
+        "bond_locktime": 2100000000,
+        "coinjoin": true
+      }
+    }
   }
 ]

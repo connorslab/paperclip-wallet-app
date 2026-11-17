@@ -95,6 +95,7 @@ internal fun JoinBlaketPage(state: JoinBlaketUiState) {
 	val showMakerGuide = makerPage == "How earning works"
 	var showPayments by remember { mutableStateOf(false) }
 	var showSend by remember { mutableStateOf(false) }
+	var sendBond by remember { mutableStateOf<Pair<String,String>?>(null) }
 	var bondMonth by state.bondMonth
 	var bondAddress by state.bondAddress
 	val showBond = makerPage == "Fidelity bond"
@@ -248,7 +249,7 @@ internal fun JoinBlaketPage(state: JoinBlaketUiState) {
 		}
 		if (showSend) ModalBottomSheet(onDismissRequest = { showSend = false }, containerColor = MaterialTheme.colorScheme.background, tonalElevation = 0.dp, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
 			JarsSendPage(checkNotNull(client), checkNotNull(authorization), selected, jars.first { it.getInt("id") == selected }.getString("name"),
-				close = { showSend = false }, activity = { showSend = false; showPayments = true })
+				close = { showSend = false }, activity = { showSend = false; showPayments = true }, bond = sendBond)
 		}
 		WalletColumns(primary = {
 		jars.firstOrNull { it.getInt("id") == selected }?.let { jar ->
@@ -259,7 +260,7 @@ internal fun JoinBlaketPage(state: JoinBlaketUiState) {
 						val amount = jar.getLong(field)
 						if (amount > 0 || field == "confirmed_sat") Row(Modifier.fillMaxWidth()) { Text(label, Modifier.weight(1f)); Text(unit.display(amount)) }
 					}
-					WalletPrimaryButton(enabled = !busy && (!paired || client?.canDiscardReviews == true), modifier = Modifier.fillMaxWidth(), onClick = { showSend = true }) { Text("Send from ${jar.getString("name")}") }
+					WalletPrimaryButton(enabled = !busy && (!paired || client?.canDiscardReviews == true), modifier = Modifier.fillMaxWidth(), onClick = { sendBond = null; showSend = true }) { Text("Send from ${jar.getString("name")}") }
 					if (paired && client?.canDiscardReviews != true) Text("This pairing manages jars. Sending requires a payment-authorized connection.", style = MaterialTheme.typography.bodySmall)
 					WalletPrimaryButton(enabled = !busy, onClick = { run { address = checkNotNull(client).receiveAddress(selected, checkNotNull(authorization)) } }) { Text("Receive into ${jar.getString("name")}") }
 					address?.let { NodeReceiveCode(it); SelectionContainer { Text(it) } }
@@ -363,6 +364,8 @@ internal fun JoinBlaketPage(state: JoinBlaketUiState) {
 								}) { Text("Review bond address") }
 								bondAddress?.let {
 									Text("Wallet: $wallet · Unlocks $bondMonth-01 at 00:00 UTC.")
+									WalletPrimaryButton(enabled = !busy && client?.canDiscardReviews == true, onClick = { sendBond = Pair(it,bondMonth); makerPage = null; showSend = true }) { Text("Fund from ${jars.first { jar -> jar.getInt("id") == selected }.getString("name")}") }
+									Text("Uses your selected jar. Choose another jar on the Jars overview.",style=MaterialTheme.typography.bodySmall)
 									Text("Address ready; no funds sent. Back up your Jam wallet, then review the amount and mining fee in the wallet you fund it from.", style = MaterialTheme.typography.bodySmall)
 									NodeReceiveCode(it); SelectionContainer { Text(it) }
 								}

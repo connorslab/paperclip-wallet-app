@@ -4,14 +4,19 @@ import Foundation
 public struct JoinBlaketSendDraft: Sendable {
     public let id: String, jar: UInt8, destination: String
     public let coinjoin: Bool
+    public let bondLocktime: Int64?
+    public var purpose: String { bondLocktime == nil ? "send" : "fund_bond" }
     public let amountSat: UInt64, feeRateMillisatVb: UInt64, maxFeeSat: UInt64
-    public init(jar: UInt8, destination: String, amountSat: UInt64, feeRateMillisatVb: UInt64, maxFeeSat: UInt64, coinjoin: Bool = false,
+    public init(jar: UInt8, destination: String, amountSat: UInt64, feeRateMillisatVb: UInt64, maxFeeSat: UInt64, coinjoin: Bool = false, bondLocktime: Int64? = nil,
                 id: String = (UUID().uuidString + UUID().uuidString).replacingOccurrences(of: "-", with: "").lowercased()) throws {
-        self.coinjoin = coinjoin; self.id = id; self.jar = jar; self.destination = destination
+        self.bondLocktime = bondLocktime; self.coinjoin = coinjoin; self.id = id; self.jar = jar; self.destination = destination
         self.amountSat = amountSat; self.feeRateMillisatVb = feeRateMillisatVb; self.maxFeeSat = maxFeeSat
         try validate()
     }
     func validate() throws {
+        if let stamp = bondLocktime {
+            guard !coinjoin, stamp > Int64(Date().timeIntervalSince1970), stamp <= 4_099_766_400 else { throw JoinBlaketError.invalidResponse }
+        }
         guard JoinBlaketPayment.validID(id), jar < 5, (14...90).contains(destination.utf8.count),
               destination.utf8.allSatisfy({ (48...57).contains($0) || (65...90).contains($0) || (97...122).contains($0) }),
               amountSat > 0, maxFeeSat > 0, amountSat <= 2_100_000_000_000_000,
@@ -20,10 +25,12 @@ public struct JoinBlaketSendDraft: Sendable {
     }
     func body() throws -> Data {
         try validate()
-        return try JSONSerialization.data(withJSONObject: ["id": id, "purpose": "send", "jar": jar,
+        var fields: [String: Any] = ["id": id, "purpose": purpose, "jar": jar,
             "destination": destination, "amount_sat": amountSat, "send_max": false,
             "fee_rate_millisat_vb": feeRateMillisatVb, "max_fee_sat": maxFeeSat,
-            "max_total_sat": amountSat + maxFeeSat, "rbf": !coinjoin, "coinjoin": coinjoin])
+            "max_total_sat": amountSat + maxFeeSat, "rbf": !coinjoin, "coinjoin": coinjoin]
+        if let bondLocktime { fields["bond_locktime"] = bondLocktime }
+        return try JSONSerialization.data(withJSONObject: fields)
     }
 }
 
@@ -33,16 +40,18 @@ func pairedSendFields(_ data: Data, wallet: String) throws -> [String: Any] {
         let id: String, purpose: String, jar: UInt8, destination: String
         let amount_sat: UInt64, fee_rate_millisat_vb: UInt64, max_fee_sat: UInt64, max_total_sat: UInt64
         let send_max: Bool, rbf: Bool, coinjoin: Bool
+        let bond_locktime: Int64?
     }
     let body = try JSONDecoder().decode(Body.self, from: data)
     let value = try JoinBlaketSendDraft(jar: body.jar, destination: body.destination, amountSat: body.amount_sat,
-        feeRateMillisatVb: body.fee_rate_millisat_vb, maxFeeSat: body.max_fee_sat, coinjoin: body.coinjoin, id: body.id)
-    guard body.purpose == "send", !body.send_max, body.rbf != body.coinjoin,
+        feeRateMillisatVb: body.fee_rate_millisat_vb, maxFeeSat: body.max_fee_sat, coinjoin: body.coinjoin, bondLocktime: body.bond_locktime, id: body.id)
+    guard body.purpose == value.purpose, !body.send_max, body.rbf != body.coinjoin,
           body.max_total_sat == value.amountSat + value.maxFeeSat,
-          let fields = try JSONSerialization.jsonObject(with: data) as? [String: Any], fields.count == 11 else { throw JoinBlaketError.invalidResponse }
-    return ["wallet": wallet, "operation": "prepare_payment", "payment_id": value.id,
-            "send": ["jar": value.jar, "destination": value.destination, "amount_sat": value.amountSat,
-                     "fee_rate_millisat_vb": value.feeRateMillisatVb, "max_fee_sat": value.maxFeeSat, "coinjoin": value.coinjoin]]
+          let fields = try JSONSerialization.jsonObject(with: data) as? [String: Any], fields.count == (body.bond_locktime == nil ? 11 : 12) else { throw JoinBlaketError.invalidResponse }
+    var terms: [String: Any] = ["jar": value.jar, "destination": value.destination, "amount_sat": value.amountSat,
+                     "fee_rate_millisat_vb": value.feeRateMillisatVb, "max_fee_sat": value.maxFeeSat, "coinjoin": value.coinjoin]
+    if let stamp = value.bondLocktime { terms["bond_locktime"] = stamp }
+    return ["wallet": wallet, "operation": "prepare_payment", "payment_id": value.id, "send": terms]
 }
 
 public struct JoinBlaketSendReview: Sendable {
@@ -66,7 +75,7 @@ public struct JoinBlaketSendReview: Sendable {
               expires > now, expires <= now + 300, walletIdentity == identity,
               ["xbt-mainnet", "xbt-testnet", "xbt-signet", "xbt-regtest"].contains(network),
               identity.hasPrefix(network + ":"), JoinBlaketPayment.validID(String(identity.dropFirst(network.count + 1))),
-              let q = payment.quote, q.purpose == "send", q.jar == draft.jar,
+              let q = payment.quote, q.purpose == draft.purpose, q.bond_locktime == draft.bondLocktime, q.jar == draft.jar,
               q.destination == draft.destination, (q.coinjoin ?? false) == draft.coinjoin, q.amount_sat == draft.amountSat,
               q.fee_sat <= draft.maxFeeSat else { throw JoinBlaketError.invalidResponse }
     }
@@ -86,9 +95,10 @@ extension JoinBlaketClient {
         guard canDiscardReviews else { throw JoinBlaketError.invalidResponse }
         try draft.validate()
         let identity = try await sendIdentity(authorization)
-        struct Features: Decodable { let version: Int; let reviewed_direct_send: Bool; let coinjoin_payments: Bool? }
+        struct Features: Decodable { let version: Int; let reviewed_direct_send: Bool; let coinjoin_payments: Bool?; let bond_funding: Bool? }
         let features = try JSONDecoder().decode(Features.self, from: await request(["paperclip", "capabilities"], authorization: authorization))
         guard [1, 2].contains(features.version), features.reviewed_direct_send else { throw JoinBlaketError.invalidResponse }
+        guard draft.bondLocktime == nil || features.bond_funding == true else { throw JoinBlaketError.invalidResponse }
         if draft.coinjoin && !(features.version == 2 && features.coinjoin_payments == true) {
             throw JoinBlaketError.coinJoinUnavailable
         }

@@ -16,10 +16,12 @@ class JoinBlaketTest {
 		val cases = org.json.JSONArray(checkNotNull(javaClass.getResourceAsStream("/jam-send-review.json")).bufferedReader().use { it.readText() })
 		for (index in 0 until cases.length()) {
 			val item = cases.getJSONObject(index)
-			val result = runCatching { JoinBlaketSendReview.parse(item.getJSONObject("review"),"fixture.jmdat").validate(draft.copy(coinjoin=item.optBoolean("coinjoin",false)),"fixture.jmdat","xbt-regtest:"+"c".repeat(64),2000000000) }
+			val result = runCatching { JoinBlaketSendReview.parse(item.getJSONObject("review"),"fixture.jmdat").validate(draft.copy(coinjoin=item.optBoolean("coinjoin",false),bondLocktime=if(item.has("bond_locktime")) item.getLong("bond_locktime") else null),"fixture.jmdat","xbt-regtest:"+"c".repeat(64),2000000000) }
 			assertEquals(item.getString("name"),item.getBoolean("valid"),result.isSuccess)
 		}
 		assertThrows(IllegalArgumentException::class.java) { JoinBlaketSendDraft(0,draft.destination,Long.MAX_VALUE,1000,1) }
+		for (stamp in listOf(1L,4_099_766_401L)) assertThrows(IllegalArgumentException::class.java) { draft.copy(bondLocktime=stamp) }
+		assertThrows(IllegalArgumentException::class.java) { draft.copy(coinjoin=true,bondLocktime=2100000000) }
 	}
 	@Test fun directSendBindsReviewAndNeverRepeatsLostCommit() = runBlocking {
 		val auth = JoinBlaketAuthorization("fixture.jmdat","synthetic-token")
@@ -78,13 +80,14 @@ class JoinBlaketTest {
 		assertEquals("unknown",c.commitSend(review,draft,auth).state); assertEquals(1,commits)
 	}
 	@Test fun paymentPairingPreservesModeAndNeverRepeatsLostCommit() = runBlocking {
-		for (coinjoin in listOf(false,true)) {
+		for (mode in 0..2) {
+			val coinjoin=mode==1; val bondTime:Long?=if(mode==2) 2100000000 else null
 			val pair = JoinBlaketPairing.parse(pairingText(mapOf("scope" to "jars_pay_v1")))
 			assertTrue(pair.canSend)
-			val draft = JoinBlaketSendDraft(0,"bcrt1qsyntheticrecipient",20000,1000,500,"a".repeat(64),coinjoin)
+			val draft = JoinBlaketSendDraft(0,"bcrt1qsyntheticrecipient",20000,1000,500,"a".repeat(64),coinjoin,bondTime)
 			val cases=org.json.JSONArray(checkNotNull(javaClass.getResourceAsStream("/jam-send-review.json")).bufferedReader().use { it.readText() })
-			val saved=(if (coinjoin) (0 until cases.length()).map { cases.getJSONObject(it) }.first { it.getString("name") == "reviewed CoinJoin" } else cases.getJSONObject(0)).getJSONObject("review").put("expires",java.time.Instant.now().epochSecond+200)
-			val operations=mutableListOf<String>(); var revoked=false
+			val saved=(if (bondTime != null) (0 until cases.length()).map { cases.getJSONObject(it) }.first { it.getString("name") == "reviewed bond funding" } else if (coinjoin) (0 until cases.length()).map { cases.getJSONObject(it) }.first { it.getString("name") == "reviewed CoinJoin" } else cases.getJSONObject(0)).getJSONObject("review").put("expires",java.time.Instant.now().epochSecond+200)
+			val operations=mutableListOf<String>(); var revoked=false; var fundingSupported=false
 			val http=OkHttpClient.Builder().retryOnConnectionFailure(false).addInterceptor { chain ->
 				assertEquals("/api/v1/paired-jars/request",chain.request().url.encodedPath)
 				val buffer=okio.Buffer();chain.request().body!!.writeTo(buffer);val body=JSONObject(buffer.readUtf8())
@@ -93,8 +96,8 @@ class JoinBlaketTest {
 				var status=if(revoked) 401 else 200
 				val result=when(op) {
 					"identity" -> JSONObject().put("wallet",pair.wallet).put("identity","xbt-regtest:"+"c".repeat(64))
-					"payment_capabilities" -> JSONObject().put("version",2).put("reviewed_direct_send",true).put("coinjoin_payments",true)
-					"prepare_payment" -> { assertEquals(coinjoin,body.getJSONObject("send").getBoolean("coinjoin"));saved }
+					"payment_capabilities" -> JSONObject().put("version",2).put("reviewed_direct_send",true).put("coinjoin_payments",true).put("bond_funding",fundingSupported)
+					"prepare_payment" -> { assertEquals(bondTime,(body.getJSONObject("send").opt("bond_locktime") as? Number)?.toLong()); assertEquals(coinjoin,body.getJSONObject("send").getBoolean("coinjoin"));saved }
 					"payment_review" -> saved
 					"commit_payment" -> {
 						assertEquals("xbt-regtest:"+"c".repeat(64),body.getString("wallet_identity"))
@@ -106,6 +109,11 @@ class JoinBlaketTest {
 				Response.Builder().request(chain.request()).protocol(Protocol.HTTP_1_1).code(status).message("fixture").body(result.toString().toResponseBody()).build()
 			}.build()
 			val client=JoinBlaketClient(pair.connection,http,pair); val auth=pair.authorization()
+			if (bondTime != null) {
+				assertTrue(runCatching { client.prepareSend(draft,auth) }.isFailure)
+				assertFalse(operations.contains("prepare_payment"))
+			}
+			fundingSupported=true
 			val review=client.prepareSend(draft,auth)
 			assertFalse(operations.contains("commit_payment"))
 			assertTrue(runCatching { client.commitSend(review,draft,auth) }.isFailure)

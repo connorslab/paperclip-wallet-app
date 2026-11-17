@@ -6,17 +6,19 @@ import java.util.UUID
 internal data class JoinBlaketSendDraft(val jar: Int, val destination: String, val amountSat: Long,
 	val feeRateMillisatVb: Long, val maxFeeSat: Long,
 	val id: String = (UUID.randomUUID().toString() + UUID.randomUUID().toString()).replace("-", ""),
-	val coinjoin: Boolean = false) {
+	val coinjoin: Boolean = false, val bondLocktime: Long? = null) {
+	val purpose: String get() = if (bondLocktime == null) "send" else "fund_bond"
 	init { validate() }
 	fun validate() {
+		require(bondLocktime == null || (!coinjoin && bondLocktime > java.time.Instant.now().epochSecond && bondLocktime <= 4_099_766_400L)) { "Review the future bond unlock date; bond funding cannot use CoinJoin" }
 		require(JoinBlaketPayment.validId(id) && jar in 0..4 && destination.matches(Regex("[A-Za-z0-9]{14,90}"))) { "Review the jar and XBT address" }
 		require(amountSat in 1..2_100_000_000_000_000L && maxFeeSat > 0 && maxFeeSat <= 2_100_000_000_000_000L - amountSat && feeRateMillisatVb in 1000..10_000_000) { "Review the amount and mining fee limit" }
 	}
 	fun body(): JSONObject {
 		validate()
-		return JSONObject().put("id",id).put("purpose","send").put("jar",jar).put("destination",destination)
+		return JSONObject().put("id",id).put("purpose",purpose).put("jar",jar).put("destination",destination)
 			.put("amount_sat",amountSat).put("send_max",false).put("fee_rate_millisat_vb",feeRateMillisatVb)
-			.put("max_fee_sat",maxFeeSat).put("max_total_sat",amountSat+maxFeeSat).put("rbf",!coinjoin).put("coinjoin",coinjoin)
+			.put("max_fee_sat",maxFeeSat).put("max_total_sat",amountSat+maxFeeSat).put("rbf",!coinjoin).put("coinjoin",coinjoin).apply { bondLocktime?.let { put("bond_locktime",it) } }
 	}
 }
 
@@ -35,7 +37,7 @@ internal data class JoinBlaketSendReview(val payment: JoinBlaketPayment, val app
 		require(payment.id == draft.id && payment.state == "prepared" && JoinBlaketPayment.validId(approval) && expires > now && expires <= now+300 &&
 			walletIdentity == identity && network in setOf("xbt-mainnet","xbt-testnet","xbt-signet","xbt-regtest") &&
 			identity.startsWith("$network:") && JoinBlaketPayment.validId(identity.removePrefix("$network:")) &&
-			q.wallet == wallet && q.purpose == "send" && q.jar == draft.jar && q.destination == draft.destination && q.coinjoin == draft.coinjoin && q.amountSat == draft.amountSat && q.feeSat <= draft.maxFeeSat) { "Jam review changed or expired. Check payment activity before another action." }
+			q.wallet == wallet && q.purpose == draft.purpose && q.bondLocktime == draft.bondLocktime && q.jar == draft.jar && q.destination == draft.destination && q.coinjoin == draft.coinjoin && q.amountSat == draft.amountSat && q.feeSat <= draft.maxFeeSat) { "Jam review changed or expired. Check payment activity before another action." }
 	}
 }
 
@@ -55,6 +57,7 @@ internal suspend fun JoinBlaketClient.prepareSend(draft: JoinBlaketSendDraft, au
 	val features = request(listOf("paperclip","capabilities"),auth)
 	require(features.get("version") in listOf(1,2) && features.get("reviewed_direct_send") == true &&
 		(!draft.coinjoin || (features.get("version") == 2 && features.opt("coinjoin_payments") == true))) { "Update the Jam companion before sending" }
+	require(draft.bondLocktime == null || features.opt("bond_funding") == true) { "Update the Jam companion before funding a bond" }
 	val review = JoinBlaketSendReview.parse(request(listOf("wallet",auth.wallet,"paperclip","payments"),auth,draft.body(),preparingCoinJoin=draft.coinjoin),auth.wallet)
 	review.validate(draft,auth.wallet,identity)
 	return review
