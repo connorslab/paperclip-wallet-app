@@ -1,3 +1,4 @@
+use std::io::Read;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::path::PathBuf;
 use std::str::FromStr;
@@ -93,6 +94,11 @@ struct Cli {
 
 	#[command(subcommand)]
 	command: Option<Command>,
+
+	/// Stop gracefully when the owning launcher's stdin pipe closes.
+	/// Intended for managed desktop processes; no bytes are interpreted as commands.
+	#[arg(long)]
+	exit_on_stdin_close: bool,
 
 	/// The port to listen on. Zero lets the OS choose an available port.
 	#[arg(long, env = "BARKD_BIND_PORT")]
@@ -240,8 +246,28 @@ fn check_remote_no_auth(host: IpAddr, allow_remote: bool) -> anyhow::Result<()> 
 	);
 }
 
-/// Runs a thread that will watch for SIGTERM and ctrl-c signals and
-/// returns when a signal is received
+/// Watch launcher lifetime on a dedicated OS thread. Tokio's blocking stdin
+/// task can hold runtime shutdown open while a healthy launcher keeps its pipe
+/// open; this detached reader must not prevent other shutdown paths from exiting.
+fn watch_launcher_pipe(shutdown: CancellationToken) -> anyhow::Result<()> {
+	std::thread::Builder::new().name("launcher-lifetime".into()).spawn(move || {
+		let stdin = std::io::stdin();
+		let mut input = stdin.lock();
+		let mut buffer = [0u8; 64];
+		loop {
+			match input.read(&mut buffer) {
+				Ok(0) => break,
+				Ok(_) => {},
+				Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+				Err(_) => break,
+			}
+		}
+		shutdown.cancel();
+	}).context("Failed to watch launcher lifetime")?;
+	Ok(())
+}
+
+/// Return on SIGTERM, Ctrl+C, or cancellation by the owning launcher.
 async fn run_shutdown_signal_listener(shutdown: CancellationToken) {
 	async fn signal_recv() {
 		#[cfg(unix)]
@@ -273,6 +299,7 @@ async fn run_shutdown_signal_listener(shutdown: CancellationToken) {
 	}
 
 	tokio::select! {
+		_ = shutdown.cancelled() => {},
 		_ = signal_recv() => {},
 		r = tokio::signal::ctrl_c() => match r {
 			Ok(()) => info!("Ctrl+C received! Sending shutdown signal..."),
@@ -423,6 +450,9 @@ async fn main() -> anyhow::Result<()>{
 	let config = cli.to_config()?;
 
 	let shutdown = CancellationToken::new();
+	if cli.exit_on_stdin_close {
+		watch_launcher_pipe(shutdown.clone())?;
+	}
 
 	info!("Starting barkd version {} with datadir {}", FULL_VERSION, datadir.display());
 
@@ -452,7 +482,14 @@ async fn main() -> anyhow::Result<()>{
 		Some(token)
 	};
 
-	let wallet_opt = if let Some(wallet) = open_wallet(&datadir, USER_AGENT).await? {
+	let opened_wallet = tokio::select! {
+		_ = shutdown.cancelled() => return Ok(()),
+		result = open_wallet(&datadir, USER_AGENT) => result?,
+	};
+	if shutdown.is_cancelled() {
+		return Ok(());
+	}
+	let wallet_opt = if let Some(wallet) = opened_wallet {
 		wallet.start_daemon()?;
 		info!("Wallet loaded and daemon started");
 		Some(wallet)
@@ -569,6 +606,23 @@ async fn main() -> anyhow::Result<()>{
 #[cfg(test)]
 mod test {
 	use super::*;
+
+	#[test]
+	fn launcher_lifetime_is_explicitly_opt_in() {
+		let normal = Cli::try_parse_from(["barkd"]).unwrap();
+		assert!(!normal.exit_on_stdin_close);
+		let managed = Cli::try_parse_from(["barkd", "--exit-on-stdin-close"]).unwrap();
+		assert!(managed.exit_on_stdin_close);
+	}
+
+	#[tokio::test]
+	async fn launcher_cancellation_unblocks_shutdown_listener() {
+		let shutdown = CancellationToken::new();
+		shutdown.cancel();
+		tokio::time::timeout(
+			std::time::Duration::from_secs(1), run_shutdown_signal_listener(shutdown),
+		).await.expect("launcher closure must not wait for a second signal");
+	}
 
 	#[test]
 	fn defaults_dont_panic() {

@@ -80,8 +80,8 @@ def local_endpoint(value):
 class ManagedDaemon:
     """Own one child; never attach to, terminate or authenticate an unknown daemon.
 
-    The shell must call close on normal quit. Abrupt shell death, bundled Jam/Tor
-    supervision and browser authentication remain separate release gates.
+    The shell must call close on normal quit. Its lifetime pipe also closes on
+    abrupt death; bundled Jam/Tor supervision and browser authentication are separate.
     """
 
     def __init__(self, binary, root, startup_timeout=30, shutdown_timeout=20):
@@ -118,8 +118,8 @@ class ManagedDaemon:
             env = {key: os.environ[key] for key in ('PATH', 'HOME', 'TMPDIR', 'LANG') if key in os.environ}
             self.process = subprocess.Popen([
                 str(self.binary), '--quiet', '--no-logfile', '--datadir', str(self.data),
-                '--host', '127.0.0.1', '--port', '0',
-            ], env=env, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                '--host', '127.0.0.1', '--port', '0', '--exit-on-stdin-close',
+            ], env=env, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL, close_fds=True)
             http = build_opener(ProxyHandler({}), NoRedirects())
             deadline = time.monotonic() + self.startup_timeout
@@ -171,8 +171,9 @@ class ManagedDaemon:
 
     def close(self):
         try:
+            if self.process is not None and self.process.stdin is not None:
+                self.process.stdin.close()
             if self.process is not None and self.process.poll() is None:
-                self.process.terminate()
                 try:
                     self.process.wait(timeout=self.shutdown_timeout)
                 except subprocess.TimeoutExpired:

@@ -1,8 +1,10 @@
 """Unfunded desktop runner checks; run with --binary for real daemon lifecycle."""
 import argparse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import json
 import os
 from pathlib import Path
+import signal
 import subprocess
 import sys
 import tempfile
@@ -14,6 +16,11 @@ from unittest.mock import patch
 from managed_daemon import ManagedDaemon, NoRedirects, StartupError, default_data_root, local_endpoint
 from urllib.request import Request, build_opener, ProxyHandler
 from urllib.error import HTTPError
+
+try:
+    import fcntl
+except ImportError:
+    fcntl = None
 
 
 BINARY = None
@@ -145,6 +152,80 @@ class RunnerLifecycle(unittest.TestCase):
             again.start()
         self.assertIsNotNone(again.process)
 
+    def test_sigterm_exits_even_while_launcher_pipe_remains_open(self):
+        runner = self.runner()
+        runner.start()
+        runner.process.terminate()
+        self.assertEqual(runner.process.wait(timeout=5), 0)
+        self.assertFalse(runner.process.stdin.closed)
+
+    def test_launcher_crash_releases_daemon_lock_and_allows_restart(self):
+        ready = Path(self.temporary.name) / 'launcher-ready.json'
+        script = '''
+import json, sys, time
+from pathlib import Path
+sys.path.insert(0, sys.argv[1])
+from managed_daemon import ManagedDaemon
+runner = ManagedDaemon(sys.argv[2], sys.argv[3])
+runner.start()
+marker = Path(sys.argv[4])
+pending = marker.with_suffix('.tmp')
+pending.write_text(json.dumps({'pid': runner.process.pid}))
+pending.replace(marker)
+while True:
+    time.sleep(1)
+'''
+        launcher = subprocess.Popen([sys.executable, '-c', script,
+            str(Path(__file__).parent.resolve()), str(BINARY), str(self.root), str(ready)],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+        try:
+            deadline = time.monotonic() + 10
+            while not ready.exists():
+                self.assertIsNone(launcher.poll(), 'Test launcher exited before readiness')
+                self.assertLess(time.monotonic(), deadline)
+                time.sleep(0.05)
+            # The marker carries only a PID. The bearer token remains in the
+            # isolated private data directory and never enters child arguments.
+            self.assertGreater(json.loads(ready.read_text())['pid'], 0)
+            token = (self.root / 'wallet' / 'auth_token').read_bytes()
+            launcher.kill()
+            launcher.wait(timeout=5)
+            deadline = time.monotonic() + 10
+            with (self.root / 'wallet' / 'barkd.lock').open('rb') as lock:
+                while True:
+                    try:
+                        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                        fcntl.flock(lock, fcntl.LOCK_UN)
+                        break
+                    except BlockingIOError:
+                        self.assertLess(time.monotonic(), deadline,
+                                        'Launcher death left the daemon lock held')
+                        time.sleep(0.05)
+            # No PID file, lock file or credential is deleted to permit recovery.
+            replacement = self.runner()
+            replacement.start()
+            self.assertEqual((replacement.data / 'auth_token').read_bytes(), token)
+            self.assertFalse((replacement.data / 'mnemonic').exists())
+        finally:
+            # A failed assertion may leave the original child alive. This process
+            # group was created solely for this test, never for an installed app.
+            try:
+                os.killpg(launcher.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            launcher.wait(timeout=5)
+
+    def test_unresponsive_owned_child_is_killed_with_explicit_recovery_error(self):
+        stub = Path(self.temporary.name) / 'unresponsive-daemon'
+        stub.write_text(f'#!{sys.executable}\nimport time\ntime.sleep(60)\n')
+        stub.chmod(0o700)
+        runner = ManagedDaemon(stub, self.root, startup_timeout=0.2, shutdown_timeout=0.2)
+        self.addCleanup(runner.close)
+        with self.assertRaisesRegex(StartupError, 'forced shutdown'):
+            runner.start()
+        self.assertIsNotNone(runner.process.poll())
+        self.assertIsNone(runner._lock)
+
     def test_stale_discovery_is_not_contacted_and_timeout_reaps_owned_child(self):
         self.root.mkdir(mode=0o700)
         data = self.root / 'wallet'
@@ -171,7 +252,7 @@ class RunnerLifecycle(unittest.TestCase):
             credential.write_text('A' * 44)
             credential.chmod(0o600)
             stub = Path(self.temporary.name) / 'unresponsive-daemon'
-            stub.write_text(f'#!{sys.executable}\nimport time\ntime.sleep(60)\n')
+            stub.write_text(f'#!{sys.executable}\nimport sys\nsys.stdin.buffer.read()\n')
             stub.chmod(0o700)
             runner = ManagedDaemon(stub, self.root, startup_timeout=0.2)
             self.addCleanup(runner.close)

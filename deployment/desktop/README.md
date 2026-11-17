@@ -43,8 +43,12 @@ overrides. It never reads the user's existing wallet implicitly.
 Readiness requires an atomically replaced discovery file, the owned child's PID,
 and a successful authenticated loopback request. Stale discovery and independently
 started daemons are not adopted. Authentication is never printed or put in command
-arguments or a browser URL. Redirects are refused. Close and failed startup reap
-only the owned process; a forced shutdown is reported as a recovery warning.
+arguments or a browser URL. Redirects are refused. A stdin lifetime pipe requests
+graceful daemon shutdown on normal close or abrupt launcher death. The daemon
+opts in explicitly with `--exit-on-stdin-close`; ordinary server launches retain
+their existing behavior. The lifetime reader does not hold the Tokio runtime
+open when another shutdown signal arrives. Close and failed startup reap only
+the owned process; a forced shutdown is reported as a recovery warning.
 
 Run the real-child checks in a temporary, unfunded directory:
 
@@ -52,8 +56,9 @@ Run the real-child checks in a temporary, unfunded directory:
 python3 deployment/desktop/test_managed_daemon.py --binary /absolute/path/to/paperclip-walletd -v
 ```
 
-The runner does not yet open a browser, deliver browser authentication, supervise
-Tor/Jam or handle abrupt shell death. First-run service/network configuration,
+The runner does not yet open a browser, deliver browser authentication or supervise
+Tor/Jam. Abrupt launcher-death tests cover an unfunded idle daemon: active payment
+and long-running request shutdown still require acceptance. First-run service/network configuration,
 packaged interpreter/runtime delivery, full OS ACL acceptance, Windows ownership
 support and a visible shell remain release gates. Do not distribute this module
 as a complete desktop app or point its acceptance tests at funded storage.

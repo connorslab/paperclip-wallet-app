@@ -2086,3 +2086,26 @@ The module is not yet a visible desktop application. Browser authentication,
 first-run network/service configuration, packaged interpreter delivery, abrupt
 shell-death recovery, bundled Tor/Jam and signed installers remain open. No
 installed wallet, production service or funded device was modified.
+
+## Desktop launcher crash cleanup — 2026-11-17
+
+Managed desktop daemons now opt in to `--exit-on-stdin-close`. The launcher keeps
+an otherwise unused pipe open; closing the app or killing the launcher closes
+that pipe and requests graceful daemon shutdown. A dedicated OS reader avoids
+holding Tokio runtime shutdown open while a live launcher still owns its pipe.
+Wallet opening can be cancelled, and the main signal listener also responds to
+launcher cancellation. Server-package and manual launches retain the default
+behavior because the flag has no environment-variable equivalent and is off by
+default.
+
+Eleven runner checks pass on native Apple Silicon, including a real launcher
+SIGKILL followed by daemon-lock release and authenticated restart, SIGTERM while
+the lifetime pipe remains open, and explicit recovery errors for an unresponsive
+owned child. Seven daemon unit tests, four connection tests, the existing native
+HTTP/authentication smoke test and `just checks` pass. All data was temporary and
+unfunded. The previous ownership-layer CI run `44031612614` passed on Linux.
+
+This verifies idle-daemon crash cleanup, not active payment/request draining or
+bundled Tor/Jam shutdown. Those checks, the visible desktop shell and browser
+handoff, Windows support, signed installers and other platform acceptance gates
+remain open. No funded wallet, installed service or payment was changed.
