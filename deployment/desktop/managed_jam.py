@@ -3,13 +3,13 @@ import json
 import os
 from pathlib import Path
 import re
-import select
 import ssl
 import subprocess
 import time
 from urllib.request import HTTPSHandler, ProxyHandler, build_opener
 
 from managed_daemon import NoRedirects, StartupError, private_file
+from pipe_io import read_available
 
 
 class ManagedJam:
@@ -41,8 +41,8 @@ class ManagedJam:
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
                     raise StartupError('The bundled Jars service did not become ready in time.')
-                if select.select([self.process.stdout], [], [], min(remaining, 0.1))[0]:
-                    chunk = os.read(self.process.stdout.fileno(), 1025)
+                chunk = read_available(self.process.stdout.fileno(), 1025, min(remaining, 0.1))
+                if chunk is not None:
                     if not chunk or len(pending) + len(chunk) > 1024:
                         raise StartupError('The bundled Jars service returned invalid readiness data.')
                     pending += chunk

@@ -5,12 +5,11 @@ Only ready, open, error and stopped events are emitted; owner secrets stay here.
 """
 import argparse
 import json
-import os
 from pathlib import Path
-import select
 import sys
 
 from managed_daemon import ManagedDaemon, StartupError
+from pipe_io import read_available
 
 
 def emit(event, **values):
@@ -32,9 +31,9 @@ def commands(runner):
             continue
         if len(pending) > 256:
             raise StartupError('The desktop request was too large.')
-        if not select.select([sys.stdin.fileno()], [], [], 0.2)[0]:
+        chunk = read_available(sys.stdin.fileno(), 257, 0.2)
+        if chunk is None:
             continue
-        chunk = os.read(sys.stdin.fileno(), 257)
         if not chunk:
             if pending:
                 raise StartupError('The desktop request was interrupted.')

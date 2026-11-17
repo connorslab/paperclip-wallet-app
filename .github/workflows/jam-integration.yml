@@ -3,9 +3,9 @@ on:
   workflow_dispatch:
   push:
     branches: ['codex/cross-platform-parity']
-    paths: ['deployment/jam/**', 'deployment/desktop/managed_jam.py', 'deployment/desktop/managed_daemon.py', 'deployment/desktop/test_managed_jam.py', '.github/workflows/jam-integration.yml']
+    paths: ['deployment/jam/**', 'deployment/desktop/pipe_io.py', 'deployment/desktop/managed_jam.py', 'deployment/desktop/managed_daemon.py', 'deployment/desktop/test_managed_jam.py', '.github/workflows/jam-integration.yml']
   pull_request:
-    paths: ['deployment/jam/**', 'deployment/desktop/managed_jam.py', 'deployment/desktop/managed_daemon.py', 'deployment/desktop/test_managed_jam.py', '.github/workflows/jam-integration.yml']
+    paths: ['deployment/jam/**', 'deployment/desktop/pipe_io.py', 'deployment/desktop/managed_jam.py', 'deployment/desktop/managed_daemon.py', 'deployment/desktop/test_managed_jam.py', '.github/workflows/jam-integration.yml']
 permissions:
   contents: read
 jobs:

@@ -39,7 +39,7 @@ def build(binary, python, output, jam_python=None, helpers=None):
         subprocess.run(['xcrun', 'swiftc', '-swift-version', '5', '-target', architecture + '-apple-macosx13.0',
             '-framework', 'AppKit', str(swift_source), '-o', str(executable / 'PaperclipLauncher')], check=True)
         shutil.copy2(binary, executable / 'paperclip-walletd')
-        for name in ('launcher_entry.py', 'launcher_bridge.py', 'managed_daemon.py', 'managed_jam.py'):
+        for name in ('launcher_entry.py', 'launcher_bridge.py', 'managed_daemon.py', 'managed_jam.py', 'pipe_io.py'):
             shutil.copy2(source.parent / name, resources / name)
         configuration = {}
         provenance = {'format':1, 'architecture':architecture,

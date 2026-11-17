@@ -20,7 +20,7 @@ def build(output, work):
     output.mkdir(parents=True); work.mkdir(parents=True)
     source = Path(__file__).resolve().parent
     inputs = [source / 'launcher.py', source / 'test_launcher_ui.py', Path(__file__).resolve(),
-              source.parent / 'managed_daemon.py', source.parent / 'managed_jam.py']
+              source.parent / 'managed_daemon.py', source.parent / 'managed_jam.py', source.parent / 'pipe_io.py']
     fingerprints = {str(path.relative_to(source.parent)):hashlib.sha256(path.read_bytes()).hexdigest() for path in inputs}
     provenance = {'format':1, 'python':sys.version, 'pyinstaller':PyInstaller.__version__,
         'git_revision':subprocess.run(['git', '-C', str(source), 'rev-parse', 'HEAD'], check=True, capture_output=True, text=True).stdout.strip(),
