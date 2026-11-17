@@ -55,10 +55,13 @@ jar sends cannot consume bond coins.
 
 The native clients and desktop proxy now expose read-only saved-payment history
 and exact-transaction status checks. Their recovery views retain unknown outcomes
-on failure and never present node acceptance as confirmation. They cannot prepare,
-commit or cancel a payment. Direct/CoinJoin review, bond funding/withdrawal and
-payment-capable mobile pairing remain unfinished; these API foundations and recovery views
-do not constitute a completed bond or payment UI.
+on failure and never present node acceptance as confirmation. Owner desktop and
+independently authorized mobile connections can discard an unsent review after
+confirmation. The companion atomically refuses cancellation once submission
+starts. A lost reply must be checked, not automatically retried. Existing
+management-only phone pairings cannot cancel; they direct the user to the host.
+Clients cannot yet prepare or commit payments. Direct/CoinJoin review, bond
+funding/withdrawal and payment-capable mobile pairing remain unfinished.
 
 The shared owner UI now creates separate Jam wallets and guides password-verified
 recovery-word backup. Creation responses expose only wallet authorization, not
@@ -67,6 +70,35 @@ before a manually reviewed retry, and the pinned daemon refuses overwrites.
 Read-only backup remains available during a pending payment. Restricted phone
 grants cannot create/unlock wallets or export recovery words; their delegation
 guard runs before the upstream route, including `/getseed`.
+
+## Maker fees and order book comparison
+
+All clients offer fixed-sat or percentage fees from the pinned JoinBlaket grid.
+The UI shows percentages, while the API transmits an exact decimal fraction:
+0.005% is `0.00005`, or 50 sats for a 1,000,000-sat CoinJoin. Mixed modes and
+unsupported values fail before submission. Refreshing market data does not
+change the selected fee or start a maker. The comparison amount is separate from
+the maker minimum, so an active maker can be compared without reconfiguration.
+
+`GET /api/v1/paperclip/market/{amount}` reads the host-configured order book watcher.
+The comparison uses each verified, current bonded maker's lowest supported offer
+that covers the amount. Fixed and relative offers are compared in sats, with the
+same rounding as the pinned Jam fee calculation. The median excludes mining
+contributions and is not the taker's total cost or a prediction of earnings.
+It does not publish maker identifiers or wallet information.
+
+Snapshots older than 120 seconds are stale. Missing, disconnected, malformed or
+unverified data does not become a zero median. The reader has a ten-second limit,
+a two-megabyte response bound and no redirects. Clients validate the amount,
+timestamps and result bounds, and age out a displayed snapshot. The management
+pairing grants only read access to this route; its spending restrictions remain.
+
+The setup guide explains server availability, separate jar and bond coins, the
+lock date, backup and public funding traceability. JoinBlaket's default takers
+require a fidelity bond. Registering an address does not fund it. The fee grid and
+bond policy follow the pinned upstream implementation and
+[Kilombino's JoinBlaket documentation](https://kilombino.com/joinblaket/).
+Live watcher, maker and bond acceptance remains required on the packaged host.
 
 ## Validation and distribution
 

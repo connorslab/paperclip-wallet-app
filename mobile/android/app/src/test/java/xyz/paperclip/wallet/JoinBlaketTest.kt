@@ -44,6 +44,74 @@ class JoinBlaketTest {
 		try { client.status(JoinBlaketAuthorization("other.jmdat", "synthetic")); fail() } catch (_: IllegalArgumentException) {}
 		assertEquals(2, calls)
 	}
+	@Test fun relativeMakerFeesAndDiscardNeverFallBackOrReplay() = runBlocking {
+		val auth = JoinBlaketAuthorization("fixture.jmdat", "synthetic-token")
+		val connection = JoinBlaketConnection("https://fixture.invalid", "", "")
+		var state = "prepared"; var failCancel = false
+		val requests = mutableListOf<Pair<String, JSONObject?>>()
+		val row = recoveryCases().getJSONObject(1).getJSONObject("payment")
+		val http = OkHttpClient.Builder().addInterceptor { chain ->
+			val request = chain.request(); val path = request.url.encodedPath
+			val buffer = okio.Buffer(); request.body?.writeTo(buffer)
+			val body = if (buffer.size > 0) JSONObject(buffer.readUtf8()) else null
+			requests.add(path to body)
+			val reply = when {
+				path.endsWith("/session") -> """{"session":true,"wallet_name":"fixture.jmdat","maker_running":false,"coinjoin_in_process":false,"rescanning":false}"""
+				path.endsWith("/maker/start") -> "{}"
+				else -> JSONObject(row.toString()).put("state", if (path.endsWith("/cancel")) "cancelled" else state).toString()
+			}
+			Response.Builder().request(request).protocol(Protocol.HTTP_1_1).code(if (failCancel && path.endsWith("/cancel")) 504 else 200).message("fixture").body(reply.toResponseBody()).build()
+		}.build()
+		val client = JoinBlaketClient(connection, http)
+		for (rate in JoinBlaketMakerFee.rates) {
+			client.startMaker(100000,0,auth,rate)
+			val body = requests.last().second!!
+			assertEquals(rate,body.getString("cjfee_r")); assertEquals("0",body.getString("cjfee_a")); assertEquals("sw0reloffer",body.getString("ordertype"))
+		}
+		requests.clear()
+		for ((fee,rate) in listOf(123L to null,100L to "0.00005",0L to "0.005%")) {
+			try { client.startMaker(100000,fee,auth,rate); fail("Invalid terms") } catch (_: IllegalArgumentException) {}
+		}
+		assertTrue(requests.isEmpty()); assertEquals("0.005%",JoinBlaketMakerFee.label("0.00005"))
+		val id = row.getString("id")
+		assertEquals("cancelled",client.discardPayment(id,auth).state)
+		assertEquals(1,requests.count { it.first.endsWith("/cancel") })
+		for (next in listOf("submitting","unknown","submitted")) {
+			state = next; requests.clear()
+			try { client.discardPayment(id,auth); fail("Cannot discard submitted payment") } catch (_: IllegalArgumentException) {}
+			assertFalse(requests.any { it.first.endsWith("/cancel") })
+		}
+		state = "prepared"; failCancel = true; requests.clear()
+		try { client.discardPayment(id,auth); fail("Lost reply") } catch (_: Exception) {}
+		assertEquals(1,requests.count { it.first.endsWith("/cancel") })
+	}
+	@Test fun pairedPercentageRemainsRelativeAndCannotDiscard() = runBlocking {
+		val pair = JoinBlaketPairing.parse(pairingText())
+		val requests = mutableListOf<JSONObject>()
+		val http = OkHttpClient.Builder().addInterceptor { chain ->
+			assertEquals("/api/v1/paired-jars/request", chain.request().url.encodedPath)
+			val buffer = okio.Buffer(); chain.request().body!!.writeTo(buffer)
+			requests.add(JSONObject(buffer.readUtf8()))
+			Response.Builder().request(chain.request()).protocol(Protocol.HTTP_1_1).code(200).message("fixture")
+				.body("""{"session":true,"wallet_name":"fixture.jmdat","maker_running":false,"coinjoin_in_process":false,"rescanning":false}""".toResponseBody()).build()
+		}.build()
+		val client = JoinBlaketClient(pair.connection, http, pair)
+		client.startMaker(100000,0,pair.authorization(),"0.00005")
+		val body = requests.last()
+		assertEquals("start_maker",body.getString("operation"))
+		assertEquals("0.00005",body.getString("relative_fee"))
+		assertEquals(100000L,body.getLong("minimum_sat")); assertFalse(body.has("fee_sat"))
+		requests.clear()
+		try { client.discardPayment("a".repeat(64),pair.authorization()); fail("Management grant cannot discard") } catch (_: IllegalArgumentException) {}
+		assertTrue(requests.isEmpty())
+	}
+	@Test fun marketSummaryRejectsWrongAmountAndExpires() {
+		val now = java.time.Instant.now().epochSecond
+		val row = JSONObject().put("amount_sat",100000L).put("fetched_at",now).put("book_updated_at",now).put("status","fresh").put("maker_count",2).put("median_fee_sat","75.5")
+		val result = JoinBlaketMarket.parse(row,100000,now)
+		assertTrue(result.summary(now+121).contains("stale"))
+		assertThrows(IllegalArgumentException::class.java) { JoinBlaketMarket.parse(row,200000,now) }
+	}
 	private fun recoveryCases() = org.json.JSONArray(checkNotNull(javaClass.getResourceAsStream("/jam-recovery.json")).bufferedReader().use { it.readText() })
 	@Test fun recoveryMatchesSharedCases() {
 		val cases = recoveryCases()

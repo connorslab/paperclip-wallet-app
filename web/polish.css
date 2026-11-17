@@ -308,3 +308,17 @@ button,a,summary {touch-action:manipulation}
 .jam-backup-words { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .7rem 1.5rem; padding-inline-start: 1.8rem; font-family: ui-monospace, monospace; }
 .jam-backup-words li { overflow-wrap: anywhere; }
 @media (max-width: 420px) { .jam-backup-words { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+/* Maker setup uses the same order and compact disclosure rhythm as mobile. */
+#jam-maker{width:100%;margin:10px 0 16px}
+#jam-maker-readiness{font-weight:600;color:var(--focus);margin:12px 0}
+#jam-maker-checks{margin:10px 0 6px}
+#jam-maker-checks summary{min-height:44px;padding:10px 0;box-sizing:border-box;cursor:pointer}
+#jam-market-panel,#jam-bond-setup{margin-top:14px}
+#jam-maker-fields{display:grid;gap:10px}
+#jam-maker-fields[hidden]{display:none}
+#jam-maker-fields label{margin:0}
+#jam-maker-fields .hint{margin:0}
+#jam-maker-fields input,#jam-maker-fields select{margin:6px 0 0;min-width:0}
+#jam-maker-readiness[data-ready=true]{color:var(--muted)}
+@media(min-width:700px){#jam-maker-fields{grid-template-columns:1fr 1fr}#jam-maker-fields>label:first-child,#jam-maker-fields>.hint{grid-column:1/-1}}

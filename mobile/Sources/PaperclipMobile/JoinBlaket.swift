@@ -33,12 +33,16 @@ public struct JoinBlaketPairing: Decodable, Sendable, CustomStringConvertible, C
         guard expires > Int64(Date().timeIntervalSince1970) else { throw JoinBlaketError.sessionExpired }
         var fields: [String: Any] = ["wallet": wallet]
         let path = components.joined(separator: "/"), prefix = "wallet/\(wallet)/"
-        if path == "session" && body == nil { fields["operation"] = "status" }
+        if components.count == 3 && components.prefix(2).elementsEqual(["paperclip", "market"]), body == nil, let amount = UInt64(components[2]), (27_300...2_100_000_000_000_000).contains(amount) {
+            fields["operation"] = "market"; fields["comparison_sat"] = amount
+        } else if path == "session" && body == nil { fields["operation"] = "status" }
         else if path == prefix + "utxos" && body == nil { fields["operation"] = "coins" }
         else if components.count == 5 && components.prefix(4).elementsEqual(["wallet", wallet, "address", "new"]), body == nil, let jar = UInt8(components[4]), jar < 5 {
             fields["operation"] = "address"; fields["jar"] = jar
         } else if components.count == 6 && components.prefix(5).elementsEqual(["wallet", wallet, "address", "timelock", "new"]), body == nil {
             try JoinBlaketBond.validate(month: components[5]); fields["operation"] = "bond_address"; fields["lock_month"] = components[5]
+        } else if path == prefix + "maker/start", let body, let minimum = UInt64(body["minsize"] ?? ""), let rate = body["cjfee_r"], JoinBlaketMakerFee.rates.contains(rate), body["txfee"] == "0", body["cjfee_a"] == "0", body["ordertype"] == "sw0reloffer" {
+            fields["operation"] = "start_maker"; fields["minimum_sat"] = minimum; fields["relative_fee"] = rate
         } else if path == prefix + "maker/start", let body, let minimum = UInt64(body["minsize"] ?? ""), let fee = UInt64(body["cjfee_a"] ?? ""), body["txfee"] == "0", body["cjfee_r"] == "0", body["ordertype"] == "sw0absoffer" {
             fields["operation"] = "start_maker"; fields["minimum_sat"] = minimum; fields["fee_sat"] = fee
         } else if path == prefix + "maker/stop" && body == nil { fields["operation"] = "stop_maker" }
@@ -143,6 +147,7 @@ public struct JoinBlaketPayment: Decodable, Identifiable, Sendable {
     public let id: String
     public let state: State
     public let quote: Quote?
+    public var canDiscard: Bool { state == .preparing || state == .prepared }
     public var needsCheck: Bool { state == .submitting || state == .unknown }
     static func validID(_ id: String) -> Bool {
         id.utf8.count == 64 && id.utf8.allSatisfy { (48...57).contains($0) || (97...102).contains($0) }
@@ -163,6 +168,38 @@ public struct JoinBlaketPayment: Decodable, Identifiable, Sendable {
     }
 }
 
+public struct JoinBlaketMarket: Decodable, Sendable {
+    public let amount_sat: UInt64, fetched_at: Int64
+    public let book_updated_at: Int64?
+    public let status: String
+    public let maker_count: Int
+    public let median_fee_sat: String?
+    public func validate(amount: UInt64, now: Int64 = Int64(Date().timeIntervalSince1970)) throws {
+        guard amount_sat == amount, ["fresh", "stale", "empty", "unavailable"].contains(status),
+              fetched_at <= now + 30, fetched_at >= now - 120, (0...10000).contains(maker_count) else { throw JoinBlaketError.invalidResponse }
+        if status == "fresh" {
+            guard maker_count > 0, let stamp = book_updated_at, stamp <= now + 30, stamp >= now - 120,
+                  let fee = median_fee_sat, fee.range(of: "^[0-9]{1,16}(\\.5)?$", options: .regularExpression) != nil,
+                  let value = Decimal(string: fee, locale: Locale(identifier: "en_US_POSIX")), value <= 2_100_000_000_000_000 else { throw JoinBlaketError.invalidResponse }
+        } else { guard median_fee_sat == nil, maker_count == 0 else { throw JoinBlaketError.invalidResponse } }
+    }
+    public func summary(now: Date = Date()) -> String {
+        if status == "stale" || (book_updated_at.map { Int64(now.timeIntervalSince1970) - $0 > 120 } ?? false) { return "Order book is stale. Refresh before comparing fees." }
+        if status == "empty" { return "No verified bonded offers cover this amount. No median is available." }
+        guard status == "fresh", let fee = median_fee_sat else { return "Order book unavailable. Your selected fee is unchanged." }
+        return "Median maker fee: \(fee) sats for a \(amount_sat.formatted())-sat CoinJoin · \(maker_count) makers."
+    }
+}
+
+public enum JoinBlaketMakerFee {
+    public static let fixed: [UInt64] = [0, 100, 200, 500, 1000, 2000, 5000, 10000]
+    public static let rates = ["0.00002", "0.00005", "0.0001", "0.0002", "0.0005", "0.001", "0.002", "0.005", "0.01", "0.02", "0.05", "0.1"]
+    public static let percentages = ["0.002", "0.005", "0.01", "0.02", "0.05", "0.1", "0.2", "0.5", "1", "2", "5", "10"]
+    public static let perMillion = [20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000, 50000, 100000]
+    public static func label(_ rate: String) -> String { rates.firstIndex(of: rate).map { percentages[$0] + "%" } ?? "Unsupported fee" }
+    public static func example(_ rate: String) -> String { rates.firstIndex(of: rate).map { "At 1,000,000 sats, your fee is \(perMillion[$0].formatted()) sats." } ?? "Choose a supported fee." }
+}
+
 /// Setup guidance, not a guarantee of market selection or an active bond proof.
 public struct JoinBlaketMakerReadiness: Sendable {
     public let terms: Bool
@@ -171,14 +208,23 @@ public struct JoinBlaketMakerReadiness: Sendable {
     public let server: Bool
     public let fresh: Bool
     public var canStart: Bool { terms && funds && bond && server && fresh }
-    public init(minimum: String, fee: String, jars: [JoinBlaketJar], session: JoinBlaketSession?, needsRefresh: Bool) {
+    public var completedChecks: Int { [terms, funds, bond, server, fresh].filter { $0 }.count }
+    public var nextStep: String {
+        if !fresh { return "Refresh maker status before continuing." }
+        if !terms { return "Review the minimum amount and fee." }
+        if !server { return "Wait for Jam to finish its current operation." }
+        if !funds { return "Fund a jar and wait for confirmation." }
+        if !bond { return "Set up and fund a fidelity bond." }
+        return "Ready to review. Your server checks final eligibility."
+    }
+    public init(minimum: String, fee: String, jars: [JoinBlaketJar], session: JoinBlaketSession?, needsRefresh: Bool, relativeFee: String? = nil) {
         func sats(_ value: String) -> UInt64? {
             guard !value.isEmpty, value.utf8.allSatisfy({ (48...57).contains($0) }) else { return nil }
             return UInt64(value)
         }
         let minimum = sats(minimum) ?? 0, fee = sats(fee)
         let validMinimum = (27_300...2_100_000_000_000_000).contains(minimum)
-        terms = validMinimum && (fee.map { $0 < minimum } ?? false)
+        terms = validMinimum && (relativeFee.map { JoinBlaketMakerFee.rates.contains($0) && fee == 0 } ?? (fee.map { JoinBlaketMakerFee.fixed.contains($0) && $0 < minimum } ?? false))
         funds = validMinimum && jars.contains { $0.confirmed_sat >= minimum }
         bond = jars.contains { $0.bond_sat > 0 }
         server = session?.session == true && session?.maker_running == false && session?.rescanning == false && session?.coinjoin_in_process == false
@@ -206,6 +252,7 @@ public actor JoinBlaketClient {
     private let session: URLSession
     private let delegate: NodeSessionDelegate
     private let pairing: JoinBlaketPairing?
+    public var canDiscardReviews: Bool { pairing == nil }
 
     public init(connection: JoinBlaketConnection, pairing: JoinBlaketPairing? = nil) throws {
         try self.init(connection: connection, configuration: .ephemeral, pairing: pairing)
@@ -334,14 +381,34 @@ public actor JoinBlaketClient {
         try row.validate(wallet: authorization.wallet)
         return row
     }
+    public func market(amount: UInt64, authorization: JoinBlaketAuthorization) async throws -> JoinBlaketMarket {
+        guard (27_300...2_100_000_000_000_000).contains(amount) else { throw JoinBlaketError.invalidResponse }
+        _ = try await status(authorization)
+        let value = try JSONDecoder().decode(JoinBlaketMarket.self, from: await request(["paperclip", "market", String(amount)], authorization: authorization))
+        try value.validate(amount: amount)
+        return value
+    }
+    /// Only an unsent review can be discarded. Existing management-only host
+    /// grants retain their scope; use the owner UI for those paired wallets.
+    public func discardPayment(id: String, authorization: JoinBlaketAuthorization) async throws -> JoinBlaketPayment {
+        guard canDiscardReviews else { throw JoinBlaketError.invalidResponse }
+        let saved = try await checkPayment(id: id, authorization: authorization)
+        if saved.state == .cancelled { return saved }
+        guard saved.canDiscard else { throw JoinBlaketError.invalidResponse }
+        let row = try JSONDecoder().decode(JoinBlaketPayment.self, from: await request(["wallet", authorization.wallet, "paperclip", "payments", id, "cancel"], authorization: authorization, body: [:]))
+        try row.validate(wallet: authorization.wallet)
+        guard row.id == id, row.state == .cancelled else { throw JoinBlaketError.invalidResponse }
+        return row
+    }
     /// Starts a remote service only after the user reviews its explicit terms.
     /// A timeout means reconcile status; it never causes a second start request.
-    public func startMaker(minimumSat: UInt64, feeSat: UInt64, authorization: JoinBlaketAuthorization) async throws {
+    public func startMaker(minimumSat: UInt64, feeSat: UInt64, authorization: JoinBlaketAuthorization, relativeFee: String? = nil) async throws {
+        guard relativeFee.map({ JoinBlaketMakerFee.rates.contains($0) && feeSat == 0 }) ?? JoinBlaketMakerFee.fixed.contains(feeSat) else { throw JoinBlaketError.invalidResponse }
         guard minimumSat >= 27_300, minimumSat <= 2_100_000_000_000_000, feeSat < minimumSat else { throw JoinBlaketError.invalidResponse }
         let current = try await status(authorization)
         guard !current.maker_running, !current.coinjoin_in_process, !current.rescanning else { throw JoinBlaketError.invalidResponse }
         _ = try await request(["wallet", authorization.wallet, "maker", "start"], authorization: authorization,
-                              body: ["txfee": "0", "cjfee_a": String(feeSat), "cjfee_r": "0", "ordertype": "sw0absoffer", "minsize": String(minimumSat)])
+                              body: ["txfee": "0", "cjfee_a": String(feeSat), "cjfee_r": relativeFee ?? "0", "ordertype": relativeFee == nil ? "sw0absoffer" : "sw0reloffer", "minsize": String(minimumSat)])
     }
     public func stopMaker(authorization: JoinBlaketAuthorization) async throws {
         _ = try await request(["wallet", authorization.wallet, "maker", "stop"], authorization: authorization)

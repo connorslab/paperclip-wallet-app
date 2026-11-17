@@ -5,6 +5,7 @@ Delegation is memory-only, bound to the live wallet object/session and expires i
 grants; this credential never crosses its private proxy boundary.
 """
 import secrets
+import re
 import time
 
 from fastapi.responses import JSONResponse
@@ -38,7 +39,7 @@ class Delegations:
             return None
         prefix = '/api/v1/wallet/' + self.record['name'] + '/'
         if method == 'GET':
-            allowed = path == '/api/v1/session' or path in [prefix + suffix for suffix in (
+            allowed = bool(re.fullmatch(r'/api/v1/paperclip/market/[0-9]{1,16}', path)) or path == '/api/v1/session' or path in [prefix + suffix for suffix in (
                 'utxos', 'paperclip/identity', 'paperclip/payments', 'maker/stop')]
             if path.startswith(prefix):
                 suffix = path[len(prefix):].split('/')

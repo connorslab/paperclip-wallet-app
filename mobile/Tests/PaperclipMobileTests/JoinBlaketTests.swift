@@ -110,6 +110,69 @@ final class JoinBlaketTests: XCTestCase {
         code = 404
         do { _ = try await c.payments(auth); XCTFail("Missing companion is not empty history") } catch {}
     }
+    func testRelativeMakerFeesUseExactFractionsAndPairingPreservesMode() async throws {
+        let auth = try JoinBlaketAuthorization(wallet: "fixture.jmdat", token: "synthetic-token")
+        JamStub.route = { request in
+            (200, request.url!.path == "/api/v1/session" ? "{\"session\":true,\"wallet_name\":\"fixture.jmdat\",\"maker_running\":false,\"coinjoin_in_process\":false,\"rescanning\":false}" : "{}")
+        }
+        let c = try client()
+        for rate in JoinBlaketMakerFee.rates {
+            try await c.startMaker(minimumSat: 100000, feeSat: 0, authorization: auth, relativeFee: rate)
+            let body = try JSONSerialization.jsonObject(with: JamStub.bodies.last!) as! [String:String]
+            XCTAssertEqual(body["cjfee_r"], rate); XCTAssertEqual(body["cjfee_a"], "0"); XCTAssertEqual(body["ordertype"], "sw0reloffer")
+        }
+        JamStub.requests = []
+        do { try await c.startMaker(minimumSat: 100000, feeSat: 123, authorization: auth); XCTFail("Off-grid fee") } catch {}
+        do { try await c.startMaker(minimumSat: 100000, feeSat: 100, authorization: auth, relativeFee: "0.00005"); XCTFail("Mixed fee modes") } catch {}
+        XCTAssertTrue(JamStub.requests.isEmpty)
+        XCTAssertEqual(JoinBlaketMakerFee.label("0.00005"), "0.005%")
+        let pair = try JoinBlaketPairing(text: pairingText())
+        let configuration = URLSessionConfiguration.ephemeral; configuration.protocolClasses = [JamStub.self]
+        let paired = try JoinBlaketClient(connection: pair.connection, configuration: configuration, pairing: pair)
+        JamStub.reply = "{\"session\":true,\"wallet_name\":\"fixture.jmdat\",\"maker_running\":false,\"coinjoin_in_process\":false,\"rescanning\":false}"
+        JamStub.route = nil
+        try await paired.startMaker(minimumSat: 100000, feeSat: 0, authorization: pair.authorization(), relativeFee: "0.00005")
+        let fields = try JSONSerialization.jsonObject(with: JamStub.bodies.last!) as! [String: Any]
+        XCTAssertEqual(fields["operation"] as? String, "start_maker")
+        XCTAssertEqual(fields["relative_fee"] as? String, "0.00005")
+        XCTAssertEqual(fields["minimum_sat"] as? Int, 100000)
+        XCTAssertNil(fields["fee_sat"])
+        XCTAssertTrue(JamStub.requests.allSatisfy { $0.url?.path == "/api/v1/paired-jars/request" })
+        JamStub.requests = []
+        do { _ = try await paired.discardPayment(id: String(repeating: "a", count: 64), authorization: pair.authorization()); XCTFail("Management pairing cannot discard") } catch {}
+        XCTAssertTrue(JamStub.requests.isEmpty)
+    }
+    func testDiscardRejectsSubmittedPaymentsAndDoesNotRetryLostResponse() async throws {
+        let auth = try JoinBlaketAuthorization(wallet: "fixture.jmdat", token: "synthetic-token"), id = String(repeating: "a", count: 64)
+        let fixture = Bundle.module.url(forResource: "jam-recovery", withExtension: "json", subdirectory: "Fixtures")!
+        let cases = try JSONSerialization.jsonObject(with: Data(contentsOf: fixture)) as! [[String:Any]]
+        var row = cases[0]["payment"] as! [String:Any]; row["id"] = id
+        var state = "prepared", lost = false
+        JamStub.route = { request in
+            if request.url!.path == "/api/v1/session" { return (200, "{\"session\":true,\"wallet_name\":\"fixture.jmdat\",\"maker_running\":false,\"coinjoin_in_process\":false,\"rescanning\":false}") }
+            row["state"] = request.httpMethod == "POST" ? "cancelled" : state
+            return (lost && request.httpMethod == "POST" ? 504 : 200, String(decoding: try! JSONSerialization.data(withJSONObject: row), as: UTF8.self))
+        }
+        let c = try client()
+        let cancelled = try await c.discardPayment(id: id, authorization: auth); XCTAssertEqual(cancelled.state, .cancelled)
+        XCTAssertEqual(JamStub.requests.filter { $0.httpMethod == "POST" }.count, 1)
+        for next in ["submitting","unknown","submitted"] {
+            state = next; JamStub.requests = []
+            do { _ = try await c.discardPayment(id: id, authorization: auth); XCTFail("Must retain uncertain submission") } catch {}
+            XCTAssertFalse(JamStub.requests.contains { $0.httpMethod == "POST" })
+        }
+        state = "prepared"; lost = true; JamStub.requests = []
+        do { _ = try await c.discardPayment(id: id, authorization: auth); XCTFail("Lost reply") } catch {}
+        XCTAssertEqual(JamStub.requests.filter { $0.httpMethod == "POST" }.count, 1)
+    }
+    func testMarketSummaryRejectsWrongAmountAndExpires() throws {
+        let now = Int64(Date().timeIntervalSince1970)
+        let data = try JSONSerialization.data(withJSONObject:["amount_sat":100000,"fetched_at":now,"book_updated_at":now,"status":"fresh","maker_count":2,"median_fee_sat":"75.5"])
+        let value = try JSONDecoder().decode(JoinBlaketMarket.self, from: data)
+        try value.validate(amount:100000, now:now)
+        XCTAssertThrowsError(try value.validate(amount:200000, now:now))
+        XCTAssertTrue(value.summary(now:Date(timeIntervalSince1970:Double(now+121))).contains("stale"))
+    }
     func testMakerReadinessMatchesSharedCases() throws {
         struct Case: Decodable {
             let name: String, minimum: String, fee: String

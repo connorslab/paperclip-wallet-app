@@ -231,6 +231,18 @@
         note.textContent = payment.state === 'submitted' ? 'Seen by your node. Confirmation has not been checked.' : 'This review has not been sent.';
         card.append(note);
       }
+      if (['preparing','prepared'].includes(payment.state)) {
+        const discard = document.createElement('button'); discard.textContent = 'Discard review'; discard.className = 'secondary';
+        discard.onclick = () => work(async () => {
+          const identity = token, ticket = generation, wallet = authorization?.wallet;
+          if (!await PaperclipReview.ask('Discard this unsent review in ' + wallet + '? This releases its reserved coins and does not send a transaction. A submission that has already started cannot be discarded.')) return;
+          if (!token || token !== identity || ticket !== generation || authorization?.wallet !== wallet || panel.hidden) return;
+          const updated = paymentRecord(await call('cancel_payment', {payment_id:payment.id}), payment.id);
+          if (updated.state !== 'cancelled') throw new Error('Could not confirm cancellation. Refresh saved payments.');
+          payments = payments.map(row => row.id === payment.id ? updated : row); renderPayments();
+        });
+        card.append(discard);
+      }
       root.append(card);
     }
   }
@@ -241,12 +253,49 @@
     if (!/^[0-9]{4}-[0-9]{2}$/.test(month) || year < 2020 || year > 2099 || number < 1 || number > 12 || Date.UTC(year,number-1,1) <= Date.now())
       throw new Error('Choose a future month before 2100. Bonds unlock on its first day at 00:00 UTC.');
   }
+  function feeChoices() {
+    const relative = $('jam-fee-mode').value === 'relative';
+    $('jam-fee').replaceChildren();
+    for (const [index, value] of (relative ? PaperclipMakerReadiness.rates : PaperclipMakerReadiness.fixed).entries()) {
+      const option = document.createElement('option'); option.value = String(value);
+      option.textContent = relative ? PaperclipMakerReadiness.percentages[index] + '%' : value + ' sats';
+      $('jam-fee').append(option);
+    }
+    $('jam-fee').value = relative ? '0.00005' : '100';
+  }
+  feeChoices();
+  $('jam-fee-mode').onchange = () => { feeChoices(); render(); };
+  function feeLabel(values) {
+    return values.relative_fee ? PaperclipMakerReadiness.percentages[PaperclipMakerReadiness.rates.indexOf(values.relative_fee)] + '% of the CoinJoin amount' : amount(values.fee_sat) + ' per CoinJoin';
+  }
+  let market = null;
+  function renderMarket() {
+    const now = Math.floor(Date.now()/1000), root = $('jam-market-summary');
+    root.textContent = !market ? 'Refresh to compare current offers.' : market.status === 'stale' || (market.book_updated_at !== null && now-market.book_updated_at > 120) ? 'Order book is stale. Refresh before comparing fees.' : market.status === 'empty' ? 'No verified bonded offers cover this amount. No median is available.' : market.status === 'fresh' ? 'Median maker fee: '+market.median_fee_sat+' sats for a '+amount(market.amount_sat)+' CoinJoin · '+market.maker_count+' makers. Fetched '+new Date(market.fetched_at*1000).toLocaleTimeString()+'.' : 'Order book unavailable. Your selected fee is unchanged.';
+  }
+  setInterval(renderMarket,15000);
+  $('jam-market-refresh').onclick = () => work(async () => {
+    const comparison = Number($('jam-market-amount').value);
+    if (!/^[0-9]+$/.test($('jam-market-amount').value) || !Number.isSafeInteger(comparison) || comparison < 27300 || comparison > 2100000000000000) throw new Error('Choose a valid comparison amount.');
+    market = null; renderMarket();
+    try {
+      const value = await call('market', {comparison_sat:comparison}), now = Math.floor(Date.now()/1000);
+      if (value.amount_sat !== comparison || !['fresh','stale','empty','unavailable'].includes(value.status) || !Number.isInteger(value.fetched_at) || value.fetched_at < now-120 || value.fetched_at > now+30 || !Number.isInteger(value.maker_count) || value.maker_count < 0 || value.maker_count > 10000) throw new Error('Invalid market data');
+      if (value.status === 'fresh') {
+        if (value.maker_count === 0 || !Number.isInteger(value.book_updated_at) || value.book_updated_at < now-120 || value.book_updated_at > now+30 || typeof value.median_fee_sat !== 'string' || !/^[0-9]{1,16}(\.5)?$/.test(value.median_fee_sat) || Number(value.median_fee_sat) > 2100000000000000) throw new Error('Invalid market data');
+      } else if (value.median_fee_sat !== null || value.maker_count !== 0) throw new Error('Invalid market data');
+      if (comparison === Number($('jam-market-amount').value)) market = value;
+    } catch (_) { market = {status:'unavailable',book_updated_at:null}; }
+    renderMarket();
+  });
   function terms() {
     const rawMinimum = $('jam-minimum').value, rawFee = $('jam-fee').value;
-    if (!/^\d+$/.test(rawMinimum) || !/^\d+$/.test(rawFee)) return null;
+    if (!/^\d+$/.test(rawMinimum)) return null;
+    if ($('jam-fee-mode').value === 'relative') return Number.isSafeInteger(Number(rawMinimum)) && Number(rawMinimum) >= 27300 && Number(rawMinimum) <= 2100000000000000 && PaperclipMakerReadiness.rates.includes(rawFee) ? {minimum_sat:Number(rawMinimum), relative_fee:rawFee} : null;
+    if ($('jam-fee-mode').value !== 'fixed' || !/^\d+$/.test(rawFee)) return null;
     const minimum = Number(rawMinimum), fee = Number(rawFee);
     return Number.isSafeInteger(minimum) && minimum >= 27300 && minimum <= 2100000000000000 &&
-      Number.isSafeInteger(fee) && fee >= 0 && fee < minimum ? {minimum_sat: minimum, fee_sat: fee} : null;
+      Number.isSafeInteger(fee) && PaperclipMakerReadiness.fixed.includes(fee) && fee < minimum ? {minimum_sat: minimum, fee_sat: fee} : null;
   }
   function render() {
     const connected = !!session;
@@ -280,7 +329,10 @@
     const running = session?.maker_running === true;
     $('jam-maker-status').textContent = running ? 'Running on your server' : 'Not running';
     $('jam-maker-fields').hidden = running; $('jam-maker').textContent = running ? 'Stop maker' : 'Review maker setup';
-    const readiness=PaperclipMakerReadiness.evaluate($('jam-minimum').value,$('jam-fee').value,jars,session,needsRefresh);
+    const relative = $('jam-fee-mode').value === 'relative', rate = relative ? $('jam-fee').value : null;
+    const rateIndex = PaperclipMakerReadiness.rates.indexOf(rate);
+    $('jam-fee-example').textContent = rateIndex >= 0 ? 'At 1,000,000 sats, your fee is ' + PaperclipMakerReadiness.perMillion[rateIndex].toLocaleString() + ' sats.' : '';
+    const readiness=PaperclipMakerReadiness.evaluate($('jam-minimum').value,relative ? '0' : $('jam-fee').value,jars,session,needsRefresh,rate);
     const checklist=$('jam-maker-checklist');checklist.replaceChildren();checklist.hidden=running;
     for(const [key,complete,needed] of [
       ['terms','Amount and fee valid','Review the minimum amount and fee'],
@@ -292,8 +344,10 @@
       const item=document.createElement('li');item.dataset.ready=String(readiness[key]);
       item.textContent=(readiness[key]?'Ready: ':'Needed: ')+(readiness[key]?complete:needed);checklist.append(item);
     }
-    $('jam-maker-readiness').textContent = needsRefresh ? 'Refresh maker status before another action.' : running ? '' : readiness.canStart
-      ? 'Review your terms. Your server checks final eligibility; earnings are not guaranteed.' : 'Complete the remaining setup steps. Bond coins stay locked until the date you choose and remain separate from your maker offer.';
+    $('jam-maker-checks').hidden = running;
+    $('jam-maker-readiness').dataset.ready = String(readiness.canStart);
+    $('jam-maker-checks-title').textContent = 'Setup checks · '+PaperclipMakerReadiness.completed(readiness)+' of 5';
+    $('jam-maker-readiness').textContent = running ? (needsRefresh ? 'Refresh maker status before continuing.' : '') : PaperclipMakerReadiness.nextStep(readiness);
     panel.querySelectorAll('button, input, select').forEach(control => { control.disabled = busy; });
     $('jam-backup-close').disabled = false;
     $('jam-create').disabled = busy || (!!pendingSetup && !creationRetry);
@@ -373,14 +427,17 @@
     $('jam-address').textContent = result.address;
     window.PaperclipReceive.show('jam-address', result.address, 'Receive into ' + jars[selected].name);
   });
+  $('jam-market-amount').oninput = () => { market = null; renderMarket(); };
   $('jam-minimum').oninput = render; $('jam-fee').oninput = render;
   $('jam-maker').onclick = () => work(async () => {
     const stopping = session?.maker_running === true, values = terms();
+    const identity = token, ticket = generation, wallet = authorization?.wallet;
     if (!stopping && !values) throw new Error('Review your maker amount and fee.');
     const review = stopping ? 'Stop the maker running on your Jam server?' :
-      'Start your Jam maker? Minimum CoinJoin: ' + amount(values.minimum_sat) + '. Your fee: ' + amount(values.fee_sat) +
-      ' per CoinJoin. Mining fee contribution: 0 sats. It uses eligible Jam jars and keeps running when Paperclip closes. This does not create a bond or transfer Paperclip funds.';
+      'Start your Jam maker? Minimum CoinJoin: ' + amount(values.minimum_sat) + '. Your fee: ' + feeLabel(values) +
+      '. Mining fee contribution: 0 sats. It uses eligible Jam jars and keeps running when Paperclip closes. This does not create a bond or transfer Paperclip funds.';
     if (!await window.PaperclipReview.ask(review)) return;
+    if (!authorization || wallet !== authorization.wallet || token !== identity || ticket !== generation || document.hidden || panel.hidden) return;
     needsRefresh = true;
     await call(stopping ? 'stop_maker' : 'start_maker', stopping ? {} : values); await refresh();
   });
@@ -388,6 +445,7 @@
     if (!$('wallet').hidden) return;
     closeBackup(); $('jam-create-password').value = ''; $('jam-create-confirm').value = '';
     clearPairingCode(); $('jam-pairing-list').replaceChildren(); $('jam-pairing-panel').open = false;
+    market = null; renderMarket();
     generation++; payments = null; renderPayments(); $('jam-payments-panel').open = false; authorization = null; jars = []; session = null; selected = 0;
     $('jam-open').hidden = true; $('jam-open').removeAttribute('href');
     $('jam-password').value = ''; $('jam-passphrase').value = ''; needsRefresh = false; $('jam-wallet').replaceChildren(); $('jam-unlock-fields').hidden = true;

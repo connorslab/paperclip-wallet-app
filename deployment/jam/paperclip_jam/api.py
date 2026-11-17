@@ -13,6 +13,7 @@ from .journal import Journal, PaymentConflict
 from .payments import Payments
 from .hosting import install_hosting
 from .pairing import Delegations, DelegationGuard
+from .market import snapshot
 
 
 Identifier = Annotated[str, Field(pattern=r'^[0-9a-f]{64}$')]
@@ -70,7 +71,7 @@ class MutationGuard:
         if scope['type'] != 'http':
             return await self.app(scope, receive, send)
         path, method = scope['path'], scope['method']
-        if re.fullmatch(r'/api/v1/wallet/[^/]+/paperclip/payments(?:/[0-9a-f]{64}(?:/(?:commit|cancel))?)?', path) or path == '/api/v1/paperclip/capabilities' or (method == 'POST' and re.fullmatch(r'/api/v1/wallet/[^/]+/paperclip/pairing-session', path)):
+        if re.fullmatch(r'/api/v1/paperclip/market/[0-9]+', path) or re.fullmatch(r'/api/v1/wallet/[^/]+/paperclip/payments(?:/[0-9a-f]{64}(?:/(?:commit|cancel))?)?', path) or path == '/api/v1/paperclip/capabilities' or (method == 'POST' and re.fullmatch(r'/api/v1/wallet/[^/]+/paperclip/pairing-session', path)):
             return await self.app(scope, receive, send)
         # Lock may revoke an in-flight request immediately. Unlock is needed to
         # recover a persisted intent after a daemon restart.
@@ -122,6 +123,10 @@ def install(app, state):
     async def capabilities():
         return {'version': 1, 'reviewed_direct_send': True, 'bond_funding': True,
                 'bond_withdrawal': True, 'coinjoin_payments': False}
+
+    @router.get('/paperclip/market/{amount}')
+    async def market(amount: Annotated[int, Field(ge=27_300, le=2_100_000_000_000_000)]):
+        return await snapshot(state, amount)
 
     def adapter(request, walletname):
         return JamAdapter(state, get_optional_token(request), walletname)

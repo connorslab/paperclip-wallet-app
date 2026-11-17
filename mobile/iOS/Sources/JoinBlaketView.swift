@@ -84,6 +84,14 @@ import PaperclipMobile
         guard let client, let authorization else { throw JoinBlaketError.sessionExpired }
         return try await client.checkPayment(id: id, authorization: authorization)
     }
+    func market(_ amount: UInt64) async throws -> JoinBlaketMarket {
+        guard !previewOnly, let client, let authorization else { throw JoinBlaketError.sessionExpired }
+        return try await client.market(amount: amount, authorization: authorization)
+    }
+    func discardPayment(_ id: String) async throws -> JoinBlaketPayment {
+        guard !previewOnly, let client, let authorization else { throw JoinBlaketError.sessionExpired }
+        return try await client.discardPayment(id: id, authorization: authorization)
+    }
     func receive(_ jar: JoinBlaketJar) async throws {
         guard let client, let authorization else { return }
         address = try await client.receiveAddress(jar: jar.id, authorization: authorization)
@@ -94,10 +102,10 @@ import PaperclipMobile
         let address = try await client.bondAddress(month: month, authorization: authorization)
         bondMonth = month; bondAddress = address
     }
-    func maker(start: Bool, minimum: UInt64, fee: UInt64) async throws {
+    func maker(start: Bool, minimum: UInt64, fee: UInt64, relativeFee: String? = nil) async throws {
         guard let client, let authorization else { return }
         needsRefresh = true
-        if start { try await client.startMaker(minimumSat: minimum, feeSat: fee, authorization: authorization) }
+        if start { try await client.startMaker(minimumSat: minimum, feeSat: fee, authorization: authorization, relativeFee: relativeFee) }
         else { try await client.stopMaker(authorization: authorization) }
         try await refresh()
     }
@@ -133,6 +141,11 @@ struct JoinBlaketView: View {
     @State private var selectedJar: UInt8 = 0
     @State private var minimum = "100000"
     @State private var makerFee = "100"
+    @State private var relativeMode = false
+    @State private var relativeRate = "0.00005"
+    @State private var comparisonAmount = "100000"
+    @State private var market: JoinBlaketMarket?
+    @State private var marketUnavailable = false
     @State private var confirmMaker = false
     @State private var showPayments = false
     @State private var bondMonth = ""
@@ -156,93 +169,18 @@ struct JoinBlaketView: View {
                     pairingSetup
                     DisclosureGroup("Connect to a separate Jam server") { connection }
                 } else {
-                    WalletSection {
-                        HStack {
-                            Label("CoinJoin balance", systemImage: "shuffle").foregroundStyle(PaperclipTheme.muted)
-                            Spacer()
-                            Text("Experimental").font(.caption).foregroundStyle(PaperclipTheme.muted)
-                        }
-                        Text(unit.display(model.jars.reduce(UInt64(0)) { $0 + $1.total_sat })).font(.largeTitle.bold()).monospacedDigit()
-                        Text(model.selectedWallet).font(.subheadline).foregroundStyle(PaperclipTheme.muted)
-                        if model.paired {
-                            Text("Paired with your Paperclip host").font(.caption).foregroundStyle(PaperclipTheme.muted)
-                            Button("Forget this connection", role: .destructive) { model.perform { try model.forgetPairing() } }
-                        }
-                    }
-                    HStack {
-                        Text("Your jars").font(.title2.bold())
-                        Text("\(Int(selectedJar) + 1) of 5").font(.caption.monospacedDigit()).foregroundStyle(PaperclipTheme.muted)
-                        Spacer()
-                        Button { model.perform { try await model.refresh() } } label: { Image(systemName: "arrow.clockwise") }.accessibilityLabel("Refresh jars")
-                    }
-                    JarGridLayout {
-                        ForEach(model.jars) { jar in
-                            Button { selectedJar = jar.id; model.address = nil } label: {
-                                VStack(alignment: .leading, spacing: 6) {
-                                    HStack(spacing: 8) {
-                                        JarIllustration(color: colors[Int(jar.id)], funded: jar.total_sat > 0)
-                                            .scaleEffect(0.45).frame(width: 28, height: 32)
-                                        Text(jar.name).font(.subheadline.weight(.semibold)).fixedSize(horizontal: false, vertical: true)
-                                    }
-                                    Text(unit.display(jar.total_sat)).font(.subheadline.monospacedDigit()).foregroundStyle(.primary)
-                                    Text(jar.pending_sat > 0 ? "Incoming pending" : (selectedJar == jar.id ? "Selected" : "Jar \(Int(jar.id) + 1)"))
-                                        .font(.caption).foregroundStyle(PaperclipTheme.muted)
-                                }.frame(maxWidth: .infinity, minHeight: 78, alignment: .leading).padding(12)
-                                    .background(colors[Int(jar.id)].opacity(selectedJar == jar.id ? 0.18 : 0.08), in: RoundedRectangle(cornerRadius: 20))
-                                    .overlay(RoundedRectangle(cornerRadius: 20).stroke(selectedJar == jar.id ? colors[Int(jar.id)] : Color.clear, lineWidth: 2))
-                            }.buttonStyle(WalletNavigationButtonStyle()).accessibilityIdentifier("jar-\(jar.id)").accessibilityAddTraits(selectedJar == jar.id ? .isSelected : [])
-                        }
-                    }.padding(2).accessibilityElement(children: .contain).accessibilityIdentifier("jar-picker")
-                    Button { showPayments = true } label: {
-                        Label("Jars payment activity", systemImage: "clock.arrow.circlepath")
-                    }.disabled(model.previewOnly)
-                    WalletColumns {
-                        if let jar = model.jars.first(where: { $0.id == selectedJar }) {
-                            WalletSection(jar.name) {
-                                LabeledContent("Confirmed", value: unit.display(jar.confirmed_sat))
-                                if jar.pending_sat > 0 { LabeledContent("Pending", value: unit.display(jar.pending_sat)) }
-                                if jar.frozen_sat > 0 { LabeledContent("Frozen", value: unit.display(jar.frozen_sat)) }
-                                if jar.bond_sat > 0 { LabeledContent("Fidelity bonds", value: unit.display(jar.bond_sat)) }
-                                Button { model.perform { try await model.receive(jar) } } label: { Label("Receive into \(jar.name)", systemImage: "arrow.down.left").frame(maxWidth: .infinity) }.modifier(GlassAction()).disabled(model.previewOnly)
-                                if let address = model.address {
-                                    ReceiveCode(value: address).frame(maxWidth: .infinity)
-                                    Text(address).font(.footnote.monospaced()).textSelection(.enabled)
-                                    ShareLink(item: address) { Label("Share address", systemImage: "square.and.arrow.up") }
-                                }
-                            }
-                        }
-                    } secondary: {
-                        WalletSection("Maker") {
-                            Label(model.session?.maker_running == true ? "Running on your server" : "Not running", systemImage: model.session?.maker_running == true ? "checkmark.circle.fill" : "pause.circle")
-                            Text("Your server can keep making while Paperclip is closed.").font(.subheadline).foregroundStyle(PaperclipTheme.muted)
-                            if model.session?.maker_running != true {
-                                LabeledContent("Minimum CoinJoin (sats)") {
-                                    TextField("Minimum CoinJoin (sats)", text: $minimum).keyboardType(.numberPad).multilineTextAlignment(.trailing)
-                                }
-                                LabeledContent("Your fee per CoinJoin (sats)") {
-                                    TextField("Your fee per CoinJoin (sats)", text: $makerFee).keyboardType(.numberPad).multilineTextAlignment(.trailing)
-                                }
-                                Text("Mining fee contribution: 0 sats. Earnings depend on being selected.").font(.caption).foregroundStyle(PaperclipTheme.muted)
-                                makerChecklist
-                                if !makerReadiness.bond {
-                                    Text("Bond coins stay locked until the date you choose and remain separate from your maker offer.").font(.caption).foregroundStyle(PaperclipTheme.muted)
-                                }
-                                Text("Your server checks final eligibility; earnings are not guaranteed.").font(.caption).foregroundStyle(PaperclipTheme.muted)
-                            }
-                            bondSetup
-                            if model.needsRefresh { Text("Refresh maker status before another action.").font(.subheadline) }
-                            Button(model.session?.maker_running == true ? "Stop maker" : "Review maker setup") { confirmMaker = true }
-                            .disabled(model.previewOnly || model.needsRefresh || (model.session?.maker_running != true && !makerReadiness.canStart))
-                        }
-                    }
+                    connectedContent
                 }
                 if model.busy { ProgressView().frame(maxWidth: .infinity) }
                 if let message = model.message { Text(message).font(.subheadline).textSelection(.enabled) }
             }.walletPageContent()
         }.walletPageBackground().navigationTitle("Jars").navigationBarTitleDisplayMode(.inline)
+            .onChange(of: comparisonAmount) { _, _ in market = nil; marketUnavailable = false }
+            .onChange(of: model.connection.endpoint) { _, _ in market = nil; marketUnavailable = false }
+            .onChange(of: model.selectedWallet) { _, _ in market = nil; marketUnavailable = false }
             .disabled(model.busy)
             .sheet(isPresented: $showPayments) {
-                JoinBlaketRecoveryView(load: model.payments, check: model.checkPayment)
+                JoinBlaketRecoveryView(load: model.payments, check: model.checkPayment, discard: discardAction)
             }
             .fullScreenCover(isPresented: $scanningPairing) {
                 QRScannerView { value in
@@ -259,10 +197,10 @@ struct JoinBlaketView: View {
 #endif
             .confirmationDialog(model.session?.maker_running == true ? "Stop your server’s maker?" : "Start making on your Jam server?", isPresented: $confirmMaker) {
                 Button(model.session?.maker_running == true ? "Stop maker" : "Start maker") {
-                    model.perform { try await model.maker(start: model.session?.maker_running != true, minimum: UInt64(minimum) ?? 0, fee: UInt64(makerFee) ?? 0) }
+                    model.perform { try await model.maker(start: model.session?.maker_running != true, minimum: UInt64(minimum) ?? 0, fee: relativeMode ? 0 : (UInt64(makerFee) ?? 0), relativeFee: relativeMode ? relativeRate : nil) }
                 }
             } message: {
-                Text(model.session?.maker_running == true ? "Existing CoinJoins may need to finish before the maker stops." : "Minimum CoinJoin: \(minimum) sats. Your fee: \(makerFee) sats per CoinJoin. Mining fee contribution: 0 sats. The maker uses eligible Jam jars and keeps running when Paperclip closes.")
+                Text(model.session?.maker_running == true ? "Existing CoinJoins may need to finish before the maker stops." : "Minimum CoinJoin: \(minimum) sats. Your fee: \(relativeMode ? JoinBlaketMakerFee.label(relativeRate) + " of the CoinJoin amount" : makerFee + " sats per CoinJoin"). Mining fee contribution: 0 sats. The maker uses eligible Jam jars and keeps running when Paperclip closes.")
             }
             .alert("Create bond address?", isPresented: $confirmBond) {
                 Button("Create address") {
@@ -274,6 +212,133 @@ struct JoinBlaketView: View {
                 Text("Wallet: \(model.selectedWallet). Coins sent here will be locked until \(reviewedBondMonth)-01 at 00:00 UTC. Creating the address sends no funds. Review the amount and mining fee separately when funding. Earnings are not guaranteed.")
             }
     }
+    private var discardAction: ((String) async throws -> JoinBlaketPayment)? {
+        guard !model.paired else { return nil }
+        return { id in try await model.discardPayment(id) }
+    }
+    @ViewBuilder private var connectedContent: some View {
+        WalletSection {
+            HStack {
+                Label("CoinJoin balance", systemImage: "shuffle").foregroundStyle(PaperclipTheme.muted)
+                Spacer()
+                Text("Experimental").font(.caption).foregroundStyle(PaperclipTheme.muted)
+            }
+            Text(unit.display(model.jars.reduce(UInt64(0)) { $0 + $1.total_sat })).font(.largeTitle.bold()).monospacedDigit()
+            Text(model.selectedWallet).font(.subheadline).foregroundStyle(PaperclipTheme.muted)
+            if model.paired {
+                Text("Paired with your Paperclip host").font(.caption).foregroundStyle(PaperclipTheme.muted)
+                Button("Forget this connection", role: .destructive) { model.perform { try model.forgetPairing() } }
+            }
+        }
+        HStack {
+            Text("Your jars").font(.title2.bold())
+            Text("\(Int(selectedJar) + 1) of 5").font(.caption.monospacedDigit()).foregroundStyle(PaperclipTheme.muted)
+            Spacer()
+            Button { model.perform { try await model.refresh() } } label: { Image(systemName: "arrow.clockwise") }.accessibilityLabel("Refresh jars")
+        }
+        jarPicker
+        Button { showPayments = true } label: {
+            Label("Jars payment activity", systemImage: "clock.arrow.circlepath")
+        }.disabled(model.previewOnly)
+        WalletColumns {
+            if let jar = model.jars.first(where: { $0.id == selectedJar }) {
+                WalletSection(jar.name) {
+                    LabeledContent("Confirmed", value: unit.display(jar.confirmed_sat))
+                    if jar.pending_sat > 0 { LabeledContent("Pending", value: unit.display(jar.pending_sat)) }
+                    if jar.frozen_sat > 0 { LabeledContent("Frozen", value: unit.display(jar.frozen_sat)) }
+                    if jar.bond_sat > 0 { LabeledContent("Fidelity bonds", value: unit.display(jar.bond_sat)) }
+                    Button { model.perform { try await model.receive(jar) } } label: { Label("Receive into \(jar.name)", systemImage: "arrow.down.left").frame(maxWidth: .infinity) }.modifier(GlassAction()).disabled(model.previewOnly)
+                    if let address = model.address {
+                        ReceiveCode(value: address).frame(maxWidth: .infinity)
+                        Text(address).font(.footnote.monospaced()).textSelection(.enabled)
+                        ShareLink(item: address) { Label("Share address", systemImage: "square.and.arrow.up") }
+                    }
+                }
+            }
+        } secondary: {
+            makerSection
+        }
+    }
+    private var makerSection: some View {
+        WalletSection("Earn as a maker") {
+            Label(model.session?.maker_running == true ? "Running on your server" : "Not running", systemImage: model.session?.maker_running == true ? "checkmark.circle.fill" : "pause.circle")
+            Text("Your server can keep making while Paperclip is closed.").font(.subheadline).foregroundStyle(PaperclipTheme.muted)
+            if model.session?.maker_running != true {
+                LabeledContent("Minimum CoinJoin (sats)") {
+                    TextField("Minimum CoinJoin (sats)", text: $minimum).keyboardType(.numberPad).multilineTextAlignment(.trailing)
+                }
+                Picker("Maker fee type", selection: $relativeMode) {
+                    Text("Fixed sats").tag(false); Text("Percentage").tag(true)
+                }.pickerStyle(.segmented)
+                if relativeMode {
+                    Picker("Your fee", selection: $relativeRate) {
+                        ForEach(JoinBlaketMakerFee.rates, id: \.self) { Text(JoinBlaketMakerFee.label($0)).tag($0) }
+                    }.pickerStyle(.menu)
+                    Text(JoinBlaketMakerFee.example(relativeRate)).font(.caption).foregroundStyle(PaperclipTheme.muted)
+                } else {
+                    Picker("Your fee per CoinJoin", selection: $makerFee) {
+                        ForEach(JoinBlaketMakerFee.fixed, id: \.self) { Text("\($0) sats").tag(String($0)) }
+                    }.pickerStyle(.menu)
+                }
+                Text("Your fee is paid to you when selected. Earnings are not guaranteed.").font(.caption).foregroundStyle(PaperclipTheme.muted)
+                Text(makerReadiness.nextStep).font(.subheadline).foregroundStyle(makerReadiness.canStart ? PaperclipTheme.muted : PaperclipTheme.orange)
+                DisclosureGroup("Setup checks · \(makerReadiness.completedChecks) of 5") { makerChecklist }
+            }
+            if model.session?.maker_running == true && model.needsRefresh { Text("Refresh maker status before continuing.").font(.subheadline) }
+            Button(model.session?.maker_running == true ? "Stop maker" : "Review maker setup") { confirmMaker = true }
+            .buttonStyle(WalletPrimaryButtonStyle())
+            .disabled(model.previewOnly || model.needsRefresh || (model.session?.maker_running != true && !makerReadiness.canStart))
+            DisclosureGroup("Compare order book fees") {
+                LabeledContent("Compare amount (sats)") {
+                    TextField("Compare CoinJoin amount (sats)", text: $comparisonAmount).keyboardType(.numberPad).multilineTextAlignment(.trailing)
+                }
+                Text("Compare at this CoinJoin amount. One lowest supported offer per verified bonded maker; mining fees are excluded.").font(.caption)
+                TimelineView(.periodic(from: .now, by: 15)) { context in
+                    if let market { Text(market.summary(now: context.date)).font(.subheadline) }
+                }
+                if let market { Text("Fetched \(Date(timeIntervalSince1970: Double(market.fetched_at)), style: .time)").font(.caption).foregroundStyle(PaperclipTheme.muted) }
+                if marketUnavailable { Text("Order book unavailable. Your selected fee is unchanged.").font(.caption) }
+                Button("Refresh market fees") { model.perform {
+                    market = nil; marketUnavailable = false
+                    do { market = try await model.market(UInt64(comparisonAmount) ?? 0) } catch { marketUnavailable = true }
+                } }.disabled(model.previewOnly)
+                Text("A market snapshot is not a forecast. Your fee changes only when you select it.").font(.caption).foregroundStyle(PaperclipTheme.muted)
+            }
+            DisclosureGroup("How earning and bonds work") {
+                Text("Higher fees can reduce selection. Mining fee contribution: 0 sats.").font(.caption).foregroundStyle(PaperclipTheme.muted)
+                Text("A maker offers coins for other people’s CoinJoins and can earn a fee when selected. Keep spendable coins in a jar and your server online. Your phone can close.").font(.subheadline)
+                Text("JoinBlaket’s default takers require a fidelity bond. Bond coins remain yours but cannot be spent before the unlock date. They are separate from the coins your maker offers.").font(.subheadline)
+                Text("Bond funding is public and can link back to its source. Back up your Jam wallet first; lock only coins you can leave untouched. A bond does not guarantee earnings.").font(.caption).foregroundStyle(PaperclipTheme.muted)
+                Text("1. Fund a jar and wait for confirmation. 2. Register a bond address, fund it separately and wait for confirmation. 3. Refresh and review your maker terms.").font(.subheadline)
+            }
+            bondSetup
+        }
+    }
+    private var jarPicker: some View {
+        JarGridLayout {
+            ForEach(model.jars) { jar in jarCell(jar) }
+        }.padding(2).accessibilityElement(children: .contain).accessibilityIdentifier("jar-picker")
+    }
+    private func jarCell(_ jar: JoinBlaketJar) -> some View {
+        let selected = selectedJar == jar.id
+        let color = colors[Int(jar.id)]
+        let status = jar.pending_sat > 0 ? "Incoming pending" : (selected ? "Selected" : "Jar \(Int(jar.id) + 1)")
+        return Button { selectedJar = jar.id; model.address = nil } label: {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 8) {
+                    JarIllustration(color: color, funded: jar.total_sat > 0)
+                        .scaleEffect(0.45).frame(width: 28, height: 32)
+                    Text(jar.name).font(.subheadline.weight(.semibold)).fixedSize(horizontal: false, vertical: true)
+                }
+                Text(unit.display(jar.total_sat)).font(.subheadline.monospacedDigit()).foregroundStyle(.primary)
+                Text(status)
+                    .font(.caption).foregroundStyle(PaperclipTheme.muted)
+            }.frame(maxWidth: .infinity, minHeight: 78, alignment: .leading).padding(12)
+                .background(color.opacity(selected ? 0.18 : 0.08), in: RoundedRectangle(cornerRadius: 20))
+                .overlay(RoundedRectangle(cornerRadius: 20).stroke(selected ? color : Color.clear, lineWidth: 2))
+        }.buttonStyle(WalletNavigationButtonStyle()).accessibilityIdentifier("jar-\(jar.id)").accessibilityAddTraits(selected ? .isSelected : [])
+    }
+
     private var pairingSetup: some View {
         WalletSection("Pair with your server") {
             if let review = pairingReview {
@@ -305,7 +370,7 @@ struct JoinBlaketView: View {
         }
     }
     private var makerReadiness: JoinBlaketMakerReadiness {
-        JoinBlaketMakerReadiness(minimum: minimum, fee: makerFee, jars: model.jars, session: model.session, needsRefresh: model.needsRefresh)
+        JoinBlaketMakerReadiness(minimum: minimum, fee: relativeMode ? "0" : makerFee, jars: model.jars, session: model.session, needsRefresh: model.needsRefresh, relativeFee: relativeMode ? relativeRate : nil)
     }
     private var makerChecklist: some View {
         let ready = makerReadiness
@@ -427,6 +492,8 @@ private struct JarGridLayout: Layout {
 private struct JoinBlaketRecoveryView: View {
     let load: () async throws -> [JoinBlaketPayment]
     let check: (String) async throws -> JoinBlaketPayment
+    var discard: ((String) async throws -> JoinBlaketPayment)? = nil
+    @State private var discardID: String?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.dismiss) private var dismiss
     @State private var payments: [JoinBlaketPayment] = []
@@ -478,6 +545,10 @@ private struct JoinBlaketRecoveryView: View {
                                 Text(payment.state == .submitted ? "Seen by your node. Confirmation has not been checked." : "This review has not been sent.")
                                     .font(.footnote).foregroundStyle(PaperclipTheme.muted)
                             }
+                            if payment.canDiscard {
+                                if discard != nil { Button("Discard review") { discardID = payment.id }.disabled(busy) }
+                                else { Text("Discard this unsent review in Jars on your Paperclip host.").font(.footnote).foregroundStyle(PaperclipTheme.muted) }
+                            }
                         }
                     }
                     if busy { ProgressView().frame(maxWidth: .infinity) }
@@ -492,6 +563,13 @@ private struct JoinBlaketRecoveryView: View {
                     ToolbarItem(placement: .topBarLeading) { Button("Done") { dismiss() } }
                     ToolbarItem(placement: .topBarTrailing) { Button("Refresh") { refresh() }.disabled(busy) }
                 }
+                .confirmationDialog("Discard this unsent review?", isPresented: Binding(get: { discardID != nil }, set: { if !$0 { discardID = nil } }), titleVisibility: .visible) {
+                    Button("Discard review", role: .destructive) {
+                        guard let id = discardID, let discard else { return }; discardID = nil
+                        perform { let updated = try await discard(id); payments = payments.map { $0.id == id ? updated : $0 } }
+                    }
+                    Button("Keep review", role: .cancel) { discardID = nil }
+                } message: { Text("This releases reserved coins without sending a transaction. A submission that has already started cannot be discarded.") }
                 .task { refresh() }
         }
     }

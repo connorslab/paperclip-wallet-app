@@ -44,6 +44,10 @@ internal class JoinBlaketPairing private constructor(val endpoint: String, val w
 		val fields = JSONObject().put("wallet", wallet)
 		val path = parts.joinToString("/"); val prefix = "wallet/$wallet/"
 		when {
+			parts.size == 3 && parts.take(2) == listOf("paperclip", "market") && body == null -> {
+				val amount = parts[2].toLong(); require(amount in 27_300..2_100_000_000_000_000L)
+				fields.put("operation", "market").put("comparison_sat", amount)
+			}
 			path == "session" && body == null -> fields.put("operation", "status")
 			path == prefix + "utxos" && body == null -> fields.put("operation", "coins")
 			parts.size == 5 && parts.take(4) == listOf("wallet", wallet, "address", "new") && body == null -> {
@@ -54,8 +58,16 @@ internal class JoinBlaketPairing private constructor(val endpoint: String, val w
 				JoinBlaketBond.validate(parts[5]); fields.put("operation", "bond_address").put("lock_month", parts[5])
 			}
 			path == prefix + "maker/start" && body != null -> {
-				require(body.getString("txfee") == "0" && body.getString("cjfee_r") == "0" && body.getString("ordertype") == "sw0absoffer")
-				fields.put("operation", "start_maker").put("minimum_sat", body.getString("minsize").toLong()).put("fee_sat", body.getString("cjfee_a").toLong())
+				require(body.getString("txfee") == "0")
+				fields.put("operation", "start_maker").put("minimum_sat", body.getString("minsize").toLong())
+				if (body.getString("ordertype") == "sw0reloffer") {
+					val rate = body.getString("cjfee_r")
+					require(rate in JoinBlaketMakerFee.rates && body.getString("cjfee_a") == "0")
+					fields.put("relative_fee", rate)
+				} else {
+					require(body.getString("ordertype") == "sw0absoffer" && body.getString("cjfee_r") == "0")
+					fields.put("fee_sat", body.getString("cjfee_a").toLong())
+				}
 			}
 			path == prefix + "maker/stop" && body == null -> fields.put("operation", "stop_maker")
 			path == prefix + "paperclip/payments" && body == null -> fields.put("operation", "payments")
@@ -105,6 +117,7 @@ internal data class JoinBlaketConnection(
 
 /** Server recovery state. Never infer confirmation or retry a send from this record. */
 internal data class JoinBlaketPayment(val id: String, val state: String, val quote: Quote?) {
+	val canDiscard: Boolean get() = state in setOf("preparing", "prepared")
 	data class Quote(val wallet: String, val jar: Int, val purpose: String, val destination: String,
 		val txid: String, val amountSat: Long, val feeSat: Long, val totalSat: Long)
 	val needsCheck: Boolean get() = state in setOf("submitting", "unknown")
@@ -260,13 +273,31 @@ internal class JoinBlaketClient internal constructor(
 		return result
 	}
 
-	suspend fun startMaker(minimumSat: Long, feeSat: Long, authorization: JoinBlaketAuthorization) {
+	suspend fun market(amount: Long, authorization: JoinBlaketAuthorization): JoinBlaketMarket {
+		require(amount in 27_300..2_100_000_000_000_000L)
+		status(authorization)
+		return JoinBlaketMarket.parse(request(listOf("paperclip", "market", amount.toString()), authorization), amount)
+	}
+	val canDiscardReviews: Boolean get() = pairing == null
+	/** Preserve management-only pairing scopes; uncertain submissions cannot be discarded. */
+	suspend fun discardPayment(id: String, authorization: JoinBlaketAuthorization): JoinBlaketPayment {
+		require(canDiscardReviews) { "Discard this review in Jars on your Paperclip host" }
+		val saved = checkPayment(id, authorization)
+		if (saved.state == "cancelled") return saved
+		require(saved.canDiscard) { "Submission may have started; check status instead" }
+		val result = JoinBlaketPayment.parse(request(listOf("wallet", authorization.wallet, "paperclip", "payments", id, "cancel"), authorization, JSONObject()), authorization.wallet)
+		require(result.id == id && result.state == "cancelled") { "Could not confirm cancellation; refresh saved payments" }
+		return result
+	}
+
+	suspend fun startMaker(minimumSat: Long, feeSat: Long, authorization: JoinBlaketAuthorization, relativeFee: String? = null) {
+		require(if (relativeFee == null) feeSat in JoinBlaketMakerFee.fixed else relativeFee in JoinBlaketMakerFee.rates && feeSat == 0L) { "Choose a supported maker fee" }
 		require(minimumSat in 27_300..2_100_000_000_000_000L && feeSat in 0 until minimumSat) { "Review the maker amount and fee" }
 		val current = status(authorization)
 		require(!current.getBoolean("maker_running") && !current.getBoolean("coinjoin_in_process") && !current.getBoolean("rescanning")) { "Wait for the current Jam operation to finish" }
 		request(listOf("wallet", authorization.wallet, "maker", "start"), authorization,
-			JSONObject().put("txfee", "0").put("cjfee_a", feeSat.toString()).put("cjfee_r", "0")
-				.put("ordertype", "sw0absoffer").put("minsize", minimumSat.toString()))
+			JSONObject().put("txfee", "0").put("cjfee_a", feeSat.toString()).put("cjfee_r", relativeFee ?: "0")
+				.put("ordertype", if (relativeFee == null) "sw0absoffer" else "sw0reloffer").put("minsize", minimumSat.toString()))
 	}
 	suspend fun stopMaker(authorization: JoinBlaketAuthorization) {
 		request(listOf("wallet", authorization.wallet, "maker", "stop"), authorization)

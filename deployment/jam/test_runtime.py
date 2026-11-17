@@ -75,6 +75,16 @@ class RuntimeTest(unittest.TestCase):
         self.assertEqual(response.status_code, 200, response.text)
         return response.json()
 
+    def test_market_comparison_is_read_only_and_available_during_review(self):
+        self.prepare()
+        result = {'amount_sat':100000, 'fetched_at':2000000000, 'book_updated_at':None,
+                  'status':'unavailable', 'maker_count':0, 'median_fee_sat':None}
+        with patch('paperclip_jam.api.snapshot', AsyncMock(return_value=result)) as market:
+            self.assertEqual(self.client.get('/api/v1/paperclip/market/100000').json(), result)
+            self.assertEqual(self.client.get('/api/v1/paperclip/market/1').status_code, 422)
+            market.assert_awaited_once()
+        self.backend.broadcast_transaction.assert_not_awaited()
+
     def test_pairing_identity_is_authenticated_and_survives_pending_review(self):
         target = self.base.replace('/payments', '/identity')
         expected = {'wallet': 'fixture.jmdat', 'identity': JamAdapter(self.state, self.token, 'fixture.jmdat').identity}
@@ -151,6 +161,10 @@ class RuntimeTest(unittest.TestCase):
         self.client.headers['Authorization'] = 'Bearer ' + delegation
         self.assertEqual(self.client.get(self.base.replace('/payments', '/identity')).status_code, 200)
         self.assertEqual(self.client.get(self.base).status_code, 200)
+        from unittest.mock import patch, AsyncMock
+        with patch('paperclip_jam.api.snapshot', AsyncMock(return_value={'status': 'unavailable'})) as market:
+            self.assertEqual(self.client.get('/api/v1/paperclip/market/100000').status_code, 200)
+            market.assert_awaited_once()
         for method, path in [('POST', target), ('POST', self.base),
                 ('POST', self.base + '/' + 'a' * 64 + '/commit'),
                 ('POST', self.base + '/' + 'a' * 64 + '/cancel'),

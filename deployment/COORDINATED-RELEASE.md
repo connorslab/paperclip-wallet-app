@@ -19,8 +19,8 @@ checks from the required implementation and acceptance work.
 
 | Area | Verified in the current test pass | Still required |
 | --- | --- | --- |
-| iOS | 112 shared Swift tests; 17 safe UI cases on both regular-phone and open-Duo simulators | Physical signer, camera, accessibility and interrupted/folded payment acceptance; final signed candidate and upgrade |
-| Android | 88 JVM tests; 16 isolated API 35 UI cases; authenticated CLN/LND reads and pin rejection | Final release identity, Play/APK upgrade compatibility, physical/foldable acceptance and current CI completion |
+| iOS | 115 shared Swift tests; 17 safe UI cases on both regular-phone and open-Duo simulators | Physical signer, camera, accessibility and interrupted/folded payment acceptance; final signed candidate and upgrade |
+| Android | 91 JVM tests (four live cases excluded); 16 isolated API 35 UI cases; authenticated CLN/LND reads and pin rejection | Final release identity, Play/APK upgrade compatibility, physical/foldable acceptance and current CI completion |
 | Shared desktop UI | All 17 existing browser-flow suites plus entropy, transport and QR checks; phone, foldable and desktop widths where each suite defines them | Installed-host and native desktop acceptance; complete multiple-hot-wallet and hardware-funded Ark workflows |
 | StartOS/Umbrel | Shared REST checks, authenticated CLN/LND reads; both StartOS candidate architectures built and source/checksums checked | Complete backup/restore, candidate installation, bundled Jam pairing/revocation/Tor and upgrades; matching frozen wrappers |
 | Linux/macOS/Windows | Isolated native Apple Silicon daemon authentication and restart smoke | Native launchers and bundled service lifecycle, supported OS matrix, signed installers, notarization where applicable and clean install/upgrade tests |
@@ -78,8 +78,54 @@ Duo pass remains the available evidence; the final rerun is not counted as a pas
 
 Android CI at `7940fbd` passed API 35 but failed API 36 during the onboarding
 capture: the emulator showed a System UI not-responding dialog. The app main
-thread was idle, with no recorded app process exit. This is not a passing API 36
-result; the complete flow must pass on a fresh emulator before release.
+thread was idle, with no recorded app process exit. That run remains failed.
+The later `7c97c3d` run `43981075219` passed Android CI, including both emulator
+jobs. Backend run `43981075178` and browser run `43981075345` also passed at that
+revision. These results precede the following Jars changes.
+
+### Jars fees, market comparison and unsent review recovery
+
+The maker screen now uses the same sequence on every client: status, fee settings,
+next required step, expandable setup checks, and the review action. Market
+comparison, earning guidance and bond setup follow as optional sections. Checks
+start collapsed, but the current blocker stays visible and the same safety gates
+still disable submission. Android uses the shared wallet surface and a short
+content-size transition; iOS uses its primary payment button and native disclosures.
+Desktop form spacing is reduced without shrinking touch targets.
+
+Fixed-sat and percentage maker fees now use the pinned JoinBlaket grid on iOS,
+Android and the shared desktop/StartOS/Umbrel UI. Percentages include a worked
+example and stay exact through the restricted pairing proxy. Unsupported or
+mixed fee modes fail before submission. Collapsed setup help explains jar coins,
+bond coins, lock dates, backup, public funding traceability and server availability.
+Default takers require a bond; funding and withdrawal are still separate gates.
+
+Each client can show a read-only median at the selected comparison amount.
+The host compares one lowest supported offer per verified, current bonded maker.
+It normalizes relative and fixed fees to sats and excludes mining contributions.
+The comparison amount is independent of maker settings, including while the maker
+runs. The comparison shows the maker count and fetch time. Stale, missing or malformed
+snapshots cannot become a zero median. A refresh does not alter the user's fee.
+This is a comparison of advertised fees, not an earnings forecast. The live
+packaged watcher and maker have not been exercised in this pass.
+
+The owner desktop UI and independently authorized mobile connections can discard
+an unsent Jam review after confirmation. The companion still rejects cancellation
+past the durable submission boundary. Restricted management pairings remain
+unable to discard reviews and direct the user to the host. Unknown submissions
+remain visible; a timeout never automatically repeats a request. Desktop maker
+confirmation also rejects a review after the wallet session ends.
+
+Local validation: 115 shared Swift tests; 91 Android JVM tests with four opt-in
+live cases skipped; 11 targeted REST tests; 52 Jam companion tests with one
+container-only test skipped; native Apple ARM64 simulator compilation; repository
+prechecks and type checks. Phone/desktop browser coverage includes percentage
+conversion, market states, unchanged fee selection and discard recovery. Synthetic
+screenshots were inspected. Five Android API 35 Jars UI cases pass, including
+market display and fee preservation. Two regular iPhone simulator cases verify the percentage example, expandable
+checks, comparison controls and portrait/landscape bond guidance with network
+actions disabled. These checks do not replace live host, physical signer, settlement,
+fold transitions or signed-release acceptance.
 
 ## Source and artifacts
 

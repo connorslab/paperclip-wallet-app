@@ -79,6 +79,17 @@ internal fun JoinBlaketPage(state: JoinBlaketUiState) {
 	var minimum by state.minimum
 	var makerFee by state.makerFee
 	var confirmMaker by remember { mutableStateOf(false) }
+	var relativeMode by remember { mutableStateOf(false) }
+	var relativeRate by remember { mutableStateOf("0.00005") }
+	var feeMenu by remember { mutableStateOf(false) }
+	var comparisonAmount by remember { mutableStateOf("100000") }
+	var showChecks by remember { mutableStateOf(false) }
+	var showMarket by remember { mutableStateOf(false) }
+	var market by remember { mutableStateOf<JoinBlaketMarket?>(null) }
+	var marketUnavailable by remember { mutableStateOf(false) }
+	var marketNow by remember { mutableStateOf(java.time.Instant.now().epochSecond) }
+	LaunchedEffect(showMarket) { while (showMarket) { marketNow = java.time.Instant.now().epochSecond; kotlinx.coroutines.delay(15_000) } }
+	var showMakerGuide by remember { mutableStateOf(false) }
 	var showPayments by remember { mutableStateOf(false) }
 	var bondMonth by state.bondMonth
 	var bondAddress by state.bondAddress
@@ -245,72 +256,114 @@ internal fun JoinBlaketPage(state: JoinBlaketUiState) {
 			}
 		}
 		}, secondary = {
-		Text(if (session?.getBoolean("maker_running") == true) "Maker running on your server" else "Maker not running", style = MaterialTheme.typography.titleMedium)
-		Text("Your server can keep making while Paperclip is closed.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-		val running = session?.getBoolean("maker_running") == true
-		val readiness = JoinBlaketMakerReadiness.evaluate(minimum, makerFee, jars, session, needsRefresh)
-		val minimumValue = minimum.toLongOrNull()
-		val feeValue = makerFee.toLongOrNull()
+		WalletSurface {
+			Column(Modifier.padding(18.dp).animateContentSize(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+				Text("Earn as a maker", style = MaterialTheme.typography.titleMedium)
+				Text(if (session?.getBoolean("maker_running") == true) "Running on your server" else "Not running", color = MaterialTheme.colorScheme.onSurfaceVariant)
+				Text("Your server can keep making while Paperclip is closed.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+				val running = session?.getBoolean("maker_running") == true
+				val readiness = JoinBlaketMakerReadiness.evaluate(minimum, if (relativeMode) "0" else makerFee, jars, session, needsRefresh, if (relativeMode) relativeRate else null)
+				val minimumValue = minimum.toLongOrNull()
+				val feeValue = makerFee.toLongOrNull()
 
-		if (!running) {
-			OutlinedTextField(minimum, { minimum = it }, label = { Text("Minimum CoinJoin (sats)") }, enabled = !busy, modifier = Modifier.fillMaxWidth())
-			OutlinedTextField(makerFee, { makerFee = it }, label = { Text("Your fee per CoinJoin (sats)") }, enabled = !busy, modifier = Modifier.fillMaxWidth())
-			Text("Mining fee contribution: 0 sats. Earnings depend on being selected.")
-			for ((complete, ready, needed) in listOf(
-				Triple(readiness.terms, "Amount and fee valid", "Review the minimum amount and fee"),
-				Triple(readiness.funds, "One jar covers the minimum", "Fund one jar and wait for confirmation"),
-				Triple(readiness.bond, "Bond funds detected", "Set up and fund a fidelity bond"),
-				Triple(readiness.server, "Jam is idle", "Wait for Jam to finish syncing or its current operation"),
-				Triple(readiness.fresh, "Status refreshed", "Refresh wallet status before continuing"),
-			)) {
-				Text((if (complete) "Ready: " else "Needed: ") + if (complete) ready else needed,
-					color = if (complete) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.primary)
-			}
-			Text("Your server checks final eligibility; earnings are not guaranteed.", style = MaterialTheme.typography.bodySmall)
-		}
-		TextButton(enabled = !busy, onClick = { showBond = !showBond }) { Text("Set up a fidelity bond") }
-		if (showBond) {
-			Text("A bond locks coins until your chosen month. It may help your maker get selected; earnings are not guaranteed.")
-			BondMonthPicker(bondMonth, enabled = !busy) { bondMonth = it; bondAddress = null }
-			Text("Unlocks on the first day at 00:00 UTC. Creating the address sends no funds.", style = MaterialTheme.typography.bodySmall)
-			WalletPrimaryButton(enabled = !busy, onClick = {
-				try { JoinBlaketBond.validate(bondMonth); reviewedBondMonth = bondMonth }
-				catch (e: Exception) { message = e.message }
-			}) { Text("Review bond address") }
-			bondAddress?.let {
-				Text("Wallet: $wallet · Unlocks $bondMonth-01 at 00:00 UTC.")
-				Text("Address ready; no funds sent. Back up your Jam wallet, then review the amount and mining fee in the wallet you fund it from.", style = MaterialTheme.typography.bodySmall)
-				NodeReceiveCode(it); SelectionContainer { Text(it) }
-			}
-		}
-		reviewedBondMonth?.let { reviewed ->
-			AlertDialog(onDismissRequest = { reviewedBondMonth = null }, title = { Text("Create bond address?") },
-				text = { Text("Wallet: $wallet. Coins sent here will be locked until $reviewed-01 at 00:00 UTC. Creating the address sends no funds. Review the amount and mining fee separately when funding. Earnings are not guaranteed.") },
-				confirmButton = { TextButton(onClick = {
-					reviewedBondMonth = null
-					run {
-						bondAddress = null
-						val result = checkNotNull(client).bondAddress(reviewed, checkNotNull(authorization))
-						bondMonth = reviewed; bondAddress = result
+				if (!running) {
+					OutlinedTextField(minimum, { minimum = it }, label = { Text("Minimum CoinJoin (sats)") }, enabled = !busy, modifier = Modifier.fillMaxWidth())
+					Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+						FilterChip(selected = !relativeMode, enabled = !busy, onClick = { relativeMode = false }, label = { Text("Fixed sats") })
+						FilterChip(selected = relativeMode, enabled = !busy, onClick = { relativeMode = true }, label = { Text("Percentage") })
 					}
-				}) { Text("Create address") } },
-				dismissButton = { TextButton(onClick = { reviewedBondMonth = null }) { Text("Cancel") } })
-		}
-		if (needsRefresh) Text("Refresh maker status before another action.")
-		WalletPrimaryButton(enabled = !busy && !needsRefresh && (running || readiness.canStart), onClick = { confirmMaker = true }) { Text(if (running) "Stop maker" else "Review maker setup") }
-		if (confirmMaker) AlertDialog(onDismissRequest = { confirmMaker = false },
-			title = { Text(if (running) "Stop your server’s maker?" else "Start making on your Jam server?") },
-			text = { Text(if (running) "Existing CoinJoins may need to finish before the maker stops." else "Minimum CoinJoin: $minimum sats. Your fee: $makerFee sats per CoinJoin. Mining fee contribution: 0 sats. The maker uses eligible Jam jars and keeps running when Paperclip closes.") },
-			confirmButton = { TextButton(onClick = {
-				confirmMaker = false
-				run {
-					val c = checkNotNull(client); val auth = checkNotNull(authorization)
-					needsRefresh = true
-					if (running) c.stopMaker(auth) else c.startMaker(checkNotNull(minimumValue), checkNotNull(feeValue), auth)
-					refresh(c, auth)
+					Box {
+						OutlinedButton(enabled = !busy, onClick = { feeMenu = true }) { Text("Your fee: " + if (relativeMode) JoinBlaketMakerFee.label(relativeRate) else "$makerFee sats") }
+						DropdownMenu(expanded = feeMenu, onDismissRequest = { feeMenu = false }) {
+							if (relativeMode) JoinBlaketMakerFee.rates.forEach { rate -> DropdownMenuItem(text = { Text(JoinBlaketMakerFee.label(rate)) }, onClick = { relativeRate = rate; feeMenu = false }) }
+							else JoinBlaketMakerFee.fixed.forEach { fee -> DropdownMenuItem(text = { Text("$fee sats") }, onClick = { makerFee = fee.toString(); feeMenu = false }) }
+						}
+					}
+					if (relativeMode) Text(JoinBlaketMakerFee.example(relativeRate), style = MaterialTheme.typography.bodySmall)
+					Text("Your fee is paid to you when selected. Earnings are not guaranteed.", style = MaterialTheme.typography.bodySmall)
+					Text(readiness.nextStep, color = if (readiness.canStart) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.primary)
+					TextButton(onClick = { showChecks = !showChecks }) { Text("Setup checks · ${readiness.completedChecks} of 5") }
+					if (showChecks) {
+					for ((complete, ready, needed) in listOf(
+						Triple(readiness.terms, "Amount and fee valid", "Review the minimum amount and fee"),
+						Triple(readiness.funds, "One jar covers the minimum", "Fund one jar and wait for confirmation"),
+						Triple(readiness.bond, "Bond funds detected", "Set up and fund a fidelity bond"),
+						Triple(readiness.server, "Jam is idle", "Wait for Jam to finish syncing or its current operation"),
+						Triple(readiness.fresh, "Status refreshed", "Refresh wallet status before continuing"),
+					)) {
+						Text((if (complete) "Ready: " else "Needed: ") + if (complete) ready else needed,
+							color = if (complete) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.primary)
+					}
+					}
 				}
-			}) { Text(if (running) "Stop maker" else "Start maker") } },
-			dismissButton = { TextButton(onClick = { confirmMaker = false }) { Text("Cancel") } })
+				if (running && needsRefresh) Text("Refresh maker status before continuing.")
+				WalletPrimaryButton(enabled = !busy && !needsRefresh && (running || readiness.canStart), onClick = { confirmMaker = true }) { Text(if (running) "Stop maker" else "Review maker setup") }
+				LaunchedEffect(comparisonAmount, client, authorization) { market = null; marketUnavailable = false }
+				TextButton(onClick = { showMarket = !showMarket }) { Text("Compare order book fees") }
+				if (showMarket) {
+					OutlinedTextField(comparisonAmount, { comparisonAmount = it }, label = { Text("Compare CoinJoin amount (sats)") }, enabled = !busy, modifier = Modifier.fillMaxWidth())
+					Text("Compare at this CoinJoin amount. One lowest supported offer per verified bonded maker; mining fees are excluded.", style = MaterialTheme.typography.bodySmall)
+					market?.let { Text(it.summary(marketNow)); Text("Fetched " + java.time.Instant.ofEpochSecond(it.fetched).atZone(java.time.ZoneId.systemDefault()).toLocalTime().withNano(0), style = MaterialTheme.typography.bodySmall) }
+					if (marketUnavailable) Text("Order book unavailable. Your selected fee is unchanged.")
+					TextButton(enabled = !busy, onClick = { run {
+						market = null; marketUnavailable = false
+						try { market = checkNotNull(client).market(comparisonAmount.toLongOrNull() ?: 0, checkNotNull(authorization)) }
+						catch (e: CancellationException) { throw e }
+						catch (_: Exception) { marketUnavailable = true }
+					} }) { Text("Refresh market fees") }
+					Text("A market snapshot is not a forecast. Your fee changes only when you select it.", style = MaterialTheme.typography.bodySmall)
+				}
+				TextButton(onClick = { showMakerGuide = !showMakerGuide }) { Text("How earning and bonds work") }
+				if (showMakerGuide) {
+					Text("Higher fees can reduce selection. Mining fee contribution: 0 sats.", style = MaterialTheme.typography.bodySmall)
+					Text("A maker offers coins for other people’s CoinJoins and can earn a fee when selected. Keep spendable coins in a jar and your server online. Your phone can close.")
+					Text("JoinBlaket’s default takers require a fidelity bond. Bond coins remain yours but cannot be spent before the unlock date. They are separate from the coins your maker offers.")
+					Text("Bond funding is public and can link back to its source. Back up your Jam wallet first; lock only coins you can leave untouched. A bond does not guarantee earnings.", style = MaterialTheme.typography.bodySmall)
+					Text("1. Fund a jar and wait for confirmation. 2. Register a bond address, fund it separately and wait for confirmation. 3. Refresh and review your maker terms.")
+				}
+				TextButton(enabled = !busy, onClick = { showBond = !showBond }) { Text("Set up a fidelity bond") }
+				if (showBond) {
+					Text("A bond locks coins until your chosen month. It may help your maker get selected; earnings are not guaranteed.")
+					BondMonthPicker(bondMonth, enabled = !busy) { bondMonth = it; bondAddress = null }
+					Text("Unlocks on the first day at 00:00 UTC. Creating the address sends no funds.", style = MaterialTheme.typography.bodySmall)
+					WalletPrimaryButton(enabled = !busy, onClick = {
+						try { JoinBlaketBond.validate(bondMonth); reviewedBondMonth = bondMonth }
+						catch (e: Exception) { message = e.message }
+					}) { Text("Review bond address") }
+					bondAddress?.let {
+						Text("Wallet: $wallet · Unlocks $bondMonth-01 at 00:00 UTC.")
+						Text("Address ready; no funds sent. Back up your Jam wallet, then review the amount and mining fee in the wallet you fund it from.", style = MaterialTheme.typography.bodySmall)
+						NodeReceiveCode(it); SelectionContainer { Text(it) }
+					}
+				}
+				reviewedBondMonth?.let { reviewed ->
+					AlertDialog(onDismissRequest = { reviewedBondMonth = null }, title = { Text("Create bond address?") },
+						text = { Text("Wallet: $wallet. Coins sent here will be locked until $reviewed-01 at 00:00 UTC. Creating the address sends no funds. Review the amount and mining fee separately when funding. Earnings are not guaranteed.") },
+						confirmButton = { TextButton(onClick = {
+							reviewedBondMonth = null
+							run {
+								bondAddress = null
+								val result = checkNotNull(client).bondAddress(reviewed, checkNotNull(authorization))
+								bondMonth = reviewed; bondAddress = result
+							}
+						}) { Text("Create address") } },
+						dismissButton = { TextButton(onClick = { reviewedBondMonth = null }) { Text("Cancel") } })
+				}
+				if (confirmMaker) AlertDialog(onDismissRequest = { confirmMaker = false },
+					title = { Text(if (running) "Stop your server’s maker?" else "Start making on your Jam server?") },
+					text = { Text(if (running) "Existing CoinJoins may need to finish before the maker stops." else "Minimum CoinJoin: $minimum sats. Your fee: ${if (relativeMode) JoinBlaketMakerFee.label(relativeRate) + " of the CoinJoin amount" else "$makerFee sats per CoinJoin"}. Mining fee contribution: 0 sats. The maker uses eligible Jam jars and keeps running when Paperclip closes.") },
+					confirmButton = { TextButton(onClick = {
+						confirmMaker = false
+						run {
+							val c = checkNotNull(client); val auth = checkNotNull(authorization)
+							needsRefresh = true
+							if (running) c.stopMaker(auth) else c.startMaker(checkNotNull(minimumValue), if (relativeMode) 0 else checkNotNull(feeValue), auth, if (relativeMode) relativeRate else null)
+							refresh(c, auth)
+						}
+					}) { Text(if (running) "Stop maker" else "Start maker") } },
+					dismissButton = { TextButton(onClick = { confirmMaker = false }) { Text("Cancel") } })
+			}
+		}
 		})
 	}
 	if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
@@ -359,6 +412,7 @@ internal fun JoinBlaketPage(state: JoinBlaketUiState) {
 	val scope = rememberCoroutineScope()
 	val unit = LocalBitcoinUnit.current
 	var payments by remember { mutableStateOf<List<JoinBlaketPayment>>(emptyList()) }
+	var discardID by remember { mutableStateOf<String?>(null) }
 	var loaded by remember { mutableStateOf(false) }
 	var busy by remember { mutableStateOf(false) }
 	var message by remember { mutableStateOf<String?>(null) }
@@ -373,6 +427,15 @@ internal fun JoinBlaketPage(state: JoinBlaketUiState) {
 		}
 	}
 	LaunchedEffect(client, authorization) { work { payments = client.payments(authorization); loaded = true } }
+	discardID?.let { id ->
+		AlertDialog(onDismissRequest = { discardID = null }, title = { Text("Discard this unsent review?") },
+			text = { Text("This releases reserved coins without sending a transaction. A submission that has already started cannot be discarded.") },
+			confirmButton = { TextButton(onClick = { discardID = null; work {
+				val updated = client.discardPayment(id, authorization)
+				payments = payments.map { if (it.id == id) updated else it }
+			} }) { Text("Discard review") } },
+			dismissButton = { TextButton(onClick = { discardID = null }) { Text("Keep review") } })
+	}
 	Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
 		Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
 			TextButton(onClick = close) { Text("Done") }
@@ -431,6 +494,10 @@ internal fun JoinBlaketPage(state: JoinBlaketUiState) {
 							} }) { Icon(Icons.Default.Refresh, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Check status") }
 						} else {
 							Text(if (payment.state == "submitted") "Seen by your node. Confirmation has not been checked." else "This review has not been sent.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+						}
+						if (payment.canDiscard) {
+							if (client.canDiscardReviews) TextButton(enabled = !busy, onClick = { discardID = payment.id }) { Text("Discard review") }
+							else Text("Discard this unsent review in Jars on your Paperclip host.", style = MaterialTheme.typography.bodySmall)
 						}
 					}
 				}

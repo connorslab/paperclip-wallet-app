@@ -85,7 +85,7 @@ fn authorize(records: &[Record], id: &str, upstream: &str, now: i64, input: &Req
 	let record = records.iter().find(|r| r.id == id && r.expires > now && r.upstream == upstream).context("Pairing expired or revoked; pair this device again")?;
 	ensure!(input.wallet == record.wallet && input.token.is_empty() && input.password.is_empty() && input.bip39_passphrase.is_empty(), "Pairing belongs to a different wallet");
 	ensure!(matches!(input.operation, Operation::Status | Operation::Coins | Operation::Address | Operation::BondAddress |
-		Operation::StartMaker | Operation::StopMaker | Operation::Payments | Operation::CheckPayment), "This pairing does not permit that operation");
+		Operation::StartMaker | Operation::StopMaker | Operation::Payments | Operation::CheckPayment | Operation::Market), "This pairing does not permit that operation");
 	Ok(record.clone())
 }
 fn response(status: StatusCode, result: anyhow::Result<Value>) -> (StatusCode, HeaderMap, Json<Value>) {
@@ -155,10 +155,10 @@ mod tests {
 	#[test]
 	fn pairing_is_bound_expiring_and_defaults_to_deny() {
 		let record = record(); let records = vec![record.clone()];
-		for operation in ["status","coins","address","bond_address","start_maker","stop_maker","payments","check_payment"] {
+		for operation in ["status","coins","address","bond_address","start_maker","stop_maker","payments","check_payment","market"] {
 			assert!(authorize(&records, &record.id, &record.upstream, 99, &input(operation)).is_ok());
 		}
-		for operation in ["wallets","unlock","identity","create_wallet","backup_wallet"] { assert!(authorize(&records,&record.id,&record.upstream,99,&input(operation)).is_err()); }
+		for operation in ["wallets","unlock","identity","create_wallet","backup_wallet","cancel_payment"] { assert!(authorize(&records,&record.id,&record.upstream,99,&input(operation)).is_err()); }
 		assert!(authorize(&records,&record.id,&record.upstream,100,&input("status")).is_err());
 		assert!(authorize(&records,&record.id,"other-upstream",99,&input("status")).is_err());
 		assert!(authorize(&[],&record.id,&record.upstream,99,&input("status")).is_err());

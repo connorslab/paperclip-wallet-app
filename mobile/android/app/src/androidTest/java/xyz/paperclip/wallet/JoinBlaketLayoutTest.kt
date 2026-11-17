@@ -145,6 +145,48 @@ class JoinBlaketLayoutTest {
 		compose.onNodeWithText("Choose a future month before 2100. Bonds unlock on its first day at 00:00 UTC.").performScrollTo().assertIsDisplayed()
 	}
 
+	@Test fun percentageAndMarketComparisonKeepUserFeeAndNeverStartMaker() {
+		val paths = java.util.Collections.synchronizedList(mutableListOf<String>())
+		val http = okhttp3.OkHttpClient.Builder().addInterceptor { chain ->
+			val path = chain.request().url.encodedPath; paths.add(path)
+			check(chain.request().method == "GET")
+			val now = java.time.Instant.now().epochSecond
+			val body = when (path) {
+				"/api/v1/session" -> """{"session":true,"wallet_name":"fixture.jmdat"}"""
+				"/api/v1/paperclip/market/100000" -> """{"amount_sat":100000,"fetched_at":$now,"book_updated_at":$now,"status":"fresh","maker_count":2,"median_fee_sat":"75.5"}"""
+				else -> error("Unexpected request")
+			}
+			okhttp3.Response.Builder().request(chain.request()).protocol(okhttp3.Protocol.HTTP_1_1).code(200).message("fixture")
+				.body(okhttp3.ResponseBody.create(null,body)).build()
+		}.build()
+		val state = JoinBlaketUiState().apply {
+			wallet.value = "Fixture Jars wallet"
+			session.value = JSONObject().put("session",true).put("maker_running",false)
+			client.value = JoinBlaketClient(JoinBlaketConnection("https://jam.example.invalid"),http)
+			authorization.value = JoinBlaketAuthorization("fixture.jmdat","synthetic-token")
+		}
+		compose.setContent { MaterialTheme(colorScheme = paperclipColors(true)) { Surface {
+			Column(Modifier.fillMaxSize().safeDrawingPadding().verticalScroll(rememberScrollState()).padding(16.dp)) { JoinBlaketPage(state) }
+		} } }
+		compose.onNodeWithText("Percentage").performScrollTo().performClick()
+		compose.onNodeWithText("Your fee: 0.005%").performScrollTo().assertIsDisplayed()
+		compose.onNodeWithText("At 1,000,000 sats, your fee is 50 sats.").assertExists()
+		compose.onNodeWithText("Ready: Amount and fee valid").assertDoesNotExist()
+		compose.onNodeWithText("Setup checks ·",substring=true).performScrollTo().performClick()
+		compose.onNodeWithText("Ready: Amount and fee valid").performScrollTo().assertIsDisplayed()
+		compose.onNodeWithText("Setup checks ·",substring=true).performScrollTo().performClick()
+
+		compose.onNodeWithText("Compare order book fees").performScrollTo().performClick()
+		compose.onNodeWithText("Refresh market fees").performScrollTo().performClick()
+		compose.waitUntil(10000) { compose.onAllNodesWithText("Median maker fee: 75.5 sats",substring=true).fetchSemanticsNodes().isNotEmpty() }
+		compose.onNodeWithText("Median maker fee: 75.5 sats",substring=true).performScrollTo().assertIsDisplayed()
+		capture("android-maker-market")
+		compose.onNodeWithText("Your fee: 0.005%").performScrollTo().assertIsDisplayed()
+		compose.onNodeWithText("How earning and bonds work").performScrollTo().performClick()
+		compose.onNodeWithText("JoinBlaket’s default takers require a fidelity bond.",substring=true).performScrollTo().assertIsDisplayed()
+		assertEquals(listOf("/api/v1/session","/api/v1/paperclip/market/100000"),paths.toList())
+	}
+
 	private fun capture(name: String) {
 		compose.waitForIdle()
 		val instrumentation = InstrumentationRegistry.getInstrumentation()

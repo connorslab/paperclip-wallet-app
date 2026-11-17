@@ -105,6 +105,37 @@ final class AdaptiveLayoutTests: XCTestCase {
 		XCTAssertFalse(app.buttons["Receive into Elderberry"].isEnabled)
 	}
 
+	func testMakerPercentagesAndMarketHelpStayReadOnlyInPreview() {
+		continueAfterFailure = false
+		let app = XCUIApplication()
+		app.launchArguments = ["-build61-preview", "-joinblaket-preview", "-appearance", "dark"]
+		app.launch()
+		XCTAssertTrue(app.navigationBars["Jars"].waitForExistence(timeout: 15))
+		let percentage = app.buttons["Percentage"].firstMatch
+		for _ in 0..<10 { if percentage.isHittable { break }; app.scrollViews.firstMatch.swipeUp() }
+		XCTAssertTrue(percentage.isHittable); percentage.tap()
+		XCTAssertTrue(app.staticTexts["At 1,000,000 sats, your fee is 50 sats."].exists)
+		let checks = app.buttons["Setup checks · 4 of 5"].firstMatch
+		for _ in 0..<6 { if checks.isHittable { break }; app.scrollViews.firstMatch.swipeUp() }
+		XCTAssertTrue(checks.isHittable); checks.tap()
+		XCTAssertTrue(app.otherElements["Maker setup"].exists)
+		checks.tap()
+
+		let compare = app.buttons["Compare order book fees"].firstMatch
+		for _ in 0..<8 { if compare.isHittable { break }; app.scrollViews.firstMatch.swipeUp() }
+		XCTAssertTrue(compare.isHittable); compare.tap()
+		XCTAssertTrue(app.textFields["Compare CoinJoin amount (sats)"].exists)
+		let refresh = app.buttons["Refresh market fees"].firstMatch
+		for _ in 0..<6 { if refresh.isHittable { break }; app.scrollViews.firstMatch.swipeUp() }
+		XCTAssertTrue(refresh.exists)
+		XCTAssertFalse(refresh.isEnabled, "Preview must not contact a live watcher")
+		capture(app, "Maker fees and market comparison")
+		let guide = app.buttons["How earning and bonds work"].firstMatch
+		for _ in 0..<6 { if guide.isHittable { break }; app.scrollViews.firstMatch.swipeUp() }
+		XCTAssertTrue(guide.isHittable); guide.tap()
+		XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label BEGINSWITH %@", "JoinBlaket’s default takers require a fidelity bond.")).firstMatch.exists)
+	}
+
 	func testBondSetupKeepsLockDateAndNoFundingExplanationVisible() {
 		continueAfterFailure = false
 		defer { XCUIDevice.shared.orientation = .portrait }

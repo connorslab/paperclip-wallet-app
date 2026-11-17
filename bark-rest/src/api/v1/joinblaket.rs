@@ -31,13 +31,28 @@ pub struct Request {
 	jar: Option<u8>,
 	minimum_sat: Option<u64>,
 	fee_sat: Option<u64>,
+	relative_fee: Option<String>,
+	comparison_sat: Option<u64>,
 	lock_month: Option<String>,
 	payment_id: Option<String>,
 }
 
 #[derive(Deserialize)]
 #[serde(rename_all = "snake_case")]
-enum Operation { Wallets, CreateWallet, BackupWallet, Unlock, Status, Identity, Coins, Address, BondAddress, StartMaker, StopMaker, Payments, CheckPayment, #[serde(skip)] PairingSession }
+enum Operation { Wallets, CreateWallet, BackupWallet, Unlock, Status, Identity, Coins, Address, BondAddress, StartMaker, StopMaker, Payments, CheckPayment, CancelPayment, Market, #[serde(skip)] PairingSession }
+
+fn maker_body(input: &Request) -> anyhow::Result<Value> {
+	let minimum = input.minimum_sat.context("Enter a minimum CoinJoin amount")?;
+	ensure!((27_300..=2_100_000_000_000_000).contains(&minimum), "Review the minimum CoinJoin amount");
+	let (kind, absolute, relative) = match (&input.relative_fee, input.fee_sat) {
+		(Some(rate), None) if MAKER_RELATIVE_FEES.contains(&rate.as_str()) => ("sw0reloffer", 0, rate.as_str()),
+		(None, Some(fee)) if MAKER_ABSOLUTE_FEES.contains(&fee) && fee < minimum => ("sw0absoffer", fee, "0"),
+		_ => anyhow::bail!("Choose one supported fixed or percentage maker fee"),
+	};
+	Ok(json!({"txfee":"0", "cjfee_a":absolute.to_string(), "cjfee_r":relative, "ordertype":kind, "minsize":minimum.to_string()}))
+}
+const MAKER_ABSOLUTE_FEES: [u64; 8] = [0, 100, 200, 500, 1000, 2000, 5000, 10000];
+const MAKER_RELATIVE_FEES: [&str; 12] = ["0.00002", "0.00005", "0.0001", "0.0002", "0.0005", "0.001", "0.002", "0.005", "0.01", "0.02", "0.05", "0.1"];
 
 fn create_body(input: &Request) -> anyhow::Result<Value> {
 	let name = input.wallet.strip_suffix(".jmdat").context("Use a .jmdat wallet filename")?;
@@ -185,6 +200,11 @@ async fn execute_bound(input: Request, expected_identity: Option<&str>) -> anyho
 	match input.operation {
 		Operation::Status => Ok(json!({"session":true,"wallet_name":input.wallet,
 			"maker_running":session["maker_running"],"coinjoin_in_process":session["coinjoin_in_process"],"rescanning":session["rescanning"]})),
+		Operation::Market => {
+			let amount = input.comparison_sat.context("Choose a CoinJoin comparison amount")?;
+			ensure!((27_300..=2_100_000_000_000_000).contains(&amount), "Invalid comparison amount");
+			upstream(&client, &base, &["paperclip", "market", &amount.to_string()], &input.token, None).await
+		},
 		Operation::Payments => {
 			let result = upstream(&client, &base, &["wallet", &input.wallet, "paperclip", "payments"], &input.token, None).await?;
 			let rows = result["payments"].as_array().context("Invalid Jam payment history")?;
@@ -199,6 +219,19 @@ async fn execute_bound(input: Request, expected_identity: Option<&str>) -> anyho
 			// Observation only: no commit, cancellation or legacy send route is exposed.
 			let result = upstream(&client, &base, &["wallet", &input.wallet, "paperclip", "payments", &id], &input.token, None).await?;
 			ensure!(result["id"] == id, "Jam returned a different payment");
+			recovery_payment(&result, &input.wallet)
+		},
+		Operation::CancelPayment => {
+			let id = input.payment_id.context("Select an unsent Jam review")?;
+			ensure!(payment_identifier(&id), "Invalid Jam payment reference");
+			let current = upstream(&client, &base, &["wallet", &input.wallet, "paperclip", "payments", &id], &input.token, None).await?;
+			ensure!(current["id"] == id, "Jam returned a different payment");
+			let saved = recovery_payment(&current, &input.wallet)?;
+			if saved["state"] == "cancelled" { return Ok(saved); }
+			ensure!(matches!(saved["state"].as_str(), Some("preparing" | "prepared")), "Submission may have started; check status instead");
+			// The companion rechecks the durable boundary atomically with cancellation.
+			let result = upstream(&client, &base, &["wallet", &input.wallet, "paperclip", "payments", &id, "cancel"], &input.token, Some(json!({}))).await?;
+			ensure!(result["id"] == id && result["state"] == "cancelled", "Could not confirm cancellation; refresh saved payments");
 			recovery_payment(&result, &input.wallet)
 		},
 		Operation::Coins => {
@@ -225,13 +258,9 @@ async fn execute_bound(input: Request, expected_identity: Option<&str>) -> anyho
 			Ok(json!({"address": address, "wallet": input.wallet, "lock_month": month}))
 		},
 		Operation::StartMaker => {
-			let minimum = input.minimum_sat.context("Enter a minimum CoinJoin amount")?;
-			let fee = input.fee_sat.context("Enter your maker fee")?;
-			ensure!((27_300..=2_100_000_000_000_000).contains(&minimum) && fee < minimum, "Review maker amount and fee");
+			let terms = maker_body(&input)?;
 			ensure!(session["maker_running"] == false && session["coinjoin_in_process"] == false && session["rescanning"] == false, "Wait for the current Jam operation to finish");
-			upstream(&client, &base, &["wallet", &input.wallet, "maker", "start"], &input.token, Some(json!({
-				"txfee": "0", "cjfee_a": fee.to_string(), "cjfee_r": "0", "ordertype": "sw0absoffer", "minsize": minimum.to_string(),
-			}))).await?;
+			upstream(&client, &base, &["wallet", &input.wallet, "maker", "start"], &input.token, Some(terms)).await?;
 			Ok(json!({"requested":true}))
 		},
 		Operation::StopMaker => {
@@ -287,6 +316,22 @@ async fn request(State(state): State<Arc<ServerState>>, Json(input): Json<Reques
 #[cfg(test)]
 mod tests {
 	use super::*;
+	#[test]
+	fn maker_fee_modes_bind_exact_supported_grid_values() {
+		for fee in MAKER_ABSOLUTE_FEES {
+			let input: Request = serde_json::from_value(json!({"operation":"start_maker","minimum_sat":100000,"fee_sat":fee})).unwrap();
+			assert_eq!(maker_body(&input).unwrap()["cjfee_a"], fee.to_string());
+		}
+		for rate in MAKER_RELATIVE_FEES {
+			let input: Request = serde_json::from_value(json!({"operation":"start_maker","minimum_sat":100000,"relative_fee":rate})).unwrap();
+			let body = maker_body(&input).unwrap();
+			assert_eq!(body["cjfee_r"], rate); assert_eq!(body["ordertype"], "sw0reloffer"); assert_eq!(body["cjfee_a"], "0");
+		}
+		for value in [json!({"fee_sat":123}), json!({"relative_fee":"0.005%"}), json!({"relative_fee":"NaN"}), json!({"relative_fee":"0.00005","fee_sat":100}), json!({})] {
+			let mut value = value; value["operation"] = "start_maker".into(); value["minimum_sat"] = 100000.into();
+			assert!(maker_body(&serde_json::from_value(value).unwrap()).is_err());
+		}
+	}
 	#[test]
 	fn jam_browser_handoff_never_points_to_host_loopback() {
 		for url in ["https://localhost:28183", "https://jam.localhost", "https://127.0.0.1:28183", "https://127.1.2.3", "https://[::1]", "https://0.0.0.0", "https://[::]", "http://jam.example", "https://example.onion"] {

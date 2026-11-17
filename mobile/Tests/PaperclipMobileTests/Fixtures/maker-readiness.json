@@ -545,5 +545,37 @@
       "fresh": true,
       "canStart": false
     }
+  },
+  {
+    "minimum": "100000",
+    "fee": "123",
+    "jars": [
+      {
+        "id": 0,
+        "name": "Apricot",
+        "total_sat": 300000,
+        "confirmed_sat": 200000,
+        "pending_sat": 0,
+        "frozen_sat": 0,
+        "bond_sat": 100000
+      }
+    ],
+    "session": {
+      "session": true,
+      "maker_running": false,
+      "coinjoin_in_process": false,
+      "rescanning": false,
+      "wallet_name": "fixture"
+    },
+    "needsRefresh": false,
+    "name": "off-grid fee",
+    "expected": {
+      "terms": false,
+      "funds": true,
+      "bond": true,
+      "server": true,
+      "fresh": true,
+      "canStart": false
+    }
   }
 ]
