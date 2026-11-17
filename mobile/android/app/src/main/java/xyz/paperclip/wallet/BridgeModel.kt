@@ -327,9 +327,8 @@ internal class BridgeModel(app: Application) : AndroidViewModel(app) {
 		try {
 			val funding =
 				if (source == "ark") {
-					val pending =
-						JSONObject().put("state", "unknown").put("payment_hash", hold.hash)
-					engine.savePending(pending)
+					// The native send journals funding before submission; this Bridge
+					// record above independently retains the conversion's unknown state.
 					val result =
 						engine.call(
 							"send",

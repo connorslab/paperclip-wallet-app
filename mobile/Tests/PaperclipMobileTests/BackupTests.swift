@@ -34,6 +34,7 @@ final class BackupTests: XCTestCase {
               seed: Data(repeating: 7, count: 64), recoveryState: Data("pending rounds and VTXO ancestry fixture".utf8))
     }
     func testFullRecoveryRoundTripAndRandomNonces() throws {
+        XCTAssertEqual(archive().version, 2, "Old readers must reject archives containing durable send protection")
         let key = EncryptedBackup.generateRecoveryKey()
         let first = try EncryptedBackup.seal(archive(), recoveryKey: key)
         let second = try EncryptedBackup.seal(archive(), recoveryKey: key)

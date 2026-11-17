@@ -191,7 +191,7 @@ class WalletEngine private constructor(context: Context) {
 		val pending = pendingFor(id)
 		val settings = connectionFor(target)
 		val network = target.getString("network")
-		fun snapshot(overview: JSONObject) = WalletSelection(overview.getLong("total_sat"), network, settings, pending)
+		fun snapshot(overview: JSONObject) = WalletSelection(overview.getLong("total_sat"), network, settings, recoveredPending(pending))
 		if (previous?.getString("id") == id && opened) return@serial snapshot(invoke("overview_onchain"))
 		val reopenPrevious = opened
 		if (opened) invoke("close")
@@ -595,6 +595,19 @@ class WalletEngine private constructor(context: Context) {
 			} finally {
 				activeSync = 0
 			}
+		} else if (op in listOf("send", "send_onchain")) {
+			val before = invoke("outgoing_payment").optJSONObject("attempt")?.optString("attempt_id")
+			try { invoke(op, fields) } catch (failure: Exception) {
+				// Bind this call's newly created native attempt even if its reply was
+				// lost. Never adopt an older receipt solely by destination/amount.
+				val attempt = invoke("outgoing_payment").optJSONObject("attempt")
+				if (attempt != null && attempt.getString("attempt_id") != before) {
+					val id = record!!.getString("id")
+					val all = pendingRecords().put(id, attempt)
+					vault.write("wallet-pending", all.toString().toByteArray())
+				}
+				throw failure
+			}
 		} else invoke(op, fields)
 	}
 
@@ -616,10 +629,11 @@ class WalletEngine private constructor(context: Context) {
 	suspend fun backup(key: String): ByteArray = serial {
 		openStored()
 		val snapshot = invoke("backup")
+		check(snapshot.optInt("recovery_version") == 2) { "Update the wallet engine before exporting a backup" }
 		val r = record!!
 		val archive =
 			JSONObject()
-				.put("version", 1)
+				.put("version", 2)
 				.put("network", r.getString("network"))
 				.put("walletID", r.getString("id"))
 				.put("createdAt", System.currentTimeMillis() / 1000.0 - 978307200)
@@ -638,6 +652,7 @@ class WalletEngine private constructor(context: Context) {
 	suspend fun checkBackup(bytes: ByteArray, key: String): Boolean = serial {
 		val plain = BackupCodec.open(bytes, key)
 		val archive = try { BackupArchive.decode(plain) } finally { plain.fill(0) }
+		requireRecoverySupport(archive)
 		openStored()
 		val phrase = if(archive.isNull("seedPhrase")) "" else archive.optString("seedPhrase")
 		if(phrase.isNotEmpty()) require(invoke("seed_derive", JSONObject().put("phrase", phrase)).getString("seed") == archive.getString("seed")) { "Backup words do not match its seed" }
@@ -657,6 +672,7 @@ class WalletEngine private constructor(context: Context) {
 			} finally {
 				plain.fill(0)
 			}
+		requireRecoverySupport(archive)
 		val network = archive.getString("network")
 		check(
 			registry().entries().none {
@@ -746,6 +762,12 @@ class WalletEngine private constructor(context: Context) {
 		return all
 	}
 
+	private fun requireRecoverySupport(archive: JSONObject) {
+		if (archive.getInt("version") >= 2) check(invoke("backup_capabilities").optInt("recovery_version") == 2) {
+			"Update the wallet engine before restoring this backup"
+		}
+	}
+
 	suspend fun savePending(result: JSONObject) = serial {
 		val all = pendingRecords()
 		val id = registry().selected()?.getString("id") ?: error("No active wallet")
@@ -763,7 +785,35 @@ class WalletEngine private constructor(context: Context) {
 
 	suspend fun pending() = serial {
 		val id = registry().selected()?.getString("id") ?: return@serial null
-		pendingFor(id)
+		openStored()
+		recoveredPending(pendingFor(id))
+	}
+
+	private fun recoveredPending(legacy: JSONObject?): JSONObject? {
+		val native = invoke("outgoing_payment").optJSONObject("attempt")
+		return PendingPaymentRecovery.select(legacy, native)
+	}
+
+	suspend fun checkPending(): JSONObject? = serial {
+		openStored()
+		check(connected) { "Connect your chain backend in Settings first" }
+		val id = registry().selected()?.getString("id") ?: return@serial null
+		val previous = recoveredPending(pendingFor(id)) ?: return@serial null
+		val next = if (previous.optString("attempt_id").isNotEmpty()) {
+			val saved = invoke("outgoing_payment").optJSONObject("attempt")
+			check(saved?.optString("attempt_id") == previous.getString("attempt_id")) {
+				"The saved warning refers to another payment. Verify its outcome before sending."
+			}
+			invoke("check_outgoing_payment").optJSONObject("attempt") ?: previous
+		} else {
+			val hash = previous.optString("payment_hash")
+			if (hash.isEmpty()) return@serial previous
+			val result = invoke("check_payment", JSONObject().put("payment_hash", hash))
+			JSONObject(previous.toString()).put("state", result.getString("state"))
+		}
+		val all = pendingRecords().put(id, next)
+		vault.write("wallet-pending", all.toString().toByteArray())
+		next
 	}
 
 	suspend fun close() = serial {

@@ -40,6 +40,7 @@ class BackupArchiveTest {
 		}
 		val old = JSONObject(original.toString()).also { it.remove("seedPhrase") }
 		BackupArchive.validate(old)
+		BackupArchive.validate(JSONObject(original.toString()).put("version", 2))
 	}
 	@Test fun exportCannotExceedImportLimit() {
 		assertThrows(IllegalArgumentException::class.java) {

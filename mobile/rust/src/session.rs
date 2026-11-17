@@ -14,6 +14,7 @@ use bark::lock_manager::{LockManager, memory::MemoryLockManager};
 use bark::onchain::{OnchainWallet, OnchainWalletTrait};
 use bark::payment_request::PaymentInitOutput;
 use bark::persist::{BarkPersister, sqlite::SqliteClient};
+use crate::payment_attempt::{self, Attempt};
 
 struct HardwareRequest {
 	psbt: bitcoin::Psbt,
@@ -122,6 +123,39 @@ fn arkoor_review_issue(issue: &bark::ArkoorAmountError, fixed_amount: bool) -> V
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn payment_attempt_survives_native_backup_without_restoring_approval() {
+		let base = tempfile::tempdir().unwrap();
+		let original = base.path().join("original");
+		let restored = base.path().join("restored");
+		let seed = [29;64];
+		let binding = payment_attempt::owner(Network::Regtest, &seed);
+		let mut state = None;
+		dispatch(&mut state, json!({"op":"create", "network":"xbt-regtest", "directory":original}), seed).unwrap();
+		assert!(dispatch(&mut state, json!({"op":"outgoing_payment"}), seed).unwrap()["attempt"].is_null());
+		let mut attempt = Attempt::new("ark", "public restore fixture".into(), 1000, 1100);
+		attempt.payment_hash = Some("ab".repeat(32));
+		payment_attempt::begin(&original, &binding, &attempt).unwrap();
+		let archive = dispatch(&mut state, json!({"op":"backup"}), seed).unwrap();
+		dispatch(&mut state, json!({"op":"close"}), seed).unwrap();
+		dispatch(&mut state, json!({"op":"restore", "network":"xbt-regtest", "directory":restored, "database":archive["database"]}), seed).unwrap();
+		dispatch(&mut state, json!({"op":"open", "network":"xbt-regtest", "directory":restored}), seed).unwrap();
+		let saved = dispatch(&mut state, json!({"op":"outgoing_payment"}), seed).unwrap();
+		assert_eq!(saved["attempt"]["attempt_id"], attempt.attempt_id);
+		assert_eq!(saved["attempt"]["payment_hash"], attempt.payment_hash.unwrap());
+		assert_eq!(saved["attempt"]["state"], "unknown");
+		assert!(state.as_ref().unwrap().quote.is_none());
+		for op in ["send", "send_onchain", "quote", "quote_onchain"] {
+			let error = dispatch(&mut state, json!({"op":op}), seed).unwrap_err();
+			assert!(error.to_string().contains("previous payment"));
+		}
+		// A mismatched recovery record must fail before installing a restored DB.
+		let conn = rusqlite::Connection::open(restored.join("db.sqlite")).unwrap();
+		conn.execute("UPDATE paperclip_payment_attempt SET owner='another wallet'", []).unwrap();
+		let damaged = dispatch(&mut state, json!({"op":"backup"}), seed).unwrap();
+		assert!(dispatch(&mut state, json!({"op":"verify_backup", "network":"xbt-regtest", "directory":base.path(), "database":damaged["database"]}), seed).is_err());
+	}
 
 	#[test]
 	fn send_review_rejections_are_not_uncertain_submissions() {
@@ -576,6 +610,7 @@ fn text<'a>(v: &'a Value, key: &str) -> anyhow::Result<&'a str> {
 
 pub fn dispatch(state: &mut Option<Session>, request: Value, seed: [u8; 64]) -> anyhow::Result<Value> {
 	let op = text(&request, "op")?;
+	if op == "backup_capabilities" { return Ok(json!({"recovery_version":2})); }
 	if op == "joinblaket_jars" {
 		let coins: Vec<bark::joinblaket::JarCoin> = serde_json::from_value(request["utxos"].clone())?;
 		return Ok(json!({"jars": bark::joinblaket::jar_balances(&coins)?}));
@@ -664,6 +699,7 @@ pub fn dispatch(state: &mut Option<Session>, request: Value, seed: [u8; 64]) -> 
 			OnchainWallet::load_or_create(network, seed, db.clone()).await?;
 			anyhow::Ok(())
 		})?;
+		payment_attempt::load(staging.path(), &payment_attempt::owner(network, &seed))?;
 		drop(db);
 		std::fs::File::open(&dbpath)?.sync_all()?;
 		std::fs::rename(staging.path(), dir)?;
@@ -726,6 +762,10 @@ pub fn dispatch(state: &mut Option<Session>, request: Value, seed: [u8; 64]) -> 
 	let session = state.as_mut().context("open a wallet first")?;
 	ensure!(sha256::Hash::hash(&seed) == session.seed_commitment,
 		"wallet key mismatch");
+	let payment_owner = payment_attempt::owner(session.network, &seed);
+	if op == "outgoing_payment" {
+		return Ok(json!({"attempt": payment_attempt::load(&session.dir, &payment_owner)?}));
+	}
 	if session.kind != "hot" {
 		ensure!(matches!(op, "close" | "connect" | "config_template" | "chain_health" | "overview_onchain" | "addresses_onchain" | "address_onchain" | "sync_onchain" | "activity" | "hardware_prepare" | "hardware_import" | "hardware_broadcast" | "hardware_cancel"), "This public-only wallet supports on-chain monitoring and QR signing only");
 	}
@@ -738,7 +778,7 @@ pub fn dispatch(state: &mut Option<Session>, request: Value, seed: [u8; 64]) -> 
 		let conn = rusqlite::Connection::open(session.dir.join("db.sqlite"))?;
 		conn.execute("VACUUM INTO ?1", [path.to_str().context("invalid path")?])?;
 		ensure!(std::fs::metadata(&path)?.len() < 32 * 1024 * 1024, "backup exceeds mobile size limit");
-		return Ok(json!({"database": STANDARD.encode(std::fs::read(&path)?), "fingerprint": session.fingerprint}));
+		return Ok(json!({"database": STANDARD.encode(std::fs::read(&path)?), "fingerprint": session.fingerprint, "recovery_version":2}));
 	}
 	let network = session.network;
 	let Session { runtime, wallet, ark_wallet, db, onchain, quote, onchain_quote, replacement_quote, board_quote, offer_task, receive_task, hardware_request, hardware_board, kind, dir, .. } = session;
@@ -820,6 +860,9 @@ pub fn dispatch(state: &mut Option<Session>, request: Value, seed: [u8; 64]) -> 
 		if op.starts_with("coinjoin_") {
 			return crate::coinjoin::dispatch(dir, seed, network, wallet.as_ref(), ark_wallet.as_ref().or(wallet.as_ref()), &request).await;
 		}
+		if matches!(op, "send" | "send_onchain" | "quote" | "quote_onchain") {
+			payment_attempt::require_resolved(dir, &payment_owner)?;
+		}
 		if op == "send" || op == "send_onchain" {
 			// An absent quote could have been consumed by an earlier submission
 			// whose response was lost. Do not turn that ambiguity into not_sent.
@@ -867,6 +910,28 @@ pub fn dispatch(state: &mut Option<Session>, request: Value, seed: [u8; 64]) -> 
 			return Ok(json!({"listening_requested": request["enabled"] == true}));
 		}
 		match op {
+			"check_outgoing_payment" => {
+				let Some(attempt) = payment_attempt::load(dir, &payment_owner)? else { return Ok(json!({"attempt":null})); };
+				if !attempt.unresolved() { return Ok(json!({"attempt":attempt})); }
+				let result = if let Some(hash) = &attempt.payment_hash {
+					use bark::actions::lightning::pay::LightningSendState;
+					// Read existing settlement evidence; do not drive or replay a send.
+					let state = w.lightning_send_state(hash.parse()?).await?;
+					json!({"state":match state {
+						LightningSendState::Paid(_) => "paid", LightningSendState::InProgress(_) => "pending",
+						LightningSendState::Unknown => "unknown",
+					}})
+				} else if let Some(txid) = &attempt.txid {
+					let mut state = "unknown";
+					for candidate in std::iter::once(txid).chain(attempt.replacement_txids.iter()) {
+						let status = chain_wallet.chain().tx_status(candidate.parse()?).await?;
+						if status.is_confirmed() { state = "completed"; break; }
+						if status.is_known() { state = "submitted"; }
+					}
+					json!({"state":state})
+				} else { return Ok(json!({"attempt":attempt})); };
+				Ok(json!({"attempt":payment_attempt::update(dir, &payment_owner, &attempt.attempt_id, &result)?}))
+			},
 			"balance_cached" => {
 				let balance = w.balance().await?;
 				Ok(json!({"ark_sat": balance.spendable.to_sat(), "pending_sat": balance.pending().to_sat()}))
@@ -1172,9 +1237,13 @@ pub fn dispatch(state: &mut Option<Session>, request: Value, seed: [u8; 64]) -> 
 			},
 			"replacement_commit" => {
 				let prepared = replacement_quote.take().context("Review a fee replacement first")?;
+				let original_id = prepared.review.original_txid.to_string();
+				let replacement_id = prepared.review.replacement_txid.to_string();
+				let fee = prepared.review.new_fee_sat;
 				let mut chain = onchain.write().await;
 				chain.sync(w.chain()).await?;
-				let tx = chain.commit_replacement(prepared, text(&request, "replacement_txid")?.parse()?, request["new_fee_sat"].as_u64().context("Missing reviewed fee")?).await?;
+				let tx = chain.commit_replacement_tracked(prepared, text(&request, "replacement_txid")?.parse()?, request["new_fee_sat"].as_u64().context("Missing reviewed fee")?,
+					|| payment_attempt::replacement(dir, &payment_owner, &original_id, &replacement_id, fee)).await?;
 				let broadcast = w.chain().broadcast_tx(&tx).await.is_ok();
 				Ok(json!({"state": if broadcast {"submitted"} else {"pending_broadcast"}, "txid": tx.compute_txid()}))
 			},
@@ -1199,10 +1268,14 @@ pub fn dispatch(state: &mut Option<Session>, request: Value, seed: [u8; 64]) -> 
 					return Ok(json!({"state":"not_sent", "reason":"Inputs changed; review a new quote"}));
 				}
 				let address = destination.parse::<bitcoin::Address<_>>()?.require_network(network)?;
+				let mut attempt = Attempt::new("onchain", destination, amount, request["total_sat"].as_u64().context("Missing reviewed total")?);
+				attempt.txid = Some(psbt.unsigned_tx.compute_txid().to_string());
+				payment_attempt::begin(dir, &payment_owner, &attempt)?;
 				let tx = onchain.finish_reviewed_send(psbt, &[(address, Amount::from_sat(amount))]).await?;
 				let txid = tx.compute_txid();
 				let broadcast = w.chain().broadcast_tx(&tx).await.is_ok();
-				Ok(json!({"state": if broadcast {"submitted"} else {"pending_broadcast"}, "txid": txid.to_string()}))
+				Ok(serde_json::to_value(payment_attempt::update(dir, &payment_owner, &attempt.attempt_id,
+					&json!({"state": if broadcast {"submitted"} else {"pending_broadcast"}, "txid": txid.to_string()}))?)?)
 			},
 			"inspect_payment" => {
 				let payment = w.parse_payment_request(text(&request, "destination")?).await?;
@@ -1257,6 +1330,9 @@ pub fn dispatch(state: &mut Option<Session>, request: Value, seed: [u8; 64]) -> 
 					Ok(method) => method,
 					Err(error) => return Ok(json!({"state": "not_sent", "reason": format!("{error:#}")})),
 				};
+				let mut attempt = Attempt::new("ark", destination, amount, total);
+				if let bark::movement::PaymentMethod::Invoice(invoice) = &method { attempt.payment_hash = Some(invoice.payment_hash().to_string()); }
+				payment_attempt::begin(dir, &payment_owner, &attempt)?;
 				let result = if let Some(ids) = offboard_inputs {
 					let bark::movement::PaymentMethod::Bitcoin(address) = method else { bail!("invalid withdrawal quote"); };
 					PaymentInitOutput::Onchain(w.offboard_vtxos(ids, address.assume_checked()).await?.txid)
@@ -1266,11 +1342,17 @@ pub fn dispatch(state: &mut Option<Session>, request: Value, seed: [u8; 64]) -> 
 					);
 					w.send_payment_with(&method, Some(Amount::from_sat(amount)), None::<&str>, opts).await?
 				};
-				Ok(match result {
+				let mut result = match result {
 					PaymentInitOutput::Ark(movement_id) => json!({"state": "completed", "movement_id": movement_id}),
 					PaymentInitOutput::Lightning(invoice) => json!({"state": "pending", "invoice": invoice.to_string(), "payment_hash": invoice.payment_hash().to_string()}),
 					PaymentInitOutput::Onchain(txid) => json!({"state": "submitted", "txid": txid.to_string()}),
-				})
+				};
+				let saved = serde_json::to_value(payment_attempt::update(dir, &payment_owner, &attempt.attempt_id, &result)?)?;
+				// Preserve existing invoice/movement fields for callers; the journal
+				// adds recovery identity without changing the successful-send contract.
+				result.as_object_mut().context("Invalid payment result")?.extend(
+					saved.as_object().context("Invalid saved payment")?.clone());
+				Ok(result)
 			},
 			_ => bail!("unknown operation"),
 		}

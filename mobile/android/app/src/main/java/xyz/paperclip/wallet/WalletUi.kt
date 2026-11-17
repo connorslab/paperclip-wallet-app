@@ -973,8 +973,9 @@ internal fun Send(s: WalletState, model: WalletModel) {
 					)
 					Text(status.detail, style = MaterialTheme.typography.titleMedium)
 				}
-				result
-					.optString("txid")
+				if (result.optLong("amount_sat") > 0) ReviewDetailRow("Amount", sats(result.getLong("amount_sat")))
+				val replacements = result.optJSONArray("replacement_txids")
+				(replacements?.takeIf { it.length() > 0 }?.let { it.optString(it.length() - 1) } ?: result.optString("txid"))
 					.takeIf { it.isNotEmpty() }
 					?.let {
 						Text("Transaction ID", style = MaterialTheme.typography.labelMedium)
@@ -1483,7 +1484,7 @@ private fun BackupExport(s: WalletState, model: WalletModel) {
 		}
 		TextButton(onClick = { scopeExpanded = !scopeExpanded }) { Text("What this backup includes") }
 		if (scopeExpanded) {
-			Text("Wallet keys and the native Ark recovery database. App payment warnings, Bridge history and node connections stay on this device.")
+			Text("Wallet keys, the native Ark recovery database and saved native sends. Older app payment warnings, Bridge history and node connections stay on this device. Restore new backups with the current app version.")
 			Text("Save a fresh backup after using Ark. A backup does not stop VTXO expiry; keep refreshing funds.")
 		}
 	}

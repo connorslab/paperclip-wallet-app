@@ -605,7 +605,8 @@ class WalletModel internal constructor(
 			runCatching { BridgeInvoice(quote.destination).hash }
 				.getOrNull()
 				?.let { intent.put("payment_hash", it) }
-		engine.savePending(intent) // Durable before submission; never automatically retry a send.
+		// The native engine now journals this send in the backed-up wallet DB
+		// before submission. A second ID-less record could hide its recovered result.
 		change { it.copy(result = intent) }
 		try {
 			val result =
@@ -626,16 +627,8 @@ class WalletModel internal constructor(
 	}
 
 	fun checkPayment() = job {
-		val pending = mutable.value.result ?: return@job
-		val hash = pending.optString("payment_hash")
-		if (hash.isNotEmpty()) {
-			val next =
-				engine
-					.call("check_payment", JSONObject().put("payment_hash", hash))
-					.put("payment_hash", hash)
-			engine.savePending(next)
-			change { it.copy(result = next) }
-		}
+		val next = engine.checkPending()
+		change { it.copy(result = next) }
 		refresh()
 	}
 

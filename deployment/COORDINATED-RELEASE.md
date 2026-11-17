@@ -2184,7 +2184,8 @@ Android reports malformed payloads with a generic error without retaining the
 JSON parser exception, which can include the source document. Both writers
 account for header, nonce and authentication tag within the 64 MiB wire limit.
 iOS retains its existing less-than-32-MiB database export allocation guard. This
-is not a new backup format and does not add app payment records or credentials.
+validation change did not add app payment records or credentials. The later
+native send journal below advances the archive payload to version 2.
 
 Validation: five Swift backup tests and seven Android unit tests passed, including
 the common CryptoKit-produced AES-GCM fixture, malformed metadata and parser-error
@@ -2218,9 +2219,9 @@ the conversion. Errors at or after transaction signing, payment submission or
 broadcast retain their existing
 uncertain/pending behavior. This change does not retry anything, infer failure
 from a missing receiver record, or make an earlier uncertain attempt safe to send
-again. Persistent app-level warnings and portable recovery remain separate open
-gates; in particular iOS ordinary Send still keeps its submitted flag in view
-state and requires durable recovery work.
+again. The native send journal below supersedes the view-local iOS warning for
+new ordinary sends. Other payment paths and complete portable app recovery remain
+open gates.
 
 Validation: the shared mobile Rust suite passed 32 tests with one existing
 ignored case. New unfunded dispatch cases cover expired/changed reviews, disconnected
@@ -2230,3 +2231,64 @@ bridge case and two Android API 35 JNI boundary/recovery cases, including the
 missing-review negative control. Native Xcode compilation, simulator bundle
 verification and just checks passed. No physical-device or live payment test was
 performed; no funded wallet or production service changed.
+
+
+## Durable native mobile send attempts: 2026-11-17
+
+Ordinary native on-chain and Ark sends now save an attempt in the wallet SQLite
+DB before signing or submission. The record has a random attempt ID, the reviewed
+recipient and debit, and the available transaction ID or payment hash. Its owner
+binds the network and full public master key, not the short wallet fingerprint.
+A missing reply, damaged record or failed status check never authorizes a replay.
+The engine rejects another ordinary quote or send while the attempt is unresolved.
+
+Both mobile clients load the saved attempt before another ordinary send. iOS
+shows a status action instead of another confirmation. Android retains older independent
+warnings: a newer native receipt cannot clear a different payment. Neither client
+restores an approval. Status checks read existing Lightning settlement evidence
+or query chain transaction status. They do not submit or drive a payment. A missing
+transaction is still unknown. Mempool presence is submitted, not completed.
+
+Reviewed on-chain fee replacements add their transaction IDs at the existing
+durable RBF commit boundary. The record retains the original and each replacement;
+confirmation of any candidate can resolve it. A failed journal write prevents
+that replacement from reaching native persistence or broadcast. Original recipient
+and replacement validation still apply. Successful Ark replies retain their
+existing invoice and movement fields in addition to the new recovery fields.
+
+New encrypted mobile archives use payload version 2 and include this native
+journal through the existing SQLite snapshot. Version-1 archives remain readable.
+Old app readers reject version 2 rather than silently ignore its replay protection.
+The adapters check native recovery support before importing or exporting version 2.
+Restore validates the journal owner and shape before installing the database.
+
+This closes only part of the portable-recovery gate. Older Android app warnings,
+remote-node records and credentials, and Bridge conversion history remain local.
+Board, hardware-signing and exit paths need equivalent end-to-end review. An Ark
+attempt that lost its reply before obtaining a reference can remain unresolved;
+there is no automatic retry or administrative clear action. Only one ordinary
+native payment can be unresolved at a time, including an unconfirmed on-chain
+send. Live interruption/settlement and funded device acceptance remain required.
+
+The previous backend CI run `44052331462` passed at `7c00daf`. Android run
+`44052331424` passed API 35. Its API 36 retry passed the earlier NDK download stage
+but failed when a Quickstep not-responding dialog blocked the UI. That run remains
+failed; the visibility guard was not relaxed. Fresh candidate CI is still required.
+
+Validation: 38 shared mobile Rust tests passed with one existing ignored case;
+eight RBF safety tests, five Swift backup tests and 106 Android JVM tests passed
+(four live cases excluded). Six isolated iOS native profile/session tests passed.
+Android API 35 passed two JNI boundary/recovery, three wallet-selection and five
+backup/restore assistance cases. Native ARM64 libraries rebuilt for both mobile
+platforms; Xcode bundle verification and just checks passed.
+
+The iOS saved-send UI test passed and its screenshot was inspected. Five Android
+payment-flow cases passed on a fresh, unfunded API 35 phone emulator, including a
+visible saved-payment screen with its amount, latest replacement and status action,
+without send/review controls. The new test requires the app to own the active
+window and exports its fixture screenshot through MediaStore. Earlier semantic
+assertions passed behind a System UI ANR in the older AVD; those captures are not
+accepted. The new visibility check correctly rejected that AVD, including after
+cold boot and a software-rendering/memory change. A fresh phone AVD passed with
+software rendering. This does not resolve the separate failed API 36 CI gate.
+No live payment, physical-device change, deployment or publication occurred.

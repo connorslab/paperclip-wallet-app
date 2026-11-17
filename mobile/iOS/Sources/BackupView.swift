@@ -54,7 +54,7 @@ struct BackupView: View {
     }
     private var backupScope: some View {
         DisclosureGroup("What this backup includes") {
-            Text("Wallet keys and the native Ark recovery database. App payment warnings, Bridge history and node connections stay on this device.")
+            Text("Wallet keys, the native Ark recovery database and saved native sends. Older app payment warnings, Bridge history and node connections stay on this device. Restore new backups with the current app version.")
             Text("Save a fresh backup after using Ark. A backup does not stop VTXO expiry; keep refreshing funds.")
         }.font(.caption).foregroundStyle(PaperclipTheme.muted)
     }

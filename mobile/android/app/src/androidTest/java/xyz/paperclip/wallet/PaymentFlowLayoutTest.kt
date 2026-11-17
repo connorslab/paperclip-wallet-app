@@ -1,6 +1,7 @@
 package xyz.paperclip.wallet
 
 import android.app.Application
+import android.provider.MediaStore
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -17,6 +18,50 @@ import org.junit.Test
 /** Presentation states only: no quote, invoice, send or wallet opening. */
 class PaymentFlowLayoutTest {
 	@get:Rule val compose = createComposeRule()
+	@Test fun savedSendShowsLatestReplacementWithoutReplayControls() {
+		val context = InstrumentationRegistry.getInstrumentation().targetContext
+		val model = WalletModel(context.applicationContext as Application)
+		val original = "ab".repeat(32)
+		val replacement = "cd".repeat(32)
+		val result = org.json.JSONObject().put("state", "unknown").put("amount_sat", 12000)
+			.put("txid", original).put("replacement_txids", org.json.JSONArray().put(replacement))
+		compose.setContent { MaterialTheme(colorScheme = paperclipColors(true)) { Surface {
+			Column(Modifier.fillMaxSize().safeDrawingPadding().verticalScroll(rememberScrollState()).padding(20.dp)) {
+				Send(WalletState(connected = true, result = result), model)
+			}
+		} } }
+		compose.onNodeWithText("Amount").assertExists()
+		compose.onNodeWithText(replacement).assertIsDisplayed()
+		compose.onNodeWithText(original).assertDoesNotExist()
+		compose.onNodeWithText("Check payment status").assertIsDisplayed().assertIsEnabled()
+		compose.onNodeWithText("Review payment").assertDoesNotExist()
+		compose.onNodeWithText("Confirm and send").assertDoesNotExist()
+		val instrumentation = InstrumentationRegistry.getInstrumentation()
+		// Compose semantics remain accessible behind an emulator crash dialog.
+		// Require the actual app window before accepting visual evidence.
+		compose.waitUntil(10_000) {
+			instrumentation.uiAutomation.rootInActiveWindow?.packageName?.toString() == context.packageName
+		}
+		compose.waitForIdle()
+		instrumentation.waitForIdleSync()
+		val screenshot = checkNotNull(instrumentation.uiAutomation.takeScreenshot())
+		try {
+			val values = android.content.ContentValues().apply {
+				put(MediaStore.Images.Media.DISPLAY_NAME, "saved-send-recovery.png")
+				put(MediaStore.Images.Media.MIME_TYPE, "image/png")
+				put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/PaperclipPreview")
+				put(MediaStore.Images.Media.IS_PENDING, 1)
+			}
+			val resolver = context.contentResolver
+			val uri = checkNotNull(resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values))
+			checkNotNull(resolver.openOutputStream(uri)).use {
+				check(screenshot.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it))
+			}
+			resolver.update(uri, android.content.ContentValues().apply { put(MediaStore.Images.Media.IS_PENDING, 0) }, null, null)
+		} finally {
+			screenshot.recycle()
+		}
+	}
 	@Test fun unknownReceiptKeepsFullAmountAndShareReachableWithLargeText() {
 		var fontScale by mutableStateOf(1f)
 		var shared = 0

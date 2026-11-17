@@ -13,6 +13,8 @@ struct Build61Preview: View {
             NavigationStack {
             if ProcessInfo.processInfo.arguments.contains("-wallet-health-preview") {
                 WalletHealthView()
+            } else if ProcessInfo.processInfo.arguments.contains("-recovered-send-preview") {
+                SendView.recoveredPaymentPreview()
             } else if ProcessInfo.processInfo.arguments.contains("-backup-center-preview") {
                 BackupView(engine: nil)
             } else if ProcessInfo.processInfo.arguments.contains("-payment-assistance-preview") {

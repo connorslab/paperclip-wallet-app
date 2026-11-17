@@ -5,7 +5,8 @@ import java.nio.charset.CodingErrorAction
 import java.util.Base64
 import org.json.JSONObject
 
-/** Version 1's portable schema. Validate before any native call or profile change.
+/** Portable schema: v2 adds durable native send state inside the SQLite snapshot.
+ * Older readers reject v2 instead of silently discarding the replay protection.
  * walletID is legacy display metadata, not proof of seed/database ownership;
  * the native restore validator must still verify that relationship.
  */
@@ -28,7 +29,7 @@ internal object BackupArchive {
 		// JSONObject.getInt/getString coerce strings, booleans and fractional
 		// numbers. Never use that coercion to choose a recovery format.
 		val version = archive.opt("version") as? Number
-		require(version != null && version.toDouble() == 1.0) { "Unsupported backup format" }
+		require(version != null && version.toDouble() in listOf(1.0, 2.0)) { "Unsupported backup format" }
 		require(text("network") in listOf("xbt-mainnet", "xbt-regtest")) { "Unsupported backup network" }
 		val id = text("walletID")
 		require(id.isNotEmpty() && id.toByteArray(Charsets.UTF_8).size <= 128) { "Invalid backup metadata" }

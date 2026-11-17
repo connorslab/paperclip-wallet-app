@@ -578,17 +578,24 @@ actor NativeWallet: WalletEngine, WalletBackupEngine {
         try beginOperation(); defer { operations -= 1 }
         return try await call(["op": onchain ? "send_onchain" : "send", "destination": destination, "amount_sat": amount, "total_sat": total])
     }
+    func outgoingPayment(check: Bool = false) async throws -> [String: Any]? {
+        try beginOperation(); defer { operations -= 1 }
+        if check { try await ensureConnected() } else { _ = try await open() }
+        return try await call(["op": check ? "check_outgoing_payment" : "outgoing_payment"])["attempt"] as? [String: Any]
+    }
     func exportRecoveryArchive() async throws -> RecoveryArchive {
         try beginOperation(); defer { operations -= 1 }
         _ = try await open()
         let result = try await call(["op": "backup"])
-        guard let encoded = result["database"] as? String, let database = Data(base64Encoded: encoded),
+        guard result["recovery_version"] as? Int == 2,
+              let encoded = result["database"] as? String, let database = Data(base64Encoded: encoded),
               let saved = try record() else { throw BackupError.invalidArchive }
         return RecoveryArchive(network: network, walletID: fingerprint, createdAt: Date(), seed: saved.seed, recoveryState: database, seedPhrase: saved.phrase)
     }
     func verifyRecoveryArchive(_ archive: RecoveryArchive) async throws -> Bool {
         try beginOperation(); defer { operations -= 1 }
         try archive.validate()
+        try await requireRecoverySupport(archive)
         _ = try await open()
         if let phrase = archive.seedPhrase {
             let result = try await call(["op":"seed_derive", "phrase":phrase], seed: Data(repeating: 0, count: 64))
@@ -603,6 +610,7 @@ actor NativeWallet: WalletEngine, WalletBackupEngine {
         guard !provisioning else { throw WalletFailure(message: "Wallet setup is already in progress.") }
         provisioning = true; defer { provisioning = false }
         try archive.validate()
+        try await requireRecoverySupport(archive)
 
         if let phrase = archive.seedPhrase {
             let derived = try await call(["op": "seed_derive", "phrase": phrase], seed: Data(repeating: 0, count: 64))
@@ -615,5 +623,11 @@ actor NativeWallet: WalletEngine, WalletBackupEngine {
         provisioning = false
         _ = try await installProfile(WalletProfile(name: "Restored wallet", kind: .hot, network: archive.network),
             key: KeyRecord(seed: archive.seed, phrase: archive.seedPhrase, network: archive.network), archive: archive)
+    }
+    private func requireRecoverySupport(_ archive: RecoveryArchive) async throws {
+        if archive.version >= 2 {
+            let support = try await call(["op": "backup_capabilities"], seed: Data(repeating: 0, count: 64))
+            guard support["recovery_version"] as? Int == 2 else { throw BackupError.unsupportedFormat }
+        }
     }
 }

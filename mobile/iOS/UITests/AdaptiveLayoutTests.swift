@@ -2,6 +2,22 @@ import XCTest
 
 /// Synthetic fixtures only: no wallet credentials, synchronization or payments.
 final class AdaptiveLayoutTests: XCTestCase {
+	func testSavedSendHasStatusActionAndNoReplayControl() {
+		continueAfterFailure = false
+		let app = XCUIApplication()
+		app.launchArguments = ["-build61-preview", "-recovered-send-preview", "-appearance", "dark"]
+		app.launch()
+		let check = app.buttons["send-check-recovered-payment"]
+		XCTAssertTrue(check.waitForExistence(timeout: 15))
+		XCTAssertTrue(check.isHittable)
+		XCTAssertFalse(app.buttons["Confirm payment"].exists)
+		XCTAssertFalse(app.buttons["Review payment"].exists)
+		check.tap()
+		XCTAssertTrue(app.staticTexts["Status unavailable. The saved attempt remains unresolved."].waitForExistence(timeout: 5))
+		XCTAssertTrue(app.staticTexts["Saved payment needs checking"].exists)
+		XCTAssertFalse(app.buttons["Confirm payment"].exists)
+		capture(app, "Saved send recovery")
+	}
 	func testPairingReviewShowsScopeAndCancelReturnsToSetup() throws {
 		try checkPairingReview(scope: "jars_manage_v1", permission: "Sending, key export and your main wallet are not included.")
 	}

@@ -27,9 +27,20 @@ struct SendView: View {
     @State private var receipt: PaymentReceipt?
     @State private var outcome = "Checking payment outcome"
     @State private var status = ""
+    @State private var recoveryLoaded = false
+    @State private var recovery: [String: Any]?
     @State private var amountIssue: ArkAmountIssue?
     init(onchain: Bool = true) { _onchain = State(initialValue: onchain) }
     #if DEBUG && targetEnvironment(simulator)
+    static func recoveredPaymentPreview() -> SendView {
+        var view = SendView()
+        view._submitted = State(initialValue: true)
+        view._recoveryLoaded = State(initialValue: true)
+        view._outcome = State(initialValue: "Saved payment needs checking")
+        view._recovery = State(initialValue: ["state":"unknown", "source":"onchain", "amount_sat":12000, "txid":String(repeating:"ab",count:32)])
+        view._status = State(initialValue: "This attempt is saved with your wallet. A missing result does not mean it failed. Do not repeat the payment.")
+        return view
+    }
     static func arkFeePreview(sendMax: Bool) -> SendView {
         var view = SendView(onchain: false)
         view._sendMax = State(initialValue: sendMax)
@@ -97,7 +108,7 @@ struct SendView: View {
                                 Label("Amount comes from the invoice", systemImage: "bolt.fill").font(.subheadline).foregroundStyle(PaperclipTheme.muted)
                             }
                             Button { review() } label: { Text("Review payment").frame(maxWidth: .infinity) }.buttonStyle(WalletPrimaryButtonStyle())
-                                .disabled(store.busy || target.isEmpty || submitted)
+                                .disabled(store.busy || target.isEmpty || submitted || !recoveryLoaded)
                             if target.isEmpty && !submitted {
                                 Text("Scan or paste a recipient to continue. Nothing is sent until you review and confirm.")
                                     .font(.caption).foregroundStyle(PaperclipTheme.muted)
@@ -150,18 +161,37 @@ struct SendView: View {
                         WalletSection {
                             Label(outcome, systemImage: "clock")
                             Text("Check Activity for the final result before making another attempt.").font(.subheadline)
+                            if let recovery {
+                                LabeledContent("From") {
+                                    Text(recovery["source"] as? String == "ark" ? "Ark" : "On-chain").foregroundStyle(PaperclipTheme.muted)
+                                }
+                                if let amount = recovery["amount_sat"] as? NSNumber {
+                                    LabeledContent("Amount") { Text(unit.display(amount.uint64Value)).foregroundStyle(PaperclipTheme.muted) }
+                                }
+                                if let txid = (recovery["replacement_txids"] as? [String])?.last ?? (recovery["txid"] as? String) {
+                                    Text("Transaction ID").font(.caption).foregroundStyle(PaperclipTheme.muted)
+                                    Text(txid).font(.caption.monospaced()).textSelection(.enabled)
+                                }
+                                Button("Check payment status") { store.run { await loadRecovery(check: true) } }
+                                    .disabled(store.busy).accessibilityIdentifier("send-check-recovered-payment")
+                            }
                             Button("Done") { dismiss() }.modifier(GlassAction())
                         }
+                    }
+                    if !recoveryLoaded && !store.busy {
+                        Button("Check saved payment state") { Task { await loadRecovery() } }
                     }
                 }.walletPageContent().textFieldStyle(WalletInputStyle())
                     .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: stage)
             }.onChange(of: stage) { _, _ in scroll.scrollTo("payment-top", anchor: .top) }
-        }.scrollDismissesKeyboard(.interactively).walletPageBackground().navigationTitle(onchain ? "Send XBT" : "Pay from Ark · Beta").navigationBarTitleDisplayMode(.inline)
+        }.scrollDismissesKeyboard(.interactively).walletPageBackground().navigationTitle(submitted ? "Payment status" : onchain ? "Send XBT" : "Pay from Ark · Beta").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done", systemImage: "checkmark") { dismiss() } } }
-            .task {
+            .task(id: store.walletID) {
                 #if DEBUG && targetEnvironment(simulator)
-                if ProcessInfo.processInfo.arguments.contains("-build61-preview") { return }
+                if ProcessInfo.processInfo.arguments.contains("-build61-preview") { recoveryLoaded = true; return }
                 #endif
+                recoveryLoaded = false; recovery = nil; submitted = false; total = nil
+                await loadRecovery()
                 if let overview = try? await store.engine.onchainOverview() { store.applyOnchainOverview(overview) }
             }
             .sheet(item: $receipt, onDismiss: { if submitted { dismiss() } }) { receipt in
@@ -188,6 +218,30 @@ struct SendView: View {
             } message: { Text("Total debit: \(unit.display(total)) from \(onchain ? "on-chain" : "Ark").") }
     }
     private func reset() { total = nil; reviewedAmount = nil; amountIssue = nil; status = "" }
+    @MainActor private func loadRecovery(check: Bool = false) async {
+        #if DEBUG && targetEnvironment(simulator)
+        if ProcessInfo.processInfo.arguments.contains("-build61-preview") && ProcessInfo.processInfo.arguments.contains("-recovered-send-preview") {
+            status = "Status unavailable. The saved attempt remains unresolved."
+            return
+        }
+        #endif
+        let owner = store.walletID
+        do {
+            let saved = try await store.engine.outgoingPayment(check: check)
+            guard owner == store.walletID else { return }
+            recoveryLoaded = true
+            guard let saved else { return }
+            let state = saved["state"] as? String ?? "unknown"
+            let resolved = ["completed", "paid", "not_sent"].contains(state)
+            if resolved && !submitted { return }
+            recovery = saved; submitted = true
+            outcome = resolved ? (state == "not_sent" ? "Payment not sent" : "Payment completed") : "Saved payment needs checking"
+            status = resolved ? "The saved outcome has been verified. A new payment needs a fresh review." : "This attempt is saved with your wallet. A missing result does not mean it failed. Refresh the wallet and check again; do not repeat the payment."
+        } catch {
+            guard owner == store.walletID else { return }
+            status = "Could not check the saved payment. Its outcome remains unresolved. \(error.localizedDescription)"
+        }
+    }
     private func review() {
         UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
         let recipient = target, source = onchain, entered = amount, selectedUnit = unit
@@ -239,10 +293,14 @@ struct SendView: View {
                     return
                 }
                 outcome = result["state"] as? String == "completed" ? "Payment completed" : "Payment submitted"
+                recovery = result
                 status = ""
                 receipt = PaymentReceipt(state: result["state"] as? String ?? "pending", transactionID: result["txid"] as? String)
                 try? await store.refreshActivity()
-            } catch { status = "Payment outcome needs checking: \(error.localizedDescription). Check Activity before retrying." }
+            } catch {
+                status = "Payment outcome needs checking: \(error.localizedDescription). Check Activity before retrying."
+                await loadRecovery()
+            }
         }
     }
 }

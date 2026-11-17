@@ -35,11 +35,11 @@ public struct RecoveryArchive: Codable, Sendable, Equatable {
         try validate()
     }
     public init(network: String, walletID: String, createdAt: Date, seed: Data, recoveryState: Data, seedPhrase: String? = nil) {
-        self.version = 1; self.network = network; self.walletID = walletID
+        self.version = 2; self.network = network; self.walletID = walletID
         self.createdAt = createdAt; self.seed = seed; self.recoveryState = recoveryState; self.seedPhrase = seedPhrase
     }
     public func validate() throws {
-        guard version == 1, ["xbt-mainnet", "xbt-regtest"].contains(network),
+        guard [1, 2].contains(version), ["xbt-mainnet", "xbt-regtest"].contains(network),
               !walletID.isEmpty, walletID.utf8.count <= 128,
               createdAt.timeIntervalSinceReferenceDate.isFinite,
               seed.count == 64, !recoveryState.isEmpty,
