@@ -1,0 +1,43 @@
+name: Native Windows desktop prerequisite
+on:
+  workflow_dispatch:
+  push:
+    branches: ['codex/cross-platform-parity']
+    paths: ['.github/workflows/windows-desktop.yml', 'deployment/desktop/windows/**']
+permissions:
+  contents: read
+jobs:
+  native:
+    runs-on: windows-2022
+    timeout-minutes: 75
+    env:
+      CARGO_BUILD_JOBS: 2
+      CARGO_INCREMENTAL: 0
+      CARGO_PROFILE_DEV_DEBUG: 0
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select the reviewed Rust toolchain
+        run: rustup toolchain install 1.91.0 --profile minimal
+      - name: Prepare native build dependencies
+        shell: pwsh
+        run: |
+          choco install protoc --yes --no-progress
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $boost = Get-ChildItem Env: | Where-Object { $_.Name -like 'BOOST_ROOT*' -and (Test-Path (Join-Path $_.Value 'boost/multi_index_container.hpp')) } | Select-Object -First 1
+          if (!$boost) { throw 'The Windows runner does not provide the required Boost headers.' }
+          "BOOST_ROOT=$($boost.Value)" >> $env:GITHUB_ENV
+          "CXXFLAGS=/I`"$($boost.Value)`"" >> $env:GITHUB_ENV
+          "LIBCLANG_PATH=C:\Program Files\LLVM\bin" >> $env:GITHUB_ENV
+          "BARK_WEB_DIST=$env:GITHUB_WORKSPACE\web" >> $env:GITHUB_ENV
+      - uses: actions/cache@v4
+        with:
+          path: |
+            target
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: windows-native-${{ hashFiles('Cargo.lock') }}-${{ github.sha }}
+          restore-keys: windows-native-${{ hashFiles('Cargo.lock') }}-
+      - name: Build the shared daemon with embedded UI and SQLite
+        run: cargo +1.91.0 build --locked -p bark-cli --bin paperclip-walletd --features barkd-web-ui,sqlite-bundled
+      - name: Verify the native executable starts without wallet storage
+        run: ./target/debug/paperclip-walletd.exe --version
