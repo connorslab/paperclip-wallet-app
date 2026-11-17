@@ -21,12 +21,17 @@ jobs:
       - name: Prepare native build dependencies
         shell: pwsh
         run: |
-          choco install protoc --yes --no-progress
+          choco install protoc --version=36.2.0 --yes --no-progress
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          $boost = Get-ChildItem Env: | Where-Object { $_.Name -like 'BOOST_ROOT*' -and (Test-Path (Join-Path $_.Value 'boost/multi_index_container.hpp')) } | Select-Object -First 1
-          if (!$boost) { throw 'The Windows runner does not provide the required Boost headers.' }
-          "BOOST_ROOT=$($boost.Value)" >> $env:GITHUB_ENV
-          "CXXFLAGS=/I`"$($boost.Value)`"" >> $env:GITHUB_ENV
+          $archive = Join-Path $env:RUNNER_TEMP 'boost_1_85_0.7z'
+          Invoke-WebRequest 'https://archives.boost.io/release/1.85.0/source/boost_1_85_0.7z' -OutFile $archive
+          if ((Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant() -ne '16d16b9658753117c1434e5450c5eac194957f4b6d0b390b9d07900d37c115a4') { throw 'Boost archive checksum mismatch.' }
+          & 7z x -y "-o$env:RUNNER_TEMP" $archive 'boost_1_85_0/boost/*'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $boost = Join-Path $env:RUNNER_TEMP 'boost_1_85_0'
+          if (!(Test-Path (Join-Path $boost 'boost/multi_index_container.hpp'))) { throw 'Required Boost headers are missing.' }
+          "BOOST_ROOT=$boost" >> $env:GITHUB_ENV
+          "CXXFLAGS=/I`"$boost`"" >> $env:GITHUB_ENV
           "LIBCLANG_PATH=C:\Program Files\LLVM\bin" >> $env:GITHUB_ENV
           "BARK_WEB_DIST=$env:GITHUB_WORKSPACE\web" >> $env:GITHUB_ENV
       - uses: actions/cache@v4
