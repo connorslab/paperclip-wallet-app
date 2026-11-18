@@ -128,7 +128,10 @@ private struct JarsSendView: View {
     @Published var previewOnly = false
     @Published var needsRefresh = false
     private var client: JoinBlaketClient?
-    private var authorization: JoinBlaketAuthorization?
+    @Published private(set) var authorizationRevision: UInt64 = 0
+    private var authorization: JoinBlaketAuthorization? {
+        didSet { authorizationRevision &+= 1 }
+    }
     @Published var paired = false
     @Published var canSend = true
     func pair(_ text: String, save: Bool = true) async throws {
@@ -323,8 +326,9 @@ struct JoinBlaketView: View {
             }.walletPageContent()
         }.walletPageBackground().navigationTitle("Jars").navigationBarTitleDisplayMode(.inline)
             .onChange(of: comparisonAmount) { _, _ in market = nil; marketUnavailable = false }
-            .onChange(of: model.connection.endpoint) { _, _ in makerPage = nil; market = nil; marketUnavailable = false; sendContext = nil }
-            .onChange(of: model.selectedWallet) { _, _ in makerPage = nil; market = nil; marketUnavailable = false; sendContext = nil }
+            .onChange(of: model.connection.endpoint) { _, _ in closeSessionPages() }
+            .onChange(of: model.selectedWallet) { _, _ in closeSessionPages() }
+            .onChange(of: model.authorizationRevision) { _, _ in closeSessionPages() }
             .onChange(of: makerPage) { _, _ in confirmMaker = false; confirmBond = false }
             .disabled(model.busy)
             .navigationDestination(item: $makerPage) { toolPage($0) }
@@ -352,6 +356,12 @@ struct JoinBlaketView: View {
             }
 #endif
 
+    }
+    private func closeSessionPages() {
+        // A dismissed send must not reopen history for a replacement session.
+        openSendActivity = false; showPayments = false; sendContext = nil
+        makerPage = nil; market = nil; marketUnavailable = false
+        confirmMaker = false; confirmBond = false
     }
     private var discardAction: ((String) async throws -> JoinBlaketPayment)? {
         guard model.canSend else { return nil }

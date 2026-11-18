@@ -155,6 +155,33 @@ class JoinBlaketLayoutTest {
 		compose.runOnIdle { assertNull(state.client.value); assertNull(state.authorization.value); assertNull(state.session.value) }
 	}
 	@get:Rule val compose = createComposeRule()
+	@Test fun changingAuthorizationClosesPaymentHistoryBeforeAnotherLookup() {
+		val paths = java.util.Collections.synchronizedList(mutableListOf<String>())
+		val http = okhttp3.OkHttpClient.Builder().addInterceptor { chain ->
+			val path = chain.request().url.encodedPath; paths.add(path)
+			check(chain.request().method == "GET")
+			val body = if (path.endsWith("/session"))
+				"""{"session":true,"wallet_name":"fixture.jmdat"}""" else """{"payments":[]}"""
+			okhttp3.Response.Builder().request(chain.request()).protocol(okhttp3.Protocol.HTTP_1_1)
+				.code(200).message("Synthetic").body(okhttp3.ResponseBody.create(null, body)).build()
+		}.build()
+		val state = JoinBlaketUiState().apply {
+			wallet.value = "Synthetic Jars"
+			session.value = JSONObject().put("session", true).put("maker_running", false)
+			client.value = JoinBlaketClient(JoinBlaketConnection("https://jam.example.invalid"), http)
+			authorization.value = JoinBlaketAuthorization("fixture.jmdat", "synthetic-token")
+		}
+		compose.setContent { MaterialTheme(colorScheme = paperclipColors(true)) { Surface {
+			Column(Modifier.fillMaxSize().safeDrawingPadding().verticalScroll(rememberScrollState()).padding(20.dp)) { JoinBlaketPage(state) }
+		} } }
+		compose.onNodeWithText("Jars payment activity").performScrollTo().performClick()
+		compose.waitUntil(10000) { compose.onAllNodesWithText("No saved Paperclip payments in this Jam wallet.").fetchSemanticsNodes().isNotEmpty() }
+		val before = paths.size
+		compose.runOnIdle { state.authorization.value = JoinBlaketAuthorization("fixture.jmdat", "replacement-token") }
+		compose.waitForIdle()
+		compose.onNodeWithText("Jars payments").assertDoesNotExist()
+		assertEquals("Changing credentials must not implicitly reload payment history", before, paths.size)
+	}
 	@Test fun recoveryPreservesUnknownOnTimeoutAndOnlyObserves() {
 		val paths = java.util.Collections.synchronizedList(mutableListOf<String>())
 		val checks = java.util.concurrent.atomic.AtomicInteger()
@@ -181,7 +208,16 @@ class JoinBlaketLayoutTest {
 			Column(Modifier.fillMaxSize().safeDrawingPadding().verticalScroll(rememberScrollState()).padding(20.dp)) { JoinBlaketPage(state) }
 		} } }
 		compose.onNodeWithText("Jars payment activity").performScrollTo().performClick()
-		compose.waitUntil(10000) { compose.onAllNodesWithText("Status unknown").fetchSemanticsNodes().isNotEmpty() }
+		try {
+			compose.waitUntil(10000) { compose.onAllNodesWithText("Status unknown").fetchSemanticsNodes().isNotEmpty() }
+		} catch (failure: ComposeTimeoutException) {
+			// The runner's final screenshot is taken after later cases and cannot
+			// explain this transition. Retain this synthetic page at the failure.
+			runCatching { saveScreenshot("android-jars-history-timeout") }
+			val routeCounts = synchronized(paths) { paths.groupingBy { it.substringAfterLast('/') }.eachCount() }
+			throw AssertionError("Synthetic recovery did not appear; requests=$routeCounts; " +
+				runCatching { compose.onRoot(useUnmergedTree = true).printToString().take(12000) }.getOrDefault("UI unavailable"), failure)
+		}
 		compose.onNodeWithText("Check status").assertIsDisplayed().performClick()
 		compose.waitUntil(10000) { compose.onAllNodesWithText("Could not check payment status. Check your connection and try again.").fetchSemanticsNodes().isNotEmpty() }
 		compose.onNodeWithText("Status unknown").assertIsDisplayed()

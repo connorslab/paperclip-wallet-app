@@ -22,7 +22,7 @@ checks and their limits.
 | Area | Verified in the current test pass | Still required |
 | --- | --- | --- |
 | iOS | 129 shared Swift tests; six isolated native Keychain recovery cases; 17 safe UI cases on both regular-phone and open-Duo simulators | Physical signer, camera, accessibility and interrupted/folded payment acceptance; final signed candidate and upgrade |
-| Android | 112 JVM tests (four live cases excluded); 47 instrumentation cases across 18 classes on local API 35 ARM64; 48 cases on each of API 35/36 CI at `a04a3e4`, including the new large-text Jars navigation case, visibility and emulator-health checks; authenticated CLN/LND reads and pin rejection | Final release identity, Play/APK upgrade compatibility and physical/foldable acceptance |
+| Android | 112 JVM tests (four live cases excluded); 48 instrumentation cases across 18 classes on local API 35 ARM64, plus 13 focused Jars cases after the session-isolation fix; 48 cases on each of API 35/36 CI at `a04a3e4`, including the new large-text Jars navigation case, visibility and emulator-health checks; authenticated CLN/LND reads and pin rejection | Final release identity, Play/APK upgrade compatibility and physical/foldable acceptance |
 | Shared desktop UI | All 17 existing browser-flow suites plus entropy, transport and QR checks; phone, foldable and desktop widths where each suite defines them | Installed-host and native desktop acceptance; accept multiple-hot-wallet profiles and hardware-funded Ark workflows |
 | StartOS/Umbrel | Shared REST checks, authenticated CLN/LND reads; both StartOS candidate architectures built and source/checksums checked | Complete backup/restore, candidate installation, bundled Jam pairing/revocation/Tor and upgrades; matching frozen wrappers |
 | Linux/macOS/Windows | Isolated Apple Silicon and Linux daemon authentication, duplicate-instance rejection and crash/restart; macOS bundled Tor/Jars/helper runtime passes 15 relocated isolation cases; Linux bundled Tor/Jars passes TLS/proxy, relocation, frozen-window and Chromium checks; Windows native storage/ownership and bundled Tor/Jars/wallet/window lifecycle pass at `47f2cb77`, including saved-node setup/replacement controller checks | Installed browser/accessibility and bundled-Tor/Jars acceptance; supported OS matrix, signed installers, notarization and clean install/upgrade tests |
@@ -4168,3 +4168,31 @@ before network access. Android has 112 passing JVM cases and four live-test
 exclusions, with a successful ARM64 debug build. These synthetic tests establish
 stale-response handling, not portable backup, live settlement or power-loss
 acceptance.
+
+
+### Mobile Jars session isolation and API 35 investigation — 2026-11-18
+
+Android payment history now belongs to the client and authorization that opened
+it. Replacing credentials or locking the session disposes the page and its
+lookups instead of silently reloading under another authorization. A new
+instrumentation regression failed before the change and passes after it,
+including the assertion that a replacement token triggers no history request.
+iOS now observes authorization changes as well as wallet/endpoint changes,
+closes history and reviews, and cancels the deferred navigation from send to
+history. The ordinary iOS unknown-payment/timeout recovery UI test passes;
+automated iOS credential-switch interaction is not yet covered.
+
+Android run `44285160644` at `201da5e1` passed both native ABI builds and API 36,
+but API 35 timed out waiting for Jars history before any payment check. The
+retained screenshot was taken after later cases, so it does not establish the
+cause. The fixture now retains its synthetic screen, request counts and UI
+semantics at that exact failure. No timeout increase, hidden retry or disabled
+assertion was added. A full local API 35 ARM64 run passed all 48 existing cases;
+after the separate session fix, all 13 focused Jars cases pass. This does not
+prove the intermittent CI failure is fixed; final CI still needs acceptance.
+
+The Android debug/test APKs, existing 112 JVM tests (four live exclusions),
+native unsigned iOS Release build and repository checks pass. Tests use
+synthetic sessions and intercepted requests; no real maker, node or funds are
+involved. The shared desktop Jars UI already closes history and invalidates
+responses on wallet-session exit; no desktop runtime changed in this increment.

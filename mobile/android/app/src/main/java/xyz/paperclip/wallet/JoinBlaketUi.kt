@@ -93,7 +93,9 @@ internal fun JoinBlaketPage(state: JoinBlaketUiState) {
 	var marketNow by remember { mutableStateOf(java.time.Instant.now().epochSecond) }
 	LaunchedEffect(showMarket) { while (showMarket) { marketNow = java.time.Instant.now().epochSecond; kotlinx.coroutines.delay(15_000) } }
 	val showMakerGuide = makerPage == "How earning works"
-	var showPayments by remember { mutableStateOf(false) }
+	// History and its in-flight lookups belong to the authorization that opened
+	// them. Replacing credentials must dispose the page, not reload it implicitly.
+	var showPayments by remember(client, authorization, session == null) { mutableStateOf(false) }
 	var showSend by remember { mutableStateOf(false) }
 	var sendWithdrawal by remember { mutableStateOf<JoinBlaketBondCoin?>(null) }
 	var bondInventory by remember(client, authorization) { mutableStateOf<JoinBlaketBondInventory?>(null) }
