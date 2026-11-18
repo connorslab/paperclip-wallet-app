@@ -3,9 +3,9 @@ on:
   workflow_dispatch:
   push:
     branches: ['codex/cross-platform-parity']
-    paths: ['deployment/jam/**', 'deployment/desktop/windows/**', 'deployment/desktop/managed_jam.py', 'deployment/desktop/managed_tor.py', 'deployment/desktop/tor_runtime.py', 'deployment/desktop/prepare_tor.py', 'deployment/desktop/tor-artifacts.json', 'deployment/desktop/managed_daemon.py', 'deployment/desktop/pipe_io.py', '.github/workflows/windows-jars.yml']
+    paths: ['deployment/jam/**', 'deployment/desktop/windows/**', 'deployment/desktop/managed_jam.py', 'deployment/desktop/test_managed_jam.py', 'deployment/desktop/test_managed_tor.py', 'deployment/desktop/managed_tor.py', 'deployment/desktop/tor_runtime.py', 'deployment/desktop/prepare_tor.py', 'deployment/desktop/tor-artifacts.json', 'deployment/desktop/managed_daemon.py', 'deployment/desktop/pipe_io.py', '.github/workflows/windows-jars.yml']
   pull_request:
-    paths: ['deployment/jam/**', 'deployment/desktop/windows/**', 'deployment/desktop/managed_jam.py', 'deployment/desktop/managed_tor.py', 'deployment/desktop/tor_runtime.py', 'deployment/desktop/prepare_tor.py', 'deployment/desktop/tor-artifacts.json', 'deployment/desktop/managed_daemon.py', 'deployment/desktop/pipe_io.py', '.github/workflows/windows-jars.yml']
+    paths: ['deployment/jam/**', 'deployment/desktop/windows/**', 'deployment/desktop/managed_jam.py', 'deployment/desktop/test_managed_jam.py', 'deployment/desktop/test_managed_tor.py', 'deployment/desktop/managed_tor.py', 'deployment/desktop/tor_runtime.py', 'deployment/desktop/prepare_tor.py', 'deployment/desktop/tor-artifacts.json', 'deployment/desktop/managed_daemon.py', 'deployment/desktop/pipe_io.py', '.github/workflows/windows-jars.yml']
 permissions:
   contents: read
 concurrency:
@@ -91,6 +91,10 @@ jobs:
           & $py deployment/desktop/windows/prepare_jars.py --deployment "$env:GITHUB_WORKSPACE/deployment"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           & $py -m pip check
+      - name: Verify Tor using the packaged Jars build interpreter
+        run: |
+          $env:PYTHONPATH = "$env:GITHUB_WORKSPACE/deployment/desktop"
+          & $env:JARS_PYTHON deployment/desktop/test_managed_tor.py --tor "$env:RUNNER_TEMP/Tor Runtime/tor/tor.exe" --network -v
       - name: Verify native crypto and patched API imports
         run: |
           & $env:JARS_PYTHON -c "import os, bitcointx; bitcointx.set_custom_secp256k1_path(os.environ['PAPERCLIP_SECP']); from bitcointx.core.key import CKey; key=CKey.from_secret_bytes(bytes([1])*32); digest=bytes([2])*32; assert key.pub.verify(digest,key.sign(digest)); from jmwalletd.app import create_app; from jmwalletd.wallet_ops import _reserve_wallet_path; print('Native crypto signature and patched Jars API imports passed.')"
