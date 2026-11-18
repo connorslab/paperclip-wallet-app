@@ -25,7 +25,7 @@ checks and their limits.
 | Android | 100 JVM tests (four live cases excluded); 47 instrumentation cases across 18 classes on local API 35 ARM64; 48 cases on each of API 35/36 CI at `a04a3e4`, including the new large-text Jars navigation case, visibility and emulator-health checks; authenticated CLN/LND reads and pin rejection | Final release identity, Play/APK upgrade compatibility and physical/foldable acceptance |
 | Shared desktop UI | All 17 existing browser-flow suites plus entropy, transport and QR checks; phone, foldable and desktop widths where each suite defines them | Installed-host and native desktop acceptance; accept multiple-hot-wallet profiles and hardware-funded Ark workflows |
 | StartOS/Umbrel | Shared REST checks, authenticated CLN/LND reads; both StartOS candidate architectures built and source/checksums checked | Complete backup/restore, candidate installation, bundled Jam pairing/revocation/Tor and upgrades; matching frozen wrappers |
-| Linux/macOS/Windows | Isolated Apple Silicon and Linux daemon authentication, duplicate-instance rejection and crash/restart; macOS bundled Jars/helper runtime passes 13 relocated isolation cases; Linux bundled Jars passes TLS/proxy and frozen-window recovery checks; 90 native Windows storage/browser-policy/pipe/ownership/discovery/window/Jars cases and authenticated daemon lifecycle pass at `710bc5f` | Installed browser/accessibility acceptance; native Tor/node-RPC setup and installed bundled-Jars acceptance; supported OS matrix, signed installers, notarization and clean install/upgrade tests |
+| Linux/macOS/Windows | Isolated Apple Silicon and Linux daemon authentication, duplicate-instance rejection and crash/restart; macOS bundled Tor/Jars/helper runtime passes 15 relocated isolation cases; Linux bundled Tor/Jars passes TLS/proxy, relocation, frozen-window and Chromium checks; Windows native storage/ownership and bundled Tor/Jars/wallet/window lifecycle pass at `193ae47` | Installed browser/accessibility acceptance; guided node-RPC setup and installed bundled-Tor/Jars acceptance; supported OS matrix, signed installers, notarization and clean install/upgrade tests |
 | Jars | Reviewed direct/CoinJoin toggle and bond funding/withdrawal clients; pinned signer, API, bond and interrupted-submission checks; encrypted Jam volume restore on a synthetic chain | Live CoinJoin, direct-send and bond-funding/withdrawal acceptance, installed payment-pairing acceptance, live maker and physical QR signer acceptance |
 | Payments and recovery | 297 shared wallet tests and 53 mobile Rust tests, exact-cost/RBF/unknown-outcome checks; unified-signature and Electrum-header checks | Live BOLT12/Ark/Bridge settlement, portable recovery/restore and current-source XBT consensus acceptance |
 
@@ -41,8 +41,8 @@ coordinated scope is iOS, Android, StartOS, Umbrel, Linux, macOS and Windows.
    and physical-signer acceptance is still required. Complete the remaining end-to-end review of boarding,
    hardware signing and exit paths. Mobile wallet switching alone does not close
    the desktop profile requirement.
-2. **Finish native runtime delivery.** The complete frozen Windows Jars service
-   and owned desktop integration pass native CI at `2d584f6`, including the
+2. **Finish native runtime delivery.** The complete frozen Windows Tor/Jars service
+   and owned desktop integration pass native CI at `193ae47`, including the
    packaged window. Owned Tor component checks now pass on all five pinned native targets, including
    explicit SOCKS activation. Complete guided node-RPC setup and the combined
    installed Jam/Tor runtime acceptance on the native desktops. No external Python or
@@ -3782,3 +3782,14 @@ existing files and unchanged token permissions; the Tor suite includes private
 control authentication, SOCKS activation, failure cleanup and retry. Full frozen
 Windows Jars/wallet/window run `44238439520` is pending. Linux backend run
 `44234758174` at the earlier shared startup-diagnostic revision also passed.
+
+
+Windows combined run `44238439520` at `193ae47` completed successfully. The exact
+Jars-interpreter Tor check now passes, followed by four frozen-runtime cases,
+eight real wallet/Jars ownership and TLS cases, and all four packaged-window
+cases. These include the previously failing Tor-crash/recovery path, a damaged
+runtime, visible startup errors, handoff, retry and native-window close. The
+broader Windows prerequisite run `44238439549` also passed. This closes the
+reproduced control-file ownership defect; installed-user, live-payment, signing
+and upgrade acceptance remain separate. All tests used disposable unfunded
+storage. No production service or funded device was changed.
