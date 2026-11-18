@@ -536,6 +536,9 @@ on success and preserves every wallet, journal and legacy configuration file.
 A write failure after replacement is uncertain: inspect saved state and obtain
 a new review; do not roll back or automatically retry.
 
-This is an internal native-controller operation, not a web API. The user-facing
-review/change screen remains required before ordinary users can manage an
-existing connection. Initial setup never invokes replacement.
+This is an internal native-controller operation, not a web API. Use **Jars node
+settings** in the native launcher to edit a connection. The launcher first closes
+its owned session, then opens the editor. Review the replacement address, account,
+Tor and certificate choices before confirming. Cancel keeps the saved connection;
+a failed shutdown prevents the automatic transition. Initial setup never invokes
+replacement. Installed-host and native-platform acceptance remain separate.

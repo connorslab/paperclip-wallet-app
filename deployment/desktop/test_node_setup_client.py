@@ -62,6 +62,32 @@ class SetupClientTests(NodeFixture):
         self.assertEqual(result, self.runtime)
         self.assertEqual(self.calls, [])
 
+    def test_manage_saved_connection_requires_confirmation_and_keeps_old_on_cancel(self):
+        client = self.client(); port = self.node()
+        settings = {'endpoint':f'http://127.0.0.1:{port}', 'username':'fixture', 'password':'synthetic-secret'}
+        client.save(settings, lambda _: None)
+        identity = client.inspect()['connection_id']; self.calls.clear(); events=[]
+        requests = iter([{'action':'replace_jars','settings':settings,'confirmed':False}, {'action':'skip_jars'}])
+        result = choose_runtime(self.runtime,self.app,None,self.stopping,
+            lambda:next(requests),lambda *event:events.append(event),manage=True)
+        self.assertEqual(result,self.runtime)
+        self.assertEqual([event[0] for event in events],['setup_change','setup_error'])
+        self.assertEqual(client.inspect()['connection_id'],identity)
+        self.assertEqual(self.calls,[])
+
+    def test_manage_saved_connection_applies_only_the_reviewed_settings(self):
+        client = self.client(); port = self.node()
+        settings = {'endpoint':f'http://127.0.0.1:{port}', 'username':'fixture', 'password':'synthetic-secret'}
+        client.save(settings, lambda _: None)
+        identity = client.inspect()['connection_id']; self.calls.clear(); events=[]
+        result = choose_runtime(self.runtime,self.app,None,self.stopping,
+            lambda:{'action':'replace_jars','settings':settings,'confirmed':True},
+            lambda *event:events.append(event),manage=True)
+        self.assertEqual(result,self.runtime)
+        self.assertEqual([event[0] for event in events],['setup_change','setup_progress','setup_complete'])
+        self.assertNotEqual(client.inspect()['connection_id'],identity)
+        self.assertEqual(len(self.calls),2)
+
     def test_replacement_requires_review_and_rejects_a_consumed_review(self):
         client = self.client(); port = self.node()
         settings = {'endpoint':f'http://127.0.0.1:{port}', 'username':'fixture', 'password':'synthetic-secret'}
@@ -171,6 +197,22 @@ class SetupClientTests(NodeFixture):
             self.assertEqual(len(self.calls),5)
             self.assertFalse(list(self.app.rglob('*.jmdat')))
             self.assertFalse((self.app/'wallet/mnemonic').exists())
+            send({'action':'quit'})
+            self.assertEqual(event()['event'],'stopped')
+            self.assertEqual(process.wait(timeout=10),0)
+            process.stdin.close(); reader.join(timeout=2); process.stdout.close()
+            old_identity=NodeSetupClient(self.runtime,self.app,self.stopping).inspect()['connection_id']
+            command[command.index('--guided-setup')]='--manage-node'
+            process=subprocess.Popen(command,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL)
+            reader=threading.Thread(target=read,daemon=True); reader.start()
+            self.assertEqual(event()['event'],'setup_change')
+            self.assertEqual(len(self.calls),5,'Opening the editor must not contact the node')
+            send({'action':'replace_jars','settings':request['settings'],'confirmed':True})
+            self.assertEqual(event()['event'],'setup_progress')
+            self.assertEqual(event()['event'],'setup_complete')
+            self.assertEqual(event()['event'],'ready')
+            self.assertEqual(len(self.calls),9)
+            self.assertNotEqual(NodeSetupClient(self.runtime,self.app,self.stopping).inspect()['connection_id'],old_identity)
             send({'action':'quit'})
             self.assertEqual(event()['event'],'stopped')
             self.assertEqual(process.wait(timeout=10),0)

@@ -84,12 +84,12 @@ def commands(runner, inbox=None):
         pending += chunk
 
 
-def serve(binary, root, jam_runtime=None, tor_binary=None, guided_setup=False):
+def serve(binary, root, jam_runtime=None, tor_binary=None, guided_setup=False, manage_node=False):
     inbox=None
-    if guided_setup and jam_runtime is not None:
+    if (guided_setup or manage_node) and jam_runtime is not None:
         inbox=SetupInbox()
         jam_runtime=choose_runtime(jam_runtime,root,tor_binary,inbox.stopping,inbox.receive,
-            lambda event,value:emit(event,**({'message':value} if value else {})))
+            lambda event,value:emit(event,**({'message':value} if value else {})),manage=manage_node)
         if inbox.stopping.is_set():return
     runner = ManagedDaemon(binary, root, jam_runtime=jam_runtime, tor_binary=tor_binary)
     try:
@@ -118,6 +118,7 @@ if __name__ == '__main__':
     parser.add_argument('--jam-executable', type=Path)
     parser.add_argument('--tor-runtime', type=Path)
     parser.add_argument('--guided-setup', action='store_true')
+    parser.add_argument('--manage-node', action='store_true')
     args = parser.parse_args()
     if args.jam_executable and (args.jam_python or args.jam_entry):
         parser.error('Choose the bundled Jars executable or development Python paths')
@@ -125,7 +126,7 @@ if __name__ == '__main__':
         parser.error('Supply both packaged Jars runtime paths')
     try:
         tor = packaged_tor_binary(args.tor_runtime) if args.tor_runtime else None
-        serve(args.binary, args.root, (args.jam_executable, None) if args.jam_executable else ((args.jam_python, args.jam_entry) if args.jam_python else None), tor_binary=tor, guided_setup=args.guided_setup)
+        serve(args.binary, args.root, (args.jam_executable, None) if args.jam_executable else ((args.jam_python, args.jam_entry) if args.jam_python else None), tor_binary=tor, guided_setup=args.guided_setup, manage_node=args.manage_node)
     except BrokenPipeError:
         # Shell death already closes the lifetime chain; never print a traceback.
         sys.exit(1)

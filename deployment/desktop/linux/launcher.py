@@ -43,11 +43,12 @@ def valid_handoff(value):
 
 class Session:
     """One worker owns the daemon; UI never waits on startup, network or shutdown."""
-    def __init__(self, binary, root, jam_runtime=None, tor_runtime=None, guided_setup=False):
+    def __init__(self, binary, root, jam_runtime=None, tor_runtime=None, guided_setup=False, manage_node=False):
         self.binary, self.root = binary, root
         self.jam_runtime = jam_runtime
         self.tor_runtime = tor_runtime
         self.guided_setup = guided_setup
+        self.manage_node = manage_node
         self.events = queue.Queue()
         self.commands = queue.Queue(maxsize=1)
         self.stopping = threading.Event()
@@ -83,7 +84,7 @@ class Session:
                     try: return self.commands.get(timeout=0.1)
                     except queue.Empty: return None
                 runtime = choose_runtime(runtime,self.root,tor,self.stopping,receive,
-                    lambda event,value:self.events.put((event,value)))
+                    lambda event,value:self.events.put((event,value)),manage=self.manage_node)
             if self.stopping.is_set(): return
             runner = ManagedDaemon(self.binary, self.root, jam_runtime=runtime, tor_binary=tor)
             runner.start()
@@ -125,6 +126,8 @@ class Window:
         self.recovery = False
         self.failure = None
         self.setup_panel = None
+        self.manage_requested = False
+        self.replacing_node = False
         root.title('Paperclip Preview')
         root.geometry('480x460')
         root.minsize(420, 420)
@@ -153,6 +156,11 @@ class Window:
                                 highlightthickness=2, highlightcolor='#ffffff', highlightbackground='#101c2c',
                                 disabledforeground='#64758b', takefocus=True)
         self.action.pack(pady=12)
+        self.node_settings = None
+        if jam_runtime is not None:
+            self.node_settings = tk.Button(frame,text='Jars node settings…',command=self.manage_node,
+                font=('TkDefaultFont',10),state='disabled')
+            self.node_settings.pack(pady=2)
         self.note = label('Keep this window open while using your wallet. Quitting stops the local wallet.', 10, '#a8bbd0')
         label('Development preview', 9, '#8b9fb8')
         root.bind('<Configure>', self.resize)
@@ -164,16 +172,28 @@ class Window:
             for widget in (self.status, self.note):
                 widget.configure(wraplength=max(250, int(event.width * .86)))
 
-    def start(self):
+    def start(self, manage=False):
         if self.session is not None and self.session.thread.is_alive():
             return
+        if self.node_settings is not None: self.node_settings.configure(state='disabled')
         self.state, self.failure, self.recovery = 'starting', None, False
         self.status.configure(text='Starting your wallet…')
         self.action.configure(text='Open Wallet', state='disabled')
         self.progress.pack(before=self.action, fill='x', padx=65, pady=12)
         self.progress.start(12)
-        self.session = Session(self.binary, self.data_root, self.jam_runtime, self.tor_runtime, guided_setup=True)
+        self.session = Session(self.binary, self.data_root, self.jam_runtime, self.tor_runtime, guided_setup=True,manage_node=manage)
         self.session.start()
+
+    def manage_node(self):
+        from tkinter import messagebox
+        if self.quitting or self.state not in ('ready','failed'): return
+        if self.state == 'failed':
+            self.start(manage=True); return
+        if not messagebox.askokcancel('Jars node settings',
+                'Close the local wallet to change its Jars node? Check any payment in progress before continuing.',parent=self.root): return
+        self.manage_requested=True;self.state='closing'
+        self.node_settings.configure(state='disabled');self.action.configure(state='disabled')
+        self.status.configure(text='Closing your wallet safely…');self.session.close()
 
     def activate(self):
         if self.quitting or str(self.action['state']) == 'disabled':
@@ -196,6 +216,7 @@ class Window:
                 self.state = 'closed'
             elif not self.quitting:
                 if event == 'ready':
+                    if self.node_settings is not None: self.node_settings.configure(state='normal')
                     self.state, self.recovery = 'ready', value
                     self.progress.stop()
                     self.progress.pack_forget()
@@ -203,7 +224,8 @@ class Window:
                                                 if value else 'Ready when you are.'))
                     self.action.configure(text='Review Wallet' if value else 'Open Wallet', state='normal')
                     self.action.focus_set()
-                elif event == 'setup':
+                elif event in ('setup','setup_change'):
+                    self.replacing_node = event == 'setup_change'
                     self.show_setup()
                 elif event in ('setup_progress','setup_error'):
                     if self.setup_panel is None:
@@ -211,7 +233,7 @@ class Window:
                     self.setup_message.configure(text=value)
                     if event == 'setup_error':
                         self.setup_submit.configure(state='normal')
-                        self.setup_later.configure(text='Set up Jars later',state='normal')
+                        self.setup_later.configure(text='Keep saved connection' if self.replacing_node else 'Set up Jars later',state='normal')
                 elif event == 'setup_complete':
                     self.hide_setup()
                 elif event == 'open':
@@ -242,11 +264,17 @@ class Window:
             if self.quitting:
                 self.finish_close()
                 return
-            self.state = 'failed'
-            self.progress.stop()
-            self.progress.pack_forget()
-            self.status.configure(text=self.failure or 'Your wallet stopped. You can open it again.')
-            self.action.configure(text='Try Again', state='normal')
+            if getattr(self,'manage_requested',False) and self.failure is None:
+                self.manage_requested = False
+                self.start(manage=True)
+            else:
+                self.manage_requested = False
+                if getattr(self,'node_settings',None) is not None: self.node_settings.configure(state='normal')
+                self.state = 'failed'
+                self.progress.stop()
+                self.progress.pack_forget()
+                self.status.configure(text=self.failure or 'Your wallet stopped. You can open it again.')
+                self.action.configure(text='Try Again', state='normal')
         self.poll_id = self.root.after(50, self.poll)
 
     def close(self):
@@ -284,8 +312,8 @@ class Window:
         def label(text,size=11):
             widget=tk.Label(frame,text=text,bg='#101c2c',fg='#d9e5f3',font=('TkDefaultFont',size),
                 anchor='w',justify='left',wraplength=390);widget.pack(fill='x',pady=(6,3));return widget
-        label('Your Jars, on this computer',20)
-        label('Connect your XBT node. Your Jars wallet stays separate from your main wallet.')
+        label('Change your Jars node' if self.replacing_node else 'Your Jars, on this computer',20)
+        label('Enter the replacement connection. Your Jars wallets and payment history stay intact.' if self.replacing_node else 'Connect your XBT node. Your Jars wallet stays separate from your main wallet.')
         self.setup_fields={}
         for key,title in [('endpoint','Node RPC address'),('username','RPC username'),('password','RPC password')]:
             label(title)
@@ -307,9 +335,9 @@ class Window:
             except (OSError,ValueError):self.setup_message.configure(text='Choose a public CA certificate, not a private key.')
         ca=tk.Button(frame,text='Add certificate (optional)',command=certificate);ca.pack(anchor='w')
         self.setup_message=label('Your connection is verified before it is saved.')
-        self.setup_submit=tk.Button(frame,text='Verify and save',command=self.save_setup,bg='#ff8956',fg='#101c2c',
+        self.setup_submit=tk.Button(frame,text='Review change' if self.replacing_node else 'Verify and save',command=self.save_setup,bg='#ff8956',fg='#101c2c',
             font=('TkDefaultFont',12,'bold'),relief='flat',pady=10);self.setup_submit.pack(fill='x',pady=(14,6))
-        self.setup_later=tk.Button(frame,text='Set up Jars later',command=self.defer_setup);self.setup_later.pack(fill='x')
+        self.setup_later=tk.Button(frame,text='Keep saved connection' if self.replacing_node else 'Set up Jars later',command=self.defer_setup);self.setup_later.pack(fill='x')
         panel.bind('<Return>',lambda _:self.save_setup())
         self.setup_fields['endpoint'].focus_set()
 
@@ -317,10 +345,16 @@ class Window:
         if str(self.setup_submit['state'])=='disabled':return
         settings={key:field.get().strip() if key!='password' else field.get() for key,field in self.setup_fields.items()}
         settings.update(tor=self.setup_tor.get(),ca_pem=self.setup_ca)
+        if self.replacing_node:
+            from tkinter import messagebox
+            review=f"Node: {settings['endpoint']}\nRPC username: {settings['username']}\nTor: {'On' if settings['tor'] else 'Off'}\nCustom certificate: {'Selected' if settings['ca_pem'] else 'None'}\n\nVerify and replace the saved connection? Wallets and history are kept."
+            if not messagebox.askokcancel('Review node change',review,parent=self.setup_panel): return
         self.setup_fields['password'].delete(0,'end')
         self.setup_submit.configure(state='disabled');self.setup_later.configure(text='Cancel setup')
         self.setup_message.configure(text='Checking your connection…')
-        self.session.setup({'action':'configure_jars','settings':settings})
+        request={'action':'replace_jars' if self.replacing_node else 'configure_jars','settings':settings}
+        if self.replacing_node: request['confirmed']=True
+        self.session.setup(request)
 
     def defer_setup(self):
         if self.setup_panel is None:return

@@ -40,6 +40,10 @@ final class Launcher: NSObject, NSApplicationDelegate, NSWindowDelegate {
 	private let setupSave = NSButton(title: "Verify and save", target: nil, action: nil)
 	private let setupLater = NSButton(title: "Set up Jars later", target: nil, action: nil)
 	private var setupCA = ""
+	private var replacingNode = false
+	private var manageRequested = false
+	private var hasJars = false
+	private let nodeSettings = NSButton(title: "Jars node settings…", target: nil, action: nil)
 
 	func applicationDidFinishLaunching(_ notification: Notification) {
 		let applicationMenu = NSMenu()
@@ -76,7 +80,9 @@ final class Launcher: NSObject, NSApplicationDelegate, NSWindowDelegate {
 		let preview = NSTextField(labelWithString: "Development preview")
 		preview.font = .systemFont(ofSize: 11)
 		preview.textColor = .tertiaryLabelColor
-		let stack = NSStackView(views: [icon, title, status, progress, action, note, preview])
+		nodeSettings.target = self; nodeSettings.action = #selector(manageNode)
+		nodeSettings.bezelStyle = .rounded; nodeSettings.isEnabled = false
+		let stack = NSStackView(views: [icon, title, status, progress, action, nodeSettings, note, preview])
 		stack.orientation = .vertical
 		stack.alignment = .centerX
 		stack.spacing = 14
@@ -95,9 +101,10 @@ final class Launcher: NSObject, NSApplicationDelegate, NSWindowDelegate {
 		start()
 	}
 
-	private func start() {
+	private func start(manage: Bool = false) {
 		guard helper?.isRunning != true else { return }
 		ready = false
+		nodeSettings.isEnabled = false
 		failedMessage = nil
 		buffer.removeAll()
 		action.title = "Open Wallet"
@@ -108,6 +115,8 @@ final class Launcher: NSObject, NSApplicationDelegate, NSWindowDelegate {
 		do {
 			guard let resources = Bundle.main.resourceURL, let executables = Bundle.main.executableURL?.deletingLastPathComponent() else { throw CocoaError(.fileNoSuchFile) }
 			let configuration = try JSONDecoder().decode(RuntimeConfiguration.self, from: Data(contentsOf: resources.appendingPathComponent("runtime.json")))
+			hasJars = configuration.bundledHelpers == true || configuration.jamPythonExecutable != nil
+			nodeSettings.isHidden = !hasJars
 			var root = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Paperclip Preview", isDirectory: true)
 			// QA is always explicit; production wallet directories are never searched.
 			if let index = CommandLine.arguments.firstIndex(of: "--qa-root") {
@@ -131,7 +140,7 @@ final class Launcher: NSObject, NSApplicationDelegate, NSWindowDelegate {
 			if configuration.bundledTor == true {
 				process.arguments! += ["--tor-runtime", resources.appendingPathComponent("PaperclipTor").path]
 			}
-			process.arguments! += ["--guided-setup"]
+			process.arguments! += [manage ? "--manage-node" : "--guided-setup"]
 			process.environment = ProcessInfo.processInfo.environment.filter { ["PATH", "HOME", "TMPDIR", "LANG"].contains($0.key) }
 			process.standardInput = incoming
 			process.standardOutput = outgoing
@@ -153,6 +162,10 @@ final class Launcher: NSObject, NSApplicationDelegate, NSWindowDelegate {
 					guard let self = self, self.helper === process else { return }
 					self.releaseHelper()
 					if self.quitting { NSApp.reply(toApplicationShouldTerminate: true); return }
+					if self.manageRequested && self.failedMessage == nil && process.terminationStatus == 0 {
+						self.manageRequested = false; self.start(manage: true); return
+					}
+					self.manageRequested = false
 					self.showFailure(self.failedMessage ?? "Your wallet stopped. You can open it again.")
 				}
 			}
@@ -179,14 +192,16 @@ final class Launcher: NSObject, NSApplicationDelegate, NSWindowDelegate {
 			guard let event = try? JSONDecoder().decode(BridgeEvent.self, from: line) else { stopAfterProtocolError(); return }
 			buffer.removeSubrange(...newline)
 			switch event.event {
-			case "setup": showSetup()
+			case "setup": replacingNode = false; showSetup()
+			case "setup_change": replacingNode = true; showSetup()
 			case "setup_progress": setupMessage.stringValue = event.message ?? "Checking your connection…"
 			case "setup_error":
 				setupMessage.stringValue = event.message ?? "The node could not be verified."
 				setupSave.isEnabled = true
-				setupLater.title = "Set up Jars later"
+				setupLater.title = replacingNode ? "Keep saved connection" : "Set up Jars later"
 			case "setup_complete": hideSetup()
 			case "ready":
+				nodeSettings.isEnabled = hasJars
 				ready = true
 				let recovery = event.recoveryRequired == true
 				status.stringValue = recovery
@@ -222,6 +237,7 @@ final class Launcher: NSObject, NSApplicationDelegate, NSWindowDelegate {
 	}
 
 	private func showFailure(_ message: String) {
+		nodeSettings.isEnabled = hasJars
 		hideSetup()
 		ready = false
 		status.stringValue = message
@@ -245,8 +261,8 @@ final class Launcher: NSObject, NSApplicationDelegate, NSWindowDelegate {
 			let value = NSTextField(wrappingLabelWithString: text); value.font = .systemFont(ofSize: size)
 			stack.addArrangedSubview(value); value.widthAnchor.constraint(equalToConstant: 404).isActive = true
 		}
-		label("Your Jars, on this Mac", size: 23)
-		label("Connect your XBT node. Your Jars wallet stays separate from your main wallet.")
+		label(replacingNode ? "Change your Jars node" : "Your Jars, on this Mac", size: 23)
+		label(replacingNode ? "Enter the replacement connection. Your Jars wallets and payment history stay intact." : "Connect your XBT node. Your Jars wallet stays separate from your main wallet.")
 		for (key, title) in [("endpoint", "Node RPC address"), ("username", "RPC username"), ("password", "RPC password")] {
 			label(title)
 			let field: NSTextField = key == "password" ? NSSecureTextField() : NSTextField()
@@ -260,9 +276,10 @@ final class Launcher: NSObject, NSApplicationDelegate, NSWindowDelegate {
 		setupMessage.stringValue = "Your connection is verified before it is saved."
 		setupMessage.widthAnchor.constraint(equalToConstant: 404).isActive = true; stack.addArrangedSubview(setupMessage)
 		setupSave.target = self; setupSave.action = #selector(saveSetup); setupSave.bezelStyle = .rounded
+		setupSave.title = replacingNode ? "Review change" : "Verify and save"
 		setupSave.controlSize = .large; setupSave.isEnabled = true; setupSave.keyEquivalent = "\r"
 		setupLater.target = self; setupLater.action = #selector(deferSetup); setupLater.bezelStyle = .rounded
-		setupLater.title = "Set up Jars later"
+		setupLater.title = replacingNode ? "Keep saved connection" : "Set up Jars later"
 		stack.addArrangedSubview(setupSave); stack.addArrangedSubview(setupLater)
 		panel.contentView!.addSubview(stack)
 		NSLayoutConstraint.activate([stack.leadingAnchor.constraint(equalTo: panel.contentView!.leadingAnchor, constant: 28),
@@ -296,10 +313,22 @@ final class Launcher: NSObject, NSApplicationDelegate, NSWindowDelegate {
 		guard setupSave.isEnabled, setupWindow != nil else { return }
 		var settings: [String: Any] = setupFields.mapValues { $0.stringValue }
 		settings["tor"] = setupTor.state == .on; settings["ca_pem"] = setupCA
+		if replacingNode {
+			let review = NSAlert(); review.messageText = "Review node change"
+			let endpoint = settings["endpoint"] as? String ?? ""
+			let username = settings["username"] as? String ?? ""
+			let tor = setupTor.state == .on ? "On" : "Off"
+			let certificate = setupCA.isEmpty ? "None" : "Selected"
+			review.informativeText = "Node: \(endpoint)\nRPC username: \(username)\nTor: \(tor)\nCustom certificate: \(certificate)\n\nVerify and replace the saved connection? Wallets and history are kept."
+			review.addButton(withTitle: "Verify and replace"); review.addButton(withTitle: "Cancel")
+			guard review.runModal() == .alertFirstButtonReturn else { return }
+		}
 		setupFields["password"]?.stringValue = ""
 		setupSave.isEnabled = false; setupLater.title = "Cancel setup"
 		setupMessage.stringValue = "Checking your connection…"
-		sendSetup(["action": "configure_jars", "settings": settings])
+		var request: [String: Any] = ["action": replacingNode ? "replace_jars" : "configure_jars", "settings": settings]
+		if replacingNode { request["confirmed"] = true }
+		sendSetup(request)
 	}
 
 	private func sendSetup(_ value: [String: Any]) {
@@ -334,6 +363,18 @@ final class Launcher: NSObject, NSApplicationDelegate, NSWindowDelegate {
 	func windowShouldClose(_ sender: NSWindow) -> Bool {
 		if sender === setupWindow { deferSetup(); return false }
 		return true
+	}
+
+	@objc private func manageNode() {
+		guard hasJars, nodeSettings.isEnabled, !quitting else { return }
+		if helper?.isRunning != true { start(manage: true); return }
+		let review = NSAlert(); review.messageText = "Jars node settings"
+		review.informativeText = "Close the local wallet to change its Jars node? Check any payment in progress before continuing."
+		review.addButton(withTitle: "Close wallet and continue"); review.addButton(withTitle: "Cancel")
+		guard review.runModal() == .alertFirstButtonReturn else { return }
+		manageRequested = true; ready = false; nodeSettings.isEnabled = false; action.isEnabled = false
+		status.stringValue = "Closing your wallet safely…"
+		try? input?.fileHandleForWriting.close()
 	}
 
 	@objc private func openWallet() {

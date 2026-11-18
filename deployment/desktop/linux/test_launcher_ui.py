@@ -10,6 +10,7 @@ import tempfile
 import time
 import tkinter as tk
 import unittest
+from unittest.mock import patch
 
 BINARY = None
 LAUNCHER = None
@@ -53,6 +54,12 @@ class PreviewWindow(unittest.TestCase):
                     self.window.defer_setup()
                 self.pump(lambda: self.window.state == 'ready')
                 self.assertFalse(self.window.recovery)
+                if JARS:
+                    with patch('tkinter.messagebox.askokcancel',return_value=True): self.window.manage_node()
+                    self.pump(lambda: self.window.setup_panel is not None)
+                    self.assertFalse((data / 'session.active').exists(), 'Editor opened before clean wallet close')
+                    self.window.defer_setup()
+                    self.pump(lambda: self.window.state == 'ready')
                 self.assertEqual(str(self.window.action['text']), 'Open Wallet')
                 self.capture('linux-ready.png')
                 self.window.action.invoke()

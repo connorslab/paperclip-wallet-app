@@ -40,6 +40,31 @@ class HandoffPolicy(unittest.TestCase):
 
 
 class BrowserCompletion(unittest.TestCase):
+    def test_node_review_cancellation_never_submits_or_clears_inputs(self):
+        window=Window.__new__(Window)
+        window.replacing_node=True; window.setup_panel=Mock(); window.setup_ca=''
+        window.setup_submit={'state':'normal'}; window.setup_tor=Mock(); window.setup_tor.get.return_value=False
+        window.setup_fields={key:Mock() for key in ('endpoint','username','password')}
+        for key,field in window.setup_fields.items(): field.get.return_value='fixture-'+key
+        window.session=Mock()
+        with patch('tkinter.messagebox.askokcancel',return_value=False): window.save_setup()
+        window.session.setup.assert_not_called()
+        window.setup_fields['password'].delete.assert_not_called()
+
+    def test_settings_transition_waits_for_clean_owned_session_close(self):
+        for failure in (None, 'The wallet did not close cleanly.'):
+            window=Window.__new__(Window)
+            window.state='ready'; window.failure=failure; window.quitting=False; window.manage_requested=True
+            window.root,window.status,window.action,window.progress,window.node_settings=Mock(),Mock(),Mock(),Mock(),Mock()
+            window.session=Mock(); window.session.thread.is_alive.return_value=False
+            window.session.events=queue.Queue(); window.session.events.put(('closed',None))
+            window.start=Mock()
+            window.poll()
+            if failure is None: window.start.assert_called_once_with(manage=True)
+            else:
+                window.start.assert_not_called()
+                self.assertEqual(window.state,'failed')
+
     def test_late_setup_progress_does_not_touch_a_cancelled_panel(self):
         window = Window.__new__(Window)
         window.state, window.quitting, window.setup_panel = 'starting', False, None

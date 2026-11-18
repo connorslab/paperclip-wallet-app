@@ -53,8 +53,10 @@ coordinated scope is iOS, Android, StartOS, Umbrel, Linux, macOS and Windows.
    Read-only saved-state inspection is implemented and does not imply a live
    connection. Guided initial setup is implemented in AppKit and the shared
    Linux/Windows shell; macOS synthetic-node and relocated package checks pass.
-   Complete native Linux/Windows acceptance of this new UI, reviewed connection
-   changes and combined installed Jam/Tor runtime acceptance. No external Python or
+   The saved-node review/change flow is implemented in AppKit and the shared
+   Linux/Windows shell, including clean shutdown before editing and a separate
+   replacement confirmation. Complete native Linux/Windows acceptance of this
+   latest UI and combined installed Jam/Tor runtime acceptance. No external Python or
    separate Kilombino app may be required for the bundled-host promise.
 3. **Complete portable recovery.** Finish the wallet-bound recovery envelope for
    older app warnings, remote-node records and Bridge conversions, with an
@@ -4045,3 +4047,32 @@ existing connections remains open; this backend is not exposed as a browser API.
 Previous guided-setup Windows package run `44264493972`, prerequisite
 `44264493931`, macOS shell `44264493941` and native Tor `44264494118` pass.
 Linux/Lightning `44264493899` is still running its later native package checks.
+
+
+### Native saved-node review flow and Windows build dependency
+
+The native launchers now expose Jars node settings. They require confirmation
+before closing an active owned wallet session and wait for a clean shutdown
+before entering the editor. A failed shutdown prevents automatic entry. Saved
+credentials are not echoed into the form. Replacement has its own confirmation
+with the entered node address, RPC account, Tor selection and certificate status;
+the password is omitted. Cancelling review sends nothing. Keeping the saved
+connection resumes its runtime without changing the record. Opening the editor
+does not contact the node, and legacy state still requires explicit migration.
+
+Eleven controller cases pass from source and with rebuilt Mac helpers, including
+initial setup followed by clean close, management, replacement and restart on a
+synthetic XBT node. Nine shared-shell checks pass, including cancelled review
+and clean-versus-failed shutdown transitions; ten bridge checks pass. Native
+AppKit compilation and interactive review/cancel/confirm/Ready/clean-exit checks
+pass with a disposable root and synthetic node. No wallet seeds or Jars wallets
+were created. Native Linux/Windows and installed-host acceptance remain pending.
+
+Replacement backend validation at `f3de8df` passes Linux/Lightning run
+`44267083879`, both-architecture bundled-Jam run `44267083801` and native Tor
+`44267084143`. Windows runs `44267083792` and `44267083744` stopped while fetching
+Chocolatey's pinned protoc package; the frozen node tests had passed before that
+dependency failure. Commit `d900b1e` fetches the same upstream protoc 36.2 directly,
+checks its published SHA-256, verifies its executable version and supplies its
+compiler/include paths explicitly. The official archive hash and contents were
+verified locally. Windows reruns `44270566816` and `44270566591` are pending.

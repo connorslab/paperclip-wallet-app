@@ -115,20 +115,31 @@ class NodeSetupClient:
             if tor is not None: tor.close()
 
 
-def choose_runtime(runtime, root, tor, stopping, receive, emit):
+def choose_runtime(runtime, root, tor, stopping, receive, emit, *, manage=False):
     """Pause fresh setup before any wallet/Jars runtime or wallet journal opens."""
     if runtime is None: return None
     client=NodeSetupClient(runtime,root,stopping,tor)
-    if client.status()!='not_configured': return runtime
-    emit('setup',None)
+    current=client.inspect()
+    replacing=manage and current['state']=='saved'
+    if manage and current['state']=='existing_wallet':
+        raise StartupError('This older Jars connection needs migration. Your saved wallets were kept.')
+    if not replacing and current['state']!='not_configured': return runtime
+    expected=current.get('connection_id') if replacing else None
+    emit('setup_change' if replacing else 'setup',None)
     while not stopping.is_set():
         request=receive()
         if request is None: continue
-        if request=={'action':'skip_jars'}: return None
+        if request=={'action':'skip_jars'}: return runtime if replacing else None
         if request=={'action':'quit'}: stopping.set(); break
-        if isinstance(request,dict) and set(request)=={'action','settings'} and request['action']=='configure_jars':
+        action='replace_jars' if replacing else 'configure_jars'
+        keys={'action','settings','confirmed'} if replacing else {'action','settings'}
+        if isinstance(request,dict) and set(request)==keys and request['action']==action:
             try:
-                client.save(request['settings'],lambda text:emit('setup_progress',text))
+                if replacing:
+                    client.save(request['settings'],lambda text:emit('setup_progress',text),
+                        expected_connection_id=expected,confirmed=request['confirmed'])
+                else:
+                    client.save(request['settings'],lambda text:emit('setup_progress',text))
             except StartupError as error:
                 if stopping.is_set(): break
                 emit('setup_error',str(error))
