@@ -27,7 +27,7 @@ checks and their limits.
 | StartOS/Umbrel | Shared REST checks, authenticated CLN/LND reads; both StartOS candidate architectures built and source/checksums checked | Complete backup/restore, candidate installation, bundled Jam pairing/revocation/Tor and upgrades; matching frozen wrappers |
 | Linux/macOS/Windows | Isolated Apple Silicon and Linux daemon authentication, duplicate-instance rejection and crash/restart; macOS bundled Tor/Jars/helper runtime passes 15 relocated isolation cases; Linux bundled Tor/Jars passes TLS/proxy, relocation, frozen-window and Chromium checks; Windows native storage/ownership and bundled Tor/Jars/wallet/window lifecycle pass at `47f2cb77`, including saved-node setup/replacement controller checks | Installed browser/accessibility and bundled-Tor/Jars acceptance; supported OS matrix, signed installers, notarization and clean install/upgrade tests |
 | Jars | Reviewed direct/CoinJoin toggle and bond funding/withdrawal clients; pinned signer, API, bond and interrupted-submission checks; encrypted Jam volume restore on a synthetic chain | Live CoinJoin, direct-send and bond-funding/withdrawal acceptance, installed payment-pairing acceptance, live maker and physical QR signer acceptance |
-| Payments and recovery | 297 shared wallet tests and 54 mobile Rust tests (one external Electrum case excluded), exact-cost/RBF/unknown-outcome and secondary-account restore checks; unified-signature and Electrum-header checks | Live BOLT12/Ark/Bridge settlement, portable recovery/restore and current-source XBT consensus acceptance |
+| Payments and recovery | 297 shared wallet tests and 55 mobile Rust tests (one external Electrum case excluded), exact-cost/RBF/unknown-outcome and secondary-account restore checks; native Android-to-iOS and iOS-to-Android encrypted restore on synthetic regtest; unified-signature and Electrum-header checks | Live BOLT12/Ark/Bridge settlement, portable app-state recovery/restore and current-source XBT consensus acceptance |
 
 ### Open release gates — consolidated 2026-11-17
 
@@ -4189,10 +4189,38 @@ cause. The fixture now retains its synthetic screen, request counts and UI
 semantics at that exact failure. No timeout increase, hidden retry or disabled
 assertion was added. A full local API 35 ARM64 run passed all 48 existing cases;
 after the separate session fix, all 13 focused Jars cases pass. This does not
-prove the intermittent CI failure is fixed; final CI still needs acceptance.
+prove the intermittent CI failure is fixed. The next run, `44290387352` at
+`047dfa57`, passed both native ABIs and API 35/36 with the new diagnostics and
+session regression. The earlier failure's cause remains unconfirmed.
 
 The Android debug/test APKs, existing 112 JVM tests (four live exclusions),
 native unsigned iOS Release build and repository checks pass. Tests use
 synthetic sessions and intercepted requests; no real maker, node or funds are
 involved. The shared desktop Jars UI already closes history and invalidates
 responses on wallet-session exit; no desktop runtime changed in this increment.
+
+### Native mobile encrypted-backup interoperability — 2026-11-18
+
+The native backup tests now exchange actual platform exports. Android restores
+the public synthetic version-2 regtest snapshot through JNI and encrypts its
+native re-export with Android AES-GCM. An isolated iOS test host decrypts that
+archive with CryptoKit, restores it through the C ABI and exports it again.
+Android then decrypts and restores the iOS export. Checked fixtures and explicit
+regeneration instructions are in `mobile/Tests/NativeBackupFixtures`; neither
+platform includes them in the production app's resources.
+
+Both directions preserve the selected SegWit account, the next address in each
+on-chain account, and the exact unresolved payment reference. Wrong seeds and
+networks are rejected. The restored unknown payment blocks new quotes and
+sends; the archive does not restore spending approval. Two Android native
+instrumentation cases pass on the owned API 35 ARM64 emulator, and the iOS
+interop case passes on an ARM64 simulator with the current native library.
+The full mobile Rust suite passes 55 tests with the existing external Electrum
+case excluded. Repository checks and both native test builds pass. The Android
+cases are included in the standard API 35/36 CI runner, including changes to
+the shared fixture path as a workflow trigger.
+
+This is native database and encrypted-format acceptance using unfunded test
+wallets. It does not complete the portable app-state envelope, profile migration,
+remote-node/Bridge credential policy, live reconciliation, server restore or
+physical-device acceptance. No payment or network connection was made.

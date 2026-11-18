@@ -14,7 +14,7 @@ adb -s "$serial" shell cmd uimode night yes
 # package install/uninstall churn out of each class's UI acceptance run.
 adb -s "$serial" install -r app/build/outputs/apk/debug/app-debug.apk
 adb -s "$serial" install -r app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
-for test in SecureStoreRecoveryTest PaymentSettingsStorageTest NativeBridgeTest PublicWalletNativeTest AssistanceNativeTest WalletProfilesNativeTest WalletSelectionStateTest BackupLifecycleTest WalletHealthLayoutTest BridgeHealthLayoutTest BridgeFlowLayoutTest JoinBlaketLayoutTest PaymentFlowLayoutTest NodeLayoutTest SeedGenerationLayoutTest AdaptiveLayoutTest WalletScreensTest WalletSettingsScreensTest; do
+for test in SecureStoreRecoveryTest PaymentSettingsStorageTest NativeBridgeTest BackupInteropTest PublicWalletNativeTest AssistanceNativeTest WalletProfilesNativeTest WalletSelectionStateTest BackupLifecycleTest WalletHealthLayoutTest BridgeHealthLayoutTest BridgeFlowLayoutTest JoinBlaketLayoutTest PaymentFlowLayoutTest NodeLayoutTest SeedGenerationLayoutTest AdaptiveLayoutTest WalletScreensTest WalletSettingsScreensTest; do
 
     # Preserve the old per-class fresh-data isolation without removing packages.
     for package in xyz.paperclip.wallet.android.preview xyz.paperclip.wallet.android.preview.test; do

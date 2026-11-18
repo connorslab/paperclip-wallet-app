@@ -126,6 +126,37 @@ fn arkoor_review_issue(issue: &bark::ArkoorAmountError, fixed_amount: bool) -> V
 mod tests {
 	use super::*;
 
+	/// Public, unfunded regtest data for native Swift/JNI interoperability tests.
+	/// Set the output path only when deliberately regenerating the checked fixture.
+	#[test]
+	fn native_backup_interop_fixture() {
+		let base = tempfile::tempdir().unwrap();
+		let seed = [29;64];
+		let mut state = None;
+		dispatch(&mut state, json!({"op":"create", "network":"xbt-regtest", "directory":base.path()}), seed).unwrap();
+		dispatch(&mut state, json!({"op":"address_onchain"}), seed).unwrap();
+		dispatch(&mut state, json!({"op":"select_onchain_account", "account":"segwit"}), seed).unwrap();
+		dispatch(&mut state, json!({"op":"address_onchain"}), seed).unwrap();
+		let mut attempt = Attempt::new("ark", "public synthetic invoice".into(), 1000, 1100);
+		attempt.attempt_id = "ab".repeat(32);
+		attempt.payment_hash = Some("cd".repeat(32));
+		attempt.created_at = 1735689600;
+		payment_attempt::begin(base.path(), &payment_attempt::owner(Network::Regtest, &seed), &attempt).unwrap();
+		let snapshot = dispatch(&mut state, json!({"op":"backup"}), seed).unwrap();
+		let segwit = dispatch(&mut state, json!({"op":"address_onchain"}), seed).unwrap();
+		dispatch(&mut state, json!({"op":"select_onchain_account", "account":"taproot"}), seed).unwrap();
+		let taproot = dispatch(&mut state, json!({"op":"address_onchain"}), seed).unwrap();
+		assert_eq!(snapshot["recovery_version"], 2);
+		let fixture = json!({"archive": {"version":2, "network":"xbt-regtest", "walletID":"public-native-interop", "createdAt":0,
+			"seed":STANDARD.encode(seed), "recoveryState":snapshot["database"]},
+			"nextSegwitAddress":segwit["address"], "nextTaprootAddress":taproot["address"],
+			"attemptID":attempt.attempt_id, "paymentHash":attempt.payment_hash,
+			"publicRecoveryKey":STANDARD.encode([8;32])});
+		if let Some(path) = std::env::var_os("PAPERCLIP_BACKUP_FIXTURE") {
+			std::fs::write(path, serde_json::to_vec(&fixture).unwrap()).unwrap();
+		}
+	}
+
 	#[test]
 	fn payment_attempt_survives_native_backup_without_restoring_approval() {
 		for source in ["lightning", "ark", "offboard"] {

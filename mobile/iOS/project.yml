@@ -81,6 +81,9 @@ targets:
     sources:
       - path: NativeTests
         excludes: [Host.swift, Simulator.entitlements]
+      - path: ../Tests/NativeBackupFixtures
+        type: folder
+        buildPhase: resources
       - path: Sources/NativeWallet.swift
       - path: Sources/EmbeddedTor.swift
       - path: Sources/LightningPaymentMonitor.swift

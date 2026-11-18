@@ -4,6 +4,7 @@ plugins {
 }
 android {
 	sourceSets.getByName("test").resources.srcDir("../../Tests/PaperclipMobileTests/Fixtures")
+	sourceSets.getByName("androidTest").assets.srcDir("../../Tests/NativeBackupFixtures")
     namespace = "xyz.paperclip.wallet"
     compileSdk { version = release(37) { minorApiLevel = 1 } }
     ndkVersion = "28.0.13004108"
