@@ -62,8 +62,29 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y python3-tk python3-venv xvfb xauth imagemagick libsecp256k1-dev libsodium-dev tor
+      - name: Prepare the pinned official archive on its native target
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json, os, subprocess, sys, urllib.request
+          from pathlib import Path
+          sys.path.insert(0, 'deployment/desktop')
+          from tor_runtime import target
+          record = json.loads(Path('deployment/desktop/tor-artifacts.json').read_text())['targets'][target()]
+          archive = Path(os.environ['RUNNER_TEMP']) / 'reviewed-tor.tar.gz'
+          # The preparer checks the signature-verified hash before extraction.
+          with urllib.request.urlopen(record['source'], timeout=60) as response, archive.open('xb') as output:
+              total = 0
+              while block := response.read(1024 * 1024):
+                  total += len(block)
+                  if total > 128 * 1024 * 1024: raise ValueError('Oversized Tor download')
+                  output.write(block)
+          command = [sys.executable, 'deployment/desktop/prepare_tor.py', '--archive', str(archive), '--output', str(archive.parent / 'Tor Runtime')]
+          if sys.platform == 'darwin': command += ['--ad-hoc-sign']
+          subprocess.run(command, check=True)
+          PY
       - name: Verify owned native Tor without network access
-        run: python3 deployment/desktop/test_managed_tor.py --tor /usr/bin/tor -v
+        run: python3 deployment/desktop/test_managed_tor.py --tor "$RUNNER_TEMP/Tor Runtime/tor/tor" -v
       - name: Test Linux development shell and package
         run: |
           python3 deployment/desktop/linux/test_launcher.py --binary "$PWD/target/debug/paperclip-walletd" -v
@@ -106,14 +127,14 @@ jobs:
           PYTHONPATH="$PWD/deployment/jam" "$runtime" deployment/desktop/linux/build_jars.py --source "$PWD/deployment" --secp256k1 "$secp" --secp256k1-license /usr/share/doc/libsecp256k1-dev/copyright --output "$RUNNER_TEMP/Frozen Jars" --work "$RUNNER_TEMP/jars-freeze-work"
       - name: Verify relocated bundled Jars and wallet lifecycle
         run: |
-          python3 deployment/desktop/linux/build_preview.py --binary "$PWD/target/debug/paperclip-walletd" --helper "$RUNNER_TEMP/Frozen Linux Helpers/PaperclipLauncher" --jam-helper "$RUNNER_TEMP/Frozen Jars/PaperclipJars" --output "$RUNNER_TEMP/Bundled Jars Preview"
+          python3 deployment/desktop/linux/build_preview.py --binary "$PWD/target/debug/paperclip-walletd" --helper "$RUNNER_TEMP/Frozen Linux Helpers/PaperclipLauncher" --jam-helper "$RUNNER_TEMP/Frozen Jars/PaperclipJars" --tor-runtime "$RUNNER_TEMP/Tor Runtime" --output "$RUNNER_TEMP/Bundled Jars Preview"
           mv "$RUNNER_TEMP/Bundled Jars Preview" "$RUNNER_TEMP/Relocated Jars Preview"
           mv "$RUNNER_TEMP/jars-toolchain" "$RUNNER_TEMP/unused-jars-toolchain"
           mv "$RUNNER_TEMP/Frozen Jars" "$RUNNER_TEMP/unused-jars-build"
           mv .ci-joinblaket "$RUNNER_TEMP/unused-jars-source"
           "$RUNNER_TEMP/Relocated Jars Preview/bin/paperclip-preview" --help
-          python3 deployment/desktop/test_managed_jam.py --python "$RUNNER_TEMP/Relocated Jars Preview/lib/PaperclipJars/PaperclipJars" --binary "$RUNNER_TEMP/Relocated Jars Preview/bin/paperclip-walletd" -v
-          xvfb-run -a "$RUNNER_TEMP/Frozen Linux Helpers/PaperclipLauncherQA/PaperclipLauncherQA" --binary "$RUNNER_TEMP/Relocated Jars Preview/bin/paperclip-walletd" --jam-executable "$RUNNER_TEMP/Relocated Jars Preview/lib/PaperclipJars/PaperclipJars" --screenshots "$RUNNER_TEMP/linux-jars-screenshots" -v
+          python3 deployment/desktop/test_managed_jam.py --python "$RUNNER_TEMP/Relocated Jars Preview/lib/PaperclipJars/PaperclipJars" --binary "$RUNNER_TEMP/Relocated Jars Preview/bin/paperclip-walletd" --tor "$RUNNER_TEMP/Relocated Jars Preview/lib/PaperclipTor/tor/tor" -v
+          xvfb-run -a "$RUNNER_TEMP/Frozen Linux Helpers/PaperclipLauncherQA/PaperclipLauncherQA" --binary "$RUNNER_TEMP/Relocated Jars Preview/bin/paperclip-walletd" --jam-executable "$RUNNER_TEMP/Relocated Jars Preview/lib/PaperclipJars/PaperclipJars" --tor-runtime "$RUNNER_TEMP/Relocated Jars Preview/lib/PaperclipTor" --screenshots "$RUNNER_TEMP/linux-jars-screenshots" -v
       - uses: actions/upload-artifact@v4
         if: always()
         with:

@@ -3689,3 +3689,29 @@ The runtime remains an explicitly supplied build input; no distribution is fetch
 or enabled automatically. Guided node-RPC setup and native Windows/Linux Tor
 acceptance are still open. Linux backend run `44226851040` at `6b64061` also
 completed successfully, closing the previously pending backend check.
+
+
+### Pinned Tor preparation and native OS checks
+
+Tor expert archive preparation is now scripted and bounded, with reviewed hashes
+for macOS ARM64/x86-64, Linux ARM64/x86-64 and Windows x86-64. Every recorded archive
+passed upstream OpenPGP signature verification. Preparation checks the hash before
+extraction, preserves the source archive and license files, rejects unsafe entries
+and records the prepared files. Native macOS development signing is explicit.
+Existing runtime directories cannot be overwritten.
+
+Native CI `44233058571` at `1573daf` passes on Windows 2022, Ubuntu 24.04 and
+macOS 15. This includes preparation/inventory rejection, relocation, actual Tor
+control-cookie authentication, owning-controller disconnect, competing-owner
+rejection and failed-start retry. Windows Tor-created metadata passes the existing
+private ACL validation without weakening it. Linux confirms that the owned Tor
+loads the supplied crypto, TLS and libevent libraries rather than host copies.
+These runtime tests keep networking disabled; full packaged Jars/window checks
+with the new Tor input are separate. ARM64 Mac preparation also passes locally.
+Unrun CPU variants are not accepted merely because their archive signatures pass.
+
+The previous packaging increment `dcfdbb9` now passes Windows prerequisite
+`44229967674`, Windows bundled Jars `44229967455`, macOS shell `44229967444` and
+Linux backend `44229967503`. New combined Windows/Linux package runs include the
+prepared Tor distribution and remain pending; no installation or release has
+been performed.

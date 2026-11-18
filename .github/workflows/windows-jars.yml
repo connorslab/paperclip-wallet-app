@@ -3,9 +3,9 @@ on:
   workflow_dispatch:
   push:
     branches: ['codex/cross-platform-parity']
-    paths: ['deployment/jam/**', 'deployment/desktop/windows/**', 'deployment/desktop/managed_jam.py', 'deployment/desktop/managed_daemon.py', 'deployment/desktop/pipe_io.py', '.github/workflows/windows-jars.yml']
+    paths: ['deployment/jam/**', 'deployment/desktop/windows/**', 'deployment/desktop/managed_jam.py', 'deployment/desktop/managed_tor.py', 'deployment/desktop/tor_runtime.py', 'deployment/desktop/prepare_tor.py', 'deployment/desktop/tor-artifacts.json', 'deployment/desktop/managed_daemon.py', 'deployment/desktop/pipe_io.py', '.github/workflows/windows-jars.yml']
   pull_request:
-    paths: ['deployment/jam/**', 'deployment/desktop/windows/**', 'deployment/desktop/managed_jam.py', 'deployment/desktop/managed_daemon.py', 'deployment/desktop/pipe_io.py', '.github/workflows/windows-jars.yml']
+    paths: ['deployment/jam/**', 'deployment/desktop/windows/**', 'deployment/desktop/managed_jam.py', 'deployment/desktop/managed_tor.py', 'deployment/desktop/tor_runtime.py', 'deployment/desktop/prepare_tor.py', 'deployment/desktop/tor-artifacts.json', 'deployment/desktop/managed_daemon.py', 'deployment/desktop/pipe_io.py', '.github/workflows/windows-jars.yml']
 permissions:
   contents: read
 concurrency:
@@ -27,6 +27,27 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
+      - name: Prepare the pinned official archive on its native target
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json, os, subprocess, sys, urllib.request
+          from pathlib import Path
+          sys.path.insert(0, 'deployment/desktop')
+          from tor_runtime import target
+          record = json.loads(Path('deployment/desktop/tor-artifacts.json').read_text())['targets'][target()]
+          archive = Path(os.environ['RUNNER_TEMP']) / 'reviewed-tor.tar.gz'
+          # The preparer checks the signature-verified hash before extraction.
+          with urllib.request.urlopen(record['source'], timeout=60) as response, archive.open('xb') as output:
+              total = 0
+              while block := response.read(1024 * 1024):
+                  total += len(block)
+                  if total > 128 * 1024 * 1024: raise ValueError('Oversized Tor download')
+                  output.write(block)
+          command = [sys.executable, 'deployment/desktop/prepare_tor.py', '--archive', str(archive), '--output', str(archive.parent / 'Tor Runtime')]
+          if sys.platform == 'darwin': command += ['--ad-hoc-sign']
+          subprocess.run(command, check=True)
+          PY
       - uses: actions/checkout@v4
         with:
           repository: Kilombino/joinblaket
@@ -122,10 +143,10 @@ jobs:
         timeout-minutes: 5
         run: |
           $env:PYTHONPATH = "$env:GITHUB_WORKSPACE/deployment/desktop"
-          & $env:JARS_PYTHON deployment/desktop/test_managed_jam.py --python "$env:RUNNER_TEMP/jars-bundle/PaperclipJars/PaperclipJars.exe" --binary target/debug/paperclip-walletd.exe -v
+          & $env:JARS_PYTHON deployment/desktop/test_managed_jam.py --python "$env:RUNNER_TEMP/jars-bundle/PaperclipJars/PaperclipJars.exe" --binary target/debug/paperclip-walletd.exe --tor "$env:RUNNER_TEMP/Tor Runtime/tor/tor.exe" -v
       - name: Package and test the standalone Windows app with Jars
         timeout-minutes: 10
         run: |
-          & $env:JARS_PYTHON deployment/desktop/windows/build_preview.py --binary target/debug/paperclip-walletd.exe --jars "$env:RUNNER_TEMP/jars-bundle/PaperclipJars" --output "$env:RUNNER_TEMP/app with jars" --work "$env:RUNNER_TEMP/app-freeze"
+          & $env:JARS_PYTHON deployment/desktop/windows/build_preview.py --binary target/debug/paperclip-walletd.exe --jars "$env:RUNNER_TEMP/jars-bundle/PaperclipJars" --tor-runtime "$env:RUNNER_TEMP/Tor Runtime" --output "$env:RUNNER_TEMP/app with jars" --work "$env:RUNNER_TEMP/app-freeze"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           & "$env:RUNNER_TEMP/app with jars/PaperclipLauncherQA/PaperclipLauncherQA.exe" --binary "$env:RUNNER_TEMP/app with jars/PaperclipLauncher/paperclip-walletd.exe" --executable "$env:RUNNER_TEMP/app with jars/PaperclipLauncher/PaperclipLauncher.exe" -v

@@ -15,6 +15,7 @@ BINARY = None
 LAUNCHER = None
 SCREENSHOTS = None
 JARS = None
+TOR = None
 
 
 class PreviewWindow(unittest.TestCase):
@@ -44,7 +45,7 @@ class PreviewWindow(unittest.TestCase):
             self.root = tk.Tk()
             opened = []
             self.window = module.Window(self.root, BINARY, data, opener=lambda url: opened.append(url) or True,
-                                        jam_runtime=(JARS, None) if JARS else None)
+                                        jam_runtime=(JARS, None) if JARS else None, tor_runtime=TOR)
             try:
                 self.pump(lambda: self.window.state == 'ready')
                 self.assertFalse(self.window.recovery)
@@ -90,8 +91,10 @@ if __name__ == '__main__':
     parser.add_argument('--launcher', type=Path)
     parser.add_argument('--screenshots', type=Path)
     parser.add_argument('--jam-executable', type=Path)
+    parser.add_argument('--tor-runtime', type=Path)
     args, remaining = parser.parse_known_args()
     BINARY, LAUNCHER = args.binary.resolve(strict=True), args.launcher.resolve(strict=True) if args.launcher else None
+    TOR = args.tor_runtime.resolve(strict=True) if args.tor_runtime else None
     SCREENSHOTS = args.screenshots
     JARS = args.jam_executable.resolve(strict=True) if args.jam_executable else None
     unittest.main(argv=[sys.argv[0]] + remaining)
