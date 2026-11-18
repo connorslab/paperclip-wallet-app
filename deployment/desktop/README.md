@@ -473,3 +473,42 @@ Validation uses `test_tor_runtime.py` on all three hosts. The native bridge suit
 also accepts `--tor-runtime`, together with either `--jam-executable` or the
 explicit development `--jam-python`/`--jam-entry` pair. Those combined lifecycle
 tests permit Tor relay connections but do not create keys or make payments.
+
+
+## Preparing reviewed Tor archives
+
+`tor-artifacts.json` pins the Tor Project expert bundle 16.0.1 archives for the five
+listed OS/CPU targets. Each SHA-256 was recorded only after checking the upstream
+OpenPGP signature against Tor's published primary fingerprint. See the
+[official downloads](https://download.torproject.org/tor/) and
+[signature instructions](https://support.torproject.org/tor-browser/getting-started/verifying-tor-browser/).
+The records identify tested development inputs, not an automatic release upgrade
+policy. Updating them requires a new signature check and native acceptance.
+
+Download the exact `source` URL for the build host, then run:
+
+```
+python deployment/desktop/prepare_tor.py \
+  --archive /absolute/downloaded-expert-bundle.tar.gz \
+  --output /absolute/new/TorRuntime
+```
+
+On macOS, also pass `--ad-hoc-sign` for the development copy. Native Apple tools
+verify each resulting Mach-O signature before its file inventory is generated.
+The signed upstream archive is preserved. Release signing and notarization remain
+separate. Preparation never downloads or executes Tor, creates wallet storage,
+or changes an installed runtime.
+
+The preparer checks the pinned hash before extraction and again before publishing
+the staged directory. It bounds archive size, expanded size and member count;
+rejects links, special files, traversal, duplicate/case-colliding names and missing
+license notices; and preserves all ordinary upstream files. Existing output is
+never overwritten. Pass its output to a preview builder's `--tor-runtime` option.
+
+Linux expert executables have no ELF RPATH/RUNPATH. Their supervisor supplies only
+the explicitly selected Tor executable's directory as `LD_LIBRARY_PATH`, without
+inheriting loader overrides. The native Linux test inspects the owned process's
+loaded libraries to check that crypto, TLS and libevent came from that directory.
+The native Tor CI workflow tests prepared, relocated runtimes with networking
+disabled on Linux, Windows and macOS. Unrun architectures are not implied by
+successful archive verification or another host's tests.

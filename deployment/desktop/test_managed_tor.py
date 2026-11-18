@@ -132,6 +132,15 @@ class Native(unittest.TestCase):
         tor.close()
         self.assertEqual(tor.process.returncode, 0)
 
+    def test_linux_expert_uses_its_packaged_libraries(self):
+        if not sys.platform.startswith('linux') or not (BINARY.parent / 'libcrypto.so.3').is_file():
+            self.skipTest('Requires the native Linux expert runtime')
+        tor = self.start()
+        maps = Path('/proc') / str(tor.process.pid) / 'maps'
+        loaded = maps.read_text()
+        for name in ('libcrypto.so.3', 'libssl.so.3', 'libevent-2.1.so.7'):
+            self.assertIn(str((BINARY.parent / name).resolve()), loaded)
+
     def test_second_owner_cannot_attach_or_stop_first(self):
         owner = self.start()
         second = ManagedTor(BINARY, self.root, startup_timeout=2)

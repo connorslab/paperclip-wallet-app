@@ -1,0 +1,64 @@
+name: Native bundled Tor
+on:
+  workflow_dispatch:
+  push:
+    branches: ['codex/cross-platform-parity']
+    paths: ['deployment/desktop/**', 'deployment/jam/desktop-entry.py', 'deployment/jam/paperclip_jam/windows_storage.py', '.github/workflows/native-tor.yml']
+permissions:
+  contents: read
+jobs:
+  runtime:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022, macos-15]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install native Windows file adapter
+        if: runner.os == 'Windows'
+        run: python -m pip install pywin32==311
+      - name: Verify archive and package rejection
+        shell: bash
+        run: |
+          python deployment/desktop/test_prepare_tor.py -v
+          python deployment/desktop/test_tor_runtime.py -v
+      - name: Prepare the pinned official archive on its native target
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json, os, subprocess, sys, urllib.request
+          from pathlib import Path
+          sys.path.insert(0, 'deployment/desktop')
+          from tor_runtime import target
+          record = json.loads(Path('deployment/desktop/tor-artifacts.json').read_text())['targets'][target()]
+          archive = Path(os.environ['RUNNER_TEMP']) / 'reviewed-tor.tar.gz'
+          # The preparer checks the signature-verified hash before extraction.
+          with urllib.request.urlopen(record['source'], timeout=60) as response, archive.open('xb') as output:
+              total = 0
+              while block := response.read(1024 * 1024):
+                  total += len(block)
+                  if total > 128 * 1024 * 1024: raise ValueError('Oversized Tor download')
+                  output.write(block)
+          command = [sys.executable, 'deployment/desktop/prepare_tor.py', '--archive', str(archive), '--output', str(archive.parent / 'Tor Runtime')]
+          if sys.platform == 'darwin': command += ['--ad-hoc-sign']
+          subprocess.run(command, check=True)
+          PY
+      - name: Verify relocated owned Tor with networking disabled
+        shell: bash
+        run: |
+          python - <<'PY'
+          import os, shutil, subprocess, sys
+          from pathlib import Path
+          sys.path.insert(0, 'deployment/desktop')
+          from tor_runtime import validate
+          root = Path(os.environ['RUNNER_TEMP'])
+          relocated = root / 'Relocated Tor With Spaces'
+          shutil.move(root / 'Tor Runtime', relocated)
+          tor, _ = validate(relocated)
+          subprocess.run([sys.executable, 'deployment/desktop/test_managed_tor.py', '--tor', str(tor), '-v'], check=True)
+          PY

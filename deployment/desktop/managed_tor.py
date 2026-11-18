@@ -10,6 +10,7 @@ import shutil
 import secrets
 import socket
 import subprocess
+import sys
 import time
 
 from managed_daemon import StartupError, private_directory, private_file
@@ -84,6 +85,11 @@ class ManagedTor:
                 with private_file(torrc, os.O_RDWR | os.O_CREAT | os.O_EXCL) as file:
                     file.write(b'')
             environment = {key:os.environ[key] for key in ('PATH', 'LANG', 'TMPDIR') if key in os.environ}
+            if sys.platform.startswith('linux'):
+                # The expert bundle ships its libraries beside Tor without an
+                # ELF RUNPATH. Use only that explicit executable's directory;
+                # never inherit the caller's loader path or LD_PRELOAD.
+                environment['LD_LIBRARY_PATH'] = str(self.binary.parent)
             if os.name == 'nt':
                 windows = Path(win32api.GetWindowsDirectory())
                 environment = {'SystemRoot':str(windows), 'WINDIR':str(windows), 'PATH':str(windows / 'System32')}
