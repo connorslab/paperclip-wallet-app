@@ -3380,6 +3380,16 @@ metadata writers wait for their current owner. Registration keeps the selected
 identity, unknown fields and recovery markers. Corrupt or unsafe metadata cannot
 be replaced by a new registration. The source patch is checksum-gated and keeps
 POSIX behavior. Native tests cover selection, legacy identity adoption, corruption,
-ACL rejection and both lock modes; native CI acceptance is pending. The upstream
-metadata unit cases pass on macOS against the patched module. This does not close
+ACL rejection and both lock modes; all seven pass in native Windows CI at
+`24a2e62`. All 23 upstream metadata unit cases pass on macOS against the patched module. This does not close
 the remaining Windows Jars history, crypto or packaged-runtime requirements.
+
+### Windows CoinJoin input ownership
+
+The pinned UTXO metadata store now selects the same checked, private native
+sidecar lock on Windows. Its existing owner-token acquisition, renewal and
+compare-and-release logic is unchanged. The native cases exercise concurrent
+rounds, reopen, stale-owner release/renew rejection, unsafe lock ACL rejection and
+source hash gating. Native acceptance is pending. All 151 upstream UTXO metadata
+unit tests pass on macOS against the patched module; this does not establish
+live maker/taker or complete Windows runtime acceptance.

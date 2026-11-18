@@ -13,3 +13,11 @@ def metadata_lock(mnemonic_file, *, nonblocking=False):
     ensure_private_directory(path.parent)
     with exclusive_file(path, nonblocking=nonblocking):
         yield
+
+
+@contextmanager
+def utxo_file_lock(store):
+    path = local_path(store._flock_path)
+    ensure_private_directory(path.parent)
+    with exclusive_file(path, nonblocking=False):
+        yield
