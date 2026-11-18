@@ -100,9 +100,12 @@ class StartOSProcessTests(unittest.TestCase):
                 pass
 
             def do_POST(self):
-                self.rfile.read(int(self.headers['Content-Length']))
+                call = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
                 valid = self.headers.get('Authorization') == 'Basic ' + base64.b64encode(expected[0]).decode()
-                payload = json.dumps({'result': {'chain': 'main'}, 'error': None, 'id': 'fixture'}).encode()
+                def reply(item):
+                    value = ['foreign-fixture', 'jm_1234abcd_mainnet'] if item.get('method') == 'listwallets' else {'chain': 'main'}
+                    return {'result': value, 'error': None, 'id': item.get('id')}
+                payload = json.dumps([reply(item) for item in reversed(call)] if isinstance(call, list) else reply(call)).encode()
                 self.send_response(200 if valid else 401)
                 self.send_header('Content-Length', str(len(payload)))
                 self.end_headers()
@@ -115,11 +118,11 @@ class StartOSProcessTests(unittest.TestCase):
             env={'PATH': os.environ['PATH'], 'PAPERCLIP_NODE_RPC_URL': f'http://127.0.0.1:{node.server_port}'},
             stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
         try:
-            def request():
+            def request(body=None):
                 client = (roots[2] / 'client.cookie').read_bytes().strip()
                 connection = http.client.HTTPConnection('127.0.0.1', 28187, timeout=2)
                 try:
-                    connection.request('POST', '/', json.dumps({'method': 'getblockchaininfo', 'params': [], 'id': 'fixture'}),
+                    connection.request('POST', '/', json.dumps(body if body is not None else {'method': 'getblockchaininfo', 'params': [], 'id': 'fixture'}),
                         {'Authorization': 'Basic ' + base64.b64encode(client).decode(), 'Content-Type': 'application/json'})
                     response = connection.getresponse()
                     return response.status, json.loads(response.read())
@@ -140,6 +143,11 @@ class StartOSProcessTests(unittest.TestCase):
                 self.fail('Credential supervisor did not become ready')
 
             eventually(lambda: request()[0] == 200)
+            code, batch = request([{'method': 'getblockchaininfo', 'id': 1}, {'method': 'listwallets', 'id': 2}])
+            self.assertEqual(code, 200)
+            self.assertEqual([item['id'] for item in batch], [1, 2])
+            self.assertEqual(batch[0]['result'], {'chain': 'main'})
+            self.assertEqual(batch[1]['result'], ['jm_1234abcd_mainnet'])
             children = Path(f'/proc/{supervisor.pid}/task/{supervisor.pid}/children').read_text().split()
             self.assertEqual(len(children), 1)
             child = children[0]
