@@ -63,3 +63,24 @@ jobs:
           tor, _ = validate(relocated)
           subprocess.run([sys.executable, 'deployment/desktop/test_managed_tor.py', '--tor', str(tor), '--network', '-v'], check=True)
           PY
+
+      - name: Verify the installed Windows storage adapter in an isolated interpreter
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          python - <<'PYCODE'
+          import json, os, shutil, subprocess, sys
+          from pathlib import Path
+          root = Path(os.environ['RUNNER_TEMP'])
+          runtime = root / 'tor-adapter-venv'
+          subprocess.run([sys.executable, '-m', 'venv', str(runtime)], check=True)
+          python = runtime / 'Scripts/python.exe'
+          subprocess.run([str(python), '-m', 'pip', 'install', 'pywin32==311'], check=True)
+          site = Path(subprocess.check_output([str(python), '-c', 'import sysconfig; print(sysconfig.get_path("purelib"))'], text=True).strip())
+          adapter = site / 'windows'
+          adapter.mkdir()
+          (adapter / '__init__.py').write_text('')
+          shutil.copy2('deployment/desktop/windows/private_storage.py', adapter / 'private_storage.py')
+          tor = root / 'Relocated Tor With Spaces/tor/tor.exe'
+          subprocess.run([str(python), 'deployment/desktop/test_managed_tor.py', '--tor', str(tor), '--network', '-v'], check=True)
+          PYCODE

@@ -8,6 +8,7 @@ from pathlib import Path
 import socket
 import sys
 import tempfile
+import traceback
 import unittest
 from unittest.mock import patch
 
@@ -110,6 +111,10 @@ class Native(unittest.TestCase):
             code = getattr(error.__context__, 'winerror', None)
             if type(code) is int:
                 self.fail(f'{error} Windows error code: {code}')
+            cause = error.__context__
+            if cause is not None:
+                frames = [(Path(frame.filename).name, frame.name, frame.lineno) for frame in traceback.extract_tb(cause.__traceback__)]
+                self.fail(f'{error} Exception class: {type(cause).__name__}; code locations: {frames}')
             raise
         self.assertEqual(tor.bootstrap_progress(), 0)
         self.assertEqual(set(result), {'socks_port', 'control_port', 'cookie_path'})
