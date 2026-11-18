@@ -210,6 +210,8 @@ file contains RPC credentials and must not be included in public diagnostics.
 
 The save result includes `saved: true` and `active: false`, with a random public
 connection identifier. It does not change `config.toml` or start a node connection.
+The normal helper currently refuses a directory with these pending settings,
+rather than silently using upstream's default node.
 Native UI integration, reviewed changes to existing connections and the owned
 restricted RPC runtime remain release work. These helper modes do not complete
 the setup screen. A successful preflight does not establish wallet rescan or

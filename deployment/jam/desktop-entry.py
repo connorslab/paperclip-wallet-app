@@ -95,6 +95,10 @@ def entry_lock(root):
 
 
 async def serve(root, tor=None):
+    # Do not silently use upstream's default RPC node after the owner saves a
+    # different connection. Activation requires the pending restricted runtime.
+    if os.path.lexists(root / 'node-connection.json'):
+        raise ValueError('Saved node settings require explicit runtime activation')
     # Sanitize before importing upstream settings. Never inherit a different node,
     # data directory, credentials, proxy, loader or logging configuration.
     environment = runtime_environment(root, tor)
