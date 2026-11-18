@@ -37,6 +37,26 @@ def user_sid():
         token.Close()
 
 
+def prepare_child_file_owner():
+    """Keep implicit child-created files owned by this process's user.
+
+    Elevated Windows processes can default to Administrators as object owner.
+    Set only this process token's default owner before starting owned children;
+    do not change its identity, groups, privileges, DACL or any existing file.
+    All existing private-file validation remains mandatory.
+    """
+    token = win32security.OpenProcessToken(win32api.GetCurrentProcess(),
+        win32con.TOKEN_QUERY | win32con.TOKEN_ADJUST_DEFAULT)
+    try:
+        owner = win32security.GetTokenInformation(token, win32security.TokenUser)[0]
+        if win32security.GetTokenInformation(token, win32security.TokenOwner) != owner:
+            win32security.SetTokenInformation(token, win32security.TokenOwner, owner)
+        if win32security.GetTokenInformation(token, win32security.TokenOwner) != owner:
+            raise UnsafeStorage('Child storage cannot be assigned to the current user.')
+    finally:
+        token.Close()
+
+
 def private_attributes():
     owner = win32security.ConvertSidToStringSid(user_sid())
     descriptor = win32security.ConvertStringSecurityDescriptorToSecurityDescriptor(

@@ -18,7 +18,7 @@ from tor_runtime import validate as validate_runtime
 
 if os.name == 'nt':
     import win32api
-    from windows.private_storage import atomic_write_private
+    from windows.private_storage import atomic_write_private, prepare_child_file_owner
 
 
 def packaged_binary(root):
@@ -101,6 +101,8 @@ class ManagedTor:
                 # never inherit the caller's loader path or LD_PRELOAD.
                 environment['LD_LIBRARY_PATH'] = str(self.binary.parent)
             if os.name == 'nt':
+                stage = 'assigning private child-file ownership'
+                prepare_child_file_owner()
                 windows = Path(win32api.GetWindowsDirectory())
                 environment = {'SystemRoot':str(windows), 'WINDIR':str(windows), 'PATH':str(windows / 'System32')}
             args = [str(self.binary), '-f', str(torrc), '--defaults-torrc', str(torrc),

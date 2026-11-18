@@ -66,9 +66,9 @@ jobs:
 
       - name: Verify the installed Windows storage adapter in an isolated interpreter
         if: runner.os == 'Windows'
-        shell: bash
+        shell: pwsh
         run: |
-          python - <<'PYCODE'
+          @'
           import json, os, shutil, subprocess, sys
           from pathlib import Path
           root = Path(os.environ['RUNNER_TEMP'])
@@ -82,5 +82,6 @@ jobs:
           (adapter / '__init__.py').write_text('')
           shutil.copy2('deployment/desktop/windows/private_storage.py', adapter / 'private_storage.py')
           tor = root / 'Relocated Tor With Spaces/tor/tor.exe'
+          subprocess.run([str(python), 'deployment/desktop/windows/test_private_storage.py', '-v'], check=True)
           subprocess.run([str(python), 'deployment/desktop/test_managed_tor.py', '--tor', str(tor), '--network', '-v'], check=True)
-          PYCODE
+          '@ | python -

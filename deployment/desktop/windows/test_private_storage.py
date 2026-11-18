@@ -8,11 +8,12 @@ import unittest
 from unittest.mock import patch
 
 import pywintypes
+import win32api
 import win32con
 import win32file
 import win32security
 
-from private_storage import UnsafeStorage, exclusive_file, private_directory, local_path, user_sid, ancestors, read_private_file, SessionRecord, atomic_write_private, create_private_file
+from private_storage import UnsafeStorage, exclusive_file, private_directory, local_path, user_sid, ancestors, read_private_file, SessionRecord, atomic_write_private, create_private_file, prepare_child_file_owner
 
 
 class PrivateStorage(unittest.TestCase):
@@ -21,6 +22,37 @@ class PrivateStorage(unittest.TestCase):
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name) / 'app'
         private_directory(self.root)
+
+    def test_child_default_owner_changes_no_identity_privileges_or_existing_files(self):
+        token = win32security.OpenProcessToken(win32api.GetCurrentProcess(),
+            win32con.TOKEN_QUERY | win32con.TOKEN_ADJUST_DEFAULT)
+        original = win32security.GetTokenInformation(token, win32security.TokenOwner)
+        self.addCleanup(token.Close)
+        self.addCleanup(lambda: win32security.SetTokenInformation(token, win32security.TokenOwner, original))
+        classes = (win32security.TokenUser, win32security.TokenGroups, win32security.TokenPrivileges)
+        before = [win32security.GetTokenInformation(token, kind) for kind in classes]
+        dacl = win32security.GetTokenInformation(token, win32security.TokenDefaultDacl)
+        original_acl = [dacl.GetAce(i) for i in range(dacl.GetAceCount())]
+        existing = self.root / 'existing'
+        existing.write_bytes(b'existing-fixture')
+        owner = win32security.GetNamedSecurityInfo(str(existing), win32security.SE_FILE_OBJECT,
+            win32security.OWNER_SECURITY_INFORMATION).GetSecurityDescriptorOwner()
+        prepare_child_file_owner()
+        prepare_child_file_owner()
+        self.assertEqual(win32security.GetTokenInformation(token, win32security.TokenOwner), user_sid())
+        self.assertEqual([win32security.GetTokenInformation(token, kind) for kind in classes], before)
+        after_acl = win32security.GetTokenInformation(token, win32security.TokenDefaultDacl)
+        self.assertEqual([after_acl.GetAce(i) for i in range(after_acl.GetAceCount())], original_acl)
+        self.assertEqual(win32security.GetNamedSecurityInfo(str(existing), win32security.SE_FILE_OBJECT,
+            win32security.OWNER_SECURITY_INFORMATION).GetSecurityDescriptorOwner(), owner)
+        self.assertEqual(existing.read_bytes(), b'existing-fixture')
+        if owner != user_sid():
+            with self.assertRaises(UnsafeStorage), read_private_file(existing):
+                self.fail('Existing foreign ownership must still be rejected')
+        child = self.root / 'child-created'
+        subprocess.run([sys.executable, '-c', 'from pathlib import Path; import sys; Path(sys.argv[1]).write_bytes(b"child-fixture")', str(child)], check=True)
+        with read_private_file(child) as reader:
+            self.assertEqual(reader.read(), b'child-fixture')
 
     def test_private_directory_is_reusable_and_children_inherit_private_access(self):
         private_directory(self.root)
