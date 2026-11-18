@@ -1,4 +1,4 @@
-"""Owned POSIX Jam child for native desktop packaging (not a standalone installer).
+"""Owned Jam child for native desktop packaging (not a standalone installer).
 
 Run with the pinned runtime's Python in isolated mode and an explicit private root.
 Stdout contains one public readiness object; stdin closure requests graceful exit.
@@ -6,7 +6,7 @@ No keys, credentials, responses or exception details are written to either strea
 """
 import argparse
 import asyncio
-import fcntl
+from contextlib import contextmanager
 import json
 import logging
 import os
@@ -19,8 +19,19 @@ import threading
 
 sys.dont_write_bytecode = True
 
+if os.name == 'nt':
+    if not getattr(sys, 'frozen', False):
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent / 'desktop'))
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from windows import private_storage as native_storage
+    from paperclip_jam.windows_storage import ensure_private_directory
+else:
+    import fcntl
+
 
 def private_directory(path):
+    if os.name == 'nt':
+        return ensure_private_directory(path)
     if not path.is_absolute() or any(item.is_symlink() for item in (path, *path.parents)):
         raise ValueError('Invalid runtime directory')
     path.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -30,23 +41,57 @@ def private_directory(path):
 
 
 def private_file(path):
+    if os.name == 'nt':
+        with native_storage.read_private_file(path):
+            return
     info = path.lstat()
     if (not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_uid != os.getuid()
             or stat.S_IMODE(info.st_mode) & 0o077):
         raise ValueError('Runtime file is not private')
 
 
+def runtime_environment(root):
+    environment = {key: os.environ[key] for key in ('PATH', 'LANG', 'TMPDIR') if key in os.environ}
+    environment.update(HOME=str(root), JOINMARKET_DATA_DIR=str(root), JOINMARKET_CONFIG_FILE=str(root / 'config.toml'))
+    if os.name == 'nt':
+        import win32api
+        windows = Path(win32api.GetWindowsDirectory())
+        temporary = root / 'tmp'
+        private_directory(temporary)
+        environment = {'SystemRoot':str(windows), 'WINDIR':str(windows),
+            'PATH':str(windows / 'System32'), 'TEMP':str(temporary), 'TMP':str(temporary),
+            'USERPROFILE':str(root), 'HOME':str(root), 'JOINMARKET_DATA_DIR':str(root),
+            'JOINMARKET_CONFIG_FILE':str(root / 'config.toml')}
+    return environment
+
+
+@contextmanager
+def entry_lock(root):
+    if os.name == 'nt':
+        with native_storage.exclusive_file(root / 'desktop.lock'):
+            yield
+        return
+    fd = os.open(root / 'desktop.lock', os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_uid != os.getuid() or stat.S_IMODE(info.st_mode) & 0o077:
+            raise ValueError('Invalid runtime lock')
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        yield
+    finally:
+        os.close(fd)
+
+
 async def serve(root):
     # Sanitize before importing upstream settings. Never inherit a different node,
     # data directory, credentials, proxy, loader or logging configuration.
-    environment = {key: os.environ[key] for key in ('PATH', 'LANG', 'TMPDIR') if key in os.environ}
-    environment.update(HOME=str(root), JOINMARKET_DATA_DIR=str(root), JOINMARKET_CONFIG_FILE=str(root / 'config.toml'))
+    environment = runtime_environment(root)
     os.environ.clear()
     os.environ.update(environment)
     if getattr(sys, 'frozen', False):
         import bitcointx
         import certifi
-        library_name = 'libsecp256k1.dylib' if sys.platform == 'darwin' else 'libsecp256k1.so'
+        library_name = 'libsecp256k1.dll' if os.name == 'nt' else 'libsecp256k1.dylib' if sys.platform == 'darwin' else 'libsecp256k1.so'
         library = Path(sys._MEIPASS) / library_name
         if not library.is_file():
             raise ValueError('Missing bundled crypto library')
@@ -73,7 +118,8 @@ async def serve(root):
         raise ValueError('Incomplete TLS identity; do not silently rotate it')
     if not any(present):
         _generate_self_signed_cert(tls)
-        cert.chmod(0o600)
+        if os.name != 'nt':
+            cert.chmod(0o600)
     private_file(cert)
     private_file(key)
     # Check the preserved key/certificate pair before the app can load wallet state.
@@ -123,16 +169,9 @@ def main():
     private_directory(args.data_dir)
     # Acquire before TLS generation, create_app, journal loading or stale-plan
     # reconciliation. A competing child must not mutate the running one's files.
-    fd = os.open(args.data_dir / 'desktop.lock', os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
-    try:
-        info = os.fstat(fd)
-        if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_uid != os.getuid() or stat.S_IMODE(info.st_mode) & 0o077:
-            raise ValueError('Invalid runtime lock')
-        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    with entry_lock(args.data_dir):
         sys.path.insert(0, str(Path(__file__).resolve().parent))
         asyncio.run(serve(args.data_dir))
-    finally:
-        os.close(fd)
 
 
 if __name__ == '__main__':

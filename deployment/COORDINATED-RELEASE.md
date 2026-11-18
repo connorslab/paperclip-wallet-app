@@ -3366,8 +3366,8 @@ keeps the kernel lock until the lifecycle exits. Writer cancellation still uses
 the upstream shielded worker so an active file writer cannot lose ownership.
 Eight native Windows cases cover contention, process death, cancellation, errors,
 existing wallets, ACL and junction rejection, and the source checksum gate.
-All eight pass in native Windows CI at `fd1b79b`; the broader native run is
-still pending. Local macOS
+All eight pass in native Windows CI at `fd1b79b`; its complete native
+prerequisite workflow `44203598378` also passes. Local macOS
 import and POSIX ownership/retry passed with the actual pinned module.
 This is not full Windows wallet creation or crypto/runtime acceptance. Jars
 remains disabled in Windows preview packages until the complete runtime passes.
@@ -3413,3 +3413,14 @@ legacy migration, corrupted data and unsafe permissions; CI acceptance is pendin
 All 58 upstream registry and migration tests pass on macOS against the patched
 module. This validates storage compatibility, not live bond funding, withdrawal
 or physical signer support.
+
+### Owned Windows Jars entry prerequisites
+
+The native child entry point now imports on Windows, reserves checked private
+startup storage, accepts only private TLS files and builds a minimal environment
+from the OS Windows directory and its own data root. Inherited node, wallet, TLS,
+proxy and Python overrides are excluded. The frozen crypto-library name includes
+Windows, but the complete crypto distribution is not yet accepted or enabled.
+Native environment/ownership cases are pending; all seven real unfunded macOS
+child lifecycle/TLS tests pass after the shared entry change. Windows previews
+still refuse a Jars runtime until the complete bundle passes acceptance.
