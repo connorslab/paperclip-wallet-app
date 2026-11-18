@@ -146,8 +146,7 @@ class WindowsOwnership(unittest.TestCase):
         self.assertFalse(self.root.exists())
 
     def test_launcher_death_closes_child_lifetime_pipe_and_retains_recovery(self):
-        code = ('import managed_daemon
-from managed_daemon import ManagedDaemon; import sys\n'
+        code = ('from managed_daemon import ManagedDaemon; import sys\n'
                 'runner = ManagedDaemon(sys.argv[1], sys.argv[2]); runner.start()\n'
                 'print(runner.process.pid, flush=True); sys.stdin.buffer.read(1)\n')
         parent = subprocess.Popen([sys.executable, '-c', code, str(BINARY), str(self.root)],

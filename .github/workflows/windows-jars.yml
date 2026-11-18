@@ -3,9 +3,9 @@ on:
   workflow_dispatch:
   push:
     branches: ['codex/cross-platform-parity']
-    paths: ['deployment/jam/**', 'deployment/desktop/windows/**', 'deployment/desktop/pipe_io.py', '.github/workflows/windows-jars.yml']
+    paths: ['deployment/jam/**', 'deployment/desktop/windows/**', 'deployment/desktop/managed_jam.py', 'deployment/desktop/managed_daemon.py', 'deployment/desktop/pipe_io.py', '.github/workflows/windows-jars.yml']
   pull_request:
-    paths: ['deployment/jam/**', 'deployment/desktop/windows/**', '.github/workflows/windows-jars.yml']
+    paths: ['deployment/jam/**', 'deployment/desktop/windows/**', 'deployment/desktop/managed_jam.py', 'deployment/desktop/managed_daemon.py', 'deployment/desktop/pipe_io.py', '.github/workflows/windows-jars.yml']
 permissions:
   contents: read
 concurrency:

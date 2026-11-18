@@ -10,7 +10,10 @@ import tempfile
 import time
 import unittest
 from urllib.request import HTTPSHandler, ProxyHandler, build_opener
+from unittest.mock import patch
 
+from managed_daemon import StartupError
+from managed_jam import ManagedJam
 from pipe_io import read_available
 from windows.private_storage import read_private_file
 
@@ -45,6 +48,11 @@ class FrozenJars(unittest.TestCase):
             chunk=read_available(child.stdout.fileno(),1024,.1)
             if chunk:value+=chunk
             elif child.poll() is not None:break
+        if not value and child.poll() is not None:
+            # The entry emits this fixed diagnostic schema, never exception
+            # arguments or wallet data. Discard all other captured output.
+            for line in child.stderr.read(16384).decode('utf-8',errors='replace').splitlines():
+                if line.startswith('Jars runtime diagnostic: '):print(line)
         self.assertTrue(value,'Frozen Jars exited or timed out before readiness; no exception details or secrets collected')
         result=json.loads(value);self.assertEqual(set(result),{'ready','endpoint'});self.assertTrue(result['ready'])
         self.assertTrue(result['endpoint'].startswith('https://127.0.0.1:'))
@@ -67,6 +75,26 @@ class FrozenJars(unittest.TestCase):
         child=self.launch();cert=self.ready(child);child.kill();child.wait(timeout=10)
         resumed=self.launch();self.assertEqual(self.ready(resumed),cert)
         resumed.stdin.close();self.assertEqual(resumed.wait(timeout=30),0)
+
+    def test_managed_child_verifies_tls_without_inherited_overrides(self):
+        child=ManagedJam(self.bundle/'PaperclipJars.exe',None,self.data,startup_timeout=45)
+        self.addCleanup(child.close)
+        with patch.dict(os.environ, {'SystemRoot':'Z:/not-windows', 'PYTHONPATH':'Z:/not-python',
+                'HTTPS_PROXY':'http://127.0.0.1:1', 'JMWALLETD_NO_TLS':'1'}):
+            environment=child.start()
+        self.assertEqual(set(environment),{'BARKD_JOINBLAKET_URL','BARKD_JOINBLAKET_CA_FILE'})
+        self.assertEqual(environment['BARKD_JOINBLAKET_URL'],child.endpoint)
+        child.ensure_running();child.close()
+        self.assertEqual(child.process.returncode,0)
+
+    def test_managed_child_rejects_untrusted_tls_and_reaps_process(self):
+        child=ManagedJam(self.bundle/'PaperclipJars.exe',None,self.data,startup_timeout=45)
+        self.addCleanup(child.close)
+        with patch('managed_jam.ssl.create_default_context',side_effect=ValueError('synthetic TLS failure')):
+            with self.assertRaises(StartupError) as failure:child.start()
+        self.assertNotIn('synthetic TLS failure',str(failure.exception))
+        self.assertIsNotNone(child.process.returncode)
+        self.assertIsNone(child.endpoint)
 
 
 if __name__ == '__main__':

@@ -177,6 +177,14 @@ def main():
 if __name__ == '__main__':
     try:
         main()
-    except Exception:
+    except Exception as error:
+        # Source locations and exception classes help diagnose frozen-runtime
+        # failures without rendering arguments, credentials, paths or locals.
+        frames = []
+        trace = error.__traceback__
+        while trace is not None:
+            frames.append(f'{Path(trace.tb_frame.f_code.co_filename).name}:{trace.tb_lineno}')
+            trace = trace.tb_next
+        print('Jars runtime diagnostic: ' + json.dumps({'type': type(error).__name__, 'frames': frames}), file=sys.stderr)
         print('The private Jam runtime could not start or close safely.', file=sys.stderr)
         sys.exit(1)

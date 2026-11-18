@@ -41,10 +41,11 @@ coordinated scope is iOS, Android, StartOS, Umbrel, Linux, macOS and Windows.
    and physical-signer acceptance is still required. Complete the remaining end-to-end review of boarding,
    hardware signing and exit paths. Mobile wallet switching alone does not close
    the desktop profile requirement.
-2. **Finish native runtime delivery.** Accept the Windows upstream Jars wallet
-   lifecycle lock adapter, and complete metadata/history storage, desktop entry/TLS lifecycle and
-   bundled crypto dependencies. Its reviewed private-file API adapter is only
-   one component. Complete supported Jam/Tor and node-RPC setup on the native
+2. **Finish native runtime delivery.** Accept the complete frozen Windows Jars
+   service and its desktop integration. Native checks now cover the pinned
+   wallet lifecycle lock, identity and input metadata, history, bond registry,
+   and entry environment; those component results do not establish the complete
+   service. Complete supported Jam/Tor and node-RPC setup on the native
    desktops, then validate the enabled packaged runtime. No external Python or
    separate Kilombino app may be required for the bundled-host promise.
 3. **Complete portable recovery.** Finish the wallet-bound recovery envelope for

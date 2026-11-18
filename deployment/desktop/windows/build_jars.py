@@ -33,8 +33,10 @@ def build(source, secp, license_file, output, work):
     shutil.copy2(license_file, work / 'libsecp256k1-COPYING')
     packages = ['jmcore', 'jmwallet', 'jmwalletd', 'maker', 'taker', 'tumbler', 'orderbook_watcher', 'paperclip_jam', 'windows']
     spec = work / 'PaperclipJars.spec'
+    # pywin32 loads its timestamp converter from native code, outside static
+    # import analysis, when the private-storage adapter examines a file handle.
     spec.write_text('''from PyInstaller.utils.hooks import collect_all
-datas, binaries, hidden = ''' + repr([(str(python_license), 'licenses/python'), (str(work / 'libsecp256k1-COPYING'), 'licenses/secp256k1')]) + ''', [], []
+datas, binaries, hidden = ''' + repr([(str(python_license), 'licenses/python'), (str(work / 'libsecp256k1-COPYING'), 'licenses/secp256k1')]) + ''', [], ['win32timezone']
 for package in ''' + repr(packages) + ''':
     data, binary, imports = collect_all(package)
     datas += data; binaries += binary; hidden += imports

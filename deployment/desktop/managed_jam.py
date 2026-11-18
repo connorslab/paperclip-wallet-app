@@ -28,11 +28,19 @@ class ManagedJam:
         if self.process is not None:
             raise StartupError('This Jars session was already started.')
         environment = {key: os.environ[key] for key in ('PATH', 'LANG', 'TMPDIR') if key in os.environ}
+        if os.name == 'nt':
+            import win32api
+            windows = Path(win32api.GetWindowsDirectory())
+            # Windows needs its real system directory before Python/TLS starts.
+            # Never inherit node, proxy, Python loader or TLS overrides.
+            environment = {'SystemRoot': str(windows), 'WINDIR': str(windows),
+                           'PATH': str(windows / 'System32')}
         try:
             command = [str(self.python)] if self.entry is None else [str(self.python), '-I', '-B', str(self.entry)]
             self.process = subprocess.Popen(command + ['--data-dir', str(self.root)],
                 env=environment, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                stderr=subprocess.DEVNULL, close_fds=True)
+                stderr=subprocess.DEVNULL, close_fds=True,
+                creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0)
             pending = b''
             deadline = time.monotonic() + self.startup_timeout
             while b'\n' not in pending:
