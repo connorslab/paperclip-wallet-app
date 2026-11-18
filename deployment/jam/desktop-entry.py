@@ -94,14 +94,12 @@ def entry_lock(root):
         os.close(fd)
 
 
-async def serve(root, tor=None):
-    # Do not silently use upstream's default RPC node after the owner saves a
-    # different connection. Activation requires the pending restricted runtime.
-    if os.path.lexists(root / 'node-connection.json'):
-        raise ValueError('Saved node settings require explicit runtime activation')
+async def serve(root, tor=None, node=None):
     # Sanitize before importing upstream settings. Never inherit a different node,
     # data directory, credentials, proxy, loader or logging configuration.
     environment = runtime_environment(root, tor)
+    if node is not None:
+        environment.update(node.node_environment)
     os.environ.clear()
     os.environ.update(environment)
     if getattr(sys, 'frozen', False):
@@ -169,12 +167,24 @@ async def serve(root, tor=None):
         listener.listen(128)
         task = asyncio.create_task(server.serve(sockets=[listener]))
         while not server.started and not task.done() and not server.should_exit:
+            if node is not None and node.returncode is not None:
+                server.should_exit = True
             await asyncio.sleep(0.02)
         if server.started and not server.should_exit:
             print(json.dumps({'ready': True, 'endpoint': f'https://127.0.0.1:{listener.getsockname()[1]}'}), flush=True)
+        while not task.done():
+            if node is not None and node.returncode is not None:
+                server.should_exit = True
+            await asyncio.sleep(0.1)
         await task
         if not server.started and not parent_closed.is_set():
             raise ValueError('Jam startup did not complete')
+
+
+async def run(root, tor):
+    from paperclip_jam.node_owner import owned_node
+    async with owned_node(root, tor, runtime_environment(root, tor)) as node:
+        await serve(root, tor, node)
 
 
 def main():
@@ -183,6 +193,7 @@ def main():
     setup_mode = parser.add_mutually_exclusive_group()
     setup_mode.add_argument('--check-node', action='store_true')
     setup_mode.add_argument('--configure-node', action='store_true')
+    setup_mode.add_argument('--serve-node', action='store_true')
     parser.add_argument('--tor-socks-port', type=int)
     parser.add_argument('--tor-control-port', type=int)
     parser.add_argument('--tor-cookie-path', type=Path)
@@ -195,6 +206,13 @@ def main():
         return check_pipe(sys.stdin.buffer, sys.stdout, args.tor_socks_port)
     if args.data_dir is None:
         parser.error('Supply the private Jars data directory.')
+    if args.serve_node:
+        if args.tor_control_port is not None or args.tor_cookie_path is not None:
+            parser.error('The node helper does not open the Tor controller.')
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        from paperclip_jam.node_rpc import run as serve_node
+        serve_node(args.data_dir, args.tor_socks_port)
+        return 0
     if args.configure_node:
         if args.tor_control_port is not None or args.tor_cookie_path is not None:
             parser.error('Node setup does not open the Tor controller.')
@@ -223,7 +241,7 @@ def main():
     # reconciliation. A competing child must not mutate the running one's files.
     with entry_lock(args.data_dir):
         sys.path.insert(0, str(Path(__file__).resolve().parent))
-        asyncio.run(serve(args.data_dir, tor))
+        asyncio.run(run(args.data_dir, tor))
 
 
 if __name__ == '__main__':

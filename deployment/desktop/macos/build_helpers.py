@@ -25,6 +25,7 @@ def build(source, secp, output, work):
         raise RuntimeError('Use the reviewed PyInstaller 6.22.3 toolchain.')
     inputs = [source / 'desktop' / name for name in ('launcher_entry.py', 'launcher_bridge.py', 'managed_daemon.py', 'managed_jam.py', 'managed_tor.py', 'tor_runtime.py', 'pipe_io.py')]
     inputs += [source / 'jam/desktop-entry.py', source / 'desktop/windows/private_storage.py', Path(__file__).resolve()]
+    inputs += [source / 'jam/rpc_batch.py', source / 'jam/paperclip_jam/vendor/LICENSE', source / 'jam/paperclip_jam/vendor/README.txt']
     inputs += sorted((source / 'jam/paperclip_jam').rglob('*.py'))
     source_hashes = {str(path.relative_to(source)):hashlib.sha256(path.read_bytes()).hexdigest() for path in inputs}
     revision = subprocess.run(['git', '-C', str(source), 'rev-parse', 'HEAD'], check=True, capture_output=True, text=True).stdout.strip()

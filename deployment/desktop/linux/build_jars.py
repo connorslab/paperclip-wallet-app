@@ -22,6 +22,7 @@ def build(source, secp, license_file, output, work):
     if not python_license.is_file() or not license_file.is_file():
         raise RuntimeError('Supply the Python and secp256k1 license notices.')
     inputs = [Path(__file__).resolve(), source / 'jam/desktop-entry.py']
+    inputs += [source / 'jam/rpc_batch.py', source / 'jam/paperclip_jam/vendor/LICENSE', source / 'jam/paperclip_jam/vendor/README.txt']
     inputs += sorted((source / 'jam/paperclip_jam').rglob('*.py'))
     fingerprints = {str(path.relative_to(source)):hashlib.sha256(path.read_bytes()).hexdigest() for path in inputs}
     revision = subprocess.run(['git', '-C', str(source), 'rev-parse', 'HEAD'], check=True, capture_output=True, text=True).stdout.strip()

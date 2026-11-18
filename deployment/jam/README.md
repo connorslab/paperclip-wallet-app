@@ -210,10 +210,21 @@ file contains RPC credentials and must not be included in public diagnostics.
 
 The save result includes `saved: true` and `active: false`, with a random public
 connection identifier. It does not change `config.toml` or start a node connection.
-The normal helper currently refuses a directory with these pending settings,
-rather than silently using upstream's default node.
-Native UI integration, reviewed changes to existing connections and the owned
-restricted RPC runtime remain release work. These helper modes do not complete
+On the next normal launch, a separate owned RPC child verifies that saved node
+again and serves only the reviewed JoinBlaket methods and wallet names. The Jam
+client receives a random, per-session loopback credential through private IPC;
+it does not receive the node's own credentials. TLS verification and owned Tor
+SOCKS routing remain enforced, with no redirects, proxy inheritance or automatic
+request replay. Both individual and batch replies are matched before wallet-list
+filtering. Failure of that child closes Jars; no default-node fallback is allowed.
+The original configuration record is preserved on startup and shutdown.
+
+The child lifetime is tied to the Jam process's private pipe. Closing the parent
+stops the listener and outstanding work is not replayed. Native processes run as
+the same OS user: this does not provide the separate-user sandbox used by the
+server containers, or protection from another process with that user's file
+access. Native UI integration and reviewed changes to existing connections
+remain release work. These helper modes do not complete
 the setup screen. A successful preflight does not establish wallet rescan or
 payment acceptance on a pruned node.
 

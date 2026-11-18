@@ -118,6 +118,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           & $env:JARS_PYTHON deployment/jam/test_node_store.py -v
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & $env:JARS_PYTHON deployment/jam/test_node_rpc.py -v
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Select the reviewed Rust toolchain
         run: rustup toolchain install 1.91.0 --profile minimal

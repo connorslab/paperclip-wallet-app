@@ -70,15 +70,16 @@ class StoreTests(NodeFixture):
         self.assertEqual(result['code'], 'existing_setup')
         self.assertEqual(self.stored(root), before); self.assertEqual(self.calls, [])
 
-    def test_pending_setup_cannot_fall_back_to_the_default_node(self):
+    def test_failed_saved_node_cannot_fall_back_to_the_default_node(self):
         root = self.private_root(); port = self.node()
-        self.configure(root, port); before = self.stored(root); self.calls.clear()
+        self.configure(root, port); before = self.stored(root); self.calls.clear(); self.status = 401
         result = subprocess.run(self.command() + ['--data-dir', str(root)], input=b'',
             stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=10)
         self.assertEqual(result.returncode, 1)
         self.assertEqual(result.stdout, b'')
         self.assertNotIn(b'synthetic-secret', result.stderr)
-        self.assertEqual(self.stored(root), before); self.assertEqual(self.calls, [])
+        self.assertEqual(self.stored(root), before)
+        self.assertEqual([call[0]['method'] for call in self.calls], ['getblockchaininfo'])
         self.assertEqual(set(p.name for p in root.iterdir()), {'desktop.lock', node_store.NAME})
 
     def test_failed_verification_saves_no_credentials_and_allows_corrected_attempt(self):
