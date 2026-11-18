@@ -32,6 +32,9 @@ class BatchPolicy(unittest.TestCase):
             shutil.copy2(Path(__file__).with_name('rpc_batch.py'), source.parent)
             install_rpc_filter.patch(source)
         # Container checks must load the installed adapter, not /tests/rpc_batch.
+        # Native helper tests can already have imported the source adapter.
+        # Isolate this import without weakening the installed-path assertion.
+        previous = sys.modules.pop('rpc_batch', None)
         sys.path.insert(0, str(source.parent))
         try:
             spec = importlib.util.spec_from_file_location('reviewed_rpc_filter', source)
@@ -41,6 +44,9 @@ class BatchPolicy(unittest.TestCase):
             assert cls.assert_adapter == (source.parent / 'rpc_batch.py').resolve()
         finally:
             sys.path.pop(0)
+            sys.modules.pop('rpc_batch', None)
+            if previous is not None:
+                sys.modules['rpc_batch'] = previous
 
     def setUp(self):
         m = self.module
