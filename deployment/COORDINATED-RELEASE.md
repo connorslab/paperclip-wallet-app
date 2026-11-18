@@ -3634,3 +3634,31 @@ Windows run `44221878553` at `0707aa74` now passes in full, including actual
 daemon authentication rejection and preservation. Linux `44221878548` also
 passes. Browser `44222409180` and backend `44222409231` at `105939ee` pass,
 including the compact shared Jars grid. The earlier fixture failure is closed.
+
+
+### Native Tor package handoff
+
+The Linux, macOS and Windows preview builders now accept an explicit reviewed Tor
+runtime inventory and wire its copied executable into owned Jars startup. Inputs
+are bound to the native OS/architecture, source/version, licenses and exact file
+fingerprints. Incomplete, altered, linked or wrong-target packages fail before
+wallet services start. Windows keeps compatibility with existing previews that
+do not declare Tor; a new package declaring Tor cannot omit Jars or Tor files.
+
+Local package-contract, Windows launcher-policy and shared controller checks
+pass. Six real native Apple bridge lifecycle cases pass with Tor and pinned Jars,
+including shell EOF, crash/retry and credential preservation. The native AppKit
+preview compiles and its deep strict ad-hoc signature verifies. The first layout
+failed because code-signing interpreted a license under Helpers as code; the Tor
+payload is now sealed under Resources and the build passes.
+
+This development test uses the existing Homebrew Tor 0.4.9.16 and an external
+pinned Jam interpreter. It does not establish a self-contained release runtime,
+notarization, Windows Tor private-file behavior or live node/bootstrap acceptance.
+Selecting and validating portable Tor distributions and guided node-RPC setup
+remain required. No candidate was installed or published.
+
+The previous increment at `6b64061` passes native Windows prerequisite run
+`44226850971`, Windows bundled Jars `44226851137`, bundled Jam `44226850978`, and
+macOS shell `44226851080`. Linux backend `44226851040` is still running at this
+record; it is not counted as a pass.

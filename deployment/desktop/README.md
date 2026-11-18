@@ -410,7 +410,7 @@ configuration, live payment acceptance and installed upgrades remain separate.
 can start a separate owned Tor child for bundled Jars and the wallet's Lightning
 proxy. The executable must be supplied explicitly. The supervisor never attaches
 to a system Tor or falls back to a direct connection. This component does not yet
-select or package a Tor distribution for release, or provide the node-RPC setup UI.
+select a Tor distribution for release or provide the node-RPC setup UI.
 
 Tor starts with networking disabled and private, unique control metadata. The
 controller authenticates with the cookie, takes ownership, then enables networking
@@ -433,3 +433,43 @@ for combined ownership, TLS and recovery checks.
 
 Native Apple testing used Tor 0.4.9.16. Windows Tor binary/private-file behavior,
 release bundling and complete live bootstrap/node acceptance remain unverified.
+
+
+## Tor package inputs
+
+All three native preview builders accept `--tor-runtime /reviewed/runtime` when
+Jars is included. They copy that explicit directory, record its inventory in
+build provenance and configure the launcher to use the copy. Linux and macOS
+helpers validate it again before wallet startup. Windows validates it before
+opening its wallet window and again in the session worker. A configured missing
+or damaged runtime cannot silently fall back to a direct connection or system Tor.
+
+The supplied directory contains `runtime.json` with exactly these fields:
+
+- `format`: integer `1`.
+- `target`: `macos-arm64`, `macos-x86_64`, `linux-arm64`, `linux-x86_64`, or
+  `windows-x86_64`, matching the build host.
+- `version`: the four-part Tor version.
+- `source`: the reviewed upstream HTTPS source URL.
+- `executable`: the relative path of the Tor binary.
+- `licenses`: a nonempty list of relative license-file paths.
+- `files`: every file except `runtime.json`, mapped to its lowercase SHA-256.
+
+Use ordinary files and directories, with no symbolic links, junctions, special
+files, parent traversal or platform-reserved names. Missing, additional, altered
+or wrong-target inputs fail validation. Copy verification also detects input
+changes during packaging. Native Mac inputs must already have valid code signatures;
+the preview builder preserves them and seals the copied runtime under Resources.
+The final Developer ID signing procedure remains separate.
+
+The inventory is a completeness check, not a publisher signature or evidence that
+shared libraries are self-contained. Review the source, licenses and dependency
+closure before supplying a release runtime. Run relocation tests with build-host
+dependencies denied. The Mac relocation suite includes Tor when `bundledTor` is
+set and still rejects external Homebrew dependencies. No runtime is downloaded,
+selected from PATH, or enabled by default by these builders.
+
+Validation uses `test_tor_runtime.py` on all three hosts. The native bridge suite
+also accepts `--tor-runtime`, together with either `--jam-executable` or the
+explicit development `--jam-python`/`--jam-entry` pair. Those combined lifecycle
+tests permit Tor relay connections but do not create keys or make payments.

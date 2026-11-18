@@ -12,6 +12,7 @@ sys.dont_write_bytecode = True
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from linux.launcher import Window, valid_handoff
 from managed_daemon import default_data_root
+from tor_runtime import validate as validate_tor_runtime
 
 
 def browser_path(value, runtime):
@@ -66,8 +67,7 @@ def open_default_browser(url):
         return False
 
 
-
-def packaged_jars(executable):
+def packaged_runtimes(executable):
     """Reject an incomplete package before creating storage or starting children."""
     package = executable.parent
     with (package / 'runtime.json').open('rb') as file:
@@ -75,16 +75,25 @@ def packaged_jars(executable):
     if len(encoded) > 4096:
         raise ValueError('Invalid runtime configuration')
     configuration = json.loads(encoded)
-    if (not isinstance(configuration, dict) or set(configuration) != {'format', 'jars'}
-            or type(configuration['format']) is not int or configuration['format'] != 1
-            or type(configuration['jars']) is not bool):
+    if (not isinstance(configuration, dict) or set(configuration) != ({'format', 'jars'} if configuration.get('format') == 1 else {'format', 'jars', 'tor'})
+            or type(configuration['format']) is not int or configuration['format'] not in (1, 2)
+            or type(configuration['jars']) is not bool
+            or (configuration['format'] == 2 and type(configuration['tor']) is not bool)
+            or (configuration.get('tor', False) and not configuration['jars'])):
         raise ValueError('Invalid runtime configuration')
     if not configuration['jars']:
-        return None
+        return None, None
     jars = package / 'PaperclipJars/PaperclipJars.exe'
     if not jars.is_file():
         raise ValueError('Missing Jars runtime')
-    return jars
+    tor = package / "PaperclipTor" if configuration.get("tor", False) else None
+    if tor is not None:
+        validate_tor_runtime(tor)
+    return jars, tor
+
+
+def packaged_jars(executable):
+    return packaged_runtimes(executable)[0]
 
 
 def setup_error(message):
@@ -114,11 +123,12 @@ def main():
         raise SystemExit(0 if open_browser_child(args.open_browser) else 1)
     binary = args.binary
     jars = args.jam_executable
+    tor = None
     if getattr(sys, 'frozen', False):
         if jars is not None:
             return setup_error('This Paperclip package uses its bundled Jars service. Open it without an external Jars override.')
         try:
-            jars = packaged_jars(Path(sys.executable))
+            jars, tor = packaged_runtimes(Path(sys.executable))
         except (OSError, ValueError):
             return setup_error('Paperclip is missing required app files or its package is damaged. Reinstall Paperclip, then try again. Your saved wallets have not been changed.')
     if binary is None:
@@ -138,7 +148,7 @@ def main():
         root.destroy()
         return
     Window(root, binary, data, opener=open_default_browser,
-           jam_runtime=(jars, None) if jars is not None else None)
+           jam_runtime=(jars, None) if jars is not None else None, tor_runtime=tor)
     root.mainloop()
 
 

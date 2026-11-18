@@ -10,8 +10,11 @@ import subprocess
 import sys
 import tempfile
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from tor_runtime import copy_runtime as copy_tor_runtime
 
-def build(binary, output, work, jars=None):
+
+def build(binary, output, work, jars=None, tor_runtime=None):
     if os.name != 'nt':
         raise RuntimeError('Build with the native Windows toolchain.')
     import PyInstaller
@@ -25,7 +28,7 @@ def build(binary, output, work, jars=None):
     source = Path(__file__).resolve().parent
     inputs = [source / '__init__.py', source / 'launcher.py', source / 'test_launcher_ui.py', source / 'test_managed_daemon.py', source / 'private_storage.py',
         Path(__file__).resolve(), source.parent / 'linux/launcher.py',
-        source.parent / 'managed_daemon.py', source.parent / 'managed_jam.py', source.parent / 'managed_tor.py', source.parent / 'pipe_io.py']
+        source.parent / 'managed_daemon.py', source.parent / 'managed_jam.py', source.parent / 'managed_tor.py', source.parent / 'tor_runtime.py', source.parent / 'pipe_io.py']
     def fingerprints():
         return {str(path.relative_to(source.parent)).replace('\\', '/'):
                 hashlib.sha256(path.read_bytes()).hexdigest() for path in inputs}
@@ -68,7 +71,11 @@ def build(binary, output, work, jars=None):
                 raise RuntimeError('Linked Jars runtime files are not supported.')
             shutil.copytree(jars, package / 'PaperclipLauncher/PaperclipJars')
             provenance['jars'] = metadata
-        (package / 'PaperclipLauncher/runtime.json').write_text(json.dumps({'format':1,'jars':jars is not None}))
+        if tor_runtime is not None:
+            if jars is None:
+                raise RuntimeError('The owned Tor runtime requires bundled Jars.')
+            provenance['tor'] = copy_tor_runtime(tor_runtime, package / 'PaperclipLauncher/PaperclipTor')
+        (package / 'PaperclipLauncher/runtime.json').write_text(json.dumps({'format':2,'jars':jars is not None,'tor':tor_runtime is not None}))
         (package / 'build-info.json').write_text(json.dumps(provenance, indent=2, sort_keys=True) + '\n')
         (package / 'PREVIEW.txt').write_text('Unsigned development preview. PaperclipLauncherQA is test tooling, not part of installation.\n'
             'Tor/RPC configuration, signing and installed upgrades require separate acceptance.\n')
@@ -82,6 +89,7 @@ if __name__ == '__main__':
     parser.add_argument('--output', required=True, type=Path)
     parser.add_argument('--work', required=True, type=Path)
     parser.add_argument('--jars', type=Path)
+    parser.add_argument('--tor-runtime', type=Path)
     args = parser.parse_args()
     build(args.binary.resolve(strict=True), args.output.absolute(), args.work.absolute(),
-          args.jars.resolve(strict=True) if args.jars else None)
+          args.jars.resolve(strict=True) if args.jars else None, args.tor_runtime.absolute() if args.tor_runtime else None)

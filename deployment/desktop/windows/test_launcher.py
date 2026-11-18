@@ -85,6 +85,23 @@ class PackageRuntime(unittest.TestCase):
             configuration.write_text(json.dumps({'format':1, 'jars':True}))
             self.assertEqual(launcher.packaged_jars(executable), jars)
 
+    def test_tor_requires_jars_and_a_valid_package(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            executable = Path(temporary) / 'Paperclip.exe'
+            configuration = executable.parent / 'runtime.json'
+            for value in ({'format':2, 'jars':False, 'tor':True},
+                          {'format':2, 'jars':False, 'tor':1},
+                          {'format':2, 'jars':True, 'tor':True}):
+                configuration.write_text(json.dumps(value))
+                with self.assertRaises((ValueError, OSError)): launcher.packaged_runtimes(executable)
+            jars = executable.parent / 'PaperclipJars/PaperclipJars.exe'
+            jars.parent.mkdir(); jars.write_bytes(b'fixture only')
+            with self.assertRaises((ValueError, OSError)): launcher.packaged_runtimes(executable)
+            configuration.write_text(json.dumps({'format':2, 'jars':True, 'tor':False}))
+            self.assertEqual(launcher.packaged_runtimes(executable), (jars, None))
+            configuration.write_text(json.dumps({'format':2, 'jars':False, 'tor':False}))
+            self.assertEqual(launcher.packaged_runtimes(executable), (None, None))
+
     def test_visible_setup_error_closes_its_window(self):
         from unittest.mock import Mock
         root = Mock()

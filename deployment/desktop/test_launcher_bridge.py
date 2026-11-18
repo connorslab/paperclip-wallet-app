@@ -11,7 +11,7 @@ import tempfile
 import unittest
 
 
-BINARY = HELPER = JAM = None
+BINARY = HELPER = JAM = JAM_PYTHON = JAM_ENTRY = TOR = None
 
 
 @unittest.skipUnless(BINARY, 'Pass --binary for real daemon checks')
@@ -29,6 +29,10 @@ class LauncherBridge(unittest.TestCase):
         command += ['--binary', str(BINARY), '--root', str(self.root)]
         if JAM:
             command += ['--jam-executable', str(JAM)]
+        if JAM_PYTHON:
+            command += ['--jam-python', str(JAM_PYTHON), '--jam-entry', str(JAM_ENTRY)]
+        if TOR:
+            command += ['--tor-runtime', str(TOR)]
         self.process = subprocess.Popen(command, stdin=subprocess.PIPE,
             stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, start_new_session=True)
         ready = self.event()
@@ -114,9 +118,17 @@ if __name__ == '__main__':
     parser.add_argument('--binary', type=Path, required=True)
     parser.add_argument('--helper', type=Path)
     parser.add_argument('--jam-executable', type=Path)
+    parser.add_argument('--jam-python', type=Path)
+    parser.add_argument('--jam-entry', type=Path)
+    parser.add_argument('--tor-runtime', type=Path)
     args, remaining = parser.parse_known_args()
     BINARY = args.binary.resolve(strict=True)
     HELPER = args.helper.resolve(strict=True) if args.helper else None
     JAM = args.jam_executable.resolve(strict=True) if args.jam_executable else None
+    if bool(args.jam_python) != bool(args.jam_entry) or (args.jam_executable and args.jam_python):
+        parser.error('Choose one complete Jars runtime')
+    JAM_PYTHON = args.jam_python.absolute() if args.jam_python else None
+    JAM_ENTRY = args.jam_entry.absolute() if args.jam_entry else None
+    TOR = args.tor_runtime.absolute() if args.tor_runtime else None
     LauncherBridge.__unittest_skip__ = False
     unittest.main(argv=[sys.argv[0]] + remaining)

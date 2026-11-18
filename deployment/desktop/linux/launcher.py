@@ -15,6 +15,7 @@ sys.dont_write_bytecode = True
 resources = Path(__file__).resolve().parent
 sys.path.insert(0, str(resources if (resources / 'managed_daemon.py').is_file() else resources.parent))
 from managed_daemon import ManagedDaemon, StartupError, default_data_root
+from tor_runtime import validate as validate_tor_runtime
 
 
 def open_default_browser(url):
@@ -41,9 +42,10 @@ def valid_handoff(value):
 
 class Session:
     """One worker owns the daemon; UI never waits on startup, network or shutdown."""
-    def __init__(self, binary, root, jam_runtime=None):
+    def __init__(self, binary, root, jam_runtime=None, tor_runtime=None):
         self.binary, self.root = binary, root
         self.jam_runtime = jam_runtime
+        self.tor_runtime = tor_runtime
         self.events = queue.Queue()
         self.commands = queue.Queue(maxsize=1)
         self.stopping = threading.Event()
@@ -67,7 +69,8 @@ class Session:
         try:
             if self.stopping.is_set():
                 return
-            runner = ManagedDaemon(self.binary, self.root, jam_runtime=self.jam_runtime)
+            tor = validate_tor_runtime(self.tor_runtime)[0] if self.tor_runtime else None
+            runner = ManagedDaemon(self.binary, self.root, jam_runtime=self.jam_runtime, tor_binary=tor)
             runner.start()
             if not self.stopping.is_set():
                 self.events.put(('ready', runner.recovery_required))
@@ -94,11 +97,12 @@ class Session:
 
 
 class Window:
-    def __init__(self, root, binary, data_root, opener=open_default_browser, jam_runtime=None):
+    def __init__(self, root, binary, data_root, opener=open_default_browser, jam_runtime=None, tor_runtime=None):
         import tkinter as tk
         from tkinter import ttk
         self.root, self.binary, self.data_root, self.opener = root, binary, data_root, opener
         self.jam_runtime = jam_runtime
+        self.tor_runtime = tor_runtime
         self.session = None
         self.state = 'starting'
         self.quitting = False
@@ -152,7 +156,7 @@ class Window:
         self.action.configure(text='Open Wallet', state='disabled')
         self.progress.pack(before=self.action, fill='x', padx=65, pady=12)
         self.progress.start(12)
-        self.session = Session(self.binary, self.data_root, self.jam_runtime)
+        self.session = Session(self.binary, self.data_root, self.jam_runtime, self.tor_runtime)
         self.session.start()
 
     def activate(self):
@@ -247,6 +251,7 @@ def main():
     parser.add_argument('--jam-python', type=Path)
     parser.add_argument('--jam-entry', type=Path)
     parser.add_argument('--jam-executable', type=Path)
+    parser.add_argument('--tor-runtime', type=Path)
     args = parser.parse_args()
     if args.jam_executable and (args.jam_python or args.jam_entry):
         parser.error('Choose bundled Jars or development Python paths')
@@ -257,7 +262,7 @@ def main():
     import tkinter as tk
     root = tk.Tk()
     Window(root, args.binary.resolve(strict=True), args.qa_root or default_data_root(),
-           jam_runtime=(args.jam_executable, None) if args.jam_executable else ((args.jam_python, args.jam_entry) if args.jam_python else None))
+           jam_runtime=(args.jam_executable, None) if args.jam_executable else ((args.jam_python, args.jam_entry) if args.jam_python else None), tor_runtime=args.tor_runtime)
     root.mainloop()
 
 

@@ -17,6 +17,8 @@ jobs:
       CARGO_PROFILE_DEV_DEBUG: 0
     steps:
       - uses: actions/checkout@v4
+      - name: Reject incomplete Tor runtime packages
+        run: python3 deployment/desktop/test_tor_runtime.py -v
       - uses: cachix/install-nix-action@v31
       - uses: actions/cache/restore@v4
         with:

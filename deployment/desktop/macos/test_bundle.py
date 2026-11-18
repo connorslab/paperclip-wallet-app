@@ -10,6 +10,10 @@ from pathlib import Path
 import shutil
 import subprocess
 import tempfile
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from tor_runtime import validate as validate_tor_runtime
 
 
 def check(app):
@@ -19,7 +23,7 @@ def check(app):
         shutil.copytree(app, relocated, symlinks=True)
         contents = relocated / 'Contents'
         configuration = json.loads((contents / 'Resources/runtime.json').read_text())
-        if configuration != {'bundledHelpers': True}:
+        if configuration not in ({'bundledHelpers': True}, {'bundledHelpers': True, 'bundledTor': True}):
             raise RuntimeError('This check requires bundled helpers without external interpreters.')
         executable = contents / 'MacOS/paperclip-walletd'
         provenance = json.loads((contents / 'Resources/build-info.json').read_text())
@@ -27,6 +31,14 @@ def check(app):
             raise RuntimeError('The packaged daemon does not match its source record.')
         if not provenance.get('helpers', {}).get('source_files'):
             raise RuntimeError('The packaged helpers have no source fingerprints.')
+        tor_args, tor_runtime_args = [], []
+        if configuration.get('bundledTor'):
+            tor_root = contents / 'Resources/PaperclipTor'
+            tor, recorded = validate_tor_runtime(tor_root)
+            if provenance.get('tor') != recorded:
+                raise RuntimeError('The packaged Tor does not match its source record.')
+            tor_args = ['--tor', str(tor)]
+            tor_runtime_args = ['--tor-runtime', str(tor_root)]
         helpers = contents / 'Helpers'
         jam = helpers / 'PaperclipJars.app/Contents/MacOS/PaperclipJars'
         helper = helpers / 'PaperclipHelper.app/Contents/MacOS/PaperclipHelper'
@@ -36,9 +48,9 @@ def check(app):
             profile += '(deny file-read* (subpath ' + json.dumps(denied) + '))'
         command = ['/usr/bin/sandbox-exec', '-p', profile, '/usr/bin/python3']
         subprocess.run(command + [str(source / 'test_managed_jam.py'), '--python', str(jam),
-            '--binary', str(executable), '-v'], check=True)
+            '--binary', str(executable), '-v'] + tor_args, check=True)
         subprocess.run(command + [str(source / 'test_launcher_bridge.py'), '--helper', str(helper),
-            '--jam-executable', str(jam), '--binary', str(executable), '-v'], check=True)
+            '--jam-executable', str(jam), '--binary', str(executable), '-v'] + tor_runtime_args, check=True)
         if list(relocated.rglob('__pycache__')):
             raise RuntimeError('Application wrote bytecode inside its sealed bundle.')
         subprocess.run(['codesign', '--verify', '--deep', '--strict', str(relocated)], check=True)

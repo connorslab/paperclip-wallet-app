@@ -5,6 +5,7 @@ import Darwin
 private struct RuntimeConfiguration: Decodable {
 	let pythonExecutable: String?
 	let bundledHelpers: Bool?
+	let bundledTor: Bool?
 	let jamPythonExecutable: String?
 }
 
@@ -120,6 +121,9 @@ final class Launcher: NSObject, NSApplicationDelegate {
 					process.arguments! += ["--jam-python", jamPython, "--jam-entry", resources.appendingPathComponent("jam-runtime/desktop-entry.py").path]
 				}
 			} else { throw CocoaError(.fileNoSuchFile) }
+			if configuration.bundledTor == true {
+				process.arguments! += ["--tor-runtime", resources.appendingPathComponent("PaperclipTor").path]
+			}
 			process.environment = ProcessInfo.processInfo.environment.filter { ["PATH", "HOME", "TMPDIR", "LANG"].contains($0.key) }
 			process.standardInput = incoming
 			process.standardOutput = outgoing

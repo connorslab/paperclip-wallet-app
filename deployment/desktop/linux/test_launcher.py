@@ -40,6 +40,17 @@ class HandoffPolicy(unittest.TestCase):
 
 
 class BrowserCompletion(unittest.TestCase):
+    def test_damaged_tor_fails_before_any_wallet_child_or_storage(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / 'untouched-wallet'
+            with patch('launcher.ManagedDaemon') as daemon:
+                session = Session(Path('unused'), root, tor_runtime=Path(temporary) / 'missing-tor')
+                session.run()
+                self.assertEqual(session.events.get_nowait()[0], 'error')
+                self.assertEqual(session.events.get_nowait()[0], 'closed')
+                daemon.assert_not_called()
+                self.assertFalse(root.exists())
+
     def test_late_browser_result_cannot_replace_daemon_failure(self):
         # A browser process can return after the owned daemon has failed.
         # Drive queued completions without Tk so the race stays deterministic.

@@ -10,6 +10,7 @@ import sys
 
 from managed_daemon import ManagedDaemon, StartupError
 from pipe_io import read_available
+from tor_runtime import validate as validate_tor_runtime
 
 
 def emit(event, **values):
@@ -41,8 +42,8 @@ def commands(runner):
         pending += chunk
 
 
-def serve(binary, root, jam_runtime=None):
-    runner = ManagedDaemon(binary, root, jam_runtime=jam_runtime)
+def serve(binary, root, jam_runtime=None, tor_binary=None):
+    runner = ManagedDaemon(binary, root, jam_runtime=jam_runtime, tor_binary=tor_binary)
     try:
         runner.start()
         emit('ready', recovery_required=runner.recovery_required)
@@ -67,13 +68,15 @@ if __name__ == '__main__':
     parser.add_argument('--jam-python', type=Path)
     parser.add_argument('--jam-entry', type=Path)
     parser.add_argument('--jam-executable', type=Path)
+    parser.add_argument('--tor-runtime', type=Path)
     args = parser.parse_args()
     if args.jam_executable and (args.jam_python or args.jam_entry):
         parser.error('Choose the bundled Jars executable or development Python paths')
     if bool(args.jam_python) != bool(args.jam_entry):
         parser.error('Supply both packaged Jars runtime paths')
     try:
-        serve(args.binary, args.root, (args.jam_executable, None) if args.jam_executable else ((args.jam_python, args.jam_entry) if args.jam_python else None))
+        tor = validate_tor_runtime(args.tor_runtime)[0] if args.tor_runtime else None
+        serve(args.binary, args.root, (args.jam_executable, None) if args.jam_executable else ((args.jam_python, args.jam_entry) if args.jam_python else None), tor_binary=tor)
     except BrokenPipeError:
         # Shell death already closes the lifetime chain; never print a traceback.
         sys.exit(1)

@@ -20,7 +20,7 @@ def build(output, work):
     output.mkdir(parents=True); work.mkdir(parents=True)
     source = Path(__file__).resolve().parent
     inputs = [source / 'launcher.py', source / 'test_launcher_ui.py', Path(__file__).resolve(),
-              source.parent / 'managed_daemon.py', source.parent / 'managed_jam.py', source.parent / 'managed_tor.py', source.parent / 'pipe_io.py',
+              source.parent / 'managed_daemon.py', source.parent / 'managed_jam.py', source.parent / 'managed_tor.py', source.parent / 'tor_runtime.py', source.parent / 'pipe_io.py',
               source.parent / 'windows/private_storage.py']
     fingerprints = {str(path.relative_to(source.parent)):hashlib.sha256(path.read_bytes()).hexdigest() for path in inputs}
     provenance = {'format':1, 'python':sys.version, 'pyinstaller':PyInstaller.__version__,

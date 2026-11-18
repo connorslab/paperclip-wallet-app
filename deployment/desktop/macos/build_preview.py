@@ -14,8 +14,11 @@ import subprocess
 import sys
 import tempfile
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from tor_runtime import copy_runtime as copy_tor_runtime
 
-def build(binary, python, output, jam_python=None, helpers=None):
+
+def build(binary, python, output, jam_python=None, helpers=None, tor_runtime=None):
     if sys.platform != 'darwin':
         raise RuntimeError('Build this preview with native Apple tools on macOS.')
     if output.exists() or output.is_symlink():
@@ -39,7 +42,7 @@ def build(binary, python, output, jam_python=None, helpers=None):
         subprocess.run(['xcrun', 'swiftc', '-swift-version', '5', '-target', architecture + '-apple-macosx13.0',
             '-framework', 'AppKit', str(swift_source), '-o', str(executable / 'PaperclipLauncher')], check=True)
         shutil.copy2(binary, executable / 'paperclip-walletd')
-        for name in ('launcher_entry.py', 'launcher_bridge.py', 'managed_daemon.py', 'managed_jam.py', 'managed_tor.py', 'pipe_io.py'):
+        for name in ('launcher_entry.py', 'launcher_bridge.py', 'managed_daemon.py', 'managed_jam.py', 'managed_tor.py', 'tor_runtime.py', 'pipe_io.py'):
             shutil.copy2(source.parent / name, resources / name)
         configuration = {}
         provenance = {'format':1, 'architecture':architecture,
@@ -71,6 +74,11 @@ def build(binary, python, output, jam_python=None, helpers=None):
             shutil.copy2(source.parent.parent / 'jam' / 'desktop-entry.py', jam)
             shutil.copytree(source.parent.parent / 'jam' / 'paperclip_jam', jam / 'paperclip_jam', ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
             configuration['jamPythonExecutable'] = str(jam_python)
+        if tor_runtime is not None:
+            if helpers is None and jam_python is None:
+                raise RuntimeError('The owned Tor runtime requires bundled Jars.')
+            provenance['tor'] = copy_tor_runtime(tor_runtime, resources / 'PaperclipTor')
+            configuration['bundledTor'] = True
         (resources / 'runtime.json').write_text(json.dumps(configuration))
         with (contents / 'Info.plist').open('wb') as file:
             plistlib.dump({
@@ -96,7 +104,8 @@ if __name__ == '__main__':
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--jam-python', type=Path)
     parser.add_argument('--helpers', type=Path)
+    parser.add_argument('--tor-runtime', type=Path)
     args = parser.parse_args()
     if args.helpers and (args.python or args.jam_python):
         parser.error('Choose built helpers or development interpreters')
-    build(args.binary.resolve(strict=True), args.python.resolve(strict=True) if args.python else None, args.output.absolute(), args.jam_python.absolute() if args.jam_python else None, args.helpers.resolve(strict=True) if args.helpers else None)
+    build(args.binary.resolve(strict=True), args.python.resolve(strict=True) if args.python else None, args.output.absolute(), args.jam_python.absolute() if args.jam_python else None, args.helpers.resolve(strict=True) if args.helpers else None, args.tor_runtime.absolute() if args.tor_runtime else None)
