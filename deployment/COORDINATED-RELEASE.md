@@ -22,7 +22,7 @@ checks and their limits.
 | Area | Verified in the current test pass | Still required |
 | --- | --- | --- |
 | iOS | 129 shared Swift tests; six isolated native Keychain recovery cases and two native backup/profile cases; 17 safe UI cases on both regular-phone and open-Duo simulators | Physical signer, camera, accessibility and interrupted/folded payment acceptance; final signed candidate and upgrade |
-| Android | 112 JVM tests (four live cases excluded); 51 instrumentation cases across 19 classes on API 36 CI at `11e16701`; three focused backup/profile cases on local API 35 ARM64; prior full API 35/36 pass at `047dfa57`; authenticated CLN/LND reads and pin rejection | Current API 35 CI acceptance after dependency-resolution failure; final release identity, Play/APK upgrade compatibility and physical/foldable acceptance |
+| Android | 112 JVM tests (four live cases excluded); 52 instrumentation cases across 19 classes on both API 35/36 CI at `2a299374`, including cross-platform backup/profile installation; authenticated CLN/LND reads and pin rejection | Final release identity, Play/APK upgrade compatibility and physical/foldable acceptance |
 | Shared desktop UI | All 17 existing browser-flow suites plus entropy, transport and QR checks; phone, foldable and desktop widths where each suite defines them | Installed-host and native desktop acceptance; accept multiple-hot-wallet profiles and hardware-funded Ark workflows |
 | StartOS/Umbrel | Shared REST checks, authenticated CLN/LND reads; both StartOS candidate architectures built and source/checksums checked | Complete backup/restore, candidate installation, bundled Jam pairing/revocation/Tor and upgrades; matching frozen wrappers |
 | Linux/macOS/Windows | Isolated Apple Silicon and Linux daemon authentication, duplicate-instance rejection and crash/restart; macOS bundled Tor/Jars/helper runtime passes 15 relocated isolation cases; Linux bundled Tor/Jars passes TLS/proxy, relocation, frozen-window and Chromium checks; Windows native storage/ownership and bundled Tor/Jars/wallet/window lifecycle pass at `47f2cb77`, including saved-node setup/replacement controller checks | Installed browser/accessibility and bundled-Tor/Jars acceptance; supported OS matrix, signed installers, notarization and clean install/upgrade tests |
@@ -56,8 +56,9 @@ coordinated scope is iOS, Android, StartOS, Umbrel, Linux, macOS and Windows.
    The saved-node review/change flow is implemented in AppKit and the shared
    Linux/Windows shell, including clean shutdown before editing and a separate
    replacement confirmation. Full Windows package run `44272566190` passes at
-   `47f2cb77`, as does Linux/Lightning package run `44272566221`. Complete native
-   Windows review-dialog interaction and combined installed Jam/Tor runtime
+   `47f2cb77`, as does Linux/Lightning package run `44272566221`. The actual
+   Windows review-dialog interaction passes source CI at `965a3c31`; acceptance
+   in the frozen QA runner is pending. Complete combined installed Jam/Tor runtime
    acceptance. No external Python or
    separate Kilombino app may be required for the bundled-host promise.
 3. **Complete portable recovery.** Finish the wallet-bound recovery envelope for
@@ -4248,3 +4249,25 @@ result exists for that run. The failure logs are retained. The same dependency
 resolved in API 36, but the underlying repository/network failure is not known.
 Lightning regression run `44295322869` passed. Later revisions require their own
 CI acceptance; this is not a complete coordinated release result.
+
+### Windows native node review interaction — 2026-11-18
+
+The Windows QA runner now exercises the real Tk/Win32 node replacement dialog,
+without mocking the confirmation. It locates only the current test process's
+dialog and activates its native Cancel and OK buttons. Cancel retains edits and
+does not submit a setup request. Confirm submits exactly one explicitly confirmed
+replacement, clears the password input and disables repeated submission. The
+review contains the endpoint, username and Tor choice but not the password.
+Only the downstream setup RPC is intercepted; this test owns no wallet, node
+connection or daemon and uses public synthetic input.
+
+The dedicated native Windows CI step in run `44303445276` passes at `965a3c31`.
+The same test is included in the frozen QA runner, whose complete prerequisite
+and bundled-Jars runs are still pending. Seven local shared-shell controller
+tests pass, with two real-daemon cases explicitly excluded from that narrow run;
+repository checks pass. This is dialog interaction acceptance, not a signed
+installer, installed node change or combined runtime acceptance.
+
+Android run `44299001483` at `2a299374` now passes both native ABIs and all 52
+instrumentation cases on each of API 35 and API 36. The previous API 35 dependency
+resolution failure did not recur; no dependency version or retry policy changed.
