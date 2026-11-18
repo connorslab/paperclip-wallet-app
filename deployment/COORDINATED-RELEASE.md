@@ -21,8 +21,8 @@ checks and their limits.
 
 | Area | Verified in the current test pass | Still required |
 | --- | --- | --- |
-| iOS | 123 shared Swift tests; 17 safe UI cases on both regular-phone and open-Duo simulators | Physical signer, camera, accessibility and interrupted/folded payment acceptance; final signed candidate and upgrade |
-| Android | 100 JVM tests (four live cases excluded); 47 instrumentation cases across 18 classes on local API 35 ARM64; 48 cases on each of API 35/36 CI at `a04a3e4`, including the new large-text Jars navigation case, visibility and emulator-health checks; authenticated CLN/LND reads and pin rejection | Final release identity, Play/APK upgrade compatibility and physical/foldable acceptance |
+| iOS | 129 shared Swift tests; two isolated native Keychain recovery cases; 17 safe UI cases on both regular-phone and open-Duo simulators | Physical signer, camera, accessibility and interrupted/folded payment acceptance; final signed candidate and upgrade |
+| Android | 111 JVM tests (four live cases excluded); 47 instrumentation cases across 18 classes on local API 35 ARM64; 48 cases on each of API 35/36 CI at `a04a3e4`, including the new large-text Jars navigation case, visibility and emulator-health checks; authenticated CLN/LND reads and pin rejection | Final release identity, Play/APK upgrade compatibility and physical/foldable acceptance |
 | Shared desktop UI | All 17 existing browser-flow suites plus entropy, transport and QR checks; phone, foldable and desktop widths where each suite defines them | Installed-host and native desktop acceptance; accept multiple-hot-wallet profiles and hardware-funded Ark workflows |
 | StartOS/Umbrel | Shared REST checks, authenticated CLN/LND reads; both StartOS candidate architectures built and source/checksums checked | Complete backup/restore, candidate installation, bundled Jam pairing/revocation/Tor and upgrades; matching frozen wrappers |
 | Linux/macOS/Windows | Isolated Apple Silicon and Linux daemon authentication, duplicate-instance rejection and crash/restart; macOS bundled Tor/Jars/helper runtime passes 15 relocated isolation cases; Linux bundled Tor/Jars passes TLS/proxy, relocation, frozen-window and Chromium checks; Windows native storage/ownership and bundled Tor/Jars/wallet/window lifecycle pass at `47f2cb77`, including saved-node setup/replacement controller checks | Installed browser/accessibility and bundled-Tor/Jars acceptance; supported OS matrix, signed installers, notarization and clean install/upgrade tests |
@@ -66,7 +66,9 @@ coordinated scope is iOS, Android, StartOS, Umbrel, Linux, macOS and Windows.
    restore, wrong-wallet rejection and interruption without replay or restored
    spending approval. Accept the new typed fresh-Lightning rejection path on
    final candidates and finish recovery of older receipts without an exact
-   payment reference.
+   payment reference. Mobile pending-node records now bind the endpoint and
+   implementation, and older unbound records require an explicit original-node
+   review before read-only reconciliation. This is not the portable envelope.
 4. **Accept the installed server packages.** On both StartOS and Umbrel, verify
    install, restricted CLN/LND RPC access, Tor/TLS, phone pairing and revocation,
    maker ownership, shutdown and restart. Complete full-volume backup/restore,
@@ -4121,3 +4123,26 @@ full Windows `44272566190`, Linux/Lightning `44272566221`, macOS shell
 `44272566326` and native Tor `44272566121` all pass. Windows prerequisite
 `44271974660` also passes. These results do not replace installed-host or signed
 release acceptance.
+
+
+### Mobile pending-node recovery binding — 2026-11-18
+
+iOS now saves the node endpoint and implementation with both ordinary outgoing Lightning attempts and
+node-funded Bridge payments, matching Android's existing binding.
+Neither app queries an unbound legacy attempt until the user confirms its
+original node. The review preserves the invoice, hash and uncertain outcome;
+it grants status lookup only. A changed payment or saved connection invalidates
+the review, and an already bound attempt cannot be reassigned. Recovery records
+do not copy credentials. Android also renders older records without an amount
+without crashing.
+
+Validation: all 129 shared Swift tests pass, including three binding cases.
+Android has 111 passing JVM cases and four explicit live-test exclusions,
+including four binding/review cases, and its ARM64 debug APK builds. Two native
+iOS tests pass in the separate simulator host and Keychain group: unbound and
+wrong-node attempts issue no request or clear, and a stale review preserves the
+changed stored attempt. These use synthetic records and loopback configuration,
+not real nodes or a funded wallet. The native simulator app and unsigned ARM64 iOS Release app build; this is
+not physical-device, interactive review-dialog or live settlement acceptance.
+The wallet-bound portable backup envelope and cross-platform restore acceptance
+remain open.

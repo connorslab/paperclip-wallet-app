@@ -262,16 +262,22 @@ class LightningModel(app: Application) : AndroidViewModel(app) {
 
 	fun checkPayment() = work { checkStored() }
 
+	fun assignOriginalNode(reviewed: String, connection: NodeConnection) = work {
+		val current = read("lightning-pending") ?: error("Saved payment changed. Review it again")
+		val saved = read("lightning-connection")?.let(NodeConnection::from)
+		check(mutable.value.connected && node != null && saved == mutable.value.connection) {
+			"The payment or connection changed. Reconnect and review the original node again"
+		}
+		val assigned = NodePaymentBinding.assignReviewed(current, reviewed, mutable.value.connection, connection)
+		save("lightning-pending", assigned)
+		change { it.copy(pending = assigned, message = "Original node saved. Check the payment without resending.") }
+	}
+
 	private suspend fun checkStored() {
 		val p = read("lightning-pending") ?: return
 		change { it.copy(pending = p) }
 		val c = mutable.value.connection
-		require(
-			p.getString("endpoint") == c.endpoint &&
-				p.getString("implementation") == c.implementation,
-		) {
-			"Reconnect the original node to check this payment"
-		}
+		NodePaymentBinding.requireMatches(p, c)
 		applyResult(checkNotNull(node).track(p.getString("hash")))
 	}
 

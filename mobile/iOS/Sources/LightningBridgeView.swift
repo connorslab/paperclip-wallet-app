@@ -330,9 +330,9 @@ struct LightningBridgeView: View {
                 // Journal the attempt before either the node request or a possible timeout.
                 try model.beginSubmission(record, connection: connection)
                 fundingTicket = nil
-                do { try payments.record(PendingNodePayment(invoice: record.quote.hold_invoice, hash: record.id)) }
+                do { try payments.record(PendingNodePayment(invoice: record.quote.hold_invoice, hash: record.id, connection: connection)) }
                 catch { try model.update(record.id) { $0.submitted = false; $0.fundingState = "not_sent" }; throw error }
-                payments.useNode(node); reviewedTotal = nil
+                payments.useNode(node, connection: connection); reviewedTotal = nil
                 do {
                     let data = try await node.pay(record.quote.hold_invoice, maximumFee: total - record.quote.pay_sat)
                     try payments.submissionResult(data, hash: record.id, implementation: connection.implementation)

@@ -1,6 +1,33 @@
 import Foundation
 import CoreFoundation
 
+/// Recovery metadata only. Binding an older record never authorizes a payment.
+public struct PendingNodePayment: Codable, Equatable, Sendable {
+    public let invoice: String
+    public let hash: String
+    public let endpoint: String?
+    public let implementation: LightningImplementation?
+    public init(invoice: String, hash: String, connection: LightningConnection) {
+        self.invoice = invoice; self.hash = hash
+        endpoint = connection.endpoint; implementation = connection.implementation
+    }
+    public var needsNodeReview: Bool { endpoint == nil && implementation == nil }
+    public func validate() throws {
+        guard !invoice.isEmpty, invoice.utf8.count <= 16_384,
+              hash.utf8.count == 64, hash.utf8.allSatisfy({ (48...57).contains($0) || (65...70).contains($0) || (97...102).contains($0) }),
+              (endpoint == nil) == (implementation == nil),
+              endpoint.map({ !$0.isEmpty && $0.utf8.count <= 4096 }) ?? true else { throw ConnectionError.response }
+    }
+    public func matches(_ connection: LightningConnection) -> Bool {
+        !needsNodeReview && endpoint == connection.endpoint && implementation == connection.implementation
+    }
+    public func assigningOriginalNode(_ connection: LightningConnection) throws -> Self {
+        try validate(); try connection.validate()
+        guard needsNodeReview else { throw ConnectionError.response }
+        return Self(invoice: invoice, hash: hash, connection: connection)
+    }
+}
+
 public struct LightningPaymentReview: Equatable, Sendable {
     public let hash: String
     public let millisatoshis: UInt64

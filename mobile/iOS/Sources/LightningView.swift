@@ -43,6 +43,9 @@ struct LightningView: View {
     @State private var receipt: PaymentReceipt?
     @State private var clearingAttempt = false
     @State private var clearingHash: String?
+    @State private var nodeReview: PendingNodePayment?
+    @State private var reviewedNode: LightningConnection?
+    @State private var confirmingOriginalNode = false
     @ObservedObject private var payments = LightningPaymentMonitor.shared
     @ObservedObject private var bridgeReceives = LightningBridgeReceiveModel.shared
     private var pending: PendingNodePayment? { payments.pending }
@@ -364,7 +367,22 @@ struct LightningView: View {
                     Text("This page tracks payments sent from your connected node. For payments sent from Ark, check Activity; receiving an invoice does not create an outgoing payment here.").font(.caption)
                     if payments.checking { ProgressView("Checking with your node…") }
                     if let checked = payments.lastChecked { Text("Last checked \(checked.formatted(date: .omitted, time: .shortened))").font(.caption) }
-                    Button("Check now") { Task { await payments.checkNow() } }.disabled(payments.checking || pending == nil)
+                    if let pending, pending.needsNodeReview {
+                        Text("Confirm which node originally sent this payment. This only enables status checks; it never resends the invoice.").font(.caption)
+                        Button("Confirm original node…") {
+                            nodeReview = pending; reviewedNode = savedConnection; confirmingOriginalNode = true
+                        }.disabled(client == nil || savedConnection != connection || connecting || payments.checking)
+                        .confirmationDialog("Was this payment sent from this node?", isPresented: $confirmingOriginalNode) {
+                            Button("Yes, use this node for status checks") {
+                                do {
+                                    if let nodeReview, let reviewedNode { try payments.assignOriginalNode(nodeReview, connection: reviewedNode) }
+                                } catch { message = error.localizedDescription }
+                                nodeReview = nil; reviewedNode = nil
+                            }
+                        } message: { Text("\(reviewedNode?.implementation.title ?? "Node")\n\(reviewedNode?.endpoint ?? "")\nPayment: \(nodeReview?.hash ?? "")") }
+                    } else {
+                        Button("Check now") { Task { await payments.checkNow() } }.disabled(payments.checking || pending == nil)
+                    }
                     if payments.missingOnNode, let pending {
                         Text("Only clear this attempt after checking that it is not pending or paid on your node. Clearing tracking does not cancel a payment.").font(.caption)
                         Button("Clear saved attempt…") { clearingHash = pending.hash; clearingAttempt = true }
@@ -466,7 +484,7 @@ struct LightningView: View {
         try Task.checkCancellation()
         guard generation == connectionGeneration, selected == connection else { throw CancellationError() }
         if save { try WalletKeychain.save(JSONEncoder().encode(selected), account: configAccount) }
-        savedConnection = selected; nodeNetwork = network; client = node; payments.useNode(node)
+        savedConnection = selected; nodeNetwork = network; client = node; payments.useNode(node, connection: selected)
         nodeName = info["alias"] as? String ?? selected.implementation.title
         lastChecked = Date(); connectionError = ""
         operation = "Refreshing channel balance…"
@@ -540,7 +558,7 @@ struct LightningView: View {
             // Revalidate expiry and bind the saved attempt to the exact reviewed invoice.
             let current = try LightningPaymentReview.decode(await client.decode(invoice), implementation: connection.implementation)
             guard current == reviewedPayment else { throw WalletFailure(message: "Invoice changed or expired. Review again.") }
-            let attempt = PendingNodePayment(invoice: invoice, hash: hash)
+            let attempt = PendingNodePayment(invoice: invoice, hash: hash, connection: connection)
             try payments.record(attempt)
             reviewedHash = nil
             do {

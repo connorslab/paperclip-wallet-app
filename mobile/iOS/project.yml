@@ -83,6 +83,7 @@ targets:
         excludes: [Host.swift, Simulator.entitlements]
       - path: Sources/NativeWallet.swift
       - path: Sources/EmbeddedTor.swift
+      - path: Sources/LightningPaymentMonitor.swift
     dependencies:
       - target: PaperclipNativeTestHost
       - package: PaperclipMobile

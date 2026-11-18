@@ -45,6 +45,14 @@ internal fun NodeLightning(model: LightningModel, initialPage: String = "balance
 	var fee by remember { mutableStateOf(unit.input(100)) }
 	var offer by remember { mutableStateOf(false) }
 	var scanning by remember { mutableStateOf(false) }
+	var nodeReview by remember { mutableStateOf<Pair<String, NodeConnection>?>(null) }
+	nodeReview?.let { review ->
+		AlertDialog(onDismissRequest = { nodeReview = null },
+			title = { Text("Was this payment sent from this node?") },
+			text = { Text("${review.second.implementation.uppercase()}\n${review.second.endpoint}\nPayment: ${org.json.JSONObject(review.first).optString("hash")}\n\nThis only enables status checks; it never resends the invoice.") },
+			confirmButton = { TextButton(onClick = { model.assignOriginalNode(review.first, review.second); nodeReview = null }) { Text("Confirm original node") } },
+			dismissButton = { TextButton(onClick = { nodeReview = null }) { Text("Cancel") } })
+	}
 	if (scanning)
 		QrScanner(onClose = { scanning = false }) { frame ->
 			invoice = PaymentInput.scan(frame).destination
@@ -310,9 +318,15 @@ internal fun NodeLightning(model: LightningModel, initialPage: String = "balance
 								else -> "Payment needs checking"
 							},
 						)
-						Text("Amount: ${unit.displayMsat(nodeAmount(p.get("amount_msat")))}")
-						WalletPrimaryButton(onClick = model::checkPayment, enabled = s.connected && !s.busy) {
-							Text("Check now")
+						val amount = runCatching { nodeAmount(p.get("amount_msat")) }.getOrNull()
+						Text(amount?.let { "Amount: ${unit.displayMsat(it)}" } ?: "Amount unavailable in this older record")
+						if (NodePaymentBinding.needsReview(p)) {
+							Text("This older payment has no saved node identity. Confirm its original node before checking.")
+							WalletPrimaryButton(onClick = { nodeReview = p.toString() to s.connection }, enabled = s.connected && !s.busy) {
+								Text("Confirm original node…")
+							}
+						} else {
+							WalletPrimaryButton(onClick = model::checkPayment, enabled = s.connected && !s.busy) { Text("Check now") }
 						}
 					}
 					Text(
