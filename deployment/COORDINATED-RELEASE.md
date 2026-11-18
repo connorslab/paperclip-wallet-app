@@ -25,9 +25,9 @@ checks and their limits.
 | Android | 100 JVM tests (four live cases excluded); 47 instrumentation cases across 18 classes on local API 35 ARM64; 48 cases on each of API 35/36 CI at `a04a3e4`, including the new large-text Jars navigation case, visibility and emulator-health checks; authenticated CLN/LND reads and pin rejection | Final release identity, Play/APK upgrade compatibility and physical/foldable acceptance |
 | Shared desktop UI | All 17 existing browser-flow suites plus entropy, transport and QR checks; phone, foldable and desktop widths where each suite defines them | Installed-host and native desktop acceptance; accept multiple-hot-wallet profiles and hardware-funded Ark workflows |
 | StartOS/Umbrel | Shared REST checks, authenticated CLN/LND reads; both StartOS candidate architectures built and source/checksums checked | Complete backup/restore, candidate installation, bundled Jam pairing/revocation/Tor and upgrades; matching frozen wrappers |
-| Linux/macOS/Windows | Isolated Apple Silicon and Linux daemon authentication, duplicate-instance rejection and crash/restart; macOS bundled Tor/Jars/helper runtime passes 15 relocated isolation cases; Linux bundled Tor/Jars passes TLS/proxy, relocation, frozen-window and Chromium checks; Windows native storage/ownership and bundled Tor/Jars/wallet/window lifecycle pass at `193ae47` | Installed browser/accessibility acceptance; guided node-RPC setup and installed bundled-Tor/Jars acceptance; supported OS matrix, signed installers, notarization and clean install/upgrade tests |
+| Linux/macOS/Windows | Isolated Apple Silicon and Linux daemon authentication, duplicate-instance rejection and crash/restart; macOS bundled Tor/Jars/helper runtime passes 15 relocated isolation cases; Linux bundled Tor/Jars passes TLS/proxy, relocation, frozen-window and Chromium checks; Windows native storage/ownership and bundled Tor/Jars/wallet/window lifecycle pass at `47f2cb77`, including saved-node setup/replacement controller checks | Installed browser/accessibility and bundled-Tor/Jars acceptance; supported OS matrix, signed installers, notarization and clean install/upgrade tests |
 | Jars | Reviewed direct/CoinJoin toggle and bond funding/withdrawal clients; pinned signer, API, bond and interrupted-submission checks; encrypted Jam volume restore on a synthetic chain | Live CoinJoin, direct-send and bond-funding/withdrawal acceptance, installed payment-pairing acceptance, live maker and physical QR signer acceptance |
-| Payments and recovery | 297 shared wallet tests and 53 mobile Rust tests, exact-cost/RBF/unknown-outcome checks; unified-signature and Electrum-header checks | Live BOLT12/Ark/Bridge settlement, portable recovery/restore and current-source XBT consensus acceptance |
+| Payments and recovery | 297 shared wallet tests and 54 mobile Rust tests (one external Electrum case excluded), exact-cost/RBF/unknown-outcome and secondary-account restore checks; unified-signature and Electrum-header checks | Live BOLT12/Ark/Bridge settlement, portable recovery/restore and current-source XBT consensus acceptance |
 
 ### Open release gates — consolidated 2026-11-17
 
@@ -55,8 +55,10 @@ coordinated scope is iOS, Android, StartOS, Umbrel, Linux, macOS and Windows.
    Linux/Windows shell; macOS synthetic-node and relocated package checks pass.
    The saved-node review/change flow is implemented in AppKit and the shared
    Linux/Windows shell, including clean shutdown before editing and a separate
-   replacement confirmation. Complete native Linux/Windows acceptance of this
-   latest UI and combined installed Jam/Tor runtime acceptance. No external Python or
+   replacement confirmation. Full Windows package run `44272566190` passes at
+   `47f2cb77`, as does Linux/Lightning package run `44272566221`. Complete native
+   Windows review-dialog interaction and combined installed Jam/Tor runtime
+   acceptance. No external Python or
    separate Kilombino app may be required for the bundled-host promise.
 3. **Complete portable recovery.** Finish the wallet-bound recovery envelope for
    older app warnings, remote-node records and Bridge conversions, with an
@@ -4092,3 +4094,30 @@ frozen macOS controller suites each pass all 12 cases. Native AppKit uses the sa
 uncertainty wording for an in-flight cancellation; the rebuilt app compiles and
 passes strict deep signature verification. This does not change payment or node
 retry policy.
+
+## Mobile backup account validation — 2026-11-18
+
+The shared iOS/Android restore validator now checks the saved on-chain account
+selection and the main SegWit account's descriptors, even when Taproot is active.
+Previously, checking a backup validated only the Taproot account: an invalid
+selection could pass the check and then fail when installing the restored
+profile, while a wrong-wallet SegWit account could remain undiscovered until an
+account switch. The regression reproduced the invalid-selection acceptance
+before the fix. Selected and inactive foreign SegWit fixtures are now rejected
+before installation, with a fixed message that excludes descriptor contents.
+The open wallet is preserved and rejected staging directories are removed.
+
+The complete mobile Rust suite passes 54 tests; the existing live Electrum test
+remains explicitly excluded because it requires its external test endpoint.
+The existing valid SegWit balance/restore, old snapshot, wrong-key and pending
+payment/replay-protection tests also pass. Android ARM64 native compilation and
+the native Apple device release-library build both pass.
+This changes validation without changing the encrypted backup format. It does
+not complete portable recovery of app warnings, remote-node or Bridge records,
+or establish physical-device restoration acceptance.
+
+Desktop validation at `47f2cb77` is complete for the recorded automated runs:
+full Windows `44272566190`, Linux/Lightning `44272566221`, macOS shell
+`44272566326` and native Tor `44272566121` all pass. Windows prerequisite
+`44271974660` also passes. These results do not replace installed-host or signed
+release acceptance.

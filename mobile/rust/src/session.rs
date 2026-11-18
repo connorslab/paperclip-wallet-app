@@ -66,7 +66,9 @@ fn account_setting(dir: &std::path::Path, set: Option<&str>) -> anyhow::Result<S
 		ensure!(["taproot", "segwit"].contains(&kind), "invalid on-chain account");
 		c.execute("INSERT OR REPLACE INTO paperclip_account VALUES(1,?1)", [kind])?;
 	}
-	Ok(c.query_row("SELECT kind FROM paperclip_account WHERE id=1", [], |r| r.get(0)).optional()?.unwrap_or_else(|| "taproot".into()))
+	let kind: String = c.query_row("SELECT kind FROM paperclip_account WHERE id=1", [], |r| r.get(0)).optional()?.unwrap_or_else(|| "taproot".into());
+	ensure!(["taproot", "segwit"].contains(&kind.as_str()), "invalid saved on-chain account");
+	Ok(kind)
 }
 async fn mobile_onchain(dir: &std::path::Path, network: Network, seed: [u8;64], db: Arc<SqliteClient>, kind: &str) -> anyhow::Result<OnchainWallet> {
 	if kind == "segwit" {
@@ -302,6 +304,46 @@ mod tests {
 			}
 			std::fs::remove_file(path).unwrap();
 		});
+	}
+
+	#[test]
+	fn backup_check_rejects_damaged_or_foreign_secondary_accounts() {
+		let base = tempfile::tempdir().unwrap();
+		let seed = [63;64];
+		let mut foreign = None;
+		let foreign_dir = base.path().join("foreign");
+		dispatch(&mut foreign, json!({"op":"create","directory":foreign_dir,"network":"xbt-regtest"}), [64;64]).unwrap();
+		dispatch(&mut foreign, json!({"op":"select_onchain_account","account":"segwit"}), [64;64]).unwrap();
+		dispatch(&mut foreign, json!({"op":"address_onchain"}), [64;64]).unwrap();
+		let foreign_conn = rusqlite::Connection::open(foreign_dir.join("db.sqlite")).unwrap();
+		let foreign_changes: String = foreign_conn.query_row("SELECT changes FROM named_bdk_account WHERE name='main-bip84'", [], |row| row.get(0)).unwrap();
+		for failure in ["invalid-selection", "selected-segwit", "inactive-segwit"] {
+			let dir = base.path().join(failure);
+			let mut state = None;
+			dispatch(&mut state, json!({"op":"create","directory":dir,"network":"xbt-regtest"}), seed).unwrap();
+			dispatch(&mut state, json!({"op":"address_onchain"}), seed).unwrap();
+			dispatch(&mut state, json!({"op":"select_onchain_account","account":"segwit"}), seed).unwrap();
+			dispatch(&mut state, json!({"op":"address_onchain"}), seed).unwrap();
+			let before = state.as_ref().unwrap().onchain.clone();
+			let conn = rusqlite::Connection::open(dir.join("db.sqlite")).unwrap();
+			if failure == "invalid-selection" {
+				conn.execute("UPDATE paperclip_account SET kind='unsupported'", []).unwrap();
+			} else {
+				conn.execute("UPDATE named_bdk_account SET changes=?1 WHERE name='main-bip84'", [&foreign_changes]).unwrap();
+				if failure == "inactive-segwit" { conn.execute("UPDATE paperclip_account SET kind='taproot'", []).unwrap(); }
+			}
+			let backup = dispatch(&mut state, json!({"op":"backup"}), seed).unwrap();
+			let rejected = dispatch(&mut state, json!({"op":"verify_backup","directory":base.path(),"network":"xbt-regtest","database":backup["database"]}), seed).expect_err("Damaged accounts must fail before replacing a profile");
+			if failure != "invalid-selection" { assert_eq!(format!("{rejected:#}"), "Backup SegWit account does not match its key or needs recovery"); }
+			assert!(Arc::ptr_eq(&state.as_ref().unwrap().onchain, &before), "Checking a rejected archive must leave the active account open");
+			let restored = base.path().join(format!("restore-{failure}"));
+			assert!(dispatch(&mut None, json!({"op":"restore","directory":restored,"network":"xbt-regtest","database":backup["database"]}), seed).is_err());
+			assert!(!restored.exists());
+		}
+		assert!(!std::fs::read_dir(base.path()).unwrap().any(|entry| {
+			let name = entry.unwrap().file_name(); let name = name.to_string_lossy();
+			name.starts_with("backup-check-") || name.starts_with("restore-staging-")
+		}));
 	}
 
 	#[test]
@@ -703,6 +745,18 @@ pub fn dispatch(state: &mut Option<Session>, request: Value, seed: [u8; 64]) -> 
 			ensure!(properties.network == network && properties.fingerprint == WalletSeed::new_from_seed(network, &seed).fingerprint(),
 				"backup key or network mismatch");
 			OnchainWallet::load_or_create(network, seed, db.clone()).await?;
+			// Verify secondary account descriptors even when Taproot is selected.
+			// A successful backup check must not defer a wrong-key/schema failure
+			// until after profile installation or the next account switch.
+			let selected = account_setting(staging.path(), None)?;
+			let conn = rusqlite::Connection::open(&dbpath)?;
+			let named: bool = conn.query_row("SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE name='named_bdk_account')", [], |row| row.get(0))?;
+			let saved_segwit = named && conn.query_row("SELECT EXISTS(SELECT 1 FROM named_bdk_account WHERE name='main-bip84')", [], |row| row.get::<_, bool>(0))?;
+			drop(conn);
+			if selected == "segwit" || saved_segwit {
+				mobile_onchain(staging.path(), network, seed, db.clone(), "segwit").await
+					.map_err(|_| anyhow::anyhow!("Backup SegWit account does not match its key or needs recovery"))?;
+			}
 			anyhow::Ok(())
 		})?;
 		payment_attempt::load(staging.path(), &payment_attempt::owner(network, &seed))?;
