@@ -57,4 +57,54 @@ final class NodePaymentRecoveryTests: XCTestCase {
         XCTAssertThrowsError(try monitor.assignOriginalNode(reviewed, connection: connection()))
         XCTAssertEqual(try WalletKeychain.read(pendingKey), changed)
     }
+    @MainActor func testLateTerminalResponseCannotClearReplacedRecord() throws {
+        try prepare(); defer { clean() }
+        let original = PendingNodePayment(invoice: "synthetic-invoice", hash: String(repeating: "12", count: 32), connection: connection())
+        try WalletKeychain.save(JSONEncoder().encode(original), account: pendingKey)
+        let monitor = LightningPaymentMonitor(); monitor.load()
+        // Even the same hash is insufficient when another recovery field changed.
+        let replacement = PendingNodePayment(invoice: "changed-invoice", hash: original.hash, connection: connection())
+        let changed = try JSONEncoder().encode(replacement)
+        try WalletKeychain.save(changed, account: pendingKey)
+        let response = try JSONSerialization.data(withJSONObject: ["payment_hash": original.hash, "status": "SUCCEEDED"])
+        XCTAssertThrowsError(try monitor.submissionResult(response, hash: original.hash, implementation: .lnd))
+        XCTAssertEqual(try WalletKeychain.read(pendingKey), changed)
+        XCTAssertEqual(monitor.pending, original)
+        XCTAssertTrue(monitor.completedHash.isEmpty)
+    }
+    @MainActor func testNewAttemptCannotOverwriteRecordAddedSinceLoad() throws {
+        try prepare(); defer { clean() }
+        let monitor = LightningPaymentMonitor(); monitor.load()
+        let changed = try legacy()
+        try WalletKeychain.save(changed, account: pendingKey)
+        let attempt = PendingNodePayment(invoice: "new-invoice", hash: String(repeating: "34", count: 32), connection: connection())
+        XCTAssertThrowsError(try monitor.record(attempt))
+        XCTAssertEqual(try WalletKeychain.read(pendingKey), changed)
+    }
+    @MainActor func testUnchangedTerminalResponseStillClearsOriginalAttempt() throws {
+        try prepare(); defer { clean() }
+        let original = PendingNodePayment(invoice: "synthetic-invoice", hash: String(repeating: "12", count: 32), connection: connection())
+        try WalletKeychain.save(JSONEncoder().encode(original), account: pendingKey)
+        let monitor = LightningPaymentMonitor(); monitor.load()
+        let response = try JSONSerialization.data(withJSONObject: ["payment_hash": original.hash, "status": "SUCCEEDED"])
+        try monitor.submissionResult(response, hash: original.hash, implementation: .lnd)
+        XCTAssertNil(monitor.pending)
+        XCTAssertEqual(monitor.completedHash, original.hash)
+        XCTAssertEqual(try WalletKeychain.read(pendingKey), Data())
+    }
+    @MainActor func testChangedDurableRecordPreventsStatusRequest() async throws {
+        try prepare(); defer { clean() }
+        let original = PendingNodePayment(invoice: "synthetic-invoice", hash: String(repeating: "12", count: 32), connection: connection())
+        try WalletKeychain.save(JSONEncoder().encode(original), account: pendingKey)
+        let monitor = LightningPaymentMonitor(); monitor.load()
+        monitor.useNode(try LightningNode(connection: connection(), diagnostics: { event in
+            if case .requestStarted = event { XCTFail("Stale cached recovery must not query a node") }
+        }), connection: connection())
+        let changed = try legacy("34")
+        try WalletKeychain.save(changed, account: pendingKey)
+        await monitor.checkNow()
+        XCTAssertEqual(try WalletKeychain.read(pendingKey), changed)
+        XCTAssertNil(monitor.lastChecked); XCTAssertFalse(monitor.missingOnNode)
+        XCTAssertTrue(monitor.status.contains("saved payment changed"))
+    }
 }

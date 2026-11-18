@@ -49,4 +49,21 @@ class NodePaymentBindingTest {
 			}
 		}
 	}
+
+	@Test fun lateResponseRequiresTheEntireCurrentRecordAndConnection() {
+		val original = NodePaymentBinding.assign(legacy(), connection)
+		val expected = original.toString()
+		NodePaymentBinding.requireCurrent(JSONObject(expected), expected, connection, connection)
+		for ((key, value) in listOf("invoice" to "changed", "state" to "succeeded", "endpoint" to "https://other.example")) {
+			val changed = JSONObject(expected).put(key, value)
+			val before = changed.toString()
+			assertThrows(IllegalStateException::class.java) { NodePaymentBinding.requireCurrent(changed, expected, connection, connection) }
+			assertEquals(before, changed.toString())
+		}
+		assertThrows(IllegalStateException::class.java) { NodePaymentBinding.requireCurrent(null, expected, connection, connection) }
+		assertThrows(IllegalStateException::class.java) { NodePaymentBinding.requireCurrent(original, expected, null, connection) }
+		assertThrows(IllegalStateException::class.java) {
+			NodePaymentBinding.requireCurrent(original, expected, connection.copy(credential = "ccdd"), connection)
+		}
+	}
 }

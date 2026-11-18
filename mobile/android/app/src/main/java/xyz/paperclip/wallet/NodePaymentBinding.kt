@@ -24,7 +24,13 @@ internal object NodePaymentBinding {
 	}
 
 	fun assignReviewed(record: JSONObject, reviewed: String, connection: NodeConnection, reviewedConnection: NodeConnection): JSONObject {
-		check(record.toString() == reviewed && connection == reviewedConnection) { "The payment or connection changed. Review the original node again" }
+		requireCurrent(record, reviewed, connection, reviewedConnection)
 		return assign(record, connection)
+	}
+
+	fun requireCurrent(record: JSONObject?, expected: String, connection: NodeConnection?, expectedConnection: NodeConnection) {
+		check(record?.toString() == expected && connection == expectedConnection) {
+			"The saved payment or node connection changed. Reopen Payment status before checking again"
+		}
 	}
 }

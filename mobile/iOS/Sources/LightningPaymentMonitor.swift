@@ -35,14 +35,16 @@ import PaperclipMobile
         }
         return try JSONDecoder().decode(LightningConnection.self, from: data)
     }
+    private func storedAttempt() throws -> PendingNodePayment? {
+        guard let data = try WalletKeychain.read(pendingAccount), !data.isEmpty else { return nil }
+        return try JSONDecoder().decode(PendingNodePayment.self, from: data)
+    }
     private func stillCurrent(_ attempt: PendingNodePayment, connection: LightningConnection) throws -> Bool {
-        guard pending == attempt else { return false }
+        guard pending == attempt, try storedAttempt() == attempt else { return false }
         return try savedConnection() == connection
     }
     func assignOriginalNode(_ reviewed: PendingNodePayment, connection: LightningConnection) throws {
-        let stored = try WalletKeychain.read(pendingAccount).flatMap { data in
-            data.isEmpty ? nil : try JSONDecoder().decode(PendingNodePayment.self, from: data)
-        }
+        let stored = try storedAttempt()
         guard storageLoaded, !checking, !submitting, pending == reviewed,
               stored == reviewed, node != nil, nodeConnection == connection, try savedConnection() == connection else {
             throw WalletFailure(message: "The payment or connection changed. Reconnect and review the original node again.")
@@ -53,7 +55,7 @@ import PaperclipMobile
         status = "Original node saved. Check the payment without resending."
     }
     func record(_ attempt: PendingNodePayment) throws {
-        guard storageLoaded, pending == nil else { throw WalletFailure(message: "A saved payment must be checked before sending.") }
+        guard storageLoaded, pending == nil, try storedAttempt() == nil else { throw WalletFailure(message: "A saved payment must be checked before sending.") }
         try attempt.validate()
         guard attempt.matches(try savedConnection()) else { throw WalletFailure(message: "The node connection changed. Review the payment again.") }
         try WalletKeychain.save(JSONEncoder().encode(attempt), account: pendingAccount)
@@ -74,9 +76,14 @@ import PaperclipMobile
         return true
     }
     private func finish(hash: String, terminal: String) throws {
-        guard pending?.hash == hash else { return }
+        guard let pending, pending.hash == hash else { return }
+        // The hash alone does not identify a reviewed recovery record. Read
+        // durable state again before deleting it, including submission replies.
+        guard try storedAttempt() == pending else {
+            throw WalletFailure(message: "The saved payment changed. Reopen Paperclip before checking its status again.")
+        }
         try WalletKeychain.save(Data(), account: pendingAccount)
-        pending = nil; missingOnNode = false; completedHash = hash
+        self.pending = nil; missingOnNode = false; completedHash = hash
         status = terminal == "succeeded" ? "Payment successful." : "Payment failed. Your node confirmed it did not complete."
     }
     func clearMissingAttempt(hash: String) throws {
@@ -107,6 +114,9 @@ import PaperclipMobile
         var checkedConnection: LightningConnection?
         do {
             try attempt.validate()
+            guard try storedAttempt() == attempt else {
+                throw WalletFailure(message: "The saved payment changed. Reopen Paperclip before checking its status again.")
+            }
             if attempt.needsNodeReview {
                 missingOnNode = false
                 status = "This older payment has no saved node identity. Confirm its original node in Payment status before checking."
@@ -132,7 +142,9 @@ import PaperclipMobile
                 terminal = try LightningPaymentState.terminalState(in: response, hash: attempt.hash, implementation: implementation)
             }
             try Task.checkCancellation()
-            guard try stillCurrent(attempt, connection: saved) else { return }
+            guard try stillCurrent(attempt, connection: saved) else {
+                throw WalletFailure(message: "The saved payment or node connection changed. Reopen Paperclip before checking again.")
+            }
             missingOnNode = false; lastChecked = Date()
             if let terminal { try finish(hash: attempt.hash, terminal: terminal) }
             else { status = "Payment is still in progress on your node. You can leave this page; Paperclip will check without resending." }

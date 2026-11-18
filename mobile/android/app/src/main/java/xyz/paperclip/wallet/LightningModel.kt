@@ -242,15 +242,20 @@ class LightningModel(app: Application) : AndroidViewModel(app) {
 				.put("implementation", c.implementation)
 		save("lightning-pending", pending)
 		change { it.copy(pending = pending, review = null) }
+		val expected = pending.toString()
 		try {
-			applyResult(checkNotNull(node).pay(r))
+			applyResult(checkNotNull(node).pay(r), expected, c)
 		} finally {
 			startPolling()
 		}
 	}
 
-	private suspend fun applyResult(response: JSONObject) {
-		val pending = mutable.value.pending ?: return
+	private suspend fun applyResult(response: JSONObject, expected: String, connection: NodeConnection) {
+		NodePaymentBinding.requireCurrent(mutable.value.pending, expected, mutable.value.connection, connection)
+		val pending = read("lightning-pending")
+		val saved = read("lightning-connection")?.let(NodeConnection::from)
+		NodePaymentBinding.requireCurrent(pending, expected, saved, connection)
+		checkNotNull(pending)
 		val hash = pending.getString("hash")
 		val status = NodePaymentStatus.decode(response, hash) ?: return
 		val terminal = status in listOf("succeeded", "failed")
@@ -278,7 +283,9 @@ class LightningModel(app: Application) : AndroidViewModel(app) {
 		change { it.copy(pending = p) }
 		val c = mutable.value.connection
 		NodePaymentBinding.requireMatches(p, c)
-		applyResult(checkNotNull(node).track(p.getString("hash")))
+		NodePaymentBinding.requireCurrent(p, p.toString(), read("lightning-connection")?.let(NodeConnection::from), c)
+		val expected = p.toString()
+		applyResult(checkNotNull(node).track(p.getString("hash")), expected, c)
 	}
 
 	private fun startPolling() {
