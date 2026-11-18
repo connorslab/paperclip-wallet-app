@@ -72,7 +72,7 @@ class NodeFixture(unittest.TestCase):
                 for key, value in owner.extra_headers.items(): self.send_header(key, value)
                 self.send_header('Content-Length', str(len(body))); self.end_headers()
                 try: self.wfile.write(body)
-                except (BrokenPipeError, ConnectionResetError): pass
+                except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError): pass
         return self.serve(Handler, context)
 
     def settings(self, endpoint, **extras):

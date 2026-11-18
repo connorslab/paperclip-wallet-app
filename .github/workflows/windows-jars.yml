@@ -114,11 +114,7 @@ jobs:
         run: |
           $env:PYTHONPATH = "$env:GITHUB_WORKSPACE/deployment/jam;$env:GITHUB_WORKSPACE/deployment/desktop"
           $env:PAPERCLIP_NODE_CHECK_EXECUTABLE = "$env:RUNNER_TEMP/jars-bundle/PaperclipJars/PaperclipJars.exe"
-          & $env:JARS_PYTHON deployment/jam/test_node_setup.py -v
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          & $env:JARS_PYTHON deployment/jam/test_node_store.py -v
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          & $env:JARS_PYTHON deployment/jam/test_node_rpc.py -v
+          & $env:JARS_PYTHON -m unittest discover -s deployment/jam -p 'test_node_*.py' -v
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Select the reviewed Rust toolchain

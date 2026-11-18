@@ -53,7 +53,7 @@ class NativeRPC(NodeFixture):
                 for k,v in owner.extra_headers.items(): self.send_header(k,v)
                 self.send_header('Content-Length',str(len(data))); self.end_headers()
                 try: self.wfile.write(data)
-                except (BrokenPipeError,ConnectionResetError): pass
+                except (BrokenPipeError,ConnectionResetError,ConnectionAbortedError): pass
         return self.serve(Handler, context)
 
     def filtered(self, settings, socks=None):

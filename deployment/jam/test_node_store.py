@@ -80,7 +80,14 @@ class StoreTests(NodeFixture):
         self.assertNotIn(b'synthetic-secret', result.stderr)
         self.assertEqual(self.stored(root), before)
         self.assertEqual([call[0]['method'] for call in self.calls], ['getblockchaininfo'])
-        self.assertEqual(set(p.name for p in root.iterdir()), {'desktop.lock', node_store.NAME})
+        expected = {'desktop.lock', node_store.NAME}
+        if os.name == 'nt':
+            # Windows runtime startup uses a private TEMP/TMP directory even
+            # when the saved node fails before the Jam app can load state.
+            expected.add('tmp')
+            native.private_directory(root / 'tmp')
+            self.assertEqual(list((root / 'tmp').iterdir()), [])
+        self.assertEqual(set(p.name for p in root.iterdir()), expected)
 
     def test_failed_verification_saves_no_credentials_and_allows_corrected_attempt(self):
         root = self.private_root(); port = self.node(); self.status = 401
