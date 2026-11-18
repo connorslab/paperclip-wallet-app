@@ -112,6 +112,42 @@ class SetupClientTests(NodeFixture):
         with self.assertRaises(StartupError): client.call('--node-status')
         self.assertFalse(self.app.exists())
 
+    def test_cancellation_after_commit_reports_uncertainty_without_replaying(self):
+        client=self.client(); port=self.node()
+        settings={'endpoint':f'http://127.0.0.1:{port}','username':'fixture','password':'synthetic-secret'}
+        spawn=subprocess.Popen
+        identity=None
+        for mode in ('--configure-node','--replace-node'):
+            with self.subTest(mode=mode):
+                processes=[]
+                def lose_reply(*args,**kwargs):
+                    process=spawn(*args,**kwargs)
+                    if mode in args[0]:
+                        communicate=process.communicate
+                        def committed_but_cancelled(data,timeout):
+                            communicate(data,timeout=15)
+                            self.assertEqual(process.returncode,0)
+                            self.stopping.set()
+                            raise subprocess.TimeoutExpired('node setup',timeout)
+                        process.communicate=committed_but_cancelled
+                        processes.append(process)
+                    return process
+                before=len(self.calls)
+                with patch('node_setup_client.subprocess.Popen',side_effect=lose_reply):
+                    with self.assertRaises(StartupError) as error:
+                        client.save(settings,lambda _:None,expected_connection_id=identity,confirmed=True)
+                self.assertIn('Saving may have completed',str(error.exception))
+                self.assertNotIn('synthetic-secret',str(error.exception))
+                self.assertEqual(len(processes),1)
+                self.assertEqual(processes[0].poll(),0)
+                self.assertEqual(len(self.calls),before+2,'An uncertain result must not replay verification')
+                self.stopping.clear()
+                saved=client.inspect()
+                self.assertEqual(saved['state'],'saved')
+                self.assertNotEqual(saved['connection_id'],identity)
+                identity=saved['connection_id']
+                self.assertEqual(len(self.calls),before+2,'Inspection must remain read-only and offline')
+
     def test_cancel_during_node_request_does_not_save_or_automatically_retry(self):
         client = self.client(); port = self.node(); self.delay = 2
         settings = {'endpoint':f'http://127.0.0.1:{port}', 'username':'fixture', 'password':'synthetic-secret'}

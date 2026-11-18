@@ -355,7 +355,7 @@ final class Launcher: NSObject, NSApplicationDelegate, NSWindowDelegate {
 			sendSetup(["action": "skip_jars"]); hideSetup()
 			status.stringValue = "Starting your wallet…"; progress.isHidden = false; progress.startAnimation(nil)
 		} else {
-			failedMessage = "Setup was cancelled. Saved settings were kept."
+			failedMessage = "Setup was cancelled. Saving may have completed. Reopen Jars node settings to check the saved connection."
 			try? input?.fileHandleForWriting.close(); hideSetup(); status.stringValue = "Cancelling setup…"
 		}
 	}

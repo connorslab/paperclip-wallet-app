@@ -43,11 +43,12 @@ class NodeSetupClient:
         environment = {key:os.environ[key] for key in ('PATH','LANG','TMPDIR','SystemRoot','TEMP','TMP') if key in os.environ}
         process = subprocess.Popen(command,env=environment,stdin=subprocess.PIPE,stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,creationflags=subprocess.CREATE_NO_WINDOW if os.name=='nt' else 0)
+        uncertain = ' Saving may have completed. Reopen Jars node settings to check the saved connection.' if mode in ('--configure-node','--replace-node') else ''
         try:
             deadline=time.monotonic()+30
             while True:
-                if self.stopping.is_set(): raise StartupError('Node setup was cancelled. Saved settings were kept.')
-                if time.monotonic()>deadline: raise StartupError('Node verification timed out. Check the connection before trying again.')
+                if self.stopping.is_set(): raise StartupError('Node setup was cancelled.' + uncertain)
+                if time.monotonic()>deadline: raise StartupError('Node verification timed out.' + uncertain)
                 try:
                     output,_=process.communicate(data,timeout=0.1)
                     break
@@ -60,7 +61,7 @@ class NodeSetupClient:
                 raise StartupError(MESSAGES.get(value.get('code'), 'The node could not be verified. Check its address, certificate and connection.'))
             return value
         except (OSError,ValueError):
-            raise StartupError('The bundled node setup helper did not return a valid result.') from None
+            raise StartupError('The bundled node setup helper did not return a valid result.' + uncertain) from None
         finally:
             if process.poll() is None:
                 process.kill(); process.wait(timeout=5)
@@ -148,4 +149,4 @@ def choose_runtime(runtime, root, tor, stopping, receive, emit, *, manage=False)
             if stopping.is_set(): break
             return runtime
         raise StartupError('The setup request was not recognized.')
-    raise StartupError('Node setup was cancelled.')
+    raise StartupError('Node setup was cancelled. Reopen Jars node settings to check the saved connection.')

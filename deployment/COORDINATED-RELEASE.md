@@ -4075,4 +4075,20 @@ Chocolatey's pinned protoc package; the frozen node tests had passed before that
 dependency failure. Commit `d900b1e` fetches the same upstream protoc 36.2 directly,
 checks its published SHA-256, verifies its executable version and supplies its
 compiler/include paths explicitly. The official archive hash and contents were
-verified locally. Windows reruns `44270566816` and `44270566591` are pending.
+verified locally. Windows prerequisite rerun `44270566591` passes. Full run
+`44270566816` passed the corrected dependency step but was superseded by the UI
+revision; it does not establish full-package acceptance. At `2267578f`, native
+macOS shell `44271974619` and native Tor `44271974788` pass. Full Windows
+`44271974670`, Windows prerequisite `44271974660` and Linux/Lightning
+`44271974798` remain in progress.
+
+The node setup controller also treats cancellation, timeout or a lost helper
+reply during a save as potentially committed. It no longer promises that the
+previous settings were kept. A regression completes the actual initial save and
+replacement, discards their replies, and cancels before acknowledgement; each
+operation is saved once, its child is reaped, and offline inspection recovers the
+new connection identity without another node request. The source and rebuilt
+frozen macOS controller suites each pass all 12 cases. Native AppKit uses the same
+uncertainty wording for an in-flight cancellation; the rebuilt app compiles and
+passes strict deep signature verification. This does not change payment or node
+retry policy.
