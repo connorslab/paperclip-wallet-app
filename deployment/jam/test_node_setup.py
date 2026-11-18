@@ -31,11 +31,11 @@ PUBLIC = b'\x01' * 32
 ONION = base64.b32encode(PUBLIC + hashlib.sha3_256(b'.onion checksum' + PUBLIC + b'\x03').digest()[:2] + b'\x03').decode().lower() + '.onion'
 
 
-class Preflight(unittest.TestCase):
+class NodeFixture(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
-        self.root = Path(self.temp.name)
+        self.root = Path(self.temp.name).resolve()
         self.calls = []
         self.status = 200
         self.rewrite = lambda value: value
@@ -148,6 +148,9 @@ class Preflight(unittest.TestCase):
             daemon_threads = True
         return self.start(Server(('127.0.0.1', 0), Socks)), seen
 
+
+
+class Preflight(NodeFixture):
     def test_read_only_mainnet_preflight_and_public_result(self):
         port = self.node()
         result = self.check(self.settings(f'http://127.0.0.1:{port}'))

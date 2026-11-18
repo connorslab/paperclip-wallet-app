@@ -28,6 +28,10 @@ MESSAGES = {
     'invalid_reply': 'The node returned an invalid RPC reply.',
     'wrong_chain': 'Connect to an activated XBT mainnet node.',
     'syncing': 'The node is still synchronizing. Check again when it is ready.',
+    'existing_setup': 'This Jars directory already has configuration or wallet state. Keep its existing connection.',
+    'unsafe_storage': 'The Jars directory is unavailable or is not private.',
+    'setup_in_use': 'Close the running Jars service before saving its node settings.',
+    'storage_failure': 'Node settings could not be saved or read safely. Check saved configuration before trying again.',
 }
 
 
@@ -168,10 +172,12 @@ async def verify(settings, socks_port=None):
         raise NodeSetupError('unavailable') from None
 
 
-def check_pipe(source, destination, socks_port=None):
+def check_pipe(source, destination, socks_port=None, *, admit=None, save=None):
     """One bounded private stdin document; stdout contains only a public result."""
     logging.disable(logging.CRITICAL)
     try:
+        if admit is not None:
+            admit()
         encoded = source.read(MAX_INPUT + 1)
         if len(encoded) > MAX_INPUT:
             raise NodeSetupError('invalid_settings')
@@ -180,6 +186,8 @@ def check_pipe(source, destination, socks_port=None):
         except (ValueError, UnicodeError, TypeError):
             raise NodeSetupError('invalid_settings') from None
         result = asyncio.run(verify(settings, socks_port))
+        if save is not None:
+            result.update(save(settings))
     except NodeSetupError as error:
         result = {'ready': False, 'code': error.code, 'message': str(error)}
     except Exception:
@@ -187,3 +195,9 @@ def check_pipe(source, destination, socks_port=None):
     destination.write(json.dumps(result) + '\n')
     destination.flush()
     return 0 if result['ready'] else 2
+
+
+def report_failure(destination, code):
+    destination.write(json.dumps({'ready': False, 'code': code, 'message': MESSAGES[code]}) + '\n')
+    destination.flush()
+    return 2

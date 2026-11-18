@@ -176,7 +176,9 @@ async def serve(root, tor=None):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--data-dir', type=Path)
-    parser.add_argument('--check-node', action='store_true')
+    setup_mode = parser.add_mutually_exclusive_group()
+    setup_mode.add_argument('--check-node', action='store_true')
+    setup_mode.add_argument('--configure-node', action='store_true')
     parser.add_argument('--tor-socks-port', type=int)
     parser.add_argument('--tor-control-port', type=int)
     parser.add_argument('--tor-cookie-path', type=Path)
@@ -189,6 +191,23 @@ def main():
         return check_pipe(sys.stdin.buffer, sys.stdout, args.tor_socks_port)
     if args.data_dir is None:
         parser.error('Supply the private Jars data directory.')
+    if args.configure_node:
+        if args.tor_control_port is not None or args.tor_cookie_path is not None:
+            parser.error('Node setup does not open the Tor controller.')
+        os.umask(0o077)
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        from paperclip_jam.node_setup import check_pipe, report_failure
+        from paperclip_jam import node_store
+        try:
+            private_directory(args.data_dir)
+            with entry_lock(args.data_dir):
+                return check_pipe(sys.stdin.buffer, sys.stdout, args.tor_socks_port,
+                    admit=lambda: node_store.admit(args.data_dir),
+                    save=lambda settings: node_store.save_initial(args.data_dir, settings))
+        except BlockingIOError:
+            return report_failure(sys.stdout, 'setup_in_use')
+        except (OSError, ValueError):
+            return report_failure(sys.stdout, 'unsafe_storage')
     tor = (args.tor_socks_port, args.tor_control_port, args.tor_cookie_path)
     if any(value is not None for value in tor) and any(value is None for value in tor):
         parser.error('Supply the complete owned Tor binding.')

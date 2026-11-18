@@ -197,10 +197,23 @@ addresses. Onion checks require `tor: true`; the launcher supplies its owned
 redirect, wallet load, rescan or spending RPC is accepted. The full check has a
 20-second deadline and bounded input and response sizes.
 
-This preflight is not a completed node-setup screen. Private configuration
-persistence, connection changes with recovery state, the owned restricted RPC
-runtime and native UI integration remain release work. A successful preflight
-does not establish wallet rescan or payment acceptance on a pruned node.
+For initial setup, `--configure-node --data-dir <private-root>` uses the same
+private input document and verifies the node before it saves credentials. It
+holds the desktop lifetime lock throughout admission, verification and save.
+Existing connections, legacy configuration, wallets, recovery journals and
+unrecognized root contents are refused without replacement. Failed verification
+writes no credentials. The versioned `node-connection.json` is created once with
+owner-only permissions and flushed before acknowledgement. Partial or uncertain
+writes remain for inspection; setup never silently deletes or overwrites them.
+Readers reject malformed, oversized, aliased or permissive records. This private
+file contains RPC credentials and must not be included in public diagnostics.
+
+The save result includes `saved: true` and `active: false`, with a random public
+connection identifier. It does not change `config.toml` or start a node connection.
+Native UI integration, reviewed changes to existing connections and the owned
+restricted RPC runtime remain release work. These helper modes do not complete
+the setup screen. A successful preflight does not establish wallet rescan or
+payment acceptance on a pruned node.
 
 `desktop-entry.py` runs the patched, pinned Jam API as an owned Linux/macOS child.
 It requires an explicit private data directory and the reviewed runtime's Python
