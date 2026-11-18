@@ -1,14 +1,16 @@
 """Native Windows/Tk acceptance with an owned daemon and disposable empty storage."""
 import argparse
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import tkinter as tk
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 from urllib.request import Request, ProxyHandler, build_opener
 
 import win32api
@@ -30,6 +32,98 @@ EXECUTABLE = None
 def private_bytes(path):
     with read_private_file(path) as file:
         return file.read()
+
+
+class NodeReviewDialog(unittest.TestCase):
+    """Exercise real Windows modal buttons; intercept the subsequent setup RPC."""
+    def test_cancel_preserves_edits_and_confirmation_submits_once_without_displaying_password(self):
+        from tkinter import ttk
+        root = tk.Tk()
+        # This narrow dialog fixture owns no daemon, wallet, or saved connection.
+        window = Window.__new__(Window)
+        window.root = root
+        window.replacing_node = True
+        window.action = tk.Button(root)
+        window.progress = ttk.Progressbar(root)
+        window.status = tk.Label(root)
+        window.session = Mock()
+        window.setup_panel = None
+        password = 'public-test-password-not-for-review'
+        try:
+            window.show_setup()
+            window.setup_fields['endpoint'].insert(0, 'https://127.0.0.1:18443')
+            window.setup_fields['username'].insert(0, 'fixture-user')
+            window.setup_fields['password'].insert(0, password)
+            window.setup_tor.set(True)
+            root.update()
+            self.assertTrue(window.setup_panel.winfo_viewable())
+            self.assertTrue(window.setup_fields['password']['show'])
+            for choice in (win32con.IDCANCEL, win32con.IDOK):
+                observed = []
+                errors = []
+                def respond():
+                    handle = None
+                    try:
+                        deadline = time.monotonic() + 10
+                        while handle is None and time.monotonic() < deadline:
+                            matches = []
+                            def inspect(hwnd, _):
+                                if (win32process.GetWindowThreadProcessId(hwnd)[1] == os.getpid()
+                                        and win32gui.IsWindowVisible(hwnd)
+                                        and win32gui.GetClassName(hwnd) == '#32770'
+                                        and win32gui.GetWindowText(hwnd) == 'Review node change'):
+                                    matches.append(hwnd)
+                            win32gui.EnumWindows(inspect, None)
+                            if matches: handle = matches[0]
+                            else: time.sleep(.02)
+                        if handle is None:
+                            errors.append('Native node review dialog did not appear')
+                            # Close only this disposable test window if modal
+                            # discovery fails; never address another process.
+                            win32gui.PostMessage(parent, win32con.WM_CLOSE, 0, 0)
+                            return
+                        labels = []
+                        win32gui.EnumChildWindows(handle, lambda hwnd, _: labels.append(win32gui.GetWindowText(hwnd)), None)
+                        observed.append(' '.join(labels))
+                    except Exception:
+                        errors.append('Could not inspect the native node review dialog')
+                    finally:
+                        if handle is not None:
+                            try:
+                                button = win32gui.GetDlgItem(handle, choice if not errors else win32con.IDCANCEL)
+                                win32gui.PostMessage(button, win32con.BM_CLICK, 0, 0)
+                            except Exception:
+                                errors.append('Could not activate the native review button')
+                                win32gui.PostMessage(handle, win32con.WM_CLOSE, 0, 0)
+                parent = win32gui.GetAncestor(root.winfo_id(), win32con.GA_ROOT)
+                responder = threading.Thread(target=respond, daemon=True)
+                responder.start()
+                window.setup_submit.invoke()
+                responder.join(timeout=12)
+                self.assertFalse(responder.is_alive(), 'Native dialog responder did not finish')
+                self.assertFalse(errors, errors)
+                self.assertEqual(len(observed), 1)
+                self.assertIn('https://127.0.0.1:18443', observed[0])
+                self.assertIn('fixture-user', observed[0])
+                self.assertIn('Tor: On', observed[0])
+                self.assertNotIn(password, observed[0])
+                if choice == win32con.IDCANCEL:
+                    window.session.setup.assert_not_called()
+                    self.assertEqual(window.setup_fields['password'].get(), password)
+                    self.assertEqual(str(window.setup_submit['state']), 'normal')
+                else:
+                    window.session.setup.assert_called_once()
+                    request = window.session.setup.call_args.args[0]
+                    self.assertEqual(request['action'], 'replace_jars')
+                    self.assertIs(request['confirmed'], True)
+                    self.assertTrue(request['settings']['password'] == password)
+                    self.assertEqual(window.setup_fields['password'].get(), '')
+                    self.assertEqual(str(window.setup_submit['state']), 'disabled')
+                    window.setup_submit.invoke()
+                    window.session.setup.assert_called_once()
+        finally:
+            try: root.destroy()
+            except tk.TclError: pass
 
 
 @patch('linux.launcher.ManagedDaemon', DiagnosticDaemon)
@@ -197,9 +291,12 @@ class PreviewWindow(unittest.TestCase):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--binary', required=True, type=Path)
+    parser.add_argument('--binary', type=Path)
     parser.add_argument('--executable', type=Path)
+    parser.add_argument('--dialog-only', action='store_true', help='Test the native review dialog without a wallet daemon')
     args, remaining = parser.parse_known_args()
-    BINARY = args.binary.resolve(strict=True)
+    if not args.dialog_only and args.binary is None:
+        parser.error('--binary is required for daemon and packaged-window tests')
+    BINARY = args.binary.resolve(strict=True) if args.binary else None
     EXECUTABLE = args.executable.resolve(strict=True) if args.executable else None
-    unittest.main(argv=[sys.argv[0]] + remaining)
+    unittest.main(argv=[sys.argv[0]] + remaining, defaultTest='NodeReviewDialog' if args.dialog_only else None)
