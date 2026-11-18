@@ -3436,3 +3436,14 @@ licenses and source/package provenance. Relocated-bundle tests require verified
 loopback TLS, duplicate-child rejection, restart identity preservation and crash
 recovery with no wallet keys or payments. Assembly and frozen-runtime acceptance
 are pending. This candidate is not enabled in Windows previews or published.
+
+### Windows startup sharing-race correction
+
+Native run `44204795646` passed the Jars history cases but failed the profile smoke
+when discovery existed before its writer released the Windows handle. The test
+now waits for readable, validated discovery and authenticated readiness and cleans
+up its owned child on startup failure. The real desktop launcher now retries only
+Windows sharing/lock violations within its existing deadline; access-denied and
+ownership failures still fail closed. Native regression cases cover both paths.
+The unfunded profile smoke and 15 real macOS runner cases pass; native acceptance
+of this correction is pending.

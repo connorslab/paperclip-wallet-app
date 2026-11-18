@@ -1,17 +1,20 @@
 """Native Windows owned-child checks with disposable, unfunded wallet storage."""
 import argparse
+from contextlib import contextmanager
 from pathlib import Path
 import subprocess
 import sys
 import tempfile
 import time
 import unittest
+from unittest.mock import patch
 
 import win32api
 import win32con
 import win32event
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+import managed_daemon
 from managed_daemon import ManagedDaemon, StartupError, default_data_root
 from pipe_io import read_available
 from windows.private_storage import SessionRecord, private_directory, read_private_file
@@ -69,6 +72,42 @@ class WindowsOwnership(unittest.TestCase):
         self.assertTrue(self.read(restarted.data / 'auth_token').strip().decode() == token)
         self.assertFalse((runner.data / 'mnemonic').exists())
 
+    def test_discovery_sharing_conflict_retries_before_authenticated_readiness(self):
+        original = managed_daemon.private_file
+        attempts = []
+        @contextmanager
+        def briefly_owned(path, *args, **kwargs):
+            if path.name == 'barkd.url' and not attempts:
+                attempts.append('busy')
+                error = PermissionError('synthetic writer still owns discovery')
+                error.winerror = 32
+                raise error
+            with original(path, *args, **kwargs) as file:
+                yield file
+        with patch.object(managed_daemon, 'private_file', briefly_owned):
+            runner = self.runner(); runner.start()
+            self.assertEqual(attempts, ['busy'])
+            runner.ensure_running()
+            self.assertTrue(runner.browser_url().startswith(runner.endpoint))
+
+    def test_discovery_permission_failure_is_not_retried(self):
+        original = managed_daemon.private_file
+        attempts = []
+        @contextmanager
+        def denied(path, *args, **kwargs):
+            if path.name == 'barkd.url':
+                attempts.append('denied')
+                error = PermissionError('synthetic access denied')
+                error.winerror = 5
+                raise error
+            with original(path, *args, **kwargs) as file:
+                yield file
+        with patch.object(managed_daemon, 'private_file', denied):
+            runner = self.runner()
+            with self.assertRaises(StartupError):runner.start()
+            self.assertEqual(attempts, ['denied'])
+            self.assertIsNotNone(runner.process.poll())
+
     def test_competing_launcher_cannot_adopt_or_stop_the_owner(self):
         owner = self.runner(); owner.start()
         competing = self.runner()
@@ -107,7 +146,8 @@ class WindowsOwnership(unittest.TestCase):
         self.assertFalse(self.root.exists())
 
     def test_launcher_death_closes_child_lifetime_pipe_and_retains_recovery(self):
-        code = ('from managed_daemon import ManagedDaemon; import sys\n'
+        code = ('import managed_daemon
+from managed_daemon import ManagedDaemon; import sys\n'
                 'runner = ManagedDaemon(sys.argv[1], sys.argv[2]); runner.start()\n'
                 'print(runner.process.pid, flush=True); sys.stdin.buffer.read(1)\n')
         parent = subprocess.Popen([sys.executable, '-c', code, str(BINARY), str(self.root)],

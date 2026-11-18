@@ -1,6 +1,7 @@
 """Unfunded native host profile lifecycle. Never connects to a node or creates keys."""
 import json
 import os
+import re
 from pathlib import Path
 import subprocess
 import sys
@@ -19,13 +20,26 @@ with tempfile.TemporaryDirectory(prefix="paperclip-profiles-") as temporary:
         (root / "barkd.url").unlink(missing_ok=True)
         process = subprocess.Popen([str(binary), "--datadir", str(root), "--port", "0", "--exit-on-stdin-close", "--no-logfile"], stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         deadline = time.monotonic() + 20
-        while not (root / "barkd.url").exists():
-            if process.poll() is not None or time.monotonic() > deadline:
+        try:
+            while time.monotonic() < deadline and process.poll() is None:
+                try:
+                    # Windows can expose the directory entry before its private
+                    # writer releases the handle. Existence is not readiness.
+                    url = (root / "barkd.url").read_text().strip()
+                    token = (root / "auth_token").read_text().strip()
+                    if re.fullmatch(r"http://127\.0\.0\.1:[0-9]+", url) and re.fullmatch(r"[A-Za-z0-9_-]{44}", token):
+                        if request(url, token, "/api/profiles")[0] == 200:
+                            return process, url, token
+                except (OSError, urllib.error.URLError):
+                    pass
+                time.sleep(0.05)
+            raise AssertionError("Isolated profile host failed to become readable and authenticated")
+        except BaseException:
+            if process.poll() is None:
                 process.kill()
-                process.wait()
-                raise AssertionError("Isolated profile host failed to start")
-            time.sleep(0.05)
-        return process, (root / "barkd.url").read_text(), (root / "auth_token").read_text().strip()
+            process.wait()
+            process.stdin.close()
+            raise
 
     def request(url, token, route, body=None, authenticated=True, method=None):
         headers = {"Content-Type": "application/json"}

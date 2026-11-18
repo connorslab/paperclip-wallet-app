@@ -246,6 +246,13 @@ class ManagedDaemon:
                     raise StartupError('The local daemon rejected its authenticated readiness check.') from None
                 except (FileNotFoundError, URLError, TimeoutError):
                     time.sleep(0.05)
+                except OSError as error:
+                    # Windows publishes a private file before its writer closes
+                    # the exclusive handle. Retry sharing/lock races only, never
+                    # turn an ACL or ownership rejection into a startup success.
+                    if os.name != 'nt' or getattr(error, 'winerror', None) not in (32, 33):
+                        raise
+                    time.sleep(0.05)
             raise StartupError('The local wallet service did not become ready in time.')
         except Exception as error:
             self.close()
