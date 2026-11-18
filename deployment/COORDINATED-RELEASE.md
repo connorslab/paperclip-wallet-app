@@ -3820,3 +3820,29 @@ authenticated replies, cookie rotation and process ownership. These results use
 synthetic nodes and disposable wallets. They do not close guided native RPC setup,
 installed-host, live-payment or signed-release acceptance. The source fix is
 mirrored to `feature/android-wallet`. No candidate was published or deployed.
+
+
+### Pruned-node transport authority
+
+At `38691b9`, the shared pruned-node adapter rejects HTTP redirects and ignores
+inherited proxy settings. A synthetic two-server test reproduced authorization
+being forwarded to a different address before the fix. Node URLs now reject
+embedded credentials, fragments and non-HTTP schemes. HTTPS certificate and
+hostname verification remain required. Cookie rotation takes effect on the next
+request. A disconnect or truncated reply reports an unavailable RPC result; a
+broadcast is never repeated automatically. Existing bounded retries apply only
+to busy fee queries.
+
+Native macOS Python 3.13 and run `44244024032` on Linux x86-64 and ARM64 each pass
+23 adapter tests, four managed-chain tests and three Tor-policy tests. The new
+HTTP fixtures cover redirect codes, inherited proxies, cookie rotation and
+interrupted broadcasts. TLS fixtures reject untrusted certificates and hostname
+mismatches before authorization reaches the server, and accept a trusted matching
+certificate. `just checks` passes. The fix is mirrored to `feature/android-wallet`.
+These are isolated transport tests, not installed-host or live-payment acceptance.
+Guided native Jars RPC setup remains open.
+
+The previously pending full Linux package run `44238439507` at `193ae47` and
+Windows bundled Jars run `44241285423` at `ff492143` also completed successfully.
+This adds evidence for their recorded revisions, not a frozen simultaneous
+release. No candidate was deployed or published.
