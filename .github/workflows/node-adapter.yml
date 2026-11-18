@@ -1,0 +1,26 @@
+name: Node adapter transport
+on:
+  workflow_dispatch:
+  push:
+    branches: ['codex/cross-platform-parity']
+    paths: ['deployment/pruned_rpc.py', 'deployment/test_pruned_rpc.py', 'deployment/managed-chain.py', 'deployment/test_managed_chain.py', '.github/workflows/node-adapter.yml']
+  pull_request:
+    paths: ['deployment/pruned_rpc.py', 'deployment/test_pruned_rpc.py', 'deployment/managed-chain.py', 'deployment/test_managed_chain.py', '.github/workflows/node-adapter.yml']
+permissions:
+  contents: read
+jobs:
+  transport:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify node authority, TLS and adapter lifecycle with synthetic nodes
+        run: |
+          openssl version
+          python3 -m unittest discover -s deployment -p test_pruned_rpc.py -v
+          python3 -m unittest discover -s deployment -p test_managed_chain.py -v
+          python3 -m unittest discover -s deployment -p test_node_tor.py -v

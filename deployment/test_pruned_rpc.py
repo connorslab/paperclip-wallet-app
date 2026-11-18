@@ -10,6 +10,11 @@ from decimal import Decimal
 import unittest
 from unittest.mock import patch
 import io
+import os
+import shutil
+import ssl
+import subprocess
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 spec = importlib.util.spec_from_file_location('pruned', Path(__file__).with_name('pruned_rpc.py'))
 module = importlib.util.module_from_spec(spec)
@@ -67,7 +72,7 @@ class TransportTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             cookie = Path(directory) / 'cookie'
             cookie.write_text('user:password')
-            with patch.object(module.urllib.request, 'urlopen', side_effect=responses) as request:
+            with patch.object(module.urllib.request.OpenerDirector, 'open', side_effect=responses) as request:
                 with patch.object(module.time, 'sleep'):
                     result = module.Node('http://localhost', cookie).call(method, [3])
                 return result, request.call_count
@@ -89,7 +94,7 @@ class TransportTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             cookie = Path(directory) / 'cookie'
             cookie.write_text('user:password')
-            with patch.object(module.urllib.request, 'urlopen', return_value=self.response(b'busy', 503)) as request:
+            with patch.object(module.urllib.request.OpenerDirector, 'open', return_value=self.response(b'busy', 503)) as request:
                 with self.assertRaises(module.RpcError):
                     module.Node('http://localhost', cookie).call('sendrawtransaction', ['00'])
                 self.assertEqual(request.call_count, 1)
@@ -103,6 +108,127 @@ class TransportTests(unittest.TestCase):
         with self.assertRaises(module.RpcError) as error:
             self.call([self.response(b'{"result":null,"error":{"code":-5,"message":"missing"}}', 500)])
         self.assertEqual(error.exception.code, -5)
+
+
+class NetworkTransportTests(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+        self.cookie = self.root / 'cookie'
+        self.cookie.write_text('fixture:synthetic-password')
+
+    def serve(self, status=200, location=None, context=None):
+        calls = []
+
+        class Handler(BaseHTTPRequestHandler):
+            def log_message(self, *_args): pass
+
+            def do_GET(self):
+                self.respond()
+
+            def do_POST(self):
+                self.respond()
+
+            def respond(self):
+                body = self.rfile.read(int(self.headers.get('Content-Length', '0')))
+                calls.append((self.command, self.headers.get('Authorization'), body))
+                if status == 'disconnect':
+                    self.close_connection = True
+                    return
+                encoded = b'{"result":true,"error":null}'
+                self.send_response(200 if status == 'truncate' else status)
+                if location is not None:
+                    self.send_header('Location', location)
+                self.send_header('Content-Length', str(len(encoded) + (10 if status == 'truncate' else 0)))
+                self.end_headers()
+                self.wfile.write(encoded)
+
+        server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+        if context is not None:
+            server.socket = context.wrap_socket(server.socket, server_side=True)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        def close():
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=3)
+        self.addCleanup(close)
+        return server.server_port, calls
+
+    def test_redirects_never_forward_credentials_or_repeat_broadcast(self):
+        target, received = self.serve()
+        for status in (301, 302, 303, 307, 308):
+            with self.subTest(status=status):
+                source, sent = self.serve(status, f'http://127.0.0.1:{target}/foreign')
+                node = module.Node(f'http://127.0.0.1:{source}', self.cookie)
+                with self.assertRaisesRegex(module.RpcError, '^Node RPC redirects are not allowed$'):
+                    node.call('sendrawtransaction', ['synthetic-transaction'])
+                self.assertEqual(len(sent), 1)
+                self.assertEqual(sent[0][0], 'POST')
+                self.assertEqual(received, [])
+
+    def test_inherited_proxy_never_receives_node_credentials(self):
+        target, received = self.serve()
+        proxy, intercepted = self.serve()
+        environment = {key: f'http://127.0.0.1:{proxy}' for key in
+            ('http_proxy', 'https_proxy', 'all_proxy', 'HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY')}
+        environment.update(no_proxy='', NO_PROXY='')
+        with patch.dict(os.environ, environment), patch.object(module.urllib.request, 'proxy_bypass', return_value=False):
+            node = module.Node(f'http://127.0.0.1:{target}', self.cookie)
+            self.assertTrue(node.call('getblockchaininfo'))
+        self.assertEqual(intercepted, [])
+        self.assertEqual(len(received), 1)
+        self.assertEqual(received[0][1], 'Basic ' + base64.b64encode(self.cookie.read_bytes()).decode())
+
+    def test_cookie_rotation_uses_new_cookie_on_next_request(self):
+        port, received = self.serve()
+        node = module.Node(f'http://127.0.0.1:{port}', self.cookie)
+        node.call('getblockchaininfo')
+        self.cookie.write_text('fixture:rotated-synthetic-password')
+        node.call('getblockchaininfo')
+        self.assertEqual(len(received), 2)
+        self.assertNotEqual(received[0][1], received[1][1])
+
+    def test_disconnect_after_broadcast_is_unavailable_without_replay(self):
+        for failure in ('disconnect', 'truncate'):
+            with self.subTest(failure=failure):
+                port, received = self.serve(failure)
+                node = module.Node(f'http://127.0.0.1:{port}', self.cookie)
+                with self.assertRaisesRegex(module.RpcError, '^Upstream chain RPC unavailable$'):
+                    node.call('sendrawtransaction', ['synthetic-transaction'])
+                self.assertEqual(len(received), 1)
+
+    def test_invalid_endpoint_does_not_read_cookie_or_connect(self):
+        missing = self.root / 'missing-cookie'
+        for address in ('file:///private', 'ftp://example.invalid', 'http://user:synthetic@example.invalid',
+                'http://example.invalid/#secret', 'http://example.invalid/\nprivate'):
+            with self.subTest(address=address):
+                with self.assertRaisesRegex(ValueError, '^Invalid node RPC address;'):
+                    module.Node(address, missing)
+
+    @unittest.skipUnless(shutil.which('openssl'), 'TLS fixture generation needs OpenSSL')
+    def test_https_requires_trusted_certificate_and_matching_hostname(self):
+        cert, key = self.root / 'cert.pem', self.root / 'key.pem'
+        subprocess.run(['openssl', 'req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '1',
+            '-subj', '/CN=localhost', '-addext', 'subjectAltName=DNS:localhost',
+            '-keyout', str(key), '-out', str(cert)], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        context.load_cert_chain(cert, key)
+        port, received = self.serve(context=context)
+        # With no trusted fixture CA, TLS fails before authorization is sent.
+        with self.assertRaises(module.RpcError):
+            module.Node(f'https://localhost:{port}', self.cookie).call('getblockchaininfo')
+        self.assertEqual(received, [])
+        trusted = ssl.create_default_context(cafile=str(cert))
+        self.assertEqual(trusted.verify_mode, ssl.CERT_REQUIRED)
+        self.assertTrue(trusted.check_hostname)
+        with patch.object(ssl, '_create_default_https_context', return_value=trusted):
+            with self.assertRaises(module.RpcError):
+                module.Node(f'https://127.0.0.1:{port}', self.cookie).call('getblockchaininfo')
+            self.assertEqual(received, [])
+            self.assertTrue(module.Node(f'https://localhost:{port}', self.cookie).call('getblockchaininfo'))
+        self.assertEqual(len(received), 1)
 
 
 class PrunedTests(unittest.TestCase):

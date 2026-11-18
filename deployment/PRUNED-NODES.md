@@ -34,6 +34,11 @@ Give the adapter its own client cookie. A cookie file contains `username:secret`
 on one line and must be readable only by its service account. The backend cookie
 and client cookie are separate. Never expose this adapter publicly.
 
+The node address is explicit. The adapter ignores environment proxy settings and
+rejects HTTP redirects. Use the final RPC address; it must not contain credentials.
+HTTPS uses certificate and hostname verification. Cookie changes apply on the
+next request. A failed broadcast is never repeated automatically.
+
 ```sh
 python3 deployment/pruned_rpc.py \
   --node-url http://127.0.0.1:18334 \

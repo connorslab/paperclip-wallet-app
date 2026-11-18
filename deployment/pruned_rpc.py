@@ -8,6 +8,7 @@ import argparse
 import base64
 from decimal import Decimal
 import hmac
+import http.client
 import json
 import os
 from pathlib import Path
@@ -15,6 +16,7 @@ import sqlite3
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -42,9 +44,22 @@ class RpcError(Exception):
         self.code = code
 
 
+class NoRedirects(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
 class Node:
     def __init__(self, url, cookie):
+        parsed = urllib.parse.urlsplit(url)
+        if (parsed.scheme not in ('http', 'https') or not parsed.hostname
+                or parsed.username is not None or parsed.password is not None
+                or parsed.fragment or any(char.isspace() for char in url)):
+            raise ValueError('Invalid node RPC address; supply credentials in the cookie file')
         self.url, self.cookie = url, Path(cookie)
+        # Node authority is explicit. Never route credentials through inherited
+        # proxies or follow a node's redirect to a different address.
+        self.http = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirects())
 
     def call(self, method, params=()):
         token = base64.b64encode(self.cookie.read_bytes().strip()).decode()
@@ -55,10 +70,13 @@ class Node:
         attempts = 3 if method == 'estimatesmartfee' else 1
         for attempt in range(attempts):
             try:
-                response = urllib.request.urlopen(request, timeout=20)
+                response = self.http.open(request, timeout=20)
             except urllib.error.HTTPError as error:
+                if 300 <= error.code < 400:
+                    error.close()
+                    raise RpcError(-28, 'Node RPC redirects are not allowed') from None
                 response = error
-            except (urllib.error.URLError, TimeoutError) as error:
+            except (OSError, http.client.HTTPException) as error:
                 raise RpcError(-28, 'Upstream chain RPC unavailable') from error
             with response:
                 if response.status in (429, 502, 503, 504):
@@ -68,6 +86,8 @@ class Node:
                     raise RpcError(-28, 'Upstream chain RPC busy; retry shortly')
                 try:
                     value = json.load(response, parse_float=Decimal)
+                except (OSError, http.client.HTTPException) as error:
+                    raise RpcError(-28, 'Upstream chain RPC unavailable') from error
                 except (ValueError, UnicodeError) as error:
                     raise RpcError(-28, 'Invalid upstream chain RPC response') from error
             if not isinstance(value, dict):
