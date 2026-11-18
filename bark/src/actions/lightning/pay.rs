@@ -428,6 +428,10 @@ impl Wallet {
 /// The executor persists the returned state. Idempotent under re-run
 /// only if no checkpoint exists yet for this invoice (the caller is
 /// responsible for the existence check).
+/// Prepare a new send without creating its action checkpoint or committing
+/// funds. Allocating wallet keys is permitted, but no payment submission or
+/// movement may happen here: callers use a completed error, under the action
+/// lock with no existing checkpoint or paid invoice, as fresh-rejection proof.
 pub(crate) async fn start_lightning_send(
 	wallet: &Wallet,
 	invoice: Invoice,

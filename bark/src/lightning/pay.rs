@@ -30,11 +30,26 @@ impl fmt::Debug for SubmissionObserver {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { f.write_str("SubmissionObserver") }
 }
 
+/// Proof produced only while holding an unpaid invoice's action lock, after
+/// fresh preparation fails and before any payment checkpoint can be created.
+/// It says nothing about a different attempt or an interrupted call.
+pub struct FreshLightningRejection { hash: PaymentHash }
+impl FreshLightningRejection {
+	pub fn payment_hash(&self) -> PaymentHash { self.hash }
+}
+
+#[derive(Clone)]
+struct RejectionObserver(Arc<dyn Fn(FreshLightningRejection) -> anyhow::Result<()> + Send + Sync>);
+impl fmt::Debug for RejectionObserver {
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { f.write_str("RejectionObserver") }
+}
+
 /// Options for a lightning send, see [`Wallet::pay_lightning_invoice_with`].
 #[derive(Debug, Clone, Default)]
 #[non_exhaustive]
 pub struct LightningSendOptions {
 	before_submit: Option<SubmissionObserver>,
+	on_fresh_rejection: Option<RejectionObserver>,
 	/// Keep the call open until the payment settles or fails, instead of
 	/// returning once it has been kicked off.
 	pub wait: bool,
@@ -47,6 +62,14 @@ pub struct LightningSendOptions {
 }
 
 impl LightningSendOptions {
+	/// Persist rejection of this fresh attempt only. Never inferred from a
+	/// missing submission callback; resumed, paid and interrupted calls do not
+	/// produce this proof. The callback must not submit a payment itself.
+	pub fn on_fresh_rejection(mut self, observer: impl Fn(FreshLightningRejection) -> anyhow::Result<()> + Send + Sync + 'static) -> Self {
+		self.on_fresh_rejection = Some(RejectionObserver(Arc::new(observer)));
+		self
+	}
+
 	/// Persist the exact hash before the first checkpoint or a resumed drive.
 	/// Failure prevents submission; callbacks must not submit a payment themselves.
 	pub fn before_submit(mut self, observer: impl Fn(PaymentHash) -> anyhow::Result<()> + Send + Sync + 'static) -> Self {
@@ -416,7 +439,16 @@ impl Wallet {
 		if checkpoint.get().is_none() {
 			let start = start_lightning_send(
 				self, invoice.clone(), user_amount, original_payment_method, opts.retry_for, opts.max_total,
-			).await?;
+			).await;
+			let start = match start {
+				Ok(start) => start,
+				Err(error) => {
+					if let Some(observer) = &opts.on_fresh_rejection {
+						observer.0(FreshLightningRejection { hash: payment_hash })?;
+					}
+					return Err(error);
+				},
+			};
 			if let Some(observer) = &opts.before_submit { observer.0(payment_hash)?; }
 			checkpoint.create(self, start).await?;
 		} else if let Some(send) = checkpoint.get() {
@@ -591,6 +623,43 @@ mod test {
 	}
 
 	#[tokio::test]
+	async fn fresh_preparation_rejection_produces_proof_without_a_checkpoint() {
+		for storage_fails in [false, true] {
+			let (wallet, _conn) = Wallet::offline_for_test().await;
+			let invoice = invoice_for(Preimage::random());
+			let hash = invoice.payment_hash();
+			let observed = Arc::new(std::sync::atomic::AtomicBool::new(false));
+			let flag = observed.clone();
+			let options = LightningSendOptions::default()
+				.before_submit(|_| panic!("offline preparation must not submit"))
+				.on_fresh_rejection(move |proof| {
+					assert_eq!(proof.payment_hash(), hash);
+					flag.store(true, std::sync::atomic::Ordering::SeqCst);
+					ensure!(!storage_fails, "synthetic rejection storage failure");
+					Ok(())
+				});
+			let error = wallet.make_lightning_payment_with(&invoice, PaymentMethod::Custom("test".into()), None, options).await.unwrap_err();
+			assert!(observed.load(std::sync::atomic::Ordering::SeqCst));
+			if storage_fails { assert!(error.to_string().contains("rejection storage failure")); }
+			assert!(wallet.lightning_send_checkpoint(hash).await.unwrap().is_none());
+			assert!(!wallet.is_invoice_paid(hash).await.unwrap());
+		}
+	}
+
+	#[tokio::test]
+	async fn busy_or_paid_invoice_cannot_produce_fresh_rejection_proof() {
+		let (wallet, _conn) = Wallet::offline_for_test().await;
+		let pending = pending_send(&wallet).await;
+		let options = LightningSendOptions::default().on_fresh_rejection(|_| panic!("existing attempt cannot be rejected as fresh"));
+		let held = wallet.try_lock_action::<LightningSend>(&pending.send.id()).await.unwrap().unwrap();
+		assert!(wallet.make_lightning_payment_with(&pending.send.invoice,pending.send.original_payment_method.clone(),None,options.clone()).await.is_err());
+		drop(held);
+		notify_paid(&wallet, &pending).await;
+		assert!(wallet.is_invoice_paid(pending.hash()).await.unwrap());
+		assert!(wallet.make_lightning_payment_with(&pending.send.invoice,pending.send.original_payment_method.clone(),None,options).await.is_err());
+	}
+
+	#[tokio::test]
 	async fn changed_invoice_or_amount_cannot_drive_an_existing_payment() {
 		let (wallet, _conn) = Wallet::offline_for_test().await;
 		let pending = pending_send(&wallet).await;
@@ -605,7 +674,8 @@ mod test {
 			.unwrap().into();
 		assert_eq!(changed.payment_hash(),pending.hash());
 		for (invoice, amount, message) in [(&changed,None,"another invoice"),(&pending.send.invoice,Some(Amount::from_sat(1001)),"different amount")] {
-			let options = LightningSendOptions::default().before_submit(|_|panic!("changed terms must not reach submission"));
+			let options = LightningSendOptions::default().before_submit(|_|panic!("changed terms must not reach submission"))
+				.on_fresh_rejection(|_|panic!("resumed terms are not a fresh rejection"));
 			let result = wallet.make_lightning_payment_with(invoice,pending.send.original_payment_method.clone(),amount,options).await;
 			assert!(result.unwrap_err().to_string().contains(message));
 			assert_eq!(checkpoint(&wallet,&pending).await,before);

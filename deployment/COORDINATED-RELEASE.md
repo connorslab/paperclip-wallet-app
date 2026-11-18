@@ -52,8 +52,9 @@ coordinated scope is iOS, Android, StartOS, Umbrel, Linux, macOS and Windows.
    older app warnings, remote-node records and Bridge conversions, with an
    explicit credential portability policy. Test legacy archives, cross-platform
    restore, wrong-wallet rejection and interruption without replay or restored
-   spending approval. Finish typed proof of fresh Lightning rejection and
-   recovery of older receipts that lack an exact payment reference.
+   spending approval. Accept the new typed fresh-Lightning rejection path on
+   final candidates and finish recovery of older receipts without an exact
+   payment reference.
 4. **Accept the installed server packages.** On both StartOS and Umbrel, verify
    install, restricted CLN/LND RPC access, Tor/TLS, phone pairing and revocation,
    maker ownership, shutdown and restart. Complete full-volume backup/restore,
@@ -3468,3 +3469,23 @@ checks Jars source fingerprints, and refuses missing configured runtimes. Native
 combined wallet/Jars and packaged-window tests must pass before this integration
 is accepted. These checks use empty disposable storage; they do not establish
 live maker/payment operation, Tor/RPC setup, signing or installed upgrades.
+
+### Fresh Lightning rejection parity
+
+The shared engine now emits a non-serializable proof only after new preparation
+fails under the unpaid invoice's action lock and before checkpoint creation.
+Busy, paid, resumed, interrupted and submission-observer failures do not produce
+that proof. Desktop/server receipts persist rejection for the same exact hash;
+the common iOS/Android Rust adapter resolves only the matching unreferenced
+attempt as not sent. Storage failure keeps recovery blocked. No existing unknown
+record is cleared merely because its submission observer is absent.
+
+Checks: 12 engine Lightning tests, 16 server submission tests and 21 mobile
+payment/recovery tests pass, including mismatched hashes, existing attempts,
+failed persistence, non-replay and backup without restored approval. Final-device
+acceptance remains separate, and older receipts without a reference still need
+recovery. No live payment was used to exercise this change.
+The broader native-host Rust regression pass also succeeds: 297 wallet tests,
+113 REST tests (one existing ignored test), and 53 mobile Rust tests (one existing
+ignored test). Workspace checks pass. Existing iOS and Android clients already
+handle the `not_sent` outcome; no serialized proof or replayable approval was added.

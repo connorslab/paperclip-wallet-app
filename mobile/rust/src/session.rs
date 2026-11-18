@@ -1390,8 +1390,20 @@ pub fn dispatch(state: &mut Option<Session>, request: Value, seed: [u8; 64]) -> 
 				} else {
 					let opts = LightningSendOptions::default().max_total(
 						(!method.is_bitcoin()).then(|| Amount::from_sat(total)),
-					).before_submit(payment_attempt::lightning_observer(dir, &payment_owner, &attempt.attempt_id));
-					w.send_payment_with(&method, Some(Amount::from_sat(amount)), None::<&str>, opts).await?
+					).before_submit(payment_attempt::lightning_observer(dir, &payment_owner, &attempt.attempt_id))
+						.on_fresh_rejection(payment_attempt::lightning_rejection_observer(dir, &payment_owner, &attempt.attempt_id));
+					match w.send_payment_with(&method, Some(Amount::from_sat(amount)), None::<&str>, opts).await {
+						Ok(result) => result,
+						Err(error) => {
+							let saved = payment_attempt::load(dir, &payment_owner)?.context("Saved payment is missing")?;
+							if saved.attempt_id == attempt.attempt_id && saved.state == "not_sent" {
+								let mut result = serde_json::to_value(saved)?;
+								result["reason"] = "Lightning payment was not submitted. Review the amount, fees and connection before trying again.".into();
+								return Ok(result);
+							}
+							return Err(error);
+						},
+					}
 				};
 				let mut result = match result {
 					PaymentInitOutput::Ark(movement_id) => {

@@ -92,7 +92,10 @@ impl Action {
 			},
 			Self::Lightning(v) => {
 				ensure!(v.max_total_sat.is_some(), "Review the full payment cost first");
-				let options = bark::LightningSendOptions::default().before_submit(move |hash| receipt.started(None, Some(hash.to_string())));
+				let rejected = receipt.clone();
+				let options = bark::LightningSendOptions::default()
+					.on_fresh_rejection(move |proof| rejected.reject_fresh_lightning(proof.payment_hash().to_string()))
+					.before_submit(move |hash| receipt.started(None, Some(hash.to_string())));
 				call!(lightning::pay_with_options(state, v, options).await)
 			},
 			Self::Onchain(v) => call!(onchain::send_commit_tracked(state, v, || receipt.started(None, None)).await),
@@ -117,6 +120,20 @@ impl Action {
 #[derive(Clone)]
 struct Receipt { root: PathBuf, id: String }
 impl Receipt {
+	// Called only by the engine's typed fresh-rejection observer above. A
+	// resumed/paid/unknown attempt and generic handler errors provide no proof.
+	fn reject_fresh_lightning(&self, hash: String) -> anyhow::Result<()> {
+		let mut record = self.load()?;
+		ensure!(record.operation == "lightning/pay" && record.state == "unconfirmed" && !record.initiated
+			&& record.action_id.is_none() && record.movement_id.is_none() && record.exit_ids.is_none()
+			&& record.txid.is_none() && record.payment_hash.as_ref().is_none_or(|saved| saved == &hash),
+			"Saved payment changed; keep checking the original attempt");
+		record.payment_hash = Some(hash);
+		record.state = "rejected".into();
+		record.result = Some(json!({"message":"This attempt did not submit a payment. Review the amount, fees and connection before trying again."}));
+		save(&self.root, &record)
+	}
+
 	fn movement(&self, id: Option<bark::movement::MovementId>) -> anyhow::Result<()> {
 		let mut record = self.load()?; record.initiated = true; record.movement_id = Some(id.context("Missing movement reference")?);
 		save(&self.root, &record)
@@ -206,7 +223,7 @@ async fn root(state: &ServerState) -> anyhow::Result<PathBuf> {
 /// before this request's observer runs. Its missing marker is not evidence that
 /// the payment was never submitted. Keep it for exact-hash reconciliation.
 fn can_reject_unstarted(record: &Record) -> bool {
-	!record.initiated && record.operation != "lightning/pay"
+	!record.initiated && (record.operation != "lightning/pay" || record.state == "rejected")
 }
 
 fn needs_review(record: &Record) -> bool {
@@ -427,6 +444,38 @@ mod tests {
 		assert_eq!(result["state"], "rejected");
 		assert_eq!(once(dir.path(), &request(1), (None,None), |_| async { panic!("must not replay") }).await.unwrap(), result);
 		assert!(once(dir.path(), &request(2), (None,None), |_| async { Ok(json!({})) }).await.is_ok());
+	}
+
+	#[tokio::test]
+	async fn fresh_lightning_rejection_is_durable_and_does_not_replay() {
+		for initial_hash in [None, Some("ab".repeat(32))] {
+			let dir = tempfile::tempdir().unwrap();
+			let mut req = request(1); req.operation = "lightning/pay".into();
+			let result = once(dir.path(), &req, (None, initial_hash), |receipt| async move {
+				receipt.reject_fresh_lightning("ab".repeat(32))?;
+				anyhow::bail!("fresh preparation was rejected")
+			}).await.unwrap();
+			assert_eq!(result["state"], "rejected");
+			assert_eq!(records(dir.path()).unwrap()[0].payment_hash.as_deref(), Some("ab".repeat(32).as_str()));
+			assert_eq!(once(dir.path(), &req, (None,None), |_| async { panic!("must never replay") }).await.unwrap(), result);
+			assert!(once(dir.path(), &request(2), (None,None), |_| async { Ok(json!({})) }).await.is_ok());
+		}
+	}
+
+	#[tokio::test]
+	async fn fresh_lightning_rejection_cannot_replace_another_hash_or_started_receipt() {
+		for started in [false, true] {
+			let dir = tempfile::tempdir().unwrap();
+			let mut req = request(1); req.operation = "lightning/pay".into();
+			assert!(once(dir.path(), &req, (None,Some("ab".repeat(32))), |receipt| async move {
+				if started { receipt.started(None,Some("ab".repeat(32)))?; }
+				receipt.reject_fresh_lightning(if started { "ab" } else { "cd" }.repeat(32))?;
+				panic!("inconsistent proof accepted");
+			}).await.is_err());
+			let saved = records(dir.path()).unwrap().remove(0);
+			assert_eq!(saved.state, "unconfirmed");
+			assert_eq!(saved.payment_hash.as_deref(), Some("ab".repeat(32).as_str()));
+		}
 	}
 
 	#[tokio::test]

@@ -113,6 +113,24 @@ pub fn lightning_observer(dir: &Path, owner: &str, id: &str)
 	}
 }
 
+/// Only the core can produce this proof, under the fresh invoice action lock.
+/// Storage failure leaves the original attempt unresolved; never infer this
+/// outcome from an absent observer, a timeout or a restored record.
+pub fn lightning_rejection_observer(dir: &Path, owner: &str, id: &str)
+	-> impl Fn(bark::FreshLightningRejection) -> anyhow::Result<()> + Send + Sync + 'static
+{
+	let dir = dir.to_path_buf(); let owner = owner.to_owned(); let id = id.to_owned();
+	move |_proof| persist_lightning_rejection(&dir, &owner, &id)
+}
+
+fn persist_lightning_rejection(dir: &Path, owner: &str, id: &str) -> anyhow::Result<()> {
+	let saved = load(dir, owner)?.context("Saved Lightning payment is missing")?;
+	ensure!(saved.attempt_id == id && saved.source == "ark", "Saved Lightning payment changed");
+	// The existing update guard rejects all recorded submission references.
+	update(dir, owner, id, &serde_json::json!({"state":"not_sent"}))?;
+	Ok(())
+}
+
 pub fn ark_observer(dir: &Path, owner: &str, id: &str)
 	-> impl FnOnce(&str) -> anyhow::Result<()> + Send + 'static
 {
@@ -286,6 +304,33 @@ mod tests {
 		Connection::open(dir.path().join("db.sqlite")).unwrap();
 		(dir, owner(Network::Regtest, &[21;64]))
 	}
+	#[test]
+	fn fresh_lightning_rejection_persists_but_cannot_clear_an_observed_payment() {
+		for observed in [false,true] {
+			let (dir, owner) = setup();
+			let attempt = Attempt::new("ark", "public invoice fixture".into(), 1000, 1100);
+			begin(dir.path(), &owner, &attempt).unwrap();
+			assert!(persist_lightning_rejection(dir.path(), &owner, &"00".repeat(32)).is_err());
+			if observed { update(dir.path(), &owner, &attempt.attempt_id, &json!({"state":"unknown","payment_hash":"ab".repeat(32)})).unwrap(); }
+			assert_eq!(persist_lightning_rejection(dir.path(), &owner, &attempt.attempt_id).is_ok(), !observed);
+			let saved = load(dir.path(), &owner).unwrap().unwrap();
+			assert_eq!(saved.state, if observed { "unknown" } else { "not_sent" });
+			assert_eq!(require_resolved(dir.path(), &owner).is_ok(), !observed);
+		}
+	}
+
+	#[test]
+	fn fresh_lightning_rejection_storage_failure_keeps_recovery_blocked() {
+		let (dir, owner) = setup();
+		let attempt = Attempt::new("ark", "public invoice fixture".into(), 1000, 1100);
+		begin(dir.path(), &owner, &attempt).unwrap();
+		let conn = connection(dir.path()).unwrap();
+		conn.execute_batch("CREATE TRIGGER reject_lightning_outcome BEFORE UPDATE ON paperclip_payment_attempt BEGIN SELECT RAISE(FAIL, 'fixture failure'); END;").unwrap();
+		assert!(persist_lightning_rejection(dir.path(), &owner, &attempt.attempt_id).is_err());
+		assert_eq!(load(dir.path(), &owner).unwrap().unwrap().state, "unknown");
+		assert!(require_resolved(dir.path(), &owner).is_err());
+	}
+
 	#[test]
 	fn unresolved_attempt_survives_reopen_and_cannot_be_replaced() {
 		let (dir, owner) = setup();

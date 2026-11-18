@@ -3,7 +3,7 @@ mod pay;
 mod receive;
 pub mod offers;
 
-pub use self::pay::LightningSendOptions;
+pub use self::pay::{FreshLightningRejection, LightningSendOptions};
 pub(crate) use self::pay::check_lightning_debit;
 pub use self::receive::Bolt11InvoiceBuilder;
 
