@@ -3558,3 +3558,10 @@ and the real daemon/container-entrypoint smoke test pass on the native Apple
 host without node access or keys. Linux CI now includes the authentication and
 package contracts; these checks do not establish installed-volume restore.
 Windows prerequisite run `44212946969` at `ff8e78ef` also passed in full.
+
+
+Windows bundled-Jars run `44213739813` at `28b9cb59` passed all four frozen
+runtime, seven combined-runtime and four window cases. The closing-window timer
+assertions passed, and the earlier Tcl progress-animation error is absent from
+the native log. This closes that UI cleanup regression; installed-host, live
+payment and signed-release acceptance remain separate.
