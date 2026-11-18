@@ -44,8 +44,10 @@ coordinated scope is iOS, Android, StartOS, Umbrel, Linux, macOS and Windows.
 2. **Finish native runtime delivery.** The complete frozen Windows Tor/Jars service
    and owned desktop integration pass native CI at `193ae47`, including the
    packaged window. Owned Tor component checks now pass on all five pinned native targets, including
-   explicit SOCKS activation. Complete guided node-RPC setup and the combined
-   installed Jam/Tor runtime acceptance on the native desktops. No external Python or
+   explicit SOCKS activation. Read-only native node preflight is implemented and
+   verified on macOS and Linux. Complete private configuration persistence, the
+   owned restricted RPC runtime, guided setup UI and combined installed Jam/Tor
+   runtime acceptance on the native desktops. No external Python or
    separate Kilombino app may be required for the bundled-host promise.
 3. **Complete portable recovery.** Finish the wallet-bound recovery envelope for
    older app warnings, remote-node records and Bridge conversions, with an
@@ -3846,3 +3848,37 @@ The previously pending full Linux package run `44238439507` at `193ae47` and
 Windows bundled Jars run `44241285423` at `ff492143` also completed successfully.
 This adds evidence for their recorded revisions, not a frozen simultaneous
 release. No candidate was deployed or published.
+
+
+### Native Jars node preflight
+
+At `8b06179`, the bundled Jars helper implements `--check-node` for the pending
+native setup flow. The launcher supplies credentials through a bounded private
+pipe. The helper checks activated, synchronized XBT mainnet and its matching tip
+header with two read-only RPC calls. It returns a public result and exits without
+opening wallet storage, saving configuration, loading a wallet or starting a
+rescan. This does not complete the setup screen or restricted RPC runtime.
+
+The check enforces certificate and hostname verification with packaged roots and
+an optional explicit public CA. Onion addresses require the launcher's Tor SOCKS
+port, with remote name resolution and no direct fallback. Redirects, inherited
+proxies/TLS overrides and compressed or oversized replies are rejected. There
+are no automatic retries, and the complete check has a 20-second deadline.
+
+Native macOS passes the 11-case preflight suite and all seven existing Jars child
+lifecycle cases. The frozen macOS helper also passes the suite's subprocess HTTP,
+TLS, onion, error and no-state-write checks. Its source hashes match `8b06179`,
+and its strict deep ad-hoc signature remains valid after testing. Container run
+`44247857425` passes on both Linux architectures: 106 companion cases with four
+scope exclusions, plus four supervisor cases with four combined-wallet exclusions.
+Windows frozen preflight remains pending in run `44248250309`; no Windows
+preflight acceptance is claimed from the source or macOS results.
+
+The native Tor run exposed an existing Windows crash-test timing assumption.
+Test-only change `b343197` verifies live exclusion, terminates and waits for the
+actual lock owner's process handle, then allows bounded OS cleanup. This follows
+[Windows' documented lock-release behavior](https://learn.microsoft.com/windows/win32/api/fileapi/nf-fileapi-lockfileex).
+Application locks and permissions are unchanged. Run `44248250338` passes all six
+native runner entries, including the installed storage and Tor checks on Windows
+2022 and 2025. Final package, installed-host and live-payment acceptance remain
+separate. Both source changes are mirrored to `feature/android-wallet`.
