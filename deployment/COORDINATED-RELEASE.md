@@ -3793,3 +3793,30 @@ broader Windows prerequisite run `44238439549` also passed. This closes the
 reproduced control-file ownership defect; installed-user, live-payment, signing
 and upgrade acceptance remain separate. All tests used disposable unfunded
 storage. No production service or funded device was changed.
+
+
+### Jars RPC batch response binding
+
+At `ff492143`, the shared StartOS/Umbrel companion fixes a reproduced wallet-list
+filter bypass. The pinned filter previously matched batch replies by position.
+A synthetic node returned the replies in reverse order and exposed a foreign
+wallet name. The [JSON-RPC batch contract](https://www.jsonrpc.org/specification#batch)
+allows replies in any order.
+
+The adapter assigns unique upstream request IDs, checks the complete reply set,
+and applies wallet filtering against each original method. It restores client
+IDs, including duplicate client IDs, without changing methods, parameters or
+wallet scope. Denied calls are not forwarded. Missing, duplicate, unknown or
+malformed replies produce an explicit status-check error without automatic
+replay. The installer rejects an upstream source hash other than the reviewed
+pinned filter. The separate RPC process uses its adjacent installed adapter.
+
+Local checks pass nine new regressions, 68 pinned upstream compatibility cases,
+and `just checks`. Bundled Jam run `44241285410` passes on both x86-64 and ARM64:
+95 companion cases pass with four environment-specific skips, followed by four
+owned Jars/TLS cases with four combined-wallet cases excluded from that runner.
+The companion cases include the actual restricted StartOS supervisor, reordered
+authenticated replies, cookie rotation and process ownership. These results use
+synthetic nodes and disposable wallets. They do not close guided native RPC setup,
+installed-host, live-payment or signed-release acceptance. The source fix is
+mirrored to `feature/android-wallet`. No candidate was published or deployed.
