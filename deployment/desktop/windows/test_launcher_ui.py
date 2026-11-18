@@ -80,6 +80,7 @@ class PreviewWindow(unittest.TestCase):
                         self.assertLessEqual(widget.winfo_rooty() + widget.winfo_height(),
                                              self.root.winfo_rooty() + self.root.winfo_height())
                 self.window.close(); self.pump(lambda: self.window.closed)
+                self.assertFalse(self.root.tk.call('after', 'info'), 'Closed window retained UI callbacks')
                 self.assertEqual(private_bytes(data / 'session.state'), SessionRecord.CLOSED)
                 self.assertFalse((data / 'wallet/mnemonic').exists())
             finally:
@@ -96,6 +97,7 @@ class PreviewWindow(unittest.TestCase):
                 self.assertEqual(str(self.window.action['text']), 'Try Again')
             finally:
                 self.window.close(); self.pump(lambda: self.window.closed)
+                self.assertFalse(self.root.tk.call('after', 'info'), 'Closed failure window retained UI callbacks')
 
     def test_damaged_packaged_runtime_shows_recovery_without_starting_wallet(self):
         if EXECUTABLE is None:

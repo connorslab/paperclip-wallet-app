@@ -74,6 +74,7 @@ class PreviewWindow(unittest.TestCase):
                 self.capture('linux-recovery-compact.png')
                 self.window.close()
                 self.pump(lambda: self.window.closed)
+                self.assertFalse(self.root.tk.call('after', 'info'), 'Closed window retained UI callbacks')
                 self.assertFalse((data / 'session.active').exists())
                 self.assertFalse((data / 'wallet' / 'mnemonic').exists())
                 self.assertFalse(list(data.rglob('*.jmdat')))

@@ -25,9 +25,9 @@ checks and their limits.
 | Android | 100 JVM tests (four live cases excluded); 47 instrumentation cases across 18 classes on local API 35 ARM64; 48 cases on each of API 35/36 CI at `a04a3e4`, including the new large-text Jars navigation case, visibility and emulator-health checks; authenticated CLN/LND reads and pin rejection | Final release identity, Play/APK upgrade compatibility and physical/foldable acceptance |
 | Shared desktop UI | All 17 existing browser-flow suites plus entropy, transport and QR checks; phone, foldable and desktop widths where each suite defines them | Installed-host and native desktop acceptance; accept multiple-hot-wallet profiles and hardware-funded Ark workflows |
 | StartOS/Umbrel | Shared REST checks, authenticated CLN/LND reads; both StartOS candidate architectures built and source/checksums checked | Complete backup/restore, candidate installation, bundled Jam pairing/revocation/Tor and upgrades; matching frozen wrappers |
-| Linux/macOS/Windows | Isolated Apple Silicon and Linux daemon authentication, duplicate-instance rejection and crash/restart; macOS bundled Jars/helper runtime passes 13 relocated isolation cases; Linux bundled Jars passes TLS/proxy and frozen-window recovery checks; 90 native Windows storage/browser-policy/pipe/ownership/discovery/window/Jars cases and authenticated daemon lifecycle pass at `710bc5f` | Installed browser/accessibility acceptance; bundled Jam/Tor and runtime delivery; supported OS matrix, signed installers, notarization and clean install/upgrade tests |
+| Linux/macOS/Windows | Isolated Apple Silicon and Linux daemon authentication, duplicate-instance rejection and crash/restart; macOS bundled Jars/helper runtime passes 13 relocated isolation cases; Linux bundled Jars passes TLS/proxy and frozen-window recovery checks; 90 native Windows storage/browser-policy/pipe/ownership/discovery/window/Jars cases and authenticated daemon lifecycle pass at `710bc5f` | Installed browser/accessibility acceptance; native Tor/node-RPC setup and installed bundled-Jars acceptance; supported OS matrix, signed installers, notarization and clean install/upgrade tests |
 | Jars | Reviewed direct/CoinJoin toggle and bond funding/withdrawal clients; pinned signer, API, bond and interrupted-submission checks; encrypted Jam volume restore on a synthetic chain | Live CoinJoin, direct-send and bond-funding/withdrawal acceptance, installed payment-pairing acceptance, live maker and physical QR signer acceptance |
-| Payments and recovery | 293 shared wallet tests and 51 mobile Rust tests, exact-cost/RBF/unknown-outcome checks; unified-signature and Electrum-header checks | Live BOLT12/Ark/Bridge settlement, portable recovery/restore and current-source XBT consensus acceptance |
+| Payments and recovery | 297 shared wallet tests and 53 mobile Rust tests, exact-cost/RBF/unknown-outcome checks; unified-signature and Electrum-header checks | Live BOLT12/Ark/Bridge settlement, portable recovery/restore and current-source XBT consensus acceptance |
 
 ### Open release gates — consolidated 2026-11-17
 
@@ -3506,8 +3506,12 @@ device was changed or candidate published.
 
 The Windows launcher now presents a setup-recovery dialog for damaged or missing
 runtime configuration instead of silently exiting a windowed executable. Six
-local policy/runtime tests pass. A new native packaged-dialog test checks that
-this failure never initializes wallet storage; native acceptance is pending.
+local policy/runtime tests pass. Native run `44211986112` at `a9978a6` passes all
+four packaged/window cases, including the damaged-runtime recovery dialog without
+wallet initialization, plus the four frozen-Jars and seven combined-runtime cases.
+The shared Linux/Windows shell now stops animation and polling callbacks before
+window destruction; its five controller/owned-daemon cases pass locally and the
+native window suites assert no remaining UI timers after close.
 
 
 ### Host wallet creation matches mobile identity and entropy rules
@@ -3530,3 +3534,9 @@ main/profile rejection before key/config writes, network separation, duplicate
 claims, cancellation and persistence checks. Two entropy tests and the new RPC
 birthday boundary test pass. These are isolated fixtures, not funded multi-wallet
 or installed-package acceptance.
+
+
+The host identity increment also passes four profile-routing tests, the existing
+profile-preservation cleanup test, a native Apple daemon build and its isolated
+profile lifecycle check. Both remote branches contain `ff8e78ef`. No installed
+or funded multi-wallet operation is inferred from these checks.

@@ -137,7 +137,7 @@ class Window:
         label('Development preview', 9, '#8b9fb8')
         root.bind('<Configure>', self.resize)
         self.start()
-        root.after(50, self.poll)
+        self.poll_id = root.after(50, self.poll)
 
     def resize(self, event):
         if event.widget is self.root:
@@ -166,6 +166,7 @@ class Window:
             self.session.open()
 
     def poll(self):
+        self.poll_id = None
         while True:
             try:
                 event, value = self.session.events.get_nowait()
@@ -207,15 +208,14 @@ class Window:
                     self.action.configure(state='disabled')
         if self.state == 'closed' and not self.session.thread.is_alive():
             if self.quitting:
-                self.closed = True
-                self.root.destroy()
+                self.finish_close()
                 return
             self.state = 'failed'
             self.progress.stop()
             self.progress.pack_forget()
             self.status.configure(text=self.failure or 'Your wallet stopped. You can open it again.')
             self.action.configure(text='Try Again', state='normal')
-        self.root.after(50, self.poll)
+        self.poll_id = self.root.after(50, self.poll)
 
     def close(self):
         if self.quitting:
@@ -227,8 +227,15 @@ class Window:
         self.progress.start(12)
         self.session.close()
         if not self.session.thread.is_alive():
-            self.closed = True
-            self.root.destroy()
+            self.finish_close()
+
+    def finish_close(self):
+        self.closed = True
+        self.progress.stop()
+        if self.poll_id is not None:
+            self.root.after_cancel(self.poll_id)
+            self.poll_id = None
+        self.root.destroy()
 
 
 def main():
