@@ -48,11 +48,13 @@ coordinated scope is iOS, Android, StartOS, Umbrel, Linux, macOS and Windows.
    verified on macOS, Linux and Windows. Initial private configuration storage is
    implemented, with no replacement of existing connections. Saved-node activation
    through an owned restricted RPC child is implemented and passes macOS source
-   and frozen-helper checks plus Linux container checks on both architectures;
-   Windows package validation for this activation change remains in progress.
+   and frozen-helper checks plus Linux container checks on both architectures.
+   Windows activation/status package run `44258480321` passes.
    Read-only saved-state inspection is implemented and does not imply a live
-   connection. Complete reviewed connection changes, guided setup UI and combined installed Jam/Tor
-   runtime acceptance on the native desktops. No external Python or
+   connection. Guided initial setup is implemented in AppKit and the shared
+   Linux/Windows shell; macOS synthetic-node and relocated package checks pass.
+   Complete native Linux/Windows acceptance of this new UI, reviewed connection
+   changes and combined installed Jam/Tor runtime acceptance. No external Python or
    separate Kilombino app may be required for the bundled-host promise.
 3. **Complete portable recovery.** Finish the wallet-bound recovery envelope for
    older app warnings, remote-node records and Bridge conversions, with an
@@ -3983,3 +3985,29 @@ remaining cases. Final Windows activation/status validation remains pending in
 run `44258480321`. No Windows production-runtime fix or final acceptance is
 claimed from this fixture correction. The prior Windows prerequisite run
 `44255358635` passes. Both changes are mirrored to `feature/android-wallet`.
+
+
+### Native guided Jars setup
+
+The native Mac window and shared Linux/Windows window now collect node settings
+before starting Jars. Credentials use a private helper pipe rather than the wallet
+browser. Verification can be cancelled; retry requires an explicit user action.
+Saved or existing wallet state never receives a fresh setup form. Deferring Jars
+starts the main wallet with its owned Tor process, without initializing a Jars
+wallet against a default node. Unexpected Tor exit retains the recovery warning.
+
+Eight setup-controller cases pass with the frozen macOS helper, including an
+authentication failure, corrected submission, in-flight cancellation, saved-node startup and clean close
+against a synthetic node. The relocated Mac bundle passes ten lifecycle and ten
+bridge cases with build-host dependencies blocked; its strict ad-hoc signature
+verifies afterwards. Seven shared-shell controller cases pass, including late
+progress after closing the setup panel. Native AppKit compilation and an
+interactive empty-input/error/deferral/clean-close check pass. These checks create
+no wallet seeds or Jars wallet files and do not establish live-node acceptance.
+The corresponding Linux and Windows package runs must validate this new change.
+
+The previous full Windows run `44258480321`, prerequisite run `44258480290`,
+and full Linux/Lightning run `44255358595` have now completed successfully.
+Those results close their earlier pending validation, not the new GUI acceptance.
+Reviewed replacement of existing node connections, installed-host acceptance and
+distribution signing remain separate release requirements.

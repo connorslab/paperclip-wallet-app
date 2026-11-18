@@ -3,9 +3,9 @@ on:
   workflow_dispatch:
   push:
     branches: ['codex/cross-platform-parity']
-    paths: ['deployment/jam/**', 'deployment/desktop/windows/**', 'deployment/desktop/managed_jam.py', 'deployment/desktop/test_managed_jam.py', 'deployment/desktop/test_managed_tor.py', 'deployment/desktop/managed_tor.py', 'deployment/desktop/tor_runtime.py', 'deployment/desktop/prepare_tor.py', 'deployment/desktop/tor-artifacts.json', 'deployment/desktop/managed_daemon.py', 'deployment/desktop/pipe_io.py', '.github/workflows/windows-jars.yml']
+    paths: ['deployment/jam/**', 'deployment/desktop/windows/**', 'deployment/desktop/linux/**', 'deployment/desktop/node_setup_client.py', 'deployment/desktop/test_node_setup_client.py', 'deployment/desktop/managed_jam.py', 'deployment/desktop/test_managed_jam.py', 'deployment/desktop/test_managed_tor.py', 'deployment/desktop/managed_tor.py', 'deployment/desktop/tor_runtime.py', 'deployment/desktop/prepare_tor.py', 'deployment/desktop/tor-artifacts.json', 'deployment/desktop/managed_daemon.py', 'deployment/desktop/pipe_io.py', '.github/workflows/windows-jars.yml']
   pull_request:
-    paths: ['deployment/jam/**', 'deployment/desktop/windows/**', 'deployment/desktop/managed_jam.py', 'deployment/desktop/test_managed_jam.py', 'deployment/desktop/test_managed_tor.py', 'deployment/desktop/managed_tor.py', 'deployment/desktop/tor_runtime.py', 'deployment/desktop/prepare_tor.py', 'deployment/desktop/tor-artifacts.json', 'deployment/desktop/managed_daemon.py', 'deployment/desktop/pipe_io.py', '.github/workflows/windows-jars.yml']
+    paths: ['deployment/jam/**', 'deployment/desktop/windows/**', 'deployment/desktop/linux/**', 'deployment/desktop/node_setup_client.py', 'deployment/desktop/test_node_setup_client.py', 'deployment/desktop/managed_jam.py', 'deployment/desktop/test_managed_jam.py', 'deployment/desktop/test_managed_tor.py', 'deployment/desktop/managed_tor.py', 'deployment/desktop/tor_runtime.py', 'deployment/desktop/prepare_tor.py', 'deployment/desktop/tor-artifacts.json', 'deployment/desktop/managed_daemon.py', 'deployment/desktop/pipe_io.py', '.github/workflows/windows-jars.yml']
 permissions:
   contents: read
 concurrency:
@@ -116,6 +116,8 @@ jobs:
           $env:PAPERCLIP_NODE_CHECK_EXECUTABLE = "$env:RUNNER_TEMP/jars-bundle/PaperclipJars/PaperclipJars.exe"
           & $env:JARS_PYTHON -m unittest discover -s deployment/jam -p 'test_node_*.py' -v
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & $env:JARS_PYTHON deployment/desktop/test_node_setup_client.py -v
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Select the reviewed Rust toolchain
         run: rustup toolchain install 1.91.0 --profile minimal
@@ -155,6 +157,11 @@ jobs:
         run: |
           $env:PYTHONPATH = "$env:GITHUB_WORKSPACE/deployment/desktop"
           & $env:JARS_PYTHON deployment/desktop/test_managed_jam.py --python "$env:RUNNER_TEMP/jars-bundle/PaperclipJars/PaperclipJars.exe" --binary target/debug/paperclip-walletd.exe --tor "$env:RUNNER_TEMP/Tor Runtime/tor/tor.exe" -v
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $env:PAPERCLIP_NODE_CHECK_EXECUTABLE = "$env:RUNNER_TEMP/jars-bundle/PaperclipJars/PaperclipJars.exe"
+          $env:PAPERCLIP_TEST_WALLET_BINARY = "$env:GITHUB_WORKSPACE/target/debug/paperclip-walletd.exe"
+          & $env:JARS_PYTHON deployment/desktop/test_node_setup_client.py -v
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Package and test the standalone Windows app with Jars
         timeout-minutes: 10
         run: |

@@ -40,6 +40,17 @@ class HandoffPolicy(unittest.TestCase):
 
 
 class BrowserCompletion(unittest.TestCase):
+    def test_late_setup_progress_does_not_touch_a_cancelled_panel(self):
+        window = Window.__new__(Window)
+        window.state, window.quitting, window.setup_panel = 'starting', False, None
+        window.root, window.setup_message = Mock(), Mock()
+        window.session = Mock()
+        window.session.events = queue.Queue()
+        window.session.events.put(('setup_progress', 'Verifying your XBT node…'))
+        window.session.events.put(('setup_error', 'Check the node address.'))
+        window.poll()
+        window.setup_message.configure.assert_not_called()
+
     def test_damaged_tor_fails_before_any_wallet_child_or_storage(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary) / 'untouched-wallet'

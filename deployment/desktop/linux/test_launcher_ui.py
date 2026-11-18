@@ -47,6 +47,10 @@ class PreviewWindow(unittest.TestCase):
             self.window = module.Window(self.root, BINARY, data, opener=lambda url: opened.append(url) or True,
                                         jam_runtime=(JARS, None) if JARS else None, tor_runtime=TOR)
             try:
+                if JARS:
+                    self.pump(lambda: self.window.setup_panel is not None)
+                    self.assertFalse((data / 'jars').exists())
+                    self.window.defer_setup()
                 self.pump(lambda: self.window.state == 'ready')
                 self.assertFalse(self.window.recovery)
                 self.assertEqual(str(self.window.action['text']), 'Open Wallet')
@@ -60,6 +64,10 @@ class PreviewWindow(unittest.TestCase):
                 self.pump(lambda: self.window.state == 'failed')
                 self.assertEqual(str(self.window.action['text']), 'Try Again')
                 self.window.action.invoke()
+                if JARS:
+                    self.pump(lambda: self.window.setup_panel is not None)
+                    self.assertFalse((data / 'jars').exists())
+                    self.window.defer_setup()
                 self.pump(lambda: self.window.state == 'ready')
                 self.assertTrue(self.window.recovery)
                 self.assertEqual(str(self.window.action['text']), 'Review Wallet')

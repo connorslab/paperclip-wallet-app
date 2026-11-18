@@ -16,6 +16,7 @@ resources = Path(__file__).resolve().parent
 sys.path.insert(0, str(resources if (resources / 'managed_daemon.py').is_file() else resources.parent))
 from managed_daemon import ManagedDaemon, StartupError, default_data_root
 from managed_tor import packaged_binary as packaged_tor_binary
+from node_setup_client import choose_runtime
 
 
 def open_default_browser(url):
@@ -42,10 +43,11 @@ def valid_handoff(value):
 
 class Session:
     """One worker owns the daemon; UI never waits on startup, network or shutdown."""
-    def __init__(self, binary, root, jam_runtime=None, tor_runtime=None):
+    def __init__(self, binary, root, jam_runtime=None, tor_runtime=None, guided_setup=False):
         self.binary, self.root = binary, root
         self.jam_runtime = jam_runtime
         self.tor_runtime = tor_runtime
+        self.guided_setup = guided_setup
         self.events = queue.Queue()
         self.commands = queue.Queue(maxsize=1)
         self.stopping = threading.Event()
@@ -64,13 +66,26 @@ class Session:
     def close(self):
         self.stopping.set()
 
+    def setup(self, request):
+        if not self.stopping.is_set():
+            try: self.commands.put_nowait(request)
+            except queue.Full: pass
+
     def run(self):
         runner = None
         try:
             if self.stopping.is_set():
                 return
             tor = packaged_tor_binary(self.tor_runtime) if self.tor_runtime else None
-            runner = ManagedDaemon(self.binary, self.root, jam_runtime=self.jam_runtime, tor_binary=tor)
+            runtime = self.jam_runtime
+            if self.guided_setup:
+                def receive():
+                    try: return self.commands.get(timeout=0.1)
+                    except queue.Empty: return None
+                runtime = choose_runtime(runtime,self.root,tor,self.stopping,receive,
+                    lambda event,value:self.events.put((event,value)))
+            if self.stopping.is_set(): return
+            runner = ManagedDaemon(self.binary, self.root, jam_runtime=runtime, tor_binary=tor)
             runner.start()
             if not self.stopping.is_set():
                 self.events.put(('ready', runner.recovery_required))
@@ -109,6 +124,7 @@ class Window:
         self.closed = False
         self.recovery = False
         self.failure = None
+        self.setup_panel = None
         root.title('Paperclip Preview')
         root.geometry('480x460')
         root.minsize(420, 420)
@@ -156,7 +172,7 @@ class Window:
         self.action.configure(text='Open Wallet', state='disabled')
         self.progress.pack(before=self.action, fill='x', padx=65, pady=12)
         self.progress.start(12)
-        self.session = Session(self.binary, self.data_root, self.jam_runtime, self.tor_runtime)
+        self.session = Session(self.binary, self.data_root, self.jam_runtime, self.tor_runtime, guided_setup=True)
         self.session.start()
 
     def activate(self):
@@ -187,6 +203,17 @@ class Window:
                                                 if value else 'Ready when you are.'))
                     self.action.configure(text='Review Wallet' if value else 'Open Wallet', state='normal')
                     self.action.focus_set()
+                elif event == 'setup':
+                    self.show_setup()
+                elif event in ('setup_progress','setup_error'):
+                    if self.setup_panel is None:
+                        continue
+                    self.setup_message.configure(text=value)
+                    if event == 'setup_error':
+                        self.setup_submit.configure(state='normal')
+                        self.setup_later.configure(text='Set up Jars later',state='normal')
+                elif event == 'setup_complete':
+                    self.hide_setup()
                 elif event == 'open':
                     if not valid_handoff(value):
                         self.failure = 'The desktop connection was interrupted. Open Paperclip again.'
@@ -207,6 +234,7 @@ class Window:
                     self.status.configure(text=value)
                     self.action.configure(state='normal')
                 elif event == 'error':
+                    self.hide_setup()
                     self.failure = value
                     self.status.configure(text=value)
                     self.action.configure(state='disabled')
@@ -225,6 +253,7 @@ class Window:
         if self.quitting:
             return
         self.quitting = True
+        self.hide_setup()
         self.status.configure(text='Closing your wallet safely…')
         self.action.configure(state='disabled')
         self.progress.pack(before=self.action, fill='x', padx=65, pady=12)
@@ -240,6 +269,71 @@ class Window:
             self.root.after_cancel(self.poll_id)
             self.poll_id = None
         self.root.destroy()
+
+    def show_setup(self):
+        import tkinter as tk
+        from tkinter import filedialog
+        self.state='setup'
+        self.progress.stop(); self.progress.pack_forget()
+        self.action.configure(state='disabled')
+        self.status.configure(text='Connect an XBT node to host Jars on this computer.')
+        panel=tk.Toplevel(self.root); self.setup_panel=panel
+        panel.title('Set up Jars'); panel.configure(background='#101c2c')
+        panel.transient(self.root); panel.grab_set(); panel.protocol('WM_DELETE_WINDOW',self.defer_setup)
+        frame=tk.Frame(panel,background='#101c2c'); frame.pack(padx=26,pady=22,fill='both',expand=True)
+        def label(text,size=11):
+            widget=tk.Label(frame,text=text,bg='#101c2c',fg='#d9e5f3',font=('TkDefaultFont',size),
+                anchor='w',justify='left',wraplength=390);widget.pack(fill='x',pady=(6,3));return widget
+        label('Your Jars, on this computer',20)
+        label('Connect your XBT node. Your Jars wallet stays separate from your main wallet.')
+        self.setup_fields={}
+        for key,title in [('endpoint','Node RPC address'),('username','RPC username'),('password','RPC password')]:
+            label(title)
+            entry=tk.Entry(frame,font=('TkDefaultFont',12),show='•' if key=='password' else '',
+                bg='#1e3047',fg='#f3f6fa',insertbackground='#ffffff',relief='flat')
+            entry.pack(fill='x',ipady=7);self.setup_fields[key]=entry
+        self.setup_tor=tk.BooleanVar(value=False)
+        tk.Checkbutton(frame,text='Use Tor',variable=self.setup_tor,bg='#101c2c',fg='#d9e5f3',
+            selectcolor='#1e3047',activebackground='#101c2c',activeforeground='#ffffff').pack(anchor='w',pady=10)
+        self.setup_ca=''
+        def certificate():
+            path=filedialog.askopenfilename(parent=panel,title='Choose public CA certificate')
+            if not path:return
+            try:
+                with open(path,'rb') as stream: data=stream.read(65537)
+                text=data.decode('ascii')
+                if len(data)>65536 or 'PRIVATE KEY' in text or 'BEGIN CERTIFICATE' not in text:raise ValueError()
+                self.setup_ca=text; ca.configure(text='Certificate selected')
+            except (OSError,ValueError):self.setup_message.configure(text='Choose a public CA certificate, not a private key.')
+        ca=tk.Button(frame,text='Add certificate (optional)',command=certificate);ca.pack(anchor='w')
+        self.setup_message=label('Your connection is verified before it is saved.')
+        self.setup_submit=tk.Button(frame,text='Verify and save',command=self.save_setup,bg='#ff8956',fg='#101c2c',
+            font=('TkDefaultFont',12,'bold'),relief='flat',pady=10);self.setup_submit.pack(fill='x',pady=(14,6))
+        self.setup_later=tk.Button(frame,text='Set up Jars later',command=self.defer_setup);self.setup_later.pack(fill='x')
+        panel.bind('<Return>',lambda _:self.save_setup())
+        self.setup_fields['endpoint'].focus_set()
+
+    def save_setup(self):
+        if str(self.setup_submit['state'])=='disabled':return
+        settings={key:field.get().strip() if key!='password' else field.get() for key,field in self.setup_fields.items()}
+        settings.update(tor=self.setup_tor.get(),ca_pem=self.setup_ca)
+        self.setup_fields['password'].delete(0,'end')
+        self.setup_submit.configure(state='disabled');self.setup_later.configure(text='Cancel setup')
+        self.setup_message.configure(text='Checking your connection…')
+        self.session.setup({'action':'configure_jars','settings':settings})
+
+    def defer_setup(self):
+        if self.setup_panel is None:return
+        if str(self.setup_submit['state'])=='disabled':
+            self.session.close();self.hide_setup();self.status.configure(text='Cancelling setup…');return
+        self.session.setup({'action':'skip_jars'});self.hide_setup()
+
+    def hide_setup(self):
+        if getattr(self,'setup_panel',None) is not None:
+            self.setup_panel.destroy();self.setup_panel=None
+            self.setup_ca='';self.state='starting'
+            self.status.configure(text='Starting your wallet…')
+            self.progress.pack(before=self.action,fill='x',padx=65,pady=12);self.progress.start(12)
 
 
 def main():

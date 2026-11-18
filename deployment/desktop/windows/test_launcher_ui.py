@@ -152,13 +152,21 @@ class PreviewWindow(unittest.TestCase):
                 while handle is None or not (data / 'wallet/barkd.url').exists():
                     self.assertIsNone(child.poll(), 'Frozen window exited before readiness')
                     self.assertLess(time.monotonic(), deadline, 'Frozen window did not start')
-                    matches = []
+                    matches = []; setup = []
                     def inspect(hwnd, _):
                         if (win32process.GetWindowThreadProcessId(hwnd)[1] == child.pid
                                 and win32gui.IsWindowVisible(hwnd)
                                 and win32gui.GetWindowText(hwnd) == 'Paperclip Preview'):
                             matches.append(hwnd)
+                        if (win32process.GetWindowThreadProcessId(hwnd)[1] == child.pid
+                                and win32gui.IsWindowVisible(hwnd)
+                                and win32gui.GetWindowText(hwnd) == 'Set up Jars'):
+                            setup.append(hwnd)
                     win32gui.EnumWindows(inspect, None)
+                    if setup:
+                        self.assertFalse((data / 'jars').exists())
+                        self.assertFalse((data / 'wallet').exists())
+                        win32gui.PostMessage(setup[0], win32con.WM_CLOSE, 0, 0)
                     if matches:
                         handle = matches[0]
                     time.sleep(.05)

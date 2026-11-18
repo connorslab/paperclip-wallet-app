@@ -21,7 +21,7 @@ private struct BridgeEvent: Decodable {
 	}
 }
 
-final class Launcher: NSObject, NSApplicationDelegate {
+final class Launcher: NSObject, NSApplicationDelegate, NSWindowDelegate {
 	private var window: NSWindow!
 	private let status = NSTextField(wrappingLabelWithString: "Starting your wallet…")
 	private let progress = NSProgressIndicator()
@@ -33,6 +33,13 @@ final class Launcher: NSObject, NSApplicationDelegate {
 	private var ready = false
 	private var quitting = false
 	private var failedMessage: String?
+	private var setupWindow: NSWindow?
+	private var setupFields: [String: NSTextField] = [:]
+	private let setupTor = NSButton(checkboxWithTitle: "Use Tor", target: nil, action: nil)
+	private let setupMessage = NSTextField(wrappingLabelWithString: "")
+	private let setupSave = NSButton(title: "Verify and save", target: nil, action: nil)
+	private let setupLater = NSButton(title: "Set up Jars later", target: nil, action: nil)
+	private var setupCA = ""
 
 	func applicationDidFinishLaunching(_ notification: Notification) {
 		let applicationMenu = NSMenu()
@@ -124,6 +131,7 @@ final class Launcher: NSObject, NSApplicationDelegate {
 			if configuration.bundledTor == true {
 				process.arguments! += ["--tor-runtime", resources.appendingPathComponent("PaperclipTor").path]
 			}
+			process.arguments! += ["--guided-setup"]
 			process.environment = ProcessInfo.processInfo.environment.filter { ["PATH", "HOME", "TMPDIR", "LANG"].contains($0.key) }
 			process.standardInput = incoming
 			process.standardOutput = outgoing
@@ -171,6 +179,13 @@ final class Launcher: NSObject, NSApplicationDelegate {
 			guard let event = try? JSONDecoder().decode(BridgeEvent.self, from: line) else { stopAfterProtocolError(); return }
 			buffer.removeSubrange(...newline)
 			switch event.event {
+			case "setup": showSetup()
+			case "setup_progress": setupMessage.stringValue = event.message ?? "Checking your connection…"
+			case "setup_error":
+				setupMessage.stringValue = event.message ?? "The node could not be verified."
+				setupSave.isEnabled = true
+				setupLater.title = "Set up Jars later"
+			case "setup_complete": hideSetup()
 			case "ready":
 				ready = true
 				let recovery = event.recoveryRequired == true
@@ -207,12 +222,118 @@ final class Launcher: NSObject, NSApplicationDelegate {
 	}
 
 	private func showFailure(_ message: String) {
+		hideSetup()
 		ready = false
 		status.stringValue = message
 		progress.stopAnimation(nil)
 		progress.isHidden = true
 		action.title = "Try Again"
 		action.isEnabled = true
+	}
+
+	private func showSetup() {
+		guard setupWindow == nil else { return }
+		progress.stopAnimation(nil); progress.isHidden = true
+		status.stringValue = "Connect an XBT node to host Jars on this Mac."
+		let panel = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 460, height: 550),
+			styleMask: [.titled, .closable], backing: .buffered, defer: false)
+		panel.title = "Set up Jars"; panel.isReleasedWhenClosed = false; panel.delegate = self
+		setupWindow = panel; setupCA = ""; setupFields.removeAll()
+		let stack = NSStackView(); stack.orientation = .vertical; stack.alignment = .leading; stack.spacing = 10
+		stack.translatesAutoresizingMaskIntoConstraints = false
+		func label(_ text: String, size: CGFloat = 13) {
+			let value = NSTextField(wrappingLabelWithString: text); value.font = .systemFont(ofSize: size)
+			stack.addArrangedSubview(value); value.widthAnchor.constraint(equalToConstant: 404).isActive = true
+		}
+		label("Your Jars, on this Mac", size: 23)
+		label("Connect your XBT node. Your Jars wallet stays separate from your main wallet.")
+		for (key, title) in [("endpoint", "Node RPC address"), ("username", "RPC username"), ("password", "RPC password")] {
+			label(title)
+			let field: NSTextField = key == "password" ? NSSecureTextField() : NSTextField()
+			field.font = .systemFont(ofSize: 14); field.controlSize = .large
+			field.setAccessibilityLabel(title); setupFields[key] = field; stack.addArrangedSubview(field)
+			field.widthAnchor.constraint(equalToConstant: 404).isActive = true
+		}
+		setupTor.state = .off; stack.addArrangedSubview(setupTor)
+		let certificate = NSButton(title: "Add certificate (optional)", target: self, action: #selector(chooseSetupCertificate))
+		certificate.bezelStyle = .rounded; stack.addArrangedSubview(certificate)
+		setupMessage.stringValue = "Your connection is verified before it is saved."
+		setupMessage.widthAnchor.constraint(equalToConstant: 404).isActive = true; stack.addArrangedSubview(setupMessage)
+		setupSave.target = self; setupSave.action = #selector(saveSetup); setupSave.bezelStyle = .rounded
+		setupSave.controlSize = .large; setupSave.isEnabled = true; setupSave.keyEquivalent = "\r"
+		setupLater.target = self; setupLater.action = #selector(deferSetup); setupLater.bezelStyle = .rounded
+		setupLater.title = "Set up Jars later"
+		stack.addArrangedSubview(setupSave); stack.addArrangedSubview(setupLater)
+		panel.contentView!.addSubview(stack)
+		NSLayoutConstraint.activate([stack.leadingAnchor.constraint(equalTo: panel.contentView!.leadingAnchor, constant: 28),
+			stack.topAnchor.constraint(equalTo: panel.contentView!.topAnchor, constant: 24)])
+		window.addChildWindow(panel, ordered: .above); panel.center(); panel.makeKeyAndOrderFront(nil)
+		panel.makeFirstResponder(setupFields["endpoint"])
+	}
+
+	private func hideSetup() {
+		guard let panel = setupWindow else { return }
+		setupFields["password"]?.stringValue = ""; setupFields.removeAll(); setupCA = ""
+		window.removeChildWindow(panel); panel.orderOut(nil); setupWindow = nil
+	}
+
+	@objc private func chooseSetupCertificate() {
+		guard let panel = setupWindow else { return }
+		let picker = NSOpenPanel(); picker.canChooseDirectories = false; picker.allowsMultipleSelection = false
+		picker.beginSheetModal(for: panel) { [weak self] result in
+			guard let self = self, result == .OK, let url = picker.url else { return }
+			do {
+				let file = try FileHandle(forReadingFrom: url); defer { try? file.close() }
+				let data = try file.read(upToCount: 65537) ?? Data()
+				guard data.count <= 65536, let text = String(data: data, encoding: .ascii),
+					text.contains("BEGIN CERTIFICATE"), !text.contains("PRIVATE KEY") else { throw CocoaError(.fileReadCorruptFile) }
+				self.setupCA = text; self.setupMessage.stringValue = "Certificate selected."
+			} catch { self.setupMessage.stringValue = "Choose a public CA certificate, not a private key." }
+		}
+	}
+
+	@objc private func saveSetup() {
+		guard setupSave.isEnabled, setupWindow != nil else { return }
+		var settings: [String: Any] = setupFields.mapValues { $0.stringValue }
+		settings["tor"] = setupTor.state == .on; settings["ca_pem"] = setupCA
+		setupFields["password"]?.stringValue = ""
+		setupSave.isEnabled = false; setupLater.title = "Cancel setup"
+		setupMessage.stringValue = "Checking your connection…"
+		sendSetup(["action": "configure_jars", "settings": settings])
+	}
+
+	private func sendSetup(_ value: [String: Any]) {
+		do {
+			var data = try JSONSerialization.data(withJSONObject: value); data.append(10)
+			guard data.count <= 96 * 1024 else { throw CocoaError(.fileWriteOutOfSpace) }
+			// Large public CA files must not block AppKit while the pipe drains.
+			guard let writer = input?.fileHandleForWriting, let owner = helper else { throw CocoaError(.fileNoSuchFile) }
+			let payload = data
+			DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+				do { try writer.write(contentsOf: payload) }
+				catch {
+					DispatchQueue.main.async {
+						guard let self = self, self.helper === owner, !self.quitting else { return }
+						self.stopAfterProtocolError()
+					}
+				}
+			}
+		} catch { stopAfterProtocolError() }
+	}
+
+	@objc private func deferSetup() {
+		if setupSave.isEnabled {
+			sendSetup(["action": "skip_jars"]); hideSetup()
+			status.stringValue = "Starting your wallet…"; progress.isHidden = false; progress.startAnimation(nil)
+		} else {
+			failedMessage = "Setup was cancelled. Saved settings were kept."
+			try? input?.fileHandleForWriting.close(); hideSetup(); status.stringValue = "Cancelling setup…"
+		}
+	}
+
+	func windowShouldClose(_ sender: NSWindow) -> Bool {
+		if sender === setupWindow { deferSetup(); return false }
+		return true
 	}
 
 	@objc private func openWallet() {
@@ -230,7 +351,8 @@ final class Launcher: NSObject, NSApplicationDelegate {
 		quitting = true
 		action.isEnabled = false
 		status.stringValue = "Closing your wallet safely…"
-		try? input?.fileHandleForWriting.write(contentsOf: Data("{\"action\":\"quit\"}\n".utf8))
+		// EOF cancels verification and closes the owned session without racing a large setup write.
+		hideSetup()
 		try? input?.fileHandleForWriting.close()
 		DispatchQueue.main.asyncAfter(deadline: .now() + 25) {
 			if process.isRunning { process.terminate() }

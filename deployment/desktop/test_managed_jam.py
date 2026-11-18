@@ -162,6 +162,32 @@ class WalletAndJam(JamOwnership):
         self.assertIsNotNone(runner.jam.process.returncode)
         self.assertTrue(self.recovery_active())
 
+    def test_deferred_jars_keeps_tor_and_clean_shutdown(self):
+        if TOR is None: self.skipTest('Supply --tor for deferred Jars acceptance')
+        runner = ManagedDaemon(BINARY, self.root, tor_binary=TOR)
+        self.children.append(runner)
+        runner.start()
+        runner.ensure_running()
+        self.assertIsNone(runner.jam)
+        self.assertIsNotNone(runner.tor.socks_port)
+        self.assertFalse((self.root / 'jars').exists())
+        self.assertFalse(self.request(runner, '/api/v1/joinblaket/connection')['configured'])
+        runner.close()
+        self.assertEqual(runner.tor.process.returncode, 0)
+        self.assertFalse(self.recovery_active())
+
+    def test_deferred_jars_tor_crash_preserves_recovery_marker(self):
+        if TOR is None: self.skipTest('Supply --tor for deferred Jars acceptance')
+        runner = ManagedDaemon(BINARY, self.root, tor_binary=TOR)
+        self.children.append(runner)
+        runner.start()
+        runner.tor.process.kill(); runner.tor.process.wait(timeout=5)
+        with self.assertRaises(StartupError): runner.ensure_running()
+        with self.assertRaises(StartupError): runner.close()
+        self.assertIsNotNone(runner.process.returncode)
+        self.assertTrue(self.recovery_active())
+        self.assertFalse((self.root / 'jars').exists())
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)

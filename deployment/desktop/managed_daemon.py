@@ -111,9 +111,8 @@ class ManagedDaemon:
         self.recovery_required = False
         self._marker_identity = None
         self._windows_session = None
-        if tor_binary is not None and jam_runtime is None:
-            raise StartupError('Owned Tor requires the bundled Jars runtime.')
         self.tor_binary = tor_binary
+        self.tor = None
         self.jam_runtime = jam_runtime
         self.jam = None
 
@@ -201,6 +200,11 @@ class ManagedDaemon:
                 from managed_jam import ManagedJam
                 self.jam = ManagedJam(*self.jam_runtime, self.root / 'jars', tor_binary=self.tor_binary)
                 env.update(self.jam.start())
+            elif self.tor_binary is not None:
+                from managed_tor import ManagedTor
+                self.tor = ManagedTor(self.tor_binary, self.root / 'tor')
+                binding = self.tor.start()
+                env['BARKD_LIGHTNING_TOR_PROXY'] = f'socks5h://127.0.0.1:{binding["socks_port"]}'
             self.process = subprocess.Popen([
                 str(self.binary), '--quiet', '--no-logfile', '--datadir', str(self.data),
                 '--host', '127.0.0.1', '--port', '0', '--exit-on-stdin-close', '--desktop-handoff',
@@ -240,6 +244,8 @@ class ManagedDaemon:
                         raise StartupError('The wallet service stopped during startup.')
                     if self.jam is not None:
                         self.jam.ensure_running()
+                    if self.tor is not None:
+                        self.tor.ensure_running()
                     self.endpoint = endpoint
                     return endpoint
                 except HTTPError as error:
@@ -273,6 +279,8 @@ class ManagedDaemon:
             raise StartupError('The local wallet stopped unexpectedly. Open it again to recover.')
         if self.jam is not None:
             self.jam.ensure_running()
+        if self.tor is not None:
+            self.tor.ensure_running()
 
     def browser_url(self):
         """Return an expiring, single-use URL; caller must not log or persist it."""
@@ -315,8 +323,15 @@ class ManagedDaemon:
             finally:
                 # Stop accepting wallet requests and drain them before closing Jam.
                 # Never clear the shared recovery marker if either child failed.
-                if self.jam is not None:
-                    self.jam.close()
+                try:
+                    if self.jam is not None:
+                        self.jam.close()
+                finally:
+                    if self.tor is not None and self._lock is not None:
+                        try:
+                            self.tor.ensure_running()
+                        finally:
+                            self.tor.close()
             if was_running and self.endpoint is not None and self.process.returncode == 0:
                 self._clear_session()
         finally:

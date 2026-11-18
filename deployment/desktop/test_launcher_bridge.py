@@ -132,6 +132,48 @@ class LauncherBridge(unittest.TestCase):
         self.assertFalse((self.root / 'wallet' / 'mnemonic').exists())
 
 
+class GuidedSetup(unittest.TestCase):
+    event = LauncherBridge.event
+    send = LauncherBridge.send
+    cleanup = LauncherBridge.cleanup
+
+    def setUp(self):
+        if not (JAM or JAM_PYTHON): self.skipTest('Supply the Jars helper for guided setup')
+        temporary = tempfile.TemporaryDirectory(prefix='paperclip-guided-qa-')
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name).resolve() / 'untouched'
+        command = [str(HELPER)] if HELPER else [sys.executable, '-I', '-B', str(Path(__file__).with_name('launcher_entry.py'))]
+        command += ['--binary',str(BINARY),'--root',str(self.root),'--guided-setup']
+        command += ['--jam-executable',str(JAM)] if JAM else ['--jam-python',str(JAM_PYTHON),'--jam-entry',str(JAM_ENTRY)]
+        self.process = subprocess.Popen(command,stdin=subprocess.PIPE,stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,start_new_session=True)
+        self.addCleanup(self.cleanup)
+        self.assertEqual(self.event(), {'event':'setup'})
+        self.assertFalse(self.root.exists())
+
+    def test_deferral_opens_main_wallet_without_initializing_jars(self):
+        self.send(b'{"action":"skip_jars"}\n')
+        self.assertEqual(self.event()['event'],'ready')
+        self.assertFalse((self.root / 'jars').exists())
+        self.send(b'{"action":"quit"}\n')
+        self.assertEqual(self.event()['event'],'stopped')
+        self.assertEqual(self.process.wait(timeout=5),0)
+        self.assertFalse((self.root / 'session.active').exists())
+
+    def test_shell_close_during_setup_leaves_no_wallet(self):
+        self.process.stdin.close()
+        self.process.wait(timeout=5)
+        self.assertFalse(self.root.exists())
+
+    def test_invalid_request_never_echoes_credentials_or_starts_wallet(self):
+        self.send(b'{"action":"invalid","password":"synthetic-private"}\n')
+        result=self.event()
+        self.assertEqual(result['event'],'error')
+        self.assertNotIn('synthetic-private',json.dumps(result))
+        self.assertEqual(self.process.wait(timeout=5),1)
+        self.assertFalse(self.root.exists())
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--binary', type=Path, required=True)
