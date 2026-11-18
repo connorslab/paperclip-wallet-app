@@ -1,0 +1,4 @@
+# Windows-only dependencies of the pinned upstream loguru/uvicorn runtime.
+# PyPI wheel bytes verified before adding these hashes.
+colorama==0.4.6 --hash=sha256:4f1d9991f5acc0ca119f9d443620b77f9d6b33703e51011c16baf57afb285fc6
+win32-setctime==1.2.0 --hash=sha256:95d644c4e708aba81dc3704a116d8cbc974d70b3bdb8be1d150e36be6e9d1390

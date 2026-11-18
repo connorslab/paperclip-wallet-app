@@ -3408,8 +3408,8 @@ module. This is history-storage validation, not live payment acceptance.
 
 The pinned bond registry uses private native reads and atomic replacement on
 Windows, retaining its existing per-wallet path, verified ownership migration
-and fail-closed parsing rules. Native cases cover independent wallets, idempotent
-legacy migration, corrupted data and unsafe permissions; CI acceptance is pending.
+and fail-closed parsing rules. All five native cases pass at `32d1908`, covering
+independent wallets, idempotent legacy migration, corrupted data and unsafe permissions.
 All 58 upstream registry and migration tests pass on macOS against the patched
 module. This validates storage compatibility, not live bond funding, withdrawal
 or physical signer support.
@@ -3421,6 +3421,18 @@ startup storage, accepts only private TLS files and builds a minimal environment
 from the OS Windows directory and its own data root. Inherited node, wallet, TLS,
 proxy and Python overrides are excluded. The frozen crypto-library name includes
 Windows, but the complete crypto distribution is not yet accepted or enabled.
-Native environment/ownership cases are pending; all seven real unfunded macOS
+All three native environment/ownership cases pass at `4b8904e`; all seven real unfunded macOS
 child lifecycle/TLS tests pass after the shared entry change. Windows previews
 still refuse a Jars runtime until the complete bundle passes acceptance.
+
+### Windows frozen Jars assembly candidate
+
+A separate native CI workflow assembles an isolated Windows Jars environment from
+the reviewed upstream commit and dependency hashes, with checksum-gated platform
+adapters. Only the POSIX uvloop dependency is platform-marked out; native logging
+dependencies have explicit wheel hashes. The crypto DLL is built and tested from
+pinned secp256k1 source. PyInstaller includes Python, runtime modules, crypto,
+licenses and source/package provenance. Relocated-bundle tests require verified
+loopback TLS, duplicate-child rejection, restart identity preservation and crash
+recovery with no wallet keys or payments. Assembly and frozen-runtime acceptance
+are pending. This candidate is not enabled in Windows previews or published.

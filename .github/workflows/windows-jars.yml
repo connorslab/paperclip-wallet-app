@@ -1,0 +1,80 @@
+name: Native Windows bundled Jars
+on:
+  workflow_dispatch:
+  push:
+    branches: ['codex/cross-platform-parity']
+    paths: ['deployment/jam/**', 'deployment/desktop/windows/**', 'deployment/desktop/pipe_io.py', '.github/workflows/windows-jars.yml']
+  pull_request:
+    paths: ['deployment/jam/**', 'deployment/desktop/windows/**', '.github/workflows/windows-jars.yml']
+permissions:
+  contents: read
+concurrency:
+  group: windows-jars-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  frozen-runtime:
+    runs-on: windows-2025
+    timeout-minutes: 30
+    env:
+      GIT_CONFIG_COUNT: '1'
+      GIT_CONFIG_KEY_0: core.autocrlf
+      GIT_CONFIG_VALUE_0: 'false'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - uses: actions/checkout@v4
+        with:
+          repository: Kilombino/joinblaket
+          ref: 40a29ae4f34930687f0c6be3e9e5bf14a44cc0f3
+          path: .native-jars-source
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: bitcoin-core/secp256k1
+          ref: 0cdc758a56360bf58a851fe91085a327ec97685a
+          path: .native-secp-source
+          persist-credentials: false
+      - name: Build the pinned native crypto library
+        run: |
+          cmake -S .native-secp-source -B "$env:RUNNER_TEMP/secp-build" -A x64 -DBUILD_SHARED_LIBS=ON -DSECP256K1_ENABLE_MODULE_RECOVERY=ON -DSECP256K1_BUILD_TESTS=ON -DSECP256K1_BUILD_EXHAUSTIVE_TESTS=OFF -DSECP256K1_BUILD_BENCHMARK=OFF
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cmake --build "$env:RUNNER_TEMP/secp-build" --config Release --parallel 2
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          ctest --test-dir "$env:RUNNER_TEMP/secp-build" -C Release --output-on-failure
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $libraries = @(Get-ChildItem "$env:RUNNER_TEMP/secp-build" -Recurse -Filter '*secp256k1*.dll')
+          if ($libraries.Count -ne 1) { throw 'Expected exactly one reviewed crypto library.' }
+          "PAPERCLIP_SECP=$($libraries[0].FullName)" >> $env:GITHUB_ENV
+      - name: Install hash-locked dependencies and the pinned runtime
+        run: |
+          python -m venv "$env:RUNNER_TEMP/jars-venv"
+          $py = "$env:RUNNER_TEMP/jars-venv/Scripts/python.exe"
+          "JARS_PYTHON=$py" >> $env:GITHUB_ENV
+          & $py -m pip install pip==26.3 setuptools==84.2.1 wheel==0.48.0
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          # The upstream Linux lock includes uvloop, an optional uvicorn speedup.
+          # Retain every version/hash and mark only this POSIX dependency inapplicable.
+          python -c "from pathlib import Path; import re; files=list(Path('.native-jars-source').glob('*/requirements.txt')); [(p.write_text(re.sub(r'(?m)^(uvloop==[^\s]+)', r'\1 ; sys_platform != '+chr(34)+'win32'+chr(34), p.read_text()),newline='')) for p in files]"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & $py -m pip install --require-hashes -r deployment/desktop/windows/jars-requirements.txt -r .native-jars-source/jmcore/requirements.txt -r .native-jars-source/jmwallet/requirements.txt -r .native-jars-source/maker/requirements.txt -r .native-jars-source/taker/requirements.txt -r .native-jars-source/orderbook_watcher/requirements.txt -r .native-jars-source/jmwalletd/requirements.txt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & $py -m pip install --no-deps --no-build-isolation ./.native-jars-source/jmcore ./.native-jars-source/jmwallet ./.native-jars-source/maker ./.native-jars-source/taker ./.native-jars-source/orderbook_watcher ./.native-jars-source/tumbler ./.native-jars-source/jmwalletd
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & $py -m pip install pywin32==311 pyinstaller==6.22.3
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & $py deployment/desktop/windows/prepare_jars.py --deployment "$env:GITHUB_WORKSPACE/deployment"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & $py -m pip check
+      - name: Verify native crypto and patched API imports
+        run: |
+          & $env:JARS_PYTHON -c "import os, bitcointx; bitcointx.set_custom_secp256k1_path(os.environ['PAPERCLIP_SECP']); from bitcointx.core.key import CKey; key=CKey.from_secret_bytes(bytes([1])*32); digest=bytes([2])*32; assert key.pub.verify(digest,key.sign(digest)); from jmwalletd.app import create_app; from jmwalletd.wallet_ops import _reserve_wallet_path; print('Native crypto signature and patched Jars API imports passed.')"
+      - name: Freeze the complete Jars runtime
+        run: |
+          & $env:JARS_PYTHON deployment/desktop/windows/build_jars.py --source "$env:GITHUB_WORKSPACE/deployment" --secp256k1 "$env:PAPERCLIP_SECP" --secp256k1-license "$env:GITHUB_WORKSPACE/.native-secp-source/COPYING" --output "$env:RUNNER_TEMP/jars-bundle" --work "$env:RUNNER_TEMP/jars-freeze"
+      - name: Test relocated bundle with verified TLS and isolated unfunded storage
+        timeout-minutes: 4
+        run: |
+          $env:PYTHONPATH = "$env:GITHUB_WORKSPACE/deployment/desktop"
+          & $env:JARS_PYTHON deployment/desktop/windows/test_jars_bundle.py --bundle "$env:RUNNER_TEMP/jars-bundle/PaperclipJars" -v
