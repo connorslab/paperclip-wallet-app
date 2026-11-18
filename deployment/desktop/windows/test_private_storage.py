@@ -4,6 +4,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from unittest.mock import patch
 
@@ -11,6 +12,7 @@ import pywintypes
 import win32api
 import win32con
 import win32file
+import win32event
 import win32security
 
 from private_storage import UnsafeStorage, exclusive_file, private_directory, local_path, user_sid, ancestors, read_private_file, SessionRecord, atomic_write_private, create_private_file, prepare_child_file_owner
@@ -123,23 +125,42 @@ class PrivateStorage(unittest.TestCase):
 
     def test_process_death_releases_kernel_ownership(self):
         path = self.root / 'owner.lock'
-        code = ('from private_storage import exclusive_file; import sys\n'
+        code = ('from private_storage import exclusive_file; import os, sys\n'
                 'with exclusive_file(sys.argv[1]):\n'
-                ' print("ready", flush=True)\n'
+                ' print(os.getpid(), flush=True)\n'
                 ' sys.stdin.buffer.read(1)')
         process = subprocess.Popen([sys.executable, '-c', code, str(path)], cwd=Path(__file__).parent,
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        owner = None
         try:
-            self.assertEqual(process.stdout.readline(), b'ready\r\n')
-            process.kill()
+            # A Windows venv redirector can have a different PID from its Python
+            # child. Terminate the process that actually holds the lock.
+            pid = int(process.stdout.readline().strip())
+            owner = win32api.OpenProcess(win32con.PROCESS_TERMINATE | win32con.SYNCHRONIZE, False, pid)
+            with self.assertRaises(BlockingIOError), exclusive_file(path):
+                self.fail('The live child must retain exclusive ownership')
+            win32api.TerminateProcess(owner, 1)
+            self.assertEqual(win32event.WaitForSingleObject(owner, 10000), win32event.WAIT_OBJECT_0)
             process.wait(timeout=10)
-            with exclusive_file(path):
-                pass
+            # LockFileEx documents asynchronous OS cleanup after process death:
+            # https://learn.microsoft.com/windows/win32/api/fileapi/nf-fileapi-lockfileex
+            deadline = time.monotonic() + 5
+            while True:
+                try:
+                    with exclusive_file(path):
+                        break
+                except BlockingIOError:
+                    if time.monotonic() >= deadline:
+                        self.fail('The terminated owner retained its kernel lock')
+                    time.sleep(0.02)
         finally:
+            process.stdin.close()
             if process.poll() is None:
                 process.kill()
             process.wait(timeout=10)
-            process.stdin.close(); process.stdout.close()
+            process.stdout.close()
+            if owner is not None:
+                owner.Close()
 
     def test_nonlocal_and_ambiguous_paths_are_rejected(self):
         for path in ('relative', r'\\server\share\wallet', r'C:\wallet\..\other', r'C:\wallet:secret', r'C:\wallet.'):
