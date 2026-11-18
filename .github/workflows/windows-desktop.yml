@@ -103,8 +103,16 @@ jobs:
       - name: Prepare native build dependencies
         shell: pwsh
         run: |
-          choco install protoc --version=36.2.0 --yes --no-progress
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $protocArchive = Join-Path $env:RUNNER_TEMP 'protoc-36.2-win64.zip'
+          Invoke-WebRequest 'https://github.com/protocolbuffers/protobuf/releases/download/v36.2/protoc-36.2-win64.zip' -OutFile $protocArchive
+          if ((Get-FileHash $protocArchive -Algorithm SHA256).Hash -ne 'f0c128dc0d8492eceece83bb459a4c0e316764b929ffbf1aa416357fd644edd3') { throw 'Unexpected protoc archive checksum.' }
+          $protocRoot = Join-Path $env:RUNNER_TEMP 'protoc-36.2'
+          Expand-Archive -LiteralPath $protocArchive -DestinationPath $protocRoot
+          $protoc = Join-Path $protocRoot 'bin/protoc.exe'
+          $protocVersion = & $protoc --version
+          if ($LASTEXITCODE -ne 0 -or $protocVersion -ne 'libprotoc 36.2') { throw 'Unexpected protoc executable version.' }
+          "PROTOC=$protoc" >> $env:GITHUB_ENV
+          "PROTOC_INCLUDE=$(Join-Path $protocRoot 'include')" >> $env:GITHUB_ENV
           $archive = Join-Path $env:RUNNER_TEMP 'boost_1_85_0.7z'
           Invoke-WebRequest 'https://archives.boost.io/release/1.85.0/source/boost_1_85_0.7z' -OutFile $archive
           if ((Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant() -ne '16d16b9658753117c1434e5450c5eac194957f4b6d0b390b9d07900d37c115a4') { throw 'Boost archive checksum mismatch.' }
