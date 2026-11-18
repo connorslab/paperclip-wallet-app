@@ -204,6 +204,14 @@ pub fn open_owner_only(path: &Path) -> anyhow::Result<File> {
 	Ok(file)
 }
 
+pub(super) fn open_private_reader(path: &Path) -> anyhow::Result<File> {
+	let (path, _parents) = guarded_path(path)?;
+	let file = open(&path, GENERIC_READ | READ_CONTROL, OPEN_EXISTING, null())?;
+	ensure!(file.metadata()?.is_file(), "private storage must be a regular file");
+	private_handle(&file)?;
+	Ok(file)
+}
+
 pub fn write_atomic_owner_only(path: &Path, contents: &[u8]) -> anyhow::Result<()> {
 	let (path, _parents) = guarded_path(path)?;
 	let parent = path.parent().context("missing storage parent")?;
@@ -337,6 +345,7 @@ mod tests {
 			DACL_SECURITY_INFORMATION, null_mut(), null_mut(), null(), null()) };
 		assert_eq!(status, 0);
 		drop(file);
+		assert!(super::super::read_owner_only(&path, 9).is_err());
 		assert!(refuse_if_loose(&path, 0o600).is_err());
 		assert!(refuse_if_loose(&path, 0o600).is_err());
 	}
@@ -373,6 +382,8 @@ mod tests {
 			.arg(&junction).arg(&target).stdout(std::process::Stdio::null()).status().unwrap().success());
 		assert!(create_new_owner_only(&junction.join("secret"), b"synthetic").is_err());
 		assert!(!target.join("secret").exists());
+		create_new_owner_only(&target.join("secret"), b"synthetic").unwrap();
+		assert!(super::super::read_owner_only(&junction.join("secret"), 9).is_err());
 		std::fs::remove_dir(junction).unwrap();
 	}
 

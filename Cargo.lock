@@ -398,6 +398,7 @@ name = "bark-common"
 version = "0.8.1"
 dependencies = [
  "anyhow",
+ "libc",
  "serde",
  "tempfile",
  "tracing",

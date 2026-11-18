@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Arc;
 
-use anyhow::{bail, Context};
+use anyhow::{anyhow, bail, ensure, Context};
 use bitcoin::hex::FromHex;
 use bitcoin::secp256k1::rand::{self, RngCore};
 use clap::{Parser, Subcommand};
@@ -331,13 +331,17 @@ async fn run_shutdown_signal_listener(shutdown: CancellationToken) {
 /// doesn't exist.
 fn load_auth_token(datadir: &PathBuf) -> anyhow::Result<Option<AuthToken>> {
 	let path = datadir.join(AUTH_TOKEN_FILE);
-	if !path.exists() {
-		return Ok(None);
-	}
-
-	let str = std::fs::read_to_string(&path)
-		.with_context(|| format!("failed to read {}", path.display()))?;
-	Ok(Some(AuthToken::decode(&str)?))
+	// Base64url of one version byte plus 32 secret bytes, without whitespace.
+	let bytes = match fs_perms::read_owner_only(&path, 44) {
+		Ok(bytes) => bytes,
+		Err(error) if error.downcast_ref::<std::io::Error>().is_some_and(|e| e.kind() == std::io::ErrorKind::NotFound) => return Ok(None),
+		Err(error) => return Err(error.context("failed to read private authentication storage")),
+	};
+	// Do not include decoder details or credential contents in startup logs.
+	let encoded = std::str::from_utf8(&bytes).map_err(|_| anyhow!("invalid authentication storage"))?;
+	let token = AuthToken::decode(encoded).map_err(|_| anyhow!("invalid authentication storage"))?;
+	ensure!(token.encode() == encoded, "invalid authentication storage");
+	Ok(Some(token))
 }
 
 /// Write the auth token to the datadir.
@@ -675,6 +679,35 @@ async fn main() -> anyhow::Result<()>{
 #[cfg(test)]
 mod test {
 	use super::*;
+
+	#[test]
+	fn auth_storage_requires_canonical_private_token_and_preserves_failures() {
+		let root = std::env::temp_dir().join(format!("paperclip-auth-read-{}-{}", std::process::id(),
+			std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+		std::fs::create_dir(&root).unwrap();
+		fs_perms::harden(&root, 0o700).unwrap();
+		assert!(load_auth_token(&root).unwrap().is_none());
+		assert_eq!(std::fs::read_dir(&root).unwrap().count(), 0);
+		let token = AuthToken::new([7;32]);
+		store_auth_token(&root, &token).unwrap();
+		assert!(load_auth_token(&root).unwrap().unwrap() == token);
+		let path = root.join(AUTH_TOKEN_FILE);
+		for corrupt in [b"invalid synthetic credential".to_vec(), vec![0xff;44], vec![b'A';45],
+			format!("{}\n", token.encode()).into_bytes(), AuthToken::new([2;32]).encode().replacen('A', "B", 1).into_bytes()] {
+			fs_perms::write_atomic_owner_only(&path, &corrupt).unwrap();
+			let error = load_auth_token(&root).err().expect("corrupt token must fail");
+			assert!(!format!("{error:#}").contains("invalid synthetic credential"));
+			assert_eq!(std::fs::read(&path).unwrap(), corrupt);
+		}
+		store_auth_token(&root, &token).unwrap();
+		let alias = root.join("alias");
+		std::fs::hard_link(&path, &alias).unwrap();
+		assert!(load_auth_token(&root).is_err());
+		assert!(std::fs::read(&alias).unwrap() == token.encode().as_bytes());
+		std::fs::remove_file(alias).unwrap();
+		assert!(load_auth_token(&root).unwrap().unwrap() == token);
+		std::fs::remove_dir_all(root).unwrap();
+	}
 
 	#[cfg(feature = "barkd-web-ui")]
 	#[tokio::test]

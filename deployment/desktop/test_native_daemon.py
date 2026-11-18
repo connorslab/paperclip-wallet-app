@@ -205,16 +205,50 @@ def check(binary):
 
         # A malformed existing credential must fail closed. Never silently
         # rotate it and strand the user's already-paired clients.
-        damaged = 'synthetic-invalid-authentication'
-        (data / 'auth_token').write_text(damaged)
-        with (root / 'private-invalid-auth.log').open('wb') as log:
-            rejected = subprocess.Popen([str(binary), '--quiet', '--no-logfile'],env=env,stdout=log,stderr=log)
-            try:
-                assert rejected.wait(timeout=10) != 0, 'Daemon accepted malformed saved authentication'
-            finally:
-                if rejected.poll() is None:
-                    rejected.kill(); rejected.wait(timeout=5)
-        assert saved_text('auth_token') == damaged, 'Malformed authentication was silently replaced'
+        def refuse_auth(label):
+            logfile = root / ('private-auth-' + label + '.log')
+            with logfile.open('wb') as log:
+                rejected = subprocess.Popen([str(binary), '--quiet', '--no-logfile'],env=env,stdout=log,stderr=log)
+                try:
+                    assert rejected.wait(timeout=10) != 0, 'Daemon accepted unsafe authentication: ' + label
+                finally:
+                    if rejected.poll() is None:
+                        rejected.kill(); rejected.wait(timeout=5)
+            diagnostics = logfile.read_bytes()
+            assert b'authentication storage' in diagnostics, 'Failure did not identify authentication storage'
+            assert initial_token.encode() not in diagnostics, 'Startup disclosed authentication'
+            assert saved_text('barkd.url') == endpoint, 'Failed authentication replaced discovery'
+
+        credential = data / 'auth_token'
+        for label, damaged in [('malformed', 'synthetic-invalid-authentication'), ('oversized', 'A' * 4096),
+                               ('whitespace', initial_token + '\n')]:
+            credential.write_text(damaged)
+            refuse_auth(label)
+            assert saved_text('auth_token') == damaged, 'Unsafe authentication was silently replaced'
+        credential.write_text(initial_token)
+        alias = root / 'auth-alias'
+        os.link(credential, alias)
+        refuse_auth('hardlink')
+        # Inspect the fixture directly; the Windows production reader correctly
+        # refuses this hardlink too.
+        assert credential.read_text() == initial_token, 'Hardlinked authentication was replaced'
+        alias.unlink()
+        if os.name != 'nt':
+            credential.chmod(0o644)
+            refuse_auth('shared-permissions')
+            assert credential.stat().st_mode & 0o777 == 0o644, 'Startup silently repaired permissions'
+            credential.chmod(0o600)
+            credential.rename(alias)
+            credential.symlink_to(alias)
+            refuse_auth('symlink')
+            assert credential.is_symlink() and alias.read_text() == initial_token
+            alias.unlink()
+            refuse_auth('dangling-symlink')
+            assert credential.is_symlink(), 'Dangling authentication link was silently replaced'
+            credential.unlink()
+            os.mkfifo(credential, 0o600)
+            refuse_auth('fifo')
+            credential.unlink()
         assert not (data / 'mnemonic').exists(), 'Failure path created wallet keys'
     print('PASS native daemon: isolated first launch, OS-assigned port discovery, authenticated shared UI, entropy rejection, origin boundary, private files, duplicate-instance rejection, crash recovery and fail-closed authentication; no wallet or payment created')
 

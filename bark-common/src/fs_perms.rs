@@ -8,9 +8,10 @@
 
 #[cfg(not(windows))]
 use std::io::Write;
+use std::io::Read;
 use std::path::Path;
 #[cfg(unix)]
-use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
 
 #[cfg(not(windows))]
 use anyhow::Context;
@@ -20,6 +21,38 @@ use tracing::warn;
 mod windows;
 #[cfg(windows)]
 pub use windows::{harden, refuse_if_loose, create_new_owner_only, write_atomic_owner_only, open_owner_only};
+#[cfg(windows)]
+use windows::open_private_reader;
+
+/// Read an existing private regular file through its validated handle.
+/// Never create, repair permissions, follow a final symlink or accept a hardlink.
+/// The caller must also control the containing directory on Unix.
+pub fn read_owner_only(path: &Path, max_bytes: usize) -> anyhow::Result<Vec<u8>> {
+	let file = open_private_reader(path)?;
+	anyhow::ensure!(file.metadata()?.len() <= u64::try_from(max_bytes)?, "private storage exceeds the size limit");
+	// Bound the read as well: the file can grow after metadata was inspected.
+	let limit = u64::try_from(max_bytes)?.checked_add(1).ok_or_else(|| anyhow::anyhow!("invalid size limit"))?;
+	let mut bytes = Vec::new();
+	file.take(limit).read_to_end(&mut bytes)?;
+	anyhow::ensure!(bytes.len() <= max_bytes, "private storage exceeds the size limit");
+	Ok(bytes)
+}
+
+#[cfg(unix)]
+fn open_private_reader(path: &Path) -> anyhow::Result<std::fs::File> {
+	let file = std::fs::OpenOptions::new().read(true)
+		.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK).open(path)?;
+	let metadata = file.metadata()?;
+	anyhow::ensure!(metadata.is_file() && metadata.nlink() == 1, "private storage must be a regular file with one link");
+	anyhow::ensure!(metadata.uid() == unsafe { libc::geteuid() }, "private storage must be owned by the current user");
+	anyhow::ensure!(!is_loose(metadata.mode()), "private storage must not grant group or other access");
+	Ok(file)
+}
+
+#[cfg(not(any(unix, windows)))]
+fn open_private_reader(_path: &Path) -> anyhow::Result<std::fs::File> {
+	anyhow::bail!("private file reads are not supported on this platform")
+}
 
 /// `chmod` `path` to `mode` so other (non-root) users can't reach it.
 ///
@@ -185,12 +218,81 @@ pub fn write_atomic_owner_only(path: &Path, contents: &[u8]) -> anyhow::Result<(
 		.with_context(|| format!("failed to write {}", path.display()))
 }
 
+#[cfg(all(test, any(unix, windows)))]
+mod read_tests {
+	use super::*;
+
+	#[test]
+	fn private_read_is_bounded_and_never_creates_or_changes_files() {
+		let dir = tempfile::tempdir().unwrap();
+		let path = dir.path().join("secret");
+		let error = read_owner_only(&path, 9).unwrap_err();
+		assert_eq!(error.downcast_ref::<std::io::Error>().unwrap().kind(), std::io::ErrorKind::NotFound);
+		assert!(!path.exists());
+		create_new_owner_only(&path, b"synthetic").unwrap();
+		assert_eq!(read_owner_only(&path, 9).unwrap(), b"synthetic");
+		assert!(read_owner_only(&path, 8).is_err());
+		assert!(read_owner_only(&path, 0).is_err());
+		assert!(read_owner_only(dir.path(), 9).is_err());
+		assert_eq!(std::fs::read(&path).unwrap(), b"synthetic");
+		assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
+	}
+
+	#[test]
+	fn private_read_rejects_hardlinks_without_changing_them() {
+		let dir = tempfile::tempdir().unwrap();
+		let path = dir.path().join("secret");
+		let alias = dir.path().join("alias");
+		create_new_owner_only(&path, b"synthetic").unwrap();
+		std::fs::hard_link(&path, &alias).unwrap();
+		assert!(read_owner_only(&path, 9).is_err());
+		assert!(read_owner_only(&alias, 9).is_err());
+		assert_eq!(std::fs::read(&alias).unwrap(), b"synthetic");
+		std::fs::remove_file(alias).unwrap();
+		assert_eq!(read_owner_only(&path, 9).unwrap(), b"synthetic");
+	}
+}
+
 #[cfg(all(test, unix))]
 mod tests {
+	use std::ffi::CString;
+	use std::os::unix::ffi::OsStrExt;
+
 	use super::*;
 
 	fn mode_of(path: &Path) -> u32 {
 		std::fs::metadata(path).unwrap().permissions().mode() & 0o777
+	}
+
+	#[test]
+	fn private_read_rejects_links_and_fifo_without_blocking() {
+		let dir = tempfile::tempdir().unwrap();
+		let path = dir.path().join("secret");
+		let alias = dir.path().join("alias");
+		create_new_owner_only(&path, b"synthetic").unwrap();
+		std::os::unix::fs::symlink(&path, &alias).unwrap();
+		assert!(read_owner_only(&alias, 9).is_err());
+		std::fs::remove_file(&path).unwrap();
+		let error = read_owner_only(&alias, 9).unwrap_err();
+		assert_ne!(error.downcast_ref::<std::io::Error>().unwrap().kind(), std::io::ErrorKind::NotFound);
+		let fifo = CString::new(path.as_os_str().as_bytes()).unwrap();
+		assert_eq!(unsafe { libc::mkfifo(fifo.as_ptr(), 0o600) }, 0);
+		assert!(read_owner_only(&path, 9).is_err());
+	}
+
+	#[test]
+	fn private_read_preserves_modes_and_accepts_read_only_owner_access() {
+		let dir = tempfile::tempdir().unwrap();
+		let path = dir.path().join("secret");
+		create_new_owner_only(&path, b"synthetic").unwrap();
+		for mode in [0o640, 0o604, 0o644] {
+			harden(&path, mode).unwrap();
+			assert!(read_owner_only(&path, 9).is_err());
+			assert_eq!(mode_of(&path), mode);
+		}
+		harden(&path, 0o400).unwrap();
+		assert_eq!(read_owner_only(&path, 9).unwrap(), b"synthetic");
+		assert_eq!(mode_of(&path), 0o400);
 	}
 
 	#[test]

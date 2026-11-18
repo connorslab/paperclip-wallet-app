@@ -3565,3 +3565,26 @@ runtime, seven combined-runtime and four window cases. The closing-window timer
 assertions passed, and the earlier Tcl progress-animation error is absent from
 the native log. This closes that UI cleanup regression; installed-host, live
 payment and signed-release acceptance remain separate.
+
+
+### Native daemon authentication reads
+
+The daemon now applies the private-file checks when it reads an existing owner
+credential. Unix opens the file without following a final symbolic link or
+blocking on a FIFO, then checks its type, owner, link count and permissions through
+the open handle. Windows uses its guarded local path and private ACL checks with
+a read-only, existing-file handle. Neither reader creates or repairs a rejected
+file. Reads have a 44-byte bound and require the canonical token representation.
+Only a missing file permits initial credential generation. Diagnostics do not
+include token contents or decoder input.
+
+Ten native Apple filesystem tests, 13 daemon tests and four connection tests pass.
+The native Apple daemon smoke test passes authenticated startup, graceful and
+crash restart, and rejection of corrupt, oversized, whitespace-suffixed, shared,
+linked and FIFO credentials. Rejections preserve the credential and last valid
+discovery address. The container-entrypoint smoke test and workspace check pass.
+Windows native file and daemon suites include the same applicable cases; their
+new run is pending. This does not close installed backup/restore acceptance.
+
+Linux backend runs `44214719945` at `56c57de` and `44213739994` at `28b9cb59`
+completed successfully, including the earlier container and window cleanup work.
