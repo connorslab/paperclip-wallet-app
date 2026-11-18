@@ -70,6 +70,9 @@ jobs:
       - name: Verify native crypto and patched API imports
         run: |
           & $env:JARS_PYTHON -c "import os, bitcointx; bitcointx.set_custom_secp256k1_path(os.environ['PAPERCLIP_SECP']); from bitcointx.core.key import CKey; key=CKey.from_secret_bytes(bytes([1])*32); digest=bytes([2])*32; assert key.pub.verify(digest,key.sign(digest)); from jmwalletd.app import create_app; from jmwalletd.wallet_ops import _reserve_wallet_path; print('Native crypto signature and patched Jars API imports passed.')"
+      - name: Verify newly generated TLS ownership
+        run: |
+          & $env:JARS_PYTHON deployment/desktop/windows/test_jars_tls.py -v
       - name: Freeze the complete Jars runtime
         run: |
           & $env:JARS_PYTHON deployment/desktop/windows/build_jars.py --source "$env:GITHUB_WORKSPACE/deployment" --secp256k1 "$env:PAPERCLIP_SECP" --secp256k1-license "$env:GITHUB_WORKSPACE/.native-secp-source/COPYING" --output "$env:RUNNER_TEMP/jars-bundle" --work "$env:RUNNER_TEMP/jars-freeze"

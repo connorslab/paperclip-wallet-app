@@ -14,6 +14,7 @@ def prepare(deployment):
     for installer, relative in [
         ('install.py','jmwalletd/app.py'),
         ('install_windows_storage.py','jmcore/secure_files.py'),
+        ('install_windows_tls.py','jmwalletd/cli.py'),
         ('install_windows_wallet_ops.py','jmwalletd/wallet_ops.py'),
         ('install_windows_metadata.py','jmcore/wallet_metadata.py'),
         ('install_windows_utxo_metadata.py','jmwallet/wallet/utxo_metadata.py'),
