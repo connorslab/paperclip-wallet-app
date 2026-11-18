@@ -3390,6 +3390,16 @@ The pinned UTXO metadata store now selects the same checked, private native
 sidecar lock on Windows. Its existing owner-token acquisition, renewal and
 compare-and-release logic is unchanged. The native cases exercise concurrent
 rounds, reopen, stale-owner release/renew rejection, unsafe lock ACL rejection and
-source hash gating. Native acceptance is pending. All 151 upstream UTXO metadata
+source hash gating. All four pass in native Windows CI at `99f2dbb`. All 151 upstream UTXO metadata
 unit tests pass on macOS against the patched module; this does not establish
 live maker/taker or complete Windows runtime acceptance.
+
+### Windows Jars transaction history
+
+The pinned history API now selects private native file handles, stable reader/
+writer ownership and atomic CSV replacement on Windows. It preserves the upstream
+entry format, chronological ordering, legacy-name migration and outcome handling.
+Native cases cover reopen/rewrite, parallel appends, legacy migration and refusing
+unsafe ACLs without modifying the original data. Those native checks are pending.
+The complete upstream history test module passes on macOS against the patched
+module. This is history-storage validation, not live payment acceptance.
