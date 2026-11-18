@@ -14,8 +14,11 @@ concurrency:
 jobs:
   frozen-runtime:
     runs-on: windows-2025
-    timeout-minutes: 30
+    timeout-minutes: 75
     env:
+      CARGO_BUILD_JOBS: 2
+      CARGO_INCREMENTAL: 0
+      CARGO_PROFILE_DEV_DEBUG: 0
       GIT_CONFIG_COUNT: '1'
       GIT_CONFIG_KEY_0: core.autocrlf
       GIT_CONFIG_VALUE_0: 'false'
@@ -81,3 +84,48 @@ jobs:
         run: |
           $env:PYTHONPATH = "$env:GITHUB_WORKSPACE/deployment/desktop"
           & $env:JARS_PYTHON deployment/desktop/windows/test_jars_bundle.py --bundle "$env:RUNNER_TEMP/jars-bundle/PaperclipJars" -v
+
+      - name: Select the reviewed Rust toolchain
+        run: rustup toolchain install 1.91.0 --profile minimal
+      - name: Prepare native build dependencies
+        shell: pwsh
+        run: |
+          choco install protoc --version=36.2.0 --yes --no-progress
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $archive = Join-Path $env:RUNNER_TEMP 'boost_1_85_0.7z'
+          Invoke-WebRequest 'https://archives.boost.io/release/1.85.0/source/boost_1_85_0.7z' -OutFile $archive
+          if ((Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant() -ne '16d16b9658753117c1434e5450c5eac194957f4b6d0b390b9d07900d37c115a4') { throw 'Boost archive checksum mismatch.' }
+          & 7z x -y "-o$env:RUNNER_TEMP" $archive 'boost_1_85_0/boost/*'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $boost = Join-Path $env:RUNNER_TEMP 'boost_1_85_0'
+          if (!(Test-Path (Join-Path $boost 'boost/multi_index_container.hpp'))) { throw 'Required Boost headers are missing.' }
+          "BOOST_ROOT=$boost" >> $env:GITHUB_ENV
+          "CXXFLAGS=/I`"$boost`"" >> $env:GITHUB_ENV
+          "LIBCLANG_PATH=C:\Program Files\LLVM\bin" >> $env:GITHUB_ENV
+          "BARK_WEB_DIST=$env:GITHUB_WORKSPACE\web" >> $env:GITHUB_ENV
+      - uses: actions/cache/restore@v4
+        id: native-cache
+        with:
+          path: |
+            target
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: windows-native-${{ hashFiles('Cargo.lock') }}-${{ github.sha }}
+          restore-keys: |
+            windows-native-${{ hashFiles('Cargo.lock') }}-
+            windows-native-
+      - name: Verify native private files and atomic replacement
+        run: cargo +1.91.0 test --locked -p bark-common --lib fs_perms
+      - name: Build the shared daemon with embedded UI and SQLite
+        run: cargo +1.91.0 build --locked -p bark-cli --bin paperclip-walletd --features barkd-web-ui,sqlite-bundled
+      - name: Verify the wallet and frozen Jars share ownership and TLS
+        timeout-minutes: 5
+        run: |
+          $env:PYTHONPATH = "$env:GITHUB_WORKSPACE/deployment/desktop"
+          & $env:JARS_PYTHON deployment/desktop/test_managed_jam.py --python "$env:RUNNER_TEMP/jars-bundle/PaperclipJars/PaperclipJars.exe" --binary target/debug/paperclip-walletd.exe -v
+      - name: Package and test the standalone Windows app with Jars
+        timeout-minutes: 10
+        run: |
+          & $env:JARS_PYTHON deployment/desktop/windows/build_preview.py --binary target/debug/paperclip-walletd.exe --jars "$env:RUNNER_TEMP/jars-bundle/PaperclipJars" --output "$env:RUNNER_TEMP/app with jars" --work "$env:RUNNER_TEMP/app-freeze"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & "$env:RUNNER_TEMP/app with jars/PaperclipLauncherQA/PaperclipLauncherQA.exe" --binary "$env:RUNNER_TEMP/app with jars/PaperclipLauncher/paperclip-walletd.exe" --executable "$env:RUNNER_TEMP/app with jars/PaperclipLauncher/PaperclipLauncher.exe" -v

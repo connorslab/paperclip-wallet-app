@@ -166,8 +166,6 @@ class ManagedDaemon:
     def start(self):
         if os.name != 'nt' and not (sys.platform == 'darwin' or sys.platform.startswith('linux')):
             raise StartupError('This desktop platform is unsupported.')
-        if os.name == 'nt' and self.jam_runtime is not None:
-            raise StartupError('The native Windows Jars runtime is not available in this preview.')
         if self.process is not None or self._lock is not None:
             raise StartupError('This desktop session has already been started.')
         try:

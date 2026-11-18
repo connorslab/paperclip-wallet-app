@@ -11,7 +11,7 @@ import sys
 import tempfile
 
 
-def build(binary, output, work):
+def build(binary, output, work, jars=None):
     if os.name != 'nt':
         raise RuntimeError('Build with the native Windows toolchain.')
     import PyInstaller
@@ -53,9 +53,25 @@ def build(binary, output, work):
         provenance['daemon_sha256'] = hashlib.sha256(copied.read_bytes()).hexdigest()
         provenance['daemon_version'] = subprocess.run([str(copied), '--version'], check=True,
             capture_output=True, text=True).stdout.strip()
+        if jars is not None:
+            metadata = json.loads((jars / 'build-inputs.json').read_text())
+            if (metadata.get('format') != 1 or not metadata.get('source_files')
+                    or metadata.get('git_revision') != provenance['git_revision']
+                    or not (jars / 'PaperclipJars.exe').is_file()):
+                raise RuntimeError('Rebuild Jars from this source revision before packaging.')
+            for relative, digest in metadata['source_files'].items():
+                path = (source.parent.parent / relative).resolve(strict=True)
+                if (not path.is_relative_to(source.parent.parent)
+                        or hashlib.sha256(path.read_bytes()).hexdigest() != digest):
+                    raise RuntimeError('Jars inputs differ from this checkout; rebuild before packaging.')
+            if any(path.is_symlink() or path.is_junction() for path in jars.rglob('*')):
+                raise RuntimeError('Linked Jars runtime files are not supported.')
+            shutil.copytree(jars, package / 'PaperclipLauncher/PaperclipJars')
+            provenance['jars'] = metadata
+        (package / 'PaperclipLauncher/runtime.json').write_text(json.dumps({'format':1,'jars':jars is not None}))
         (package / 'build-info.json').write_text(json.dumps(provenance, indent=2, sort_keys=True) + '\n')
         (package / 'PREVIEW.txt').write_text('Unsigned development preview. PaperclipLauncherQA is test tooling, not part of installation.\n'
-            'Bundled Windows Jars, Tor/RPC configuration, signing and installed upgrades require separate acceptance.\n')
+            'Tor/RPC configuration, signing and installed upgrades require separate acceptance.\n')
         package.rename(output)
     print('Built unsigned native Windows preview and separate QA runner.')
 
@@ -65,5 +81,7 @@ if __name__ == '__main__':
     parser.add_argument('--binary', required=True, type=Path)
     parser.add_argument('--output', required=True, type=Path)
     parser.add_argument('--work', required=True, type=Path)
+    parser.add_argument('--jars', type=Path)
     args = parser.parse_args()
-    build(args.binary.resolve(strict=True), args.output.absolute(), args.work.absolute())
+    build(args.binary.resolve(strict=True), args.output.absolute(), args.work.absolute(),
+          args.jars.resolve(strict=True) if args.jars else None)

@@ -10,7 +10,7 @@ import unittest
 from urllib.request import Request, ProxyHandler, build_opener
 from unittest.mock import patch
 
-from managed_daemon import ManagedDaemon, StartupError
+from managed_daemon import ManagedDaemon, StartupError, private_directory, private_file
 from managed_jam import ManagedJam
 
 PYTHON = ENTRY = BINARY = None
@@ -32,6 +32,16 @@ class JamOwnership(unittest.TestCase):
         child = ManagedJam(PYTHON, ENTRY, self.root / 'jars')
         self.children.append(child)
         return child
+
+    def read(self, path):
+        with private_file(path) as file:
+            return file.read()
+
+    def recovery_active(self):
+        if os.name == 'nt':
+            from windows.private_storage import SessionRecord
+            return self.read(self.root / 'session.state') == SessionRecord.ACTIVE
+        return (self.root / 'session.active').exists()
 
     def test_verified_readiness_and_clean_close(self):
         child = self.jam(); environment = child.start()
@@ -61,12 +71,12 @@ class JamOwnership(unittest.TestCase):
 
     def test_crash_is_reported_and_identity_preserved_on_explicit_restart(self):
         child = self.jam(); child.start()
-        certificate = (child.root / 'ssl/cert.pem').read_bytes()
+        certificate = self.read(child.root / 'ssl/cert.pem')
         child.process.kill(); child.process.wait(timeout=5)
         with self.assertRaises(StartupError): child.ensure_running()
         with self.assertRaises(StartupError): child.close()
         restarted = self.jam(); restarted.start()
-        self.assertEqual((child.root / 'ssl/cert.pem').read_bytes(), certificate)
+        self.assertEqual(self.read(child.root / 'ssl/cert.pem'), certificate)
 
 
 class WalletAndJam(JamOwnership):
@@ -83,7 +93,7 @@ class WalletAndJam(JamOwnership):
         return runner
 
     def request(self, runner, path, body=None):
-        token = (runner.data / 'auth_token').read_text().strip()
+        token = self.read(runner.data / 'auth_token').decode().strip()
         request = Request(runner.endpoint + path, headers={'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json'},
                           data=json.dumps(body).encode() if body is not None else None)
         with build_opener(ProxyHandler({})).open(request, timeout=5) as response:
@@ -101,7 +111,7 @@ class WalletAndJam(JamOwnership):
         runner.close()
         self.assertEqual(jam.returncode, 0)
         self.assertEqual(runner.process.returncode, 0)
-        self.assertFalse((self.root / 'session.active').exists())
+        self.assertFalse(self.recovery_active())
 
     def test_jars_crash_retains_recovery_warning_and_stops_wallet(self):
         runner = self.wallet()
@@ -109,21 +119,25 @@ class WalletAndJam(JamOwnership):
         with self.assertRaises(StartupError): runner.ensure_running()
         with self.assertRaises(StartupError): runner.close()
         self.assertIsNotNone(runner.process.returncode)
-        self.assertTrue((self.root / 'session.active').exists())
+        self.assertTrue(self.recovery_active())
         restarted = self.wallet()
         self.assertTrue(restarted.recovery_required)
         restarted.close()
-        self.assertFalse((self.root / 'session.active').exists())
+        self.assertFalse(self.recovery_active())
 
     def test_wallet_startup_failure_stops_jars_and_preserves_warning(self):
         runner = ManagedDaemon(BINARY, self.root, jam_runtime=(PYTHON, ENTRY))
-        self.root.mkdir(mode=0o700)
-        runner.data.mkdir(mode=0o700)
-        (runner.data / 'auth_token').write_text('invalid fixture')
+        private_directory(self.root)
+        private_directory(runner.data)
+        if os.name == 'nt':
+            from windows.private_storage import atomic_write_private
+            atomic_write_private(runner.data / 'auth_token', b'invalid fixture')
+        else:
+            (runner.data / 'auth_token').write_text('invalid fixture')
         self.children.append(runner)
         with self.assertRaises(StartupError): runner.start()
         self.assertIsNotNone(runner.jam.process.returncode)
-        self.assertTrue((self.root / 'session.active').exists())
+        self.assertTrue(self.recovery_active())
 
 
 if __name__ == '__main__':

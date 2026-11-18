@@ -143,7 +143,8 @@ class WindowsOwnership(unittest.TestCase):
         runner = self.runner(jam_runtime=(sys.executable, None))
         with self.assertRaises(StartupError):
             runner.start()
-        self.assertFalse(self.root.exists())
+        self.assertIsNone(runner.process)
+        self.assertEqual(self.read(self.root / 'session.state'), SessionRecord.ACTIVE)
 
     def test_launcher_death_closes_child_lifetime_pipe_and_retains_recovery(self):
         code = ('from managed_daemon import ManagedDaemon; import sys\n'

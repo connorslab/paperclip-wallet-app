@@ -3,6 +3,7 @@ import fcntl
 import json
 import os
 from pathlib import Path
+import re
 import selectors
 import signal
 import ssl
@@ -70,7 +71,18 @@ class DesktopRuntime(unittest.TestCase):
         child.stdin.close()
         self.assertEqual(child.wait(timeout=20), 1)
         self.assertEqual(child.stdout.read(), b'')
-        self.assertEqual(child.stderr.read(), b'The private Jam runtime could not start or close safely.\n')
+        lines = child.stderr.read().splitlines()
+        self.assertEqual(len(lines), 2)
+        prefix = b'Jars runtime diagnostic: '
+        self.assertTrue(lines[0].startswith(prefix))
+        diagnostic = json.loads(lines[0][len(prefix):])
+        self.assertEqual(set(diagnostic), {'type', 'frames'})
+        self.assertTrue(re.fullmatch(r'[A-Za-z_][A-Za-z_0-9]*', diagnostic['type']) is not None)
+        self.assertTrue(bool(diagnostic['frames']))
+        for frame in diagnostic['frames']:
+            self.assertTrue(re.fullmatch(r'[A-Za-z_0-9.\-]+:[0-9]+', frame) is not None,
+                            'Diagnostic must contain source basenames and line numbers only')
+        self.assertTrue(lines[1] == b'The private Jam runtime could not start or close safely.')
 
     def test_tls_readiness_lifetime_and_restart_preserve_identity(self):
         child = self.launch(); endpoint = self.ready(child)

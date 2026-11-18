@@ -314,9 +314,8 @@ hosted CI token is elevated), shared/null ACL rejection, junction protection,
 hard-link rejection, competing/killed processes, recovery records and checked
 reader identity. The shared runner uses these native handles on Windows. Its six
 owned-daemon checks cover normal close, handoff, duplicate launch, daemon death,
-launcher death and malformed recovery state. Supplying a Windows Jars runtime
-fails explicitly before storage creation; the POSIX Jam runtime is not portable
-merely because the launcher is.
+launcher death and malformed recovery state. Windows Jars uses its own pinned
+native crypto, Python and storage adapters; it cannot use a POSIX runtime.
 
 A local NTFS session record is held open under the launcher's lock. Before starting
 the child it writes and flushes a fixed active state; only an observed clean close
@@ -386,3 +385,20 @@ and source fingerprints retain that distinction. These development previews can
 identify mixed inputs; a release candidate still requires one reviewed revision.
 The relocated Mac test and Linux packaging CI compare the copied daemon against
 its manifest before exercising the packaged runtime.
+
+## Windows preview with bundled Jars
+
+The `windows-jars.yml` workflow builds the pinned native crypto DLL and an
+isolated, hash-locked Jars environment. It applies checksum-gated Windows storage
+and TLS adapters, then freezes the runtime with Python and its dependencies.
+No separately installed Python or Kilombino app is used by the frozen service.
+Its relocated standalone lifecycle/TLS checks pass at `59afef4`.
+
+Pass the resulting `PaperclipJars` directory to `windows/build_preview.py --jars`.
+The preview builder requires matching Git revision and source fingerprints and
+copies the runtime beside the window. `runtime.json` records that Jars is required;
+a missing configured runtime prevents startup. The window owns both the wallet
+and Jars and preserves the recovery warning after an unexpected child exit.
+Combined wallet/proxy and packaged-window CI is required in addition to standalone
+runtime checks. These are unsigned previews, not accepted installers; Tor/RPC
+configuration, live payment acceptance and installed upgrades remain separate.

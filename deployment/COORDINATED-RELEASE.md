@@ -3448,3 +3448,23 @@ Windows sharing/lock violations within its existing deadline; access-denied and
 ownership failures still fail closed. Native regression cases cover both paths.
 The unfunded profile smoke and 15 real macOS runner cases pass; native acceptance
 of this correction is pending.
+
+### Windows bundled Jars integration validation
+
+The pinned runtime now includes hashed Windows time-zone dependencies and a
+checksum-gated TLS writer that gives both new identity files explicit private
+ownership. The native crypto signature/import probe and actual certificate/key
+ownership test pass at `59afef4`. All four relocated frozen-service tests pass
+in native run `44207771846`: verified TLS, trust rejection, duplicate child,
+normal shutdown, crash/restart and retained identity.
+The supervisor supplies the actual Windows system directory, drops inherited
+runtime overrides, verifies loopback TLS and retains crash warnings. Its shared
+macOS suite passes seven actual child/proxy cases and 15 daemon ownership cases.
+The shared runtime diagnostic test passes seven cases and validates that error
+output contains only exception classes and source basenames/line numbers.
+
+Windows packaging can combine the wallet and frozen Jars from the same revision,
+checks Jars source fingerprints, and refuses missing configured runtimes. Native
+combined wallet/Jars and packaged-window tests must pass before this integration
+is accepted. These checks use empty disposable storage; they do not establish
+live maker/payment operation, Tor/RPC setup, signing or installed upgrades.

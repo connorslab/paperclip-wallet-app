@@ -1,6 +1,7 @@
 """Native Windows development window; starting it never creates a funded wallet."""
 import argparse
 import ctypes
+import json
 import ntpath
 import os
 from pathlib import Path
@@ -71,11 +72,26 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--binary', type=Path)
     parser.add_argument('--qa-root', type=Path)
+    parser.add_argument('--jam-executable', type=Path)
     parser.add_argument('--open-browser', help=argparse.SUPPRESS)
     args = parser.parse_args()
     if args.open_browser is not None:
         raise SystemExit(0 if open_browser_child(args.open_browser) else 1)
     binary = args.binary
+    jars = args.jam_executable
+    if getattr(sys, 'frozen', False):
+        if jars is not None:
+            parser.error('The packaged app uses only its bundled Jars runtime.')
+        try:
+            configuration = json.loads((Path(sys.executable).parent / 'runtime.json').read_text())
+            if (set(configuration) != {'format','jars'} or configuration['format'] != 1
+                    or not isinstance(configuration['jars'],bool)):
+                raise ValueError('Invalid runtime configuration')
+            if configuration['jars']:
+                jars = Path(sys.executable).parent / 'PaperclipJars/PaperclipJars.exe'
+                if not jars.is_file():raise ValueError('Missing Jars runtime')
+        except (OSError, ValueError):
+            parser.error('The packaged runtime is incomplete. Reinstall this Paperclip package.')
     if binary is None:
         if not getattr(sys, 'frozen', False):
             parser.error('Supply the development daemon with --binary')
@@ -92,7 +108,8 @@ def main():
         messagebox.showerror('Paperclip', 'Your private wallet folder is unavailable. Try opening Paperclip again.', parent=root)
         root.destroy()
         return
-    Window(root, binary, data, opener=open_default_browser)
+    Window(root, binary, data, opener=open_default_browser,
+           jam_runtime=(jars, None) if jars is not None else None)
     root.mainloop()
 
 
