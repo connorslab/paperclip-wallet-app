@@ -181,6 +181,27 @@ Krux/SeedSigner CLTV signing or import a QR signer's seed into Jam.
 
 ## Native desktop child prerequisite
 
+The native helper supports a read-only `--check-node` mode for the pending setup
+flow. The owning launcher supplies one bounded JSON document on a private stdin
+pipe: `endpoint`, `username`, `password`, and optional `tor` and `ca_pem`. It must
+close the pipe after the document. Credentials must never appear in arguments,
+logs or browser messages. The helper returns one public readiness/error object
+and exits; it does not open wallet storage or save the connection.
+
+Checks require activated XBT mainnet, a synchronized node and a matching tip
+header. They issue only `getblockchaininfo` and `getblockheader`, with no retry.
+HTTPS uses packaged CA roots and an optional explicit public CA certificate.
+Plain HTTP is restricted to literal loopback addresses or valid v3 onion
+addresses. Onion checks require `tor: true`; the launcher supplies its owned
+`--tor-socks-port`. No arbitrary proxy setting, inherited proxy, TLS override,
+redirect, wallet load, rescan or spending RPC is accepted. The full check has a
+20-second deadline and bounded input and response sizes.
+
+This preflight is not a completed node-setup screen. Private configuration
+persistence, connection changes with recovery state, the owned restricted RPC
+runtime and native UI integration remain release work. A successful preflight
+does not establish wallet rescan or payment acceptance on a pruned node.
+
 `desktop-entry.py` runs the patched, pinned Jam API as an owned Linux/macOS child.
 It requires an explicit private data directory and the reviewed runtime's Python
 interpreter in isolated mode. It binds an OS-assigned IPv4 loopback port with TLS

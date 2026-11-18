@@ -110,6 +110,13 @@ jobs:
           $env:PYTHONPATH = "$env:GITHUB_WORKSPACE/deployment/desktop"
           & $env:JARS_PYTHON deployment/desktop/windows/test_jars_bundle.py --bundle "$env:RUNNER_TEMP/jars-bundle/PaperclipJars" -v
 
+      - name: Verify read-only node setup in the frozen Jars helper
+        run: |
+          $env:PYTHONPATH = "$env:GITHUB_WORKSPACE/deployment/jam"
+          $env:PAPERCLIP_NODE_CHECK_EXECUTABLE = "$env:RUNNER_TEMP/jars-bundle/PaperclipJars/PaperclipJars.exe"
+          & $env:JARS_PYTHON deployment/jam/test_node_setup.py -v
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Select the reviewed Rust toolchain
         run: rustup toolchain install 1.91.0 --profile minimal
       - name: Prepare native build dependencies

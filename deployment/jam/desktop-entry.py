@@ -175,11 +175,20 @@ async def serve(root, tor=None):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--data-dir', type=Path, required=True)
+    parser.add_argument('--data-dir', type=Path)
+    parser.add_argument('--check-node', action='store_true')
     parser.add_argument('--tor-socks-port', type=int)
     parser.add_argument('--tor-control-port', type=int)
     parser.add_argument('--tor-cookie-path', type=Path)
     args = parser.parse_args()
+    if args.check_node:
+        if args.data_dir is not None or args.tor_control_port is not None or args.tor_cookie_path is not None:
+            parser.error('Node checks do not open wallet storage or the Tor controller.')
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        from paperclip_jam.node_setup import check_pipe
+        return check_pipe(sys.stdin.buffer, sys.stdout, args.tor_socks_port)
+    if args.data_dir is None:
+        parser.error('Supply the private Jars data directory.')
     tor = (args.tor_socks_port, args.tor_control_port, args.tor_cookie_path)
     if any(value is not None for value in tor) and any(value is None for value in tor):
         parser.error('Supply the complete owned Tor binding.')
@@ -196,7 +205,7 @@ def main():
 
 if __name__ == '__main__':
     try:
-        main()
+        sys.exit(main())
     except Exception as error:
         # Source locations and exception classes help diagnose frozen-runtime
         # failures without rendering arguments, credentials, paths or locals.
