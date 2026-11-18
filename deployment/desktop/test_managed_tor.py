@@ -158,6 +158,17 @@ class Native(unittest.TestCase):
         tor.close()
         self.start().close()
 
+    def test_activation_timeout_reports_stage_cleans_up_and_allows_fresh_start(self):
+        tor = ManagedTor(BINARY, self.root)
+        self.children.append(tor)
+        with patch.object(tor, 'enable_network', side_effect=TimeoutError('synthetic-private-metadata')):
+            with self.assertRaises(StartupError) as error: tor.start()
+        self.assertIn('opening its SOCKS connection', str(error.exception))
+        self.assertNotIn('synthetic-private-metadata', str(error.exception))
+        self.assertIsNotNone(tor.process.returncode)
+        self.assertFalse(list(self.root.glob('control-*')))
+        self.start().close()
+
     def test_failed_launch_cleans_session_and_does_not_claim_readiness(self):
         tor = ManagedTor(sys.executable, self.root, startup_timeout=2)
         self.children.append(tor)

@@ -76,6 +76,7 @@ class ManagedTor:
     def start(self, *, network_enabled=True):
         if self.process is not None:
             raise StartupError('This Tor session was already started.')
+        stage = 'preparing private storage'
         try:
             private_directory(self.root)
             data = self.root / 'data'
@@ -110,9 +111,11 @@ class ManagedTor:
                 '--SafeLogging', '1', '--Log', 'err stdout', '--AvoidDiskWrites', '1',
                 '--DisableNetwork', '1',
                 '--__OwningControllerProcess', str(os.getpid())]
+            stage = 'starting its bundled process'
             self.process = subprocess.Popen(args, env=environment, stdin=subprocess.DEVNULL,
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, close_fds=True,
                 creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0)
+            stage = 'reading its private control files'
             deadline = time.monotonic() + self.startup_timeout
             while True:
                 if self.process.poll() is not None:
@@ -132,20 +135,28 @@ class ManagedTor:
                     raise StartupError('Tor returned invalid private control metadata.')
                 self.control_port = int(match[1])
                 break
+            stage = 'connecting to its local controller'
             connection = socket.create_connection(('127.0.0.1', self.control_port), timeout=3)
             self.control = Control(connection)
+            stage = 'authenticating its local controller'
             self.control.command('AUTHENTICATE ' + cookie.hex())
+            stage = 'establishing controller ownership'
             self.control.command('TAKEOWNERSHIP')
             self.control.command('RESETCONF __OwningControllerProcess')
             self.ensure_running()
             if network_enabled:
+                stage = 'opening its SOCKS connection'
                 self.enable_network()
             return {'socks_port':self.socks_port, 'control_port':self.control_port, 'cookie_path':str(self.cookie)}
         except BaseException as error:
             self.close()
             if isinstance(error, (KeyboardInterrupt, SystemExit, StartupError)):
                 raise
-            raise StartupError('The bundled Tor service could not start securely.') from None
+            # Only fixed stage names are shown; exceptions can contain private
+            # paths, control metadata or operating-system input.
+            if isinstance(error, TimeoutError):
+                raise StartupError(f'Tor timed out while {stage}. Close and reopen Paperclip to try again.') from None
+            raise StartupError(f'Tor could not finish {stage} securely. Close and reopen Paperclip to try again.') from None
 
     def enable_network(self):
         self.ensure_running()

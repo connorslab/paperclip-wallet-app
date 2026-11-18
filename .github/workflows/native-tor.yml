@@ -49,7 +49,7 @@ jobs:
           if sys.platform == 'darwin': command += ['--ad-hoc-sign']
           subprocess.run(command, check=True)
           PY
-      - name: Verify relocated owned Tor with networking disabled
+      - name: Verify relocated owned Tor and explicit SOCKS activation
         shell: bash
         run: |
           python - <<'PY'
@@ -61,5 +61,5 @@ jobs:
           relocated = root / 'Relocated Tor With Spaces'
           shutil.move(root / 'Tor Runtime', relocated)
           tor, _ = validate(relocated)
-          subprocess.run([sys.executable, 'deployment/desktop/test_managed_tor.py', '--tor', str(tor), '-v'], check=True)
+          subprocess.run([sys.executable, 'deployment/desktop/test_managed_tor.py', '--tor', str(tor), '--network', '-v'], check=True)
           PY
