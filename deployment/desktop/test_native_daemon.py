@@ -222,9 +222,11 @@ def check(binary):
         credential = data / 'auth_token'
         for label, damaged in [('malformed', 'synthetic-invalid-authentication'), ('oversized', 'A' * 4096),
                                ('whitespace', initial_token + '\n')]:
-            credential.write_text(damaged)
+            # Use identical bytes on every OS. Text-mode writes translate LF to
+            # CRLF on Windows, but saved_text deliberately reads raw bytes.
+            credential.write_bytes(damaged.encode('utf-8'))
             refuse_auth(label)
-            assert saved_text('auth_token') == damaged, 'Unsafe authentication was silently replaced'
+            assert saved_text('auth_token') == damaged, 'Unsafe authentication was silently replaced: ' + label
         credential.write_text(initial_token)
         alias = root / 'auth-alias'
         os.link(credential, alias)
