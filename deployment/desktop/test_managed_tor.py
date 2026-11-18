@@ -104,7 +104,13 @@ class Native(unittest.TestCase):
     def start(self):
         tor = ManagedTor(BINARY, self.root)
         self.children.append(tor)
-        result = tor.start(network_enabled=False)
+        try:
+            result = tor.start(network_enabled=False)
+        except StartupError as error:
+            code = getattr(error.__context__, 'winerror', None)
+            if type(code) is int:
+                self.fail(f'{error} Windows error code: {code}')
+            raise
         self.assertEqual(tor.bootstrap_progress(), 0)
         self.assertEqual(set(result), {'socks_port', 'control_port', 'cookie_path'})
         return tor
