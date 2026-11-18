@@ -10,10 +10,11 @@ from urllib.request import HTTPSHandler, ProxyHandler, build_opener
 
 from managed_daemon import NoRedirects, StartupError, private_file
 from pipe_io import read_available
+from managed_tor import ManagedTor
 
 
 class ManagedJam:
-    def __init__(self, python, entry, root, startup_timeout=30, shutdown_timeout=25):
+    def __init__(self, python, entry, root, startup_timeout=30, shutdown_timeout=25, tor_binary=None):
         # Preserve the venv interpreter path: resolving its symlink loses the venv.
         self.python = Path(python).absolute()
         self.entry = Path(entry).resolve(strict=True) if entry is not None else None
@@ -23,6 +24,8 @@ class ManagedJam:
         self.startup_timeout, self.shutdown_timeout = startup_timeout, shutdown_timeout
         self.process = None
         self.endpoint = None
+        self.tor_binary, self.tor = tor_binary, None
+        self._tor_failed = False
 
     def start(self):
         if self.process is not None:
@@ -36,8 +39,14 @@ class ManagedJam:
             environment = {'SystemRoot': str(windows), 'WINDIR': str(windows),
                            'PATH': str(windows / 'System32')}
         try:
+            tor_args = []
+            if self.tor_binary is not None:
+                self.tor = ManagedTor(self.tor_binary, self.root.parent / 'tor')
+                binding = self.tor.start()
+                tor_args = ['--tor-socks-port', str(binding['socks_port']),
+                    '--tor-control-port', str(binding['control_port']), '--tor-cookie-path', binding['cookie_path']]
             command = [str(self.python)] if self.entry is None else [str(self.python), '-I', '-B', str(self.entry)]
-            self.process = subprocess.Popen(command + ['--data-dir', str(self.root)],
+            self.process = subprocess.Popen(command + ['--data-dir', str(self.root)] + tor_args,
                 env=environment, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                 stderr=subprocess.DEVNULL, close_fds=True,
                 creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0)
@@ -70,8 +79,12 @@ class ManagedJam:
             if features.get('version') != 2 or self.process.poll() is not None:
                 raise StartupError('The bundled Jars service is incompatible or stopped.')
             self.endpoint = endpoint
-            return {'BARKD_JOINBLAKET_URL': endpoint,
-                    'BARKD_JOINBLAKET_CA_FILE': str(self.root / 'ssl' / 'cert.pem')}
+            result = {'BARKD_JOINBLAKET_URL': endpoint,
+                      'BARKD_JOINBLAKET_CA_FILE': str(self.root / 'ssl' / 'cert.pem')}
+            if self.tor is not None:
+                self.tor.ensure_running()
+                result['BARKD_LIGHTNING_TOR_PROXY'] = f'socks5h://127.0.0.1:{self.tor.socks_port}'
+            return result
         except BaseException as error:
             self.close()
             if isinstance(error, (KeyboardInterrupt, SystemExit, StartupError)):
@@ -79,10 +92,30 @@ class ManagedJam:
             raise StartupError('The bundled Jars service could not start with verified TLS.') from None
 
     def ensure_running(self):
+        if self.tor is not None:
+            try:
+                self.tor.ensure_running()
+            except StartupError:
+                self._tor_failed = True
+                raise
         if self.endpoint is None or self.process is None or self.process.poll() is not None:
             raise StartupError('Your Jars service stopped unexpectedly. Reopen Paperclip and check payment history.')
 
     def close(self):
+        if self.endpoint is not None and self.tor is not None:
+            try:
+                self.tor.ensure_running()
+            except StartupError:
+                self._tor_failed = True
+        try:
+            self._close_jam()
+        finally:
+            if self.tor is not None:
+                self.tor.close()
+        if self._tor_failed:
+            raise StartupError('Tor stopped unexpectedly. Check payment history before sending again.')
+
+    def _close_jam(self):
         if self.process is None:
             return
         was_running = self.process.poll() is None

@@ -402,3 +402,34 @@ and Jars and preserves the recovery warning after an unexpected child exit.
 Combined wallet/proxy and packaged-window CI is required in addition to standalone
 runtime checks. These are unsigned previews, not accepted installers; Tor/RPC
 configuration, live payment acceptance and installed upgrades remain separate.
+
+
+## Owned Tor supervisor
+
+`ManagedDaemon(..., jam_runtime=(python, entry), tor_binary=reviewed_executable)`
+can start a separate owned Tor child for bundled Jars and the wallet's Lightning
+proxy. The executable must be supplied explicitly. The supervisor never attaches
+to a system Tor or falls back to a direct connection. This component does not yet
+select or package a Tor distribution for release, or provide the node-RPC setup UI.
+
+Tor starts with networking disabled and private, unique control metadata. The
+controller authenticates with the cookie, takes ownership, then enables networking
+and discovers its dynamically assigned loopback SOCKS port. Control readiness,
+SOCKS readiness and bootstrap progress are distinct. A private cookie path and
+explicit loopback ports reach Jam through its isolated arguments and environment.
+The wallet receives only the SOCKS proxy address. Shutdown drains the wallet and
+Jam before Tor. An unexpected Tor exit preserves the desktop recovery warning.
+
+The lifecycle follows Tor's [owning-controller protocol](https://spec.torproject.org/control-spec/commands.html#takeownership).
+Control replies and bootstrap summaries are not copied into user diagnostics.
+Parser limits reject oversized, truncated, unsolicited and unsupported replies.
+
+Run `python3 deployment/desktop/test_managed_tor.py --tor /path/to/tor -v` for
+local control, ownership and retry checks with networking disabled. Add `--network`
+to permit the isolated Tor child to contact relays and test the SOCKS handshake.
+Neither mode sends a node request or a payment. Run `test_managed_jam.py` with
+`--tor /path/to/tor` and the existing `--python`, `--entry` and `--binary` inputs
+for combined ownership, TLS and recovery checks.
+
+Native Apple testing used Tor 0.4.9.16. Windows Tor binary/private-file behavior,
+release bundling and complete live bootstrap/node acceptance remain unverified.

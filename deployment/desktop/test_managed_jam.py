@@ -13,7 +13,7 @@ from unittest.mock import patch
 from managed_daemon import ManagedDaemon, StartupError, private_directory, private_file
 from managed_jam import ManagedJam
 
-PYTHON = ENTRY = BINARY = None
+PYTHON = ENTRY = BINARY = TOR = None
 
 
 class JamOwnership(unittest.TestCase):
@@ -86,8 +86,8 @@ class WalletAndJam(JamOwnership):
     test_missing_trust_rejects_readiness_and_reaps_owned_child = None
     test_crash_is_reported_and_identity_preserved_on_explicit_restart = None
 
-    def wallet(self):
-        runner = ManagedDaemon(BINARY, self.root, jam_runtime=(PYTHON, ENTRY))
+    def wallet(self, tor_binary=None):
+        runner = ManagedDaemon(BINARY, self.root, jam_runtime=(PYTHON, ENTRY), tor_binary=tor_binary)
         self.children.append(runner)
         runner.start()
         return runner
@@ -125,6 +125,23 @@ class WalletAndJam(JamOwnership):
         restarted.close()
         self.assertFalse(self.recovery_active())
 
+    def test_owned_tor_failure_stops_jars_and_keeps_recovery_warning(self):
+        if TOR is None: self.skipTest('Supply --tor for explicit native Tor/Jars acceptance')
+        runner = self.wallet(tor_binary=TOR)
+        tor = runner.jam.tor
+        self.assertIsNotNone(tor.socks_port)
+        tor.ensure_running()
+        self.assertIn(tor.bootstrap_progress(), range(101))
+        tor.process.kill(); tor.process.wait(timeout=5)
+        with self.assertRaises(StartupError): runner.ensure_running()
+        # Failure is surfaced before close, so the launcher must retain the
+        # same unresolved-session marker as other unexpected child exits.
+        with self.assertRaises(StartupError): runner.close()
+        self.assertTrue(self.recovery_active())
+        self.assertIsNotNone(runner.jam.process.returncode)
+        self.assertIsNotNone(runner.process.returncode)
+        self.assertFalse(list((self.root / 'tor').glob('control-*')))
+
     def test_wallet_startup_failure_stops_jars_and_preserves_warning(self):
         runner = ManagedDaemon(BINARY, self.root, jam_runtime=(PYTHON, ENTRY))
         private_directory(self.root)
@@ -145,8 +162,10 @@ if __name__ == '__main__':
     parser.add_argument('--python', required=True, type=Path)
     parser.add_argument('--entry', type=Path)
     parser.add_argument('--binary', type=Path)
+    parser.add_argument('--tor', type=Path)
     args, remaining = parser.parse_known_args()
     PYTHON, ENTRY = args.python.absolute(), args.entry.resolve(strict=True) if args.entry else None
+    TOR = args.tor.resolve(strict=True) if args.tor else None
     BINARY = args.binary.resolve(strict=True) if args.binary else None
     if not BINARY:
         WalletAndJam.__unittest_skip__ = True

@@ -50,7 +50,7 @@ def private_file(path):
         raise ValueError('Runtime file is not private')
 
 
-def runtime_environment(root):
+def runtime_environment(root, tor=None):
     environment = {key: os.environ[key] for key in ('PATH', 'LANG', 'TMPDIR') if key in os.environ}
     environment.update(HOME=str(root), JOINMARKET_DATA_DIR=str(root), JOINMARKET_CONFIG_FILE=str(root / 'config.toml'))
     if os.name == 'nt':
@@ -62,6 +62,18 @@ def runtime_environment(root):
             'PATH':str(windows / 'System32'), 'TEMP':str(temporary), 'TMP':str(temporary),
             'USERPROFILE':str(root), 'HOME':str(root), 'JOINMARKET_DATA_DIR':str(root),
             'JOINMARKET_CONFIG_FILE':str(root / 'config.toml')}
+    if tor is not None:
+        socks, control, cookie = tor
+        if not 1 <= socks <= 65535 or not 1 <= control <= 65535 or socks == control:
+            raise ValueError('Invalid owned Tor ports')
+        if not cookie.is_absolute():
+            raise ValueError('Owned Tor requires an absolute cookie path')
+        private_file(cookie)
+        if cookie.stat().st_size != 32:
+            raise ValueError('Invalid owned Tor cookie')
+        environment.update(TOR__SOCKS_HOST='127.0.0.1', TOR__SOCKS_PORT=str(socks),
+            TOR__CONTROL_ENABLED='true', TOR__CONTROL_HOST='127.0.0.1',
+            TOR__CONTROL_PORT=str(control), TOR__COOKIE_PATH=str(cookie), TOR__STREAM_ISOLATION='true')
     return environment
 
 
@@ -82,10 +94,10 @@ def entry_lock(root):
         os.close(fd)
 
 
-async def serve(root):
+async def serve(root, tor=None):
     # Sanitize before importing upstream settings. Never inherit a different node,
     # data directory, credentials, proxy, loader or logging configuration.
-    environment = runtime_environment(root)
+    environment = runtime_environment(root, tor)
     os.environ.clear()
     os.environ.update(environment)
     if getattr(sys, 'frozen', False):
@@ -164,14 +176,22 @@ async def serve(root):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--data-dir', type=Path, required=True)
+    parser.add_argument('--tor-socks-port', type=int)
+    parser.add_argument('--tor-control-port', type=int)
+    parser.add_argument('--tor-cookie-path', type=Path)
     args = parser.parse_args()
+    tor = (args.tor_socks_port, args.tor_control_port, args.tor_cookie_path)
+    if any(value is not None for value in tor) and any(value is None for value in tor):
+        parser.error('Supply the complete owned Tor binding.')
+    if all(value is None for value in tor):
+        tor = None
     os.umask(0o077)
     private_directory(args.data_dir)
     # Acquire before TLS generation, create_app, journal loading or stale-plan
     # reconciliation. A competing child must not mutate the running one's files.
     with entry_lock(args.data_dir):
         sys.path.insert(0, str(Path(__file__).resolve().parent))
-        asyncio.run(serve(args.data_dir))
+        asyncio.run(serve(args.data_dir, tor))
 
 
 if __name__ == '__main__':

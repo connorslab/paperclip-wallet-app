@@ -37,6 +37,7 @@ def build(binary, python, output, jam_python=None, helper=None, jam_helper=None)
         shutil.copy2(source / 'launcher.py', package / 'lib' / 'launcher.py')
         shutil.copy2(source.parent / 'managed_daemon.py', package / 'lib' / 'managed_daemon.py')
         shutil.copy2(source.parent / 'managed_jam.py', package / 'lib' / 'managed_jam.py')
+        shutil.copy2(source.parent / 'managed_tor.py', package / 'lib' / 'managed_tor.py')
         shutil.copy2(source.parent / 'pipe_io.py', package / 'lib' / 'pipe_io.py')
         provenance = {'format':1, 'builder_sha256':hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
             'daemon_sha256':hashlib.sha256((package / 'bin/paperclip-walletd').read_bytes()).hexdigest(),

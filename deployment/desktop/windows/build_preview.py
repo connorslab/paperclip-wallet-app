@@ -25,7 +25,7 @@ def build(binary, output, work, jars=None):
     source = Path(__file__).resolve().parent
     inputs = [source / '__init__.py', source / 'launcher.py', source / 'test_launcher_ui.py', source / 'test_managed_daemon.py', source / 'private_storage.py',
         Path(__file__).resolve(), source.parent / 'linux/launcher.py',
-        source.parent / 'managed_daemon.py', source.parent / 'managed_jam.py', source.parent / 'pipe_io.py']
+        source.parent / 'managed_daemon.py', source.parent / 'managed_jam.py', source.parent / 'managed_tor.py', source.parent / 'pipe_io.py']
     def fingerprints():
         return {str(path.relative_to(source.parent)).replace('\\', '/'):
                 hashlib.sha256(path.read_bytes()).hexdigest() for path in inputs}

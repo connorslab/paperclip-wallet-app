@@ -25,6 +25,8 @@ jobs:
           python deployment/desktop/windows/test_private_storage.py -v
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python deployment/desktop/windows/test_launcher.py -v
+      - name: Verify bounded Tor control parser
+        run: python deployment/desktop/test_managed_tor.py -v
       - name: Verify owned subprocess pipe deadlines and EOF
         timeout-minutes: 2
         run: python deployment/desktop/test_pipe_io.py -v

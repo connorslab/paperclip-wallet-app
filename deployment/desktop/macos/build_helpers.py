@@ -23,7 +23,7 @@ def build(source, secp, output, work):
     import PyInstaller
     if PyInstaller.__version__ != '6.22.3':
         raise RuntimeError('Use the reviewed PyInstaller 6.22.3 toolchain.')
-    inputs = [source / 'desktop' / name for name in ('launcher_entry.py', 'launcher_bridge.py', 'managed_daemon.py', 'managed_jam.py', 'pipe_io.py')]
+    inputs = [source / 'desktop' / name for name in ('launcher_entry.py', 'launcher_bridge.py', 'managed_daemon.py', 'managed_jam.py', 'managed_tor.py', 'pipe_io.py')]
     inputs += [source / 'jam/desktop-entry.py', source / 'desktop/windows/private_storage.py', Path(__file__).resolve()]
     inputs += sorted((source / 'jam/paperclip_jam').rglob('*.py'))
     source_hashes = {str(path.relative_to(source)):hashlib.sha256(path.read_bytes()).hexdigest() for path in inputs}

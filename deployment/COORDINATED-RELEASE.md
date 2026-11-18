@@ -3610,3 +3610,27 @@ the credential-preservation test: the fixture writes LF in text mode, which
 Windows translates to CRLF, then compares raw decoded bytes with LF. `0707aa74`
 uses exact fixture bytes and adds a case label to the assertion. Its native Apple
 smoke and workspace checks pass; Windows rerun `44221878553` is pending.
+
+
+### Native Tor ownership and Jars handoff
+
+An explicit native Tor executable can now be supervised with the owned desktop
+Jars service. Cookie authentication and controller ownership precede network
+activation. SOCKS and control ports are dynamically assigned on loopback. Jam
+receives only the explicit private cookie binding; the shared daemon receives
+the SOCKS proxy for Lightning. An unexpected Tor exit prevents the shell from
+continuing and preserves its recovery warning after child cleanup. No process
+attaches to or stops a system Tor.
+
+Ten native Apple tests pass with Tor 0.4.9.16, including bounded control parsing,
+private settings handoff, disabled-network startup, dynamic SOCKS negotiation,
+competing-owner rejection, control-disconnect shutdown and failed-start retry.
+Eight owned Jam/daemon tests pass with the new Tor crash case; five launcher
+tests and the workspace check also pass. These tests do not establish complete
+Tor bootstrap, live node connectivity or payments. Release Tor bundling, native
+Windows Tor file behavior and guided node-RPC configuration remain open.
+
+Windows run `44221878553` at `0707aa74` now passes in full, including actual
+daemon authentication rejection and preservation. Linux `44221878548` also
+passes. Browser `44222409180` and backend `44222409231` at `105939ee` pass,
+including the compact shared Jars grid. The earlier fixture failure is closed.

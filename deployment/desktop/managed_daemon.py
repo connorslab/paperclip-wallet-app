@@ -98,7 +98,7 @@ class ManagedDaemon:
     abrupt death. An explicitly supplied Jars runtime shares this lifetime.
     """
 
-    def __init__(self, binary, root, startup_timeout=30, shutdown_timeout=20, jam_runtime=None):
+    def __init__(self, binary, root, startup_timeout=30, shutdown_timeout=20, jam_runtime=None, tor_binary=None):
         self.binary = Path(binary).resolve(strict=True)
         # Validate Windows spelling before normalization can hide an alias.
         self.root = windows_storage.local_path(root) if os.name == 'nt' else Path(root).absolute()
@@ -111,6 +111,9 @@ class ManagedDaemon:
         self.recovery_required = False
         self._marker_identity = None
         self._windows_session = None
+        if tor_binary is not None and jam_runtime is None:
+            raise StartupError('Owned Tor requires the bundled Jars runtime.')
+        self.tor_binary = tor_binary
         self.jam_runtime = jam_runtime
         self.jam = None
 
@@ -196,7 +199,7 @@ class ManagedDaemon:
                 env.update({key: os.environ[key] for key in ('SystemRoot', 'TEMP', 'TMP') if key in os.environ})
             if self.jam_runtime is not None:
                 from managed_jam import ManagedJam
-                self.jam = ManagedJam(*self.jam_runtime, self.root / 'jars')
+                self.jam = ManagedJam(*self.jam_runtime, self.root / 'jars', tor_binary=self.tor_binary)
                 env.update(self.jam.start())
             self.process = subprocess.Popen([
                 str(self.binary), '--quiet', '--no-logfile', '--datadir', str(self.data),

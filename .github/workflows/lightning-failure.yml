@@ -59,7 +59,9 @@ jobs:
       - name: Install isolated Linux window-test dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y python3-tk python3-venv xvfb xauth imagemagick libsecp256k1-dev libsodium-dev
+          sudo apt-get install -y python3-tk python3-venv xvfb xauth imagemagick libsecp256k1-dev libsodium-dev tor
+      - name: Verify owned native Tor without network access
+        run: python3 deployment/desktop/test_managed_tor.py --tor /usr/bin/tor -v
       - name: Test Linux development shell and package
         run: |
           python3 deployment/desktop/linux/test_launcher.py --binary "$PWD/target/debug/paperclip-walletd" -v
