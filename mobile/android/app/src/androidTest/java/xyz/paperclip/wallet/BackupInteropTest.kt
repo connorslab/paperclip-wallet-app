@@ -30,6 +30,59 @@ class BackupInteropTest {
 		verifyAndExport(encrypted, fixture())
 	}
 
+	@Test fun archiveInstallationPreservesExistingProfileAndRejectsDuplicate() = runBlocking<Unit> {
+		val engine = WalletEngine.shared(instrumentation.targetContext)
+		val previous = engine.activeID()
+		val created = mutableListOf<String>()
+		val fixture = fixture()
+		val key = fixture.getString("publicRecoveryKey")
+		val encrypted = instrumentation.context.assets.open("ios-v2-regtest.pcbackup").use { it.readBytes() }
+		try {
+			engine.create(engine.phrase(), "xbt-regtest", "Restore isolation fixture")
+			val original = checkNotNull(engine.activeID()).also { created.add(it) }
+			val address = engine.call("address_onchain").getString("address")
+			val count = engine.profiles().size
+			val plain = BackupCodec.open(encrypted, key)
+			val bad = try { BackupArchive.decode(plain) } finally { plain.fill(0) }
+			bad.put("seed", Base64.getEncoder().encodeToString(ByteArray(64) { 30 }))
+			val badPlain = bad.toString().toByteArray()
+			val badEncrypted = try { BackupCodec.seal(badPlain, key) } finally { badPlain.fill(0) }
+			try {
+				assertTrue("Wrong wallet archive installed", runCatching { engine.restore(badEncrypted, key, testOnly = true) }.isFailure)
+			} finally { badEncrypted.fill(0) }
+			assertEquals(original, engine.activeID())
+			assertEquals(count, engine.profiles().size)
+			fun containsAddress(result: JSONObject): Boolean {
+				val addresses = result.getJSONArray("addresses")
+				return (0 until addresses.length()).any { addresses.getJSONObject(it).getString("address") == address }
+			}
+			assertTrue(containsAddress(engine.call("addresses_onchain")))
+			engine.restore(encrypted, key, testOnly = true)
+			val restored = checkNotNull(engine.activeID()).also { created.add(it) }
+			assertNotEquals(original, restored)
+			assertEquals(count + 1, engine.profiles().size)
+			assertEquals(fixture.getString("attemptID"), engine.pending()?.getString("attempt_id"))
+			assertEquals("unknown", engine.pending()?.getString("state"))
+			assertTrue("Duplicate wallet installed", runCatching { engine.restore(encrypted, key, testOnly = true) }.isFailure)
+			assertEquals(restored, engine.activeID())
+			assertEquals(count + 1, engine.profiles().size)
+			engine.close()
+			engine.open()
+			engine.select(original)
+			assertTrue(containsAddress(engine.call("addresses_onchain")))
+			engine.select(restored)
+			assertEquals(fixture.getString("attemptID"), engine.pending()?.getString("attempt_id"))
+			assertEquals("unknown", engine.pending()?.getString("state"))
+		} finally {
+			encrypted.fill(0)
+			for (id in created.asReversed()) {
+				val profile = engine.profiles().firstOrNull { it.id == id } ?: continue
+				engine.removeWallet(id, profile.name, "REMOVE ${profile.name}", true)
+			}
+			if (previous != null && engine.profiles().any { it.id == previous }) engine.select(previous)
+		}
+	}
+
 	private fun verifyAndExport(encrypted: ByteArray, fixture: JSONObject) {
 		val context = instrumentation.targetContext
 		runBlocking { WalletEngine.shared(context).close() }

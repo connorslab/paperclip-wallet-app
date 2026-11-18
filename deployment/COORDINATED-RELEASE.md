@@ -21,8 +21,8 @@ checks and their limits.
 
 | Area | Verified in the current test pass | Still required |
 | --- | --- | --- |
-| iOS | 129 shared Swift tests; six isolated native Keychain recovery cases; 17 safe UI cases on both regular-phone and open-Duo simulators | Physical signer, camera, accessibility and interrupted/folded payment acceptance; final signed candidate and upgrade |
-| Android | 112 JVM tests (four live cases excluded); 48 instrumentation cases across 18 classes on local API 35 ARM64, plus 13 focused Jars cases after the session-isolation fix; 48 cases on each of API 35/36 CI at `a04a3e4`, including the new large-text Jars navigation case, visibility and emulator-health checks; authenticated CLN/LND reads and pin rejection | Final release identity, Play/APK upgrade compatibility and physical/foldable acceptance |
+| iOS | 129 shared Swift tests; six isolated native Keychain recovery cases and two native backup/profile cases; 17 safe UI cases on both regular-phone and open-Duo simulators | Physical signer, camera, accessibility and interrupted/folded payment acceptance; final signed candidate and upgrade |
+| Android | 112 JVM tests (four live cases excluded); 51 instrumentation cases across 19 classes on API 36 CI at `11e16701`; three focused backup/profile cases on local API 35 ARM64; prior full API 35/36 pass at `047dfa57`; authenticated CLN/LND reads and pin rejection | Current API 35 CI acceptance after dependency-resolution failure; final release identity, Play/APK upgrade compatibility and physical/foldable acceptance |
 | Shared desktop UI | All 17 existing browser-flow suites plus entropy, transport and QR checks; phone, foldable and desktop widths where each suite defines them | Installed-host and native desktop acceptance; accept multiple-hot-wallet profiles and hardware-funded Ark workflows |
 | StartOS/Umbrel | Shared REST checks, authenticated CLN/LND reads; both StartOS candidate architectures built and source/checksums checked | Complete backup/restore, candidate installation, bundled Jam pairing/revocation/Tor and upgrades; matching frozen wrappers |
 | Linux/macOS/Windows | Isolated Apple Silicon and Linux daemon authentication, duplicate-instance rejection and crash/restart; macOS bundled Tor/Jars/helper runtime passes 15 relocated isolation cases; Linux bundled Tor/Jars passes TLS/proxy, relocation, frozen-window and Chromium checks; Windows native storage/ownership and bundled Tor/Jars/wallet/window lifecycle pass at `47f2cb77`, including saved-node setup/replacement controller checks | Installed browser/accessibility and bundled-Tor/Jars acceptance; supported OS matrix, signed installers, notarization and clean install/upgrade tests |
@@ -4224,3 +4224,27 @@ This is native database and encrypted-format acceptance using unfunded test
 wallets. It does not complete the portable app-state envelope, profile migration,
 remote-node/Bridge credential policy, live reconciliation, server restore or
 physical-device acceptance. No payment or network connection was made.
+
+### Mobile backup profile installation acceptance — 2026-11-18
+
+Both app adapters now have native tests for restoring the other platform's
+encrypted archive alongside an existing hot wallet. A mismatched seed is
+rejected without changing the current profile or its receive address. A valid
+restore creates a separate selected profile; a second import is rejected without
+replacing either wallet. Switching back and forth preserves the original address
+and restored uncertain-payment warning. Android also closes/reopens its engine,
+and iOS reads the committed selection through a fresh Keychain-backed adapter.
+
+Three focused Android instrumentation cases pass on the disposable API 35 ARM64
+emulator, and two native iOS cases pass on an ARM64 simulator. These tests use
+synthetic regtest fixtures, without services or payments. They cover profile
+installation and selection for the current archive format, not migration of
+older app-level warnings or remote-node/Bridge records.
+
+At `11e16701`, CI run `44295322671` passed both native ABI builds and all 51
+instrumentation cases in API 36. Its API 35 job failed before compilation because
+Gradle could not resolve the unchanged Compose plugin `2.2.10`; no API 35 test
+result exists for that run. The failure logs are retained. The same dependency
+resolved in API 36, but the underlying repository/network failure is not known.
+Lightning regression run `44295322869` passed. Later revisions require their own
+CI acceptance; this is not a complete coordinated release result.

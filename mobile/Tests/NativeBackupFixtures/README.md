@@ -21,8 +21,15 @@ and generator without changing that runtime.
 import the Android archive. Both verify seed/network rejection, account selection,
 next-address cursors, the unresolved payment reference and rejection of a new
 quote or send. Missing fixtures fail the test. These checks do not establish
-app-profile migration, portability of node/Bridge records or credentials, live
+legacy app-profile migration, portability of node/Bridge records or credentials, live
 payment reconciliation, or physical-device acceptance.
+
+The app-adapter tests additionally restore these archives beside an existing
+hot wallet. They verify that a wrong-seed archive preserves the current profile,
+a valid restore creates a separate selected profile, and a duplicate restore
+leaves both profiles intact. The original receive address and restored payment
+warning survive switching in both directions. Android closes/reopens its engine;
+iOS reads the committed selection through a fresh Keychain-backed adapter.
 
 ## Regeneration
 

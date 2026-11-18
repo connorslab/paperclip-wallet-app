@@ -3,6 +3,76 @@ import PaperclipMobile
 
 /// Public synthetic regtest archives only, in the isolated native test host.
 final class BackupInteropTests: XCTestCase {
+    func testArchiveInstallationPreservesExistingProfileAndRejectsDuplicate() async throws {
+        let bundle = Bundle(for: Self.self)
+        let fixtureURL = try XCTUnwrap(bundle.url(forResource: "native-v2-regtest.json", withExtension: nil, subdirectory: "NativeBackupFixtures"))
+        let fixture = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: fixtureURL)) as? [String: Any])
+        let key = try XCTUnwrap(fixture["publicRecoveryKey"] as? String)
+        let archiveURL = try XCTUnwrap(bundle.url(forResource: "android-v2-regtest.pcbackup", withExtension: nil, subdirectory: "NativeBackupFixtures"))
+        let archive = try EncryptedBackup.open(Data(contentsOf: archiveURL), recoveryKey: key)
+        let wallet = NativeWallet()
+        let savedCatalog = try WalletKeychain.read("wallet-catalog-v1")
+        let original = WalletProfile(name: "Restore isolation fixture", kind: .hot, network: "xbt-regtest")
+        var created = [original]
+        let root = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("PaperclipWallets")
+        defer {
+            "{\"op\":\"close\"}".withCString { request in
+                archive.seed.withUnsafeBytes { bytes in
+                    if let reply = paperclip_mobile_call(request, bytes.bindMemory(to: UInt8.self).baseAddress) { paperclip_mobile_free(reply) }
+                }
+            }
+            if let savedCatalog { try? WalletKeychain.save(savedCatalog, account: "wallet-catalog-v1") }
+            else { try? WalletKeychain.delete("wallet-catalog-v1") }
+            for profile in created {
+                try? FileManager.default.removeItem(at: root.appendingPathComponent(profile.id))
+                try? WalletKeychain.delete(profile.keyAccount)
+                try? WalletKeychain.delete(profile.connectionAccount)
+            }
+        }
+        _ = try await wallet.installProfile(original, key: NativeWallet.KeyRecord(seed: Data(repeating: 61, count: 64), phrase: nil, network: "xbt-regtest"))
+        let originalAddress = try await wallet.address(ark: false)
+        let count = try await wallet.profiles().count
+        let mismatched = RecoveryArchive(network: archive.network, walletID: archive.walletID, createdAt: archive.createdAt,
+                                         seed: Data(repeating: 30, count: 64), recoveryState: archive.recoveryState)
+        do { try await wallet.restoreIntoEmptyWallet(mismatched); XCTFail("Wrong wallet archive installed") }
+        catch { XCTAssertTrue(error is WalletFailure) }
+        let afterRejection = try await wallet.selectedProfile()
+        XCTAssertEqual(afterRejection?.id, original.id)
+        let rejectedCount = try await wallet.profiles().count
+        XCTAssertEqual(rejectedCount, count)
+        let priorAddresses = try await wallet.onchainAddresses(start: 0)
+        XCTAssertTrue(priorAddresses.entries.contains { $0["address"] as? String == originalAddress })
+
+        try await wallet.restoreIntoEmptyWallet(archive)
+        let selected = try await wallet.selectedProfile()
+        let restored = try XCTUnwrap(selected)
+        created.append(restored)
+        XCTAssertNotEqual(restored.id, original.id)
+        let restoredCount = try await wallet.profiles().count
+        XCTAssertEqual(restoredCount, count + 1)
+        let pending = try await wallet.outgoingPayment()
+        XCTAssertEqual(pending?["attempt_id"] as? String, fixture["attemptID"] as? String)
+        XCTAssertEqual(pending?["state"] as? String, "unknown")
+        do { try await wallet.restoreIntoEmptyWallet(archive); XCTFail("Duplicate wallet installed") }
+        catch { XCTAssertTrue(error is WalletFailure) }
+        let afterDuplicate = try await wallet.selectedProfile()
+        XCTAssertEqual(afterDuplicate?.id, restored.id)
+        let duplicateCount = try await wallet.profiles().count
+        XCTAssertEqual(duplicateCount, count + 1)
+        // Read through a fresh adapter so cached catalog state cannot mask a
+        // missing selection commit in the device-only Keychain.
+        let persistedSelection = try await NativeWallet().selectedProfile()
+        XCTAssertEqual(persistedSelection?.id, restored.id)
+        try await wallet.activate(original.id)
+        let originalAddresses = try await wallet.onchainAddresses(start: 0)
+        XCTAssertTrue(originalAddresses.entries.contains { $0["address"] as? String == originalAddress })
+        try await wallet.activate(restored.id)
+        let recovered = try await wallet.outgoingPayment()
+        XCTAssertEqual(recovered?["attempt_id"] as? String, fixture["attemptID"] as? String)
+        XCTAssertEqual(recovered?["state"] as? String, "unknown")
+    }
+
     func testAndroidArchivePreservesAccountsAndPendingAttempt() async throws {
         let bundle = Bundle(for: Self.self)
         func resource(_ name: String) throws -> Data {
