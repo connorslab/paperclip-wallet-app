@@ -20,7 +20,7 @@ class SetupClientTests(NodeFixture):
     def client(self):
         executable = os.environ.get('PAPERCLIP_NODE_CHECK_EXECUTABLE')
         self.runtime = (executable, None) if executable else (sys.executable,
-            Path(__file__).resolve().parents[1] / 'jam/desktop-entry.py')
+            Path(os.environ.get('PAPERCLIP_NODE_CHECK_ENTRY', Path(__file__).resolve().parents[1] / 'jam/desktop-entry.py')))
         self.app = self.root / 'app'
         self.stopping = threading.Event()
         return NodeSetupClient(self.runtime, self.app, self.stopping)

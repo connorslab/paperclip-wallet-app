@@ -123,7 +123,8 @@ jobs:
           "$runtime" -m pip install pyinstaller==6.22.3
           api=$("$runtime" -c 'import importlib.util; print(importlib.util.find_spec("jmwalletd").submodule_search_locations[0] + "/app.py")')
           "$runtime" deployment/jam/install.py "$api"
-          PAPERCLIP_TEST_WALLET_BINARY="$PWD/target/debug/paperclip-walletd" PYTHONPATH="$PWD/deployment/desktop:$PWD/deployment/jam" "$runtime" deployment/desktop/test_node_setup_client.py -v
+          python3 deployment/desktop/linux/build_preview.py --binary "$PWD/target/debug/paperclip-walletd" --python /usr/bin/python3 --jam-python "$runtime" --output "$RUNNER_TEMP/Source Jars Preview"
+          PAPERCLIP_NODE_CHECK_ENTRY="$RUNNER_TEMP/Source Jars Preview/lib/jam-runtime/desktop-entry.py" PAPERCLIP_TEST_WALLET_BINARY="$PWD/target/debug/paperclip-walletd" PYTHONPATH="$PWD/deployment/desktop:$PWD/deployment/jam" "$runtime" deployment/desktop/test_node_setup_client.py -v
           secp=$(readlink -f /usr/lib/$(gcc -dumpmachine)/libsecp256k1.so)
           PYTHONPATH="$PWD/deployment/jam" "$runtime" deployment/desktop/linux/build_jars.py --source "$PWD/deployment" --secp256k1 "$secp" --secp256k1-license /usr/share/doc/libsecp256k1-dev/copyright --output "$RUNNER_TEMP/Frozen Jars" --work "$RUNNER_TEMP/jars-freeze-work"
       - name: Verify relocated bundled Jars and wallet lifecycle

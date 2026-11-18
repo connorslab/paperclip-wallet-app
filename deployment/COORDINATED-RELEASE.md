@@ -4011,3 +4011,11 @@ and full Linux/Lightning run `44255358595` have now completed successfully.
 Those results close their earlier pending validation, not the new GUI acceptance.
 Reviewed replacement of existing node connections, installed-host acceptance and
 distribution signing remain separate release requirements.
+
+Source-runtime previews now copy the RPC batch-validation adapter beside the
+Jars entry point on macOS and Linux. The frozen helper already included it; the
+development packagers omitted it, which prevented saved-node activation in an
+isolated copied runtime. All eight controller cases also pass against the actual
+copied Mac runtime. Linux CI now builds and tests that source-preview path. The
+Windows native-window test explicitly requires initial setup for Jars packages
+and defers it once before asserting that no Jars storage was initialized.

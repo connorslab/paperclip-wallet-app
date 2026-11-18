@@ -72,6 +72,7 @@ def build(binary, python, output, jam_python=None, helpers=None, tor_runtime=Non
                 raise RuntimeError('Supply the pinned Jars runtime interpreter.')
             jam = resources / 'jam-runtime'; jam.mkdir()
             shutil.copy2(source.parent.parent / 'jam' / 'desktop-entry.py', jam)
+            shutil.copy2(source.parent.parent / 'jam' / 'rpc_batch.py', jam)
             shutil.copytree(source.parent.parent / 'jam' / 'paperclip_jam', jam / 'paperclip_jam', ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
             configuration['jamPythonExecutable'] = str(jam_python)
         if tor_runtime is not None:

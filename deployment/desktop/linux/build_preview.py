@@ -58,6 +58,7 @@ def build(binary, python, output, jam_python=None, helper=None, jam_helper=None,
                 raise RuntimeError('Supply the pinned Jars runtime interpreter.')
             jam = package / 'lib' / 'jam-runtime'; jam.mkdir()
             shutil.copy2(source.parent.parent / 'jam' / 'desktop-entry.py', jam)
+            shutil.copy2(source.parent.parent / 'jam' / 'rpc_batch.py', jam)
             shutil.copytree(source.parent.parent / 'jam' / 'paperclip_jam', jam / 'paperclip_jam', ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
             jam_arguments = '--jam-python ' + shlex.quote(str(jam_python)) + ' --jam-entry "$bundle/lib/jam-runtime/desktop-entry.py" '
         if tor_runtime is not None:

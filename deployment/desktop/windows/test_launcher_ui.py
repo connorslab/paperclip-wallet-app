@@ -147,6 +147,8 @@ class PreviewWindow(unittest.TestCase):
             child = subprocess.Popen([str(EXECUTABLE), '--qa-root', str(data)],
                 stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             handle = None
+            setup_dismissed = False
+            expect_setup = json.loads((EXECUTABLE.parent / 'runtime.json').read_text())['jars']
             try:
                 deadline = time.monotonic() + 35
                 while handle is None or not (data / 'wallet/barkd.url').exists():
@@ -163,13 +165,16 @@ class PreviewWindow(unittest.TestCase):
                                 and win32gui.GetWindowText(hwnd) == 'Set up Jars'):
                             setup.append(hwnd)
                     win32gui.EnumWindows(inspect, None)
-                    if setup:
+                    if setup and not setup_dismissed:
                         self.assertFalse((data / 'jars').exists())
                         self.assertFalse((data / 'wallet').exists())
                         win32gui.PostMessage(setup[0], win32con.WM_CLOSE, 0, 0)
+                        setup_dismissed = True
                     if matches:
                         handle = matches[0]
                     time.sleep(.05)
+                self.assertEqual(setup_dismissed, expect_setup)
+                self.assertFalse((data / 'jars').exists())
                 token = private_bytes(data / 'wallet/auth_token').decode().strip()
                 endpoint = local_endpoint(private_bytes(data / 'wallet/barkd.url').decode())
                 http = build_opener(ProxyHandler({}), NoRedirects())
