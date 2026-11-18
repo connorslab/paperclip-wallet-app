@@ -46,9 +46,12 @@ coordinated scope is iOS, Android, StartOS, Umbrel, Linux, macOS and Windows.
    packaged window. Owned Tor component checks now pass on all five pinned native targets, including
    explicit SOCKS activation. Read-only native node preflight is implemented and
    verified on macOS, Linux and Windows. Initial private configuration storage is
-   implemented, with inactive saves and no replacement of existing connections.
-   Complete configuration activation and reviewed connection changes, the
-   owned restricted RPC runtime, guided setup UI and combined installed Jam/Tor
+   implemented, with no replacement of existing connections. Saved-node activation
+   through an owned restricted RPC child is implemented and passes macOS source
+   and frozen-helper checks plus Linux container checks on both architectures;
+   Windows package validation for this activation change remains in progress.
+   Complete public saved-state inspection, reviewed connection changes, guided
+   setup UI and combined installed Jam/Tor
    runtime acceptance on the native desktops. No external Python or
    separate Kilombino app may be required for the bundled-host promise.
 3. **Complete portable recovery.** Finish the wallet-bound recovery envelope for
@@ -3910,8 +3913,44 @@ source hashes match `6aa9f82`, and its strict deep ad-hoc signature verifies aft
 testing. Linux container run `44251692870` passes on x86-64 and ARM64: each
 companion suite passes 118 cases with four scope exclusions, and each supervisor
 suite passes four cases with four combined-wallet exclusions. Windows
-run `44251692863` passes its frozen node preflight/private-storage step and
-relocated Jars/TLS step; the broader wallet/window build remains in progress.
+run `44251692863` passes in full, including frozen node preflight/private storage,
+relocated Jars/TLS, wallet integration and the packaged window. The corresponding
+Windows prerequisite run `44251692873` also passes.
 The native Tor matrix `44251692912` also passes. Mandatory `just checks` passes. Both implementation commits are mirrored to `feature/android-wallet`.
 All tests use synthetic nodes and disposable storage; no live node, funded
 wallet, deployment or release-signing acceptance is claimed.
+
+
+### Native saved-node activation
+
+At `52fe7cd`, a saved Jars node connection starts through a separately owned
+restricted RPC helper. The child reads the private connection record and repeats
+the read-only XBT check before becoming ready. The Jam client receives an
+ephemeral loopback credential over private IPC, not the node's own credential.
+An unavailable saved node stops startup; it cannot select the default node.
+
+The adapter uses the unchanged, hash-checked upstream method and wallet policy,
+with its license packaged alongside it. Paperclip's shared response correlation
+now also protects individual native calls. The transport verifies TLS, uses the
+owned SOCKS listener for Tor, rejects redirects and compressed replies, bounds
+response size, and never replays a failed request. The listener stops when its
+parent pipe closes. Loss of the helper closes Jars. Native children share the
+same OS user; this is not the separate-user sandbox used by server containers.
+
+The native macOS source checks pass nine new RPC cases and the existing 23 node
+setup/storage cases, plus seven Jars lifecycle cases. The frozen macOS helper
+passes the combined 32-case suite, including actual child startup, authenticated
+proxy requests, parent shutdown during a synthetic submission and saved-node
+activation. Its build records the `52fe7cd` source hashes and upstream license;
+the strict deep ad-hoc signature verifies after testing. These checks use
+synthetic nodes and disposable roots, with no live wallet or payment acceptance.
+
+The first Linux container run, `44255358537`, exposed a test import collision:
+native tests had already imported the source batch adapter before the installed
+filter test checked its own adapter path. Test-only fix `ded219e` isolates and
+restores that import cache while retaining the exact installed-path assertion.
+All 18 combined native/filter cases pass locally after the correction. Linux
+container run `44255662395` then passes on both x86-64 and ARM64. Native Tor
+run `44255358583` and macOS shell run `44255358547` also pass. Windows package
+validation remains in progress in run `44255661989`. Both commits are mirrored to `feature/android-wallet`; guided setup,
+reviewed configuration changes and installed-host acceptance remain open.
