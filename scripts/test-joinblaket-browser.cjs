@@ -11,7 +11,7 @@ for (const item of cases) {
 (async()=>{
  const browser=await chromium.launch({headless:true,...(process.env.BROWSER_CHANNEL?{channel:process.env.BROWSER_CHANNEL}:{})});
  try {
-  for(const width of [390,1280,1440]) {
+  for(const width of [320,390,840,1280,1440]) {
    const page=await browser.newPage({viewport:{width,height:1000}}),errors=[],actions=[];
    page.setDefaultTimeout(15000);
    const closeTool = async () => {
@@ -111,6 +111,17 @@ for (const item of cases) {
    assert.equal(await page.locator('#jam-password').inputValue(),'');
    assert.equal(await page.locator('#jam-passphrase').inputValue(),'');
    assert.equal(await page.locator('.jam-jar').count(),5);
+   if(width<=640) {
+    const grid=await page.locator('#jam-jars').evaluate(el=>({width:el.clientWidth,scrollWidth:el.scrollWidth}));
+    assert(grid.scrollWidth<=grid.width,'All five jars fit without sideways scrolling');
+    const boxes=await Promise.all((await page.locator('.jam-jar').all()).map(el=>el.boundingBox()));
+    for(const box of boxes) assert(box.x>=0&&box.x+box.width<=width&&box.width>=44&&box.height>=44,'Jar remains readable and tappable');
+    assert(Math.abs(boxes[0].y-boxes[1].y)<1&&Math.abs(boxes[2].y-boxes[3].y)<1,'Two jars per row');
+    assert(boxes[2].y>=boxes[0].y+boxes[0].height&&boxes[4].y>=boxes[2].y+boxes[2].height,'Rows do not overlap');
+    const center=(boxes[0].x+boxes[1].x+boxes[1].width)/2;
+    assert(Math.abs(boxes[4].x+boxes[4].width/2-center)<1,'Fifth jar is centered');
+    if(process.env.SCREENSHOT_DIR) await page.locator('#jam-jars').screenshot({path:path.join(process.env.SCREENSHOT_DIR,`jars-grid-${width}.png`),animations:'disabled'});
+   }
    assert(await page.locator('#jam-minimum').isHidden(),'Maker form is not on the overview');
    if(process.env.SCREENSHOT_DIR) await page.screenshot({path:path.join(process.env.SCREENSHOT_DIR,`jars-overview-clean-${width}.png`),fullPage:true,animations:'disabled'});
    await openTool('settings');
@@ -239,10 +250,7 @@ for (const item of cases) {
    await page.keyboard.press('Enter');
    assert.equal(await page.locator('.jam-jar').last().getAttribute('aria-pressed'),'true');
    assert(await page.locator('.jam-jar').last().evaluate(el=>el===document.activeElement),'Jar selection preserves keyboard focus');
-   if(width===390) {
-    const bounds=await page.locator('#jam-jars').boundingBox();
-    assert(bounds.height<230,'Jar selector stays in one compact row');
-   }
+   assert(await page.locator('#jam-jars').evaluate(el=>el.scrollWidth<=el.clientWidth),'Selection does not move a jar offscreen');
 
    // The server's Jam wallet is independent of the selected hot/QR/watch account.
    for(const account of ['',...accounts.map(item=>item.id)]) {

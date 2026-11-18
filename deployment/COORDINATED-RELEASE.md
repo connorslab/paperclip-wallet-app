@@ -3588,3 +3588,25 @@ new run is pending. This does not close installed backup/restore acceptance.
 
 Linux backend runs `44214719945` at `56c57de` and `44213739994` at `28b9cb59`
 completed successfully, including the earlier container and window cleanup work.
+
+
+### Compact shared Jars selection
+
+The shared StartOS/Umbrel/desktop browser interface now uses two jars per row on
+phone-width screens, with the fifth jar centered below. It no longer hides jars
+in a horizontal carousel. Selection retains keyboard focus, all five buttons
+remain reachable, and balances wrap inside their cards on compact screens.
+
+The complete Jars browser suite passes at 320, 390, 840, 1280 and 1440 pixels.
+Checks cover layout, keyboard selection, hot/QR/watch account isolation, maker
+settings, payment recovery and bond controls. The 320/390 pixel grid captures
+were visually inspected. Interrupted setup, password backup, verification and
+secret clearing also pass at 320, 360 and 840 pixels. These are synthetic browser
+fixtures; no wallet keys, payments or installed-host acceptance are implied.
+
+The earlier authentication increment `8d9558fb` passes Linux backend run
+`44219011534`. Windows run `44219011621` passes native filesystem checks but fails
+the credential-preservation test: the fixture writes LF in text mode, which
+Windows translates to CRLF, then compares raw decoded bytes with LF. `0707aa74`
+uses exact fixture bytes and adds a case label to the assertion. Its native Apple
+smoke and workspace checks pass; Windows rerun `44221878553` is pending.

@@ -185,9 +185,13 @@ textarea:focus-visible{outline:2px solid var(--focus);outline-offset:4px}
 .jar-selection {font-size:.75rem;color:var(--muted)}
 .jam-detail-grid {align-items:start}
 @media(max-width:640px) {
-  .jam-jars {display:flex;overflow-x:auto;scroll-snap-type:x proximity;padding:4px;gap:10px}
-  .jam-jar {flex:0 0 154px;scroll-snap-align:start}
-  .jar-art {margin:5px 0;transform:scale(.75);height:52px}
+  .jam-jars {grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;padding:4px}
+  .jam-jar {grid-column:span 2;min-width:0;gap:6px;padding:12px;font-size:14px;overflow-wrap:anywhere}
+  .jam-jar:last-child:nth-child(odd) {grid-column:2 / span 2}
+  .jam-jar>span:not(.jar-art):not(.jar-selection) {font-size:13px;line-height:1.4}
+  .jar-art {width:32px;height:34px;margin:6px 0;border-radius:9px}
+  .jar-art::before {width:32px;height:6px;top:-6px}
+  .jar-art.funded::after {height:16px}
 }
 
 /* Keep the shared server shell compact without shrinking touch targets. */
