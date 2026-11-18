@@ -11,6 +11,11 @@ unit-xbt filter="":
 	test -n "${PAPERCLIP_XBT_CONSENSUS_LIBRARY:?Set the absolute Knots consensus library path}"
 	cargo test --locked -p ark-lib -p bark-bitcoin-ext --features ark-lib/xbt-consensus-tests --lib {{filter}}
 
+# Owns only a disposable offline regtest node; never uses an existing node.
+int-xbt-consensus bitcoind:
+	cargo build --locked -p ark-lib --example xbt-consensus-fixture
+	python3 scripts/test-xbt-consensus-node.py "{{bitcoind}}" "${CARGO_TARGET_DIR:-target}/debug/examples/xbt-consensus-fixture"
+
 unit-wallet filter="":
 	cargo test --locked -p bark-wallet --features onchain-bdk --lib {{filter}}
 

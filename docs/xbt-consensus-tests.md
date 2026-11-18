@@ -31,3 +31,25 @@ These tests check scripts. They do not establish chain maturity, UTXO existence,
 transaction value conservation, mempool policy, live settlement or installed
 wallet recovery. Those release checks remain separate. `just unit` retains the
 upstream Bitcoin kernel and must not be reported as XBT consensus acceptance.
+
+## Owned node acceptance
+
+Use the verified release daemon for a disposable, offline regtest check:
+
+```sh
+just int-xbt-consensus /absolute/path/to/verified/bitcoind
+```
+
+The harness uses a fresh private data directory, cookie authentication, loopback
+RPC and disabled peer discovery/connections. It creates synthetic coinbase outputs
+for the public test key. It never opens an existing wallet or contacts a user node.
+
+Current Rust unified signatures for Taproot and SegWit must fail before activation
+and pass after activation. Changed outputs and legacy digests with the unified
+flag must fail against those same unspent outputs. Each valid transaction is
+submitted once, mined, removed by a synthetic reorg, recovered from the owned
+node's mempool after restart, and mined again. The child node is stopped on success
+or failure. No real payment budget is used.
+
+This establishes node acceptance for these two transaction paths. It does not
+replace end-to-end Ark, Lightning, Bridge, Jars or installed-wallet recovery tests.

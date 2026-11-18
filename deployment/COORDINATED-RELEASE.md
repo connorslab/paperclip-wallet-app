@@ -4290,6 +4290,15 @@ but their signatures and historical forfeit bundle cannot authorize XBT. No
 production signature validation or serialization format changes.
 
 The new Linux CI job pins the official archive checksum and runs the same suite.
-Its first remote result remains pending until recorded. Full-node policy, chain
-maturity, live settlement and final installed artifacts remain separate gates.
+Both branch runs pass at `1bcf3425` (`44381996081`, `44381996056`).
+The separate owned-node harness now also passes on native Apple Silicon Knots:
+Taproot and SegWit rejection before activation, acceptance after activation,
+tamper/legacy-digest rejection on the same unspent outputs, mining, reorg and
+mempool recovery across restart. Its initial remine tried to regenerate an
+explicitly invalidated block; the harness now advances mock time to generate a
+different header. No product change was required.
+The full wallet regression suite also passes all 297 tests after fixture changes.
+The new node step is wired into Linux CI; that added step remains pending.
+Live settlement, complete Ark lifecycle and final installed artifacts remain
+separate gates.
 See [the test instructions](../docs/xbt-consensus-tests.md).

@@ -3,9 +3,9 @@ on:
   workflow_dispatch:
   push:
     branches: ['codex/cross-platform-parity', 'feature/android-wallet']
-    paths: ['lib/**', 'bitcoin-ext/**', 'vendor/bitcoin/**', 'Cargo.lock', 'justfile', '.github/workflows/xbt-consensus.yml']
+    paths: ['lib/**', 'bitcoin-ext/**', 'vendor/bitcoin/**', 'Cargo.lock', 'justfile', 'scripts/test-xbt-consensus-node.py', '.github/workflows/xbt-consensus.yml']
   pull_request:
-    paths: ['lib/**', 'bitcoin-ext/**', 'vendor/bitcoin/**', 'Cargo.lock', 'justfile', '.github/workflows/xbt-consensus.yml']
+    paths: ['lib/**', 'bitcoin-ext/**', 'vendor/bitcoin/**', 'Cargo.lock', 'justfile', 'scripts/test-xbt-consensus-node.py', '.github/workflows/xbt-consensus.yml']
 permissions:
   contents: read
 jobs:
@@ -54,9 +54,19 @@ jobs:
                   raise ValueError('Invalid consensus library entry')
               with source.extractfile(member) as data, library.open('xb') as output:
                   output.write(data.read())
+              node = archive.parent / 'knots-regtest'
+              member = source.getmember(f'bitcoin-{version}/bin/bitcoind')
+              if not member.isfile() or member.size > 128 * 1024 * 1024:
+                  raise ValueError('Invalid Knots binary entry')
+              with source.extractfile(member) as data, node.open('xb') as output:
+                  output.write(data.read())
+              node.chmod(0o700)
           with open(os.environ['GITHUB_ENV'], 'a') as env:
               env.write(f'PAPERCLIP_XBT_CONSENSUS_LIBRARY={library}\n')
+              env.write(f'PAPERCLIP_XBT_BITCOIND={node}\n')
           print('Verified official Knots archive:', digest.hexdigest())
           PY
       - name: Check XBT signatures and rejection cases
         run: nix develop .#build --command just unit-xbt "-- --include-ignored"
+      - name: Check owned offline regtest acceptance and recovery
+        run: nix develop .#build --command just int-xbt-consensus "$PAPERCLIP_XBT_BITCOIND"
