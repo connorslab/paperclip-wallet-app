@@ -14,10 +14,19 @@ import sys
 import time
 
 from managed_daemon import StartupError, private_directory, private_file
+from tor_runtime import validate as validate_runtime
 
 if os.name == 'nt':
     import win32api
     from windows.private_storage import atomic_write_private
+
+
+def packaged_binary(root):
+    try:
+        return validate_runtime(root)[0]
+    except (OSError, ValueError):
+        # Never expose archive metadata, paths or decoder input in the shell.
+        raise StartupError('Paperclip’s bundled Tor files are missing or damaged. Reinstall Paperclip, then try again. Your saved wallets have not been changed.') from None
 
 
 class Control:

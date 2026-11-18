@@ -46,7 +46,10 @@ class BrowserCompletion(unittest.TestCase):
             with patch('launcher.ManagedDaemon') as daemon:
                 session = Session(Path('unused'), root, tor_runtime=Path(temporary) / 'missing-tor')
                 session.run()
-                self.assertEqual(session.events.get_nowait()[0], 'error')
+                event, message = session.events.get_nowait()
+                self.assertEqual(event, 'error')
+                self.assertIn('Reinstall Paperclip', message)
+                self.assertNotIn(str(root), message)
                 self.assertEqual(session.events.get_nowait()[0], 'closed')
                 daemon.assert_not_called()
                 self.assertFalse(root.exists())

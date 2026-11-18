@@ -14,6 +14,25 @@ import unittest
 BINARY = HELPER = JAM = JAM_PYTHON = JAM_ENTRY = TOR = None
 
 
+class RuntimeRejection(unittest.TestCase):
+    def test_damaged_tor_reports_repair_without_starting_or_echoing_metadata(self):
+        with tempfile.TemporaryDirectory(prefix='paperclip-tor-rejection-') as temporary:
+            root = Path(temporary).resolve()
+            tor = root / 'Tor'; tor.mkdir()
+            (tor / 'runtime.json').write_text('synthetic-private-metadata')
+            state = root / 'untouched-wallet'
+            command = [str(HELPER)] if HELPER else [sys.executable, '-I', '-B', str(Path(__file__).with_name('launcher_entry.py'))]
+            command += ['--binary', str(BINARY), '--root', str(state), '--tor-runtime', str(tor)]
+            result = subprocess.run(command, input=b'', capture_output=True, timeout=10)
+            self.assertEqual(result.returncode, 1)
+            error = json.loads(result.stdout)
+            self.assertEqual(error['event'], 'error')
+            self.assertIn('Reinstall Paperclip', error['message'])
+            self.assertNotIn('synthetic-private-metadata', str(result.stdout) + str(result.stderr))
+            self.assertNotIn(str(root), error['message'])
+            self.assertFalse(state.exists())
+
+
 @unittest.skipUnless(BINARY, 'Pass --binary for real daemon checks')
 class LauncherBridge(unittest.TestCase):
     def setUp(self):

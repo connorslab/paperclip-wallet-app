@@ -10,7 +10,7 @@ import sys
 
 from managed_daemon import ManagedDaemon, StartupError
 from pipe_io import read_available
-from tor_runtime import validate as validate_tor_runtime
+from managed_tor import packaged_binary as packaged_tor_binary
 
 
 def emit(event, **values):
@@ -75,7 +75,7 @@ if __name__ == '__main__':
     if bool(args.jam_python) != bool(args.jam_entry):
         parser.error('Supply both packaged Jars runtime paths')
     try:
-        tor = validate_tor_runtime(args.tor_runtime)[0] if args.tor_runtime else None
+        tor = packaged_tor_binary(args.tor_runtime) if args.tor_runtime else None
         serve(args.binary, args.root, (args.jam_executable, None) if args.jam_executable else ((args.jam_python, args.jam_entry) if args.jam_python else None), tor_binary=tor)
     except BrokenPipeError:
         # Shell death already closes the lifetime chain; never print a traceback.

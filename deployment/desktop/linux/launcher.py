@@ -15,7 +15,7 @@ sys.dont_write_bytecode = True
 resources = Path(__file__).resolve().parent
 sys.path.insert(0, str(resources if (resources / 'managed_daemon.py').is_file() else resources.parent))
 from managed_daemon import ManagedDaemon, StartupError, default_data_root
-from tor_runtime import validate as validate_tor_runtime
+from managed_tor import packaged_binary as packaged_tor_binary
 
 
 def open_default_browser(url):
@@ -69,7 +69,7 @@ class Session:
         try:
             if self.stopping.is_set():
                 return
-            tor = validate_tor_runtime(self.tor_runtime)[0] if self.tor_runtime else None
+            tor = packaged_tor_binary(self.tor_runtime) if self.tor_runtime else None
             runner = ManagedDaemon(self.binary, self.root, jam_runtime=self.jam_runtime, tor_binary=tor)
             runner.start()
             if not self.stopping.is_set():
