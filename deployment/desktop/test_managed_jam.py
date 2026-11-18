@@ -89,7 +89,13 @@ class WalletAndJam(JamOwnership):
     def wallet(self, tor_binary=None):
         runner = ManagedDaemon(BINARY, self.root, jam_runtime=(PYTHON, ENTRY), tor_binary=tor_binary)
         self.children.append(runner)
-        runner.start()
+        try:
+            runner.start()
+        except StartupError as error:
+            code = getattr(error.__context__, 'winerror', None)
+            if type(code) is int:
+                self.fail(f'{error} Windows error code: {code}')
+            raise
         return runner
 
     def request(self, runner, path, body=None):

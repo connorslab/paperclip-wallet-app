@@ -1,5 +1,6 @@
 """Owned Tor checks with networking disabled, no nodes, keys or payments."""
 import argparse
+from contextlib import ExitStack
 import io
 import importlib.util
 import os
@@ -14,7 +15,7 @@ from managed_tor import Control, ManagedTor
 from managed_daemon import StartupError
 
 if os.name == 'nt':
-    from windows.private_storage import atomic_write_private
+    from windows.private_storage import atomic_write_private, exclusive_file, private_directory, SessionRecord
 
 BINARY = None
 NETWORK = False
@@ -140,6 +141,28 @@ class Native(unittest.TestCase):
         loaded = maps.read_text()
         for name in ('libcrypto.so.3', 'libssl.so.3', 'libevent-2.1.so.7'):
             self.assertIn(str((BINARY.parent / name).resolve()), loaded)
+
+    def test_windows_launcher_storage_locks_allow_control_publication(self):
+        if os.name != 'nt': self.skipTest('Requires the Windows launcher storage locks')
+        app = self.root.parent / 'app'
+        private_directory(app)
+        self.root = app / 'tor'
+        with ExitStack() as resources:
+            resources.enter_context(exclusive_file(app / 'launcher.lock'))
+            session = SessionRecord(app / 'session.state')
+            resources.callback(session.close)
+            session.begin()
+            for _ in range(3):
+                try:
+                    self.start().close()
+                except StartupError as error:
+                    cause = error.__context__
+                    code = getattr(cause, 'winerror', None)
+                    # Only an integer OS code, never exception args or metadata.
+                    if type(code) is int:
+                        self.fail(f'{error} Windows error code: {code}')
+                    raise
+            session.finish()
 
     def test_second_owner_cannot_attach_or_stop_first(self):
         owner = self.start()
