@@ -228,7 +228,18 @@ remain release work. These helper modes do not complete
 the setup screen. A successful preflight does not establish wallet rescan or
 payment acceptance on a pruned node.
 
-`desktop-entry.py` runs the patched, pinned Jam API as an owned Linux/macOS child.
+`desktop-entry.py --node-status --data-dir <private-root>` inspects saved
+configuration without contacting a node, starting Tor, acquiring the lifetime
+lock or creating a missing directory. The result distinguishes `not_configured`,
+`saved`, `existing_wallet` and `needs_attention`. It reports only a random
+connection identifier and transport category for a valid saved record; endpoints,
+usernames, passwords and certificates are omitted. `live_connection` is always
+`not_checked`: a saved record is not proof that a node is online. Damaged or unsafe
+records never become an empty setup form, and existing wallet/configuration files
+require reviewed migration. A future save still rechecks admission under the
+exclusive lifetime lock.
+
+`desktop-entry.py` runs the patched, pinned Jam API as an owned native child.
 It requires an explicit private data directory and the reviewed runtime's Python
 interpreter in isolated mode. It binds an OS-assigned IPv4 loopback port with TLS
 and reports a public readiness object only after application startup completes.

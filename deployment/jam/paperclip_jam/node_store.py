@@ -136,3 +136,41 @@ def load(root):
         return StoredNode(record['connection_id'], settings)
     except (ValueError, TypeError, KeyError, NodeSetupError):
         raise NodeSetupError('storage_failure') from None
+
+
+def public_state(root):
+    """Inspect saved configuration without network, writes or secret metadata.
+
+    A saved record is not evidence of a live connection. Existing wallet state
+    without this record requires a reviewed migration, never initial setup.
+    """
+    root = Path(root)
+    stored = load(root)
+    if stored is not None:
+        return {'state': 'saved', 'can_configure': False, 'connection_id': stored.connection_id,
+            'transport': 'tor' if stored.settings.tor else
+                'https' if stored.settings.endpoint.lower().startswith('https:') else 'loopback',
+            'live_connection': 'not_checked'}
+    if os.path.lexists(root):
+        try:
+            admit(root)
+        except NodeSetupError as error:
+            if error.code == 'existing_setup':
+                return {'state': 'existing_wallet', 'can_configure': False, 'live_connection': 'not_checked'}
+            raise
+    return {'state': 'not_configured', 'can_configure': True, 'live_connection': 'not_checked'}
+
+
+def status_pipe(root, destination):
+    """Only fixed status, transport and random public identity leave this pipe."""
+    try:
+        result = public_state(root)
+        code = 0
+    except (NodeSetupError, OSError, ValueError) as error:
+        code = 2
+        failure = error if isinstance(error, NodeSetupError) else NodeSetupError('unsafe_storage')
+        result = {'state': 'needs_attention', 'can_configure': False, 'live_connection': 'not_checked',
+            'code': failure.code, 'message': str(failure)}
+    destination.write(json.dumps(result) + '\n')
+    destination.flush()
+    return code

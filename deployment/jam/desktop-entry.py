@@ -194,6 +194,7 @@ def main():
     setup_mode.add_argument('--check-node', action='store_true')
     setup_mode.add_argument('--configure-node', action='store_true')
     setup_mode.add_argument('--serve-node', action='store_true')
+    setup_mode.add_argument('--node-status', action='store_true')
     parser.add_argument('--tor-socks-port', type=int)
     parser.add_argument('--tor-control-port', type=int)
     parser.add_argument('--tor-cookie-path', type=Path)
@@ -206,6 +207,12 @@ def main():
         return check_pipe(sys.stdin.buffer, sys.stdout, args.tor_socks_port)
     if args.data_dir is None:
         parser.error('Supply the private Jars data directory.')
+    if args.node_status:
+        if any(value is not None for value in (args.tor_socks_port, args.tor_control_port, args.tor_cookie_path)):
+            parser.error('Saved-node inspection does not use Tor or the network.')
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        from paperclip_jam.node_store import status_pipe
+        return status_pipe(args.data_dir, sys.stdout)
     if args.serve_node:
         if args.tor_control_port is not None or args.tor_cookie_path is not None:
             parser.error('The node helper does not open the Tor controller.')
