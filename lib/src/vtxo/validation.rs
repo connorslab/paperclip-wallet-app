@@ -94,10 +94,10 @@ fn verify_transition<P: Policy>(
 		};
 
 		#[cfg(test)]
-		if item.exit_format != bitcoin_ext::fee::ExitFormat::StandardV2 {
-			// The BTC-only test kernel cannot interpret XBT's 0x21 signatures.
-			// StandardV2 still passes validate_sigs above; independent consensus
-			// checks for that profile run against XBT Knots in the regtest suite.
+		if cfg!(feature = "xbt-consensus-tests")
+			|| item.exit_format != bitcoin_ext::fee::ExitFormat::StandardV2 {
+			// The XBT oracle checks both exit formats. The upstream BTC kernel
+			// cannot interpret StandardV2 unified signatures.
 			if let Err(e) = crate::test_util::verify_tx(&[prev_txout.clone()], 0, &tx) {
 				// just print error because this is unit test context
 				println!("TX VALIDATION FAILED: invalid tx in genesis of vtxo {}: idx={}: {}",
@@ -206,6 +206,22 @@ mod test {
 	use crate::{ProtocolEncoding, Vtxo};
 	use crate::vtxo::Full;
 	use crate::test_util::VTXO_VECTORS;
+	use crate::test_util::vectors::BITCOIN_VTXO_VECTORS;
+
+	#[test]
+	fn historical_bitcoin_signatures_do_not_authorize_xbt() {
+		let v = &*BITCOIN_VTXO_VECTORS;
+		for (vtxo, anchor) in [
+			(&v.board_vtxo, &v.anchor_tx), (&v.arkoor_htlc_out_vtxo, &v.anchor_tx),
+			(&v.arkoor2_vtxo, &v.anchor_tx), (&v.round1_vtxo, &v.round_tx),
+			(&v.round2_vtxo, &v.round_tx), (&v.arkoor3_vtxo, &v.round_tx),
+		] {
+			let decoded = Vtxo::<Full>::deserialize(&vtxo.serialize()).unwrap();
+			assert_eq!(decoded.serialize(), vtxo.serialize());
+			decoded.validate_unsigned(anchor).expect("historical transaction structure");
+			assert!(decoded.validate(anchor).is_err(), "Bitcoin signature must not authorize XBT");
+		}
+	}
 
 	#[test]
 	pub fn validate_vtxos() {

@@ -6,6 +6,11 @@ checks:
 unit filter="":
 	cargo test --locked -p ark-lib -p bark-bitcoin-ext --lib {{filter}}
 
+# Requires an explicitly selected, checksum-verified Knots consensus library.
+unit-xbt filter="":
+	test -n "${PAPERCLIP_XBT_CONSENSUS_LIBRARY:?Set the absolute Knots consensus library path}"
+	cargo test --locked -p ark-lib -p bark-bitcoin-ext --features ark-lib/xbt-consensus-tests --lib {{filter}}
+
 unit-wallet filter="":
 	cargo test --locked -p bark-wallet --features onchain-bdk --lib {{filter}}
 

@@ -46,10 +46,11 @@ not an independent security audit.
 
 ## Test harness limitations
 
-The upstream `ark-lib` unit suite still contains Bitcoin signature fixtures and
-uses the standard Bitcoin kernel for script verification. Those checks are not
-an XBT consensus oracle: they reject unified-signature transactions and their
-fixed expected encodings differ. The full suite currently reports 134 passed,
-36 failed, and one ignored in that crate. Do not treat it as a passing suite or
-disable signature checks to make it pass. XBT transaction acceptance and offline
-recovery are tested separately against Knots in isolated regtest.
+Use `just unit-xbt` with the explicitly selected, checksum-verified Knots library
+for XBT script acceptance. The native run passes 173 protocol tests and 38 support
+tests, including the slow dust-placement case when `--include-ignored` is set.
+Historical Bitcoin fixtures remain encoding/rejection tests, rather than valid
+XBT authorizations. The upstream `just unit` Bitcoin kernel is not an XBT oracle.
+See [XBT script consensus tests](xbt-consensus-tests.md) for setup and limitations.
+Full-node transaction policy, live settlement and installed recovery still need
+their separate acceptance evidence.

@@ -1,3 +1,8 @@
+#[cfg(all(test, feature = "xbt-consensus-tests"))]
+mod xbt_consensus;
+#[cfg(all(test, feature = "xbt-consensus-tests"))]
+pub use xbt_consensus::verify_tx;
+
 pub mod dummy;
 pub mod vectors;
 pub use self::vectors::VTXO_VECTORS;
@@ -120,8 +125,8 @@ where
 	assert_eq!(*object, decoded);
 }
 
-/// Verify a tx using bitcoinkernel
-#[cfg(test)]
+/// Verify a tx using the upstream Bitcoin kernel (not an XBT oracle).
+#[cfg(all(test, not(feature = "xbt-consensus-tests")))]
 pub fn verify_tx(
 	inputs: &[bitcoin::TxOut],
 	input_idx: usize,

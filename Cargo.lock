@@ -129,6 +129,7 @@ dependencies = [
  "hex-conservative 0.3.2",
  "js-sys",
  "lazy_static",
+ "libloading",
  "lightning",
  "lightning-invoice",
  "rand 0.9.4",

@@ -1,0 +1,62 @@
+name: XBT script consensus
+on:
+  workflow_dispatch:
+  push:
+    branches: ['codex/cross-platform-parity', 'feature/android-wallet']
+    paths: ['lib/**', 'bitcoin-ext/**', 'vendor/bitcoin/**', 'Cargo.lock', 'justfile', '.github/workflows/xbt-consensus.yml']
+  pull_request:
+    paths: ['lib/**', 'bitcoin-ext/**', 'vendor/bitcoin/**', 'Cargo.lock', 'justfile', '.github/workflows/xbt-consensus.yml']
+permissions:
+  contents: read
+jobs:
+  consensus:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      CARGO_BUILD_JOBS: 2
+      CARGO_INCREMENTAL: 0
+      CARGO_PROFILE_TEST_DEBUG: 0
+      CARGO_PROFILE_DEV_DEBUG: 0
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@v31
+      - uses: actions/cache@v4
+        with:
+          path: |
+            target
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-xbt-consensus-${{ hashFiles('Cargo.lock', 'flake.lock') }}
+      - name: Obtain checksum-pinned Knots consensus library
+        run: |
+          python3 - <<'PY'
+          import hashlib, os, tarfile, urllib.request
+          from pathlib import Path
+          version = '29.4.3.knots20260508'
+          archive = Path(os.environ['RUNNER_TEMP']) / 'knots-consensus.tar.gz'
+          url = f'https://bitcoinknots.org/files/29.x/{version}/bitcoin-{version}-x86_64-linux-gnu.tar.gz'
+          expected = '4c67f1139b668fc3b98e339dd16112c636b2c0f42c2294b98fb92d1d27943e24'
+          digest = hashlib.sha256()
+          size = 0
+          with urllib.request.urlopen(url, timeout=60) as response, archive.open('xb') as output:
+              while block := response.read(1024 * 1024):
+                  size += len(block)
+                  if size > 128 * 1024 * 1024:
+                      raise ValueError('Knots archive exceeds size limit')
+                  digest.update(block)
+                  output.write(block)
+          if digest.hexdigest() != expected:
+              raise ValueError('Knots archive checksum mismatch')
+          library = archive.parent / 'libbitcoinconsensus-test.so'
+          with tarfile.open(archive, 'r:gz') as source:
+              member = source.getmember(f'bitcoin-{version}/lib/libbitcoinconsensus.so.0.0.0')
+              if not member.isfile() or member.size > 32 * 1024 * 1024:
+                  raise ValueError('Invalid consensus library entry')
+              with source.extractfile(member) as data, library.open('xb') as output:
+                  output.write(data.read())
+          with open(os.environ['GITHUB_ENV'], 'a') as env:
+              env.write(f'PAPERCLIP_XBT_CONSENSUS_LIBRARY={library}\n')
+          print('Verified official Knots archive:', digest.hexdigest())
+          PY
+      - name: Check XBT signatures and rejection cases
+        run: nix develop .#build --command just unit-xbt "-- --include-ignored"

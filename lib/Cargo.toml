@@ -13,6 +13,8 @@ crate-type = ["cdylib", "rlib"]
 
 [features]
 test-util = [ "serde_json" ]
+# Test-only external Knots consensus oracle; never used by wallet runtime.
+xbt-consensus-tests = []
 wasm-web = [ "getrandom/wasm_js", "js-sys" ]
 
 [dependencies]
@@ -49,6 +51,7 @@ features = [ "serde" ]
 bitcoin = { version = "0.32", features = [ "serde", "rand", "rand-std" ] }
 serde_json = { workspace = true }
 bitcoinkernel = "0.2.0"
+libloading = "=0.8.9"
 
 [lints.clippy]
 all = { level = "allow", priority = -1 }

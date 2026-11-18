@@ -1664,8 +1664,16 @@ mod test {
 		let hexes = &*VTXO_NO_FEE_AMOUNT_VERSION_HEXES;
 		let v = hexes.deserialize_test_vectors();
 
-		// Ensure all VTXOs validate correctly.
-		v.validate_vtxos();
+		// These are historical Bitcoin signatures. Preserve their decoding and
+		// upgrade coverage, but never accept them as XBT spending authorization.
+		for (vtxo, anchor) in [
+			(&v.board_vtxo, &v.anchor_tx), (&v.arkoor_htlc_out_vtxo, &v.anchor_tx),
+			(&v.arkoor2_vtxo, &v.anchor_tx), (&v.round1_vtxo, &v.round_tx),
+			(&v.round2_vtxo, &v.round_tx), (&v.arkoor3_vtxo, &v.round_tx),
+		] {
+			vtxo.validate_unsigned(anchor).expect("legacy encoding retains its transaction structure");
+			assert!(vtxo.validate(anchor).is_err(), "Bitcoin signature must not authorize XBT");
+		}
 
 		// Ensure each VTXO serializes and is different from the old hex.
 		let board_hex = v.board_vtxo.serialize().as_hex().to_string();

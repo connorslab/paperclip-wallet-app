@@ -27,7 +27,7 @@ checks and their limits.
 | StartOS/Umbrel | Shared REST checks, authenticated CLN/LND reads; both StartOS candidate architectures built and source/checksums checked | Complete backup/restore, candidate installation, bundled Jam pairing/revocation/Tor and upgrades; matching frozen wrappers |
 | Linux/macOS/Windows | Isolated Apple Silicon and Linux daemon authentication, duplicate-instance rejection and crash/restart; macOS bundled Tor/Jars/helper runtime passes 15 relocated isolation cases; Linux bundled Tor/Jars passes TLS/proxy, relocation, frozen-window and Chromium checks; Windows native storage/ownership and bundled Tor/Jars/wallet/window lifecycle pass at `47f2cb77`, including saved-node setup/replacement controller checks | Installed browser/accessibility and bundled-Tor/Jars acceptance; supported OS matrix, signed installers, notarization and clean install/upgrade tests |
 | Jars | Reviewed direct/CoinJoin toggle and bond funding/withdrawal clients; pinned signer, API, bond and interrupted-submission checks; encrypted Jam volume restore on a synthetic chain | Live CoinJoin, direct-send and bond-funding/withdrawal acceptance, installed payment-pairing acceptance, live maker and physical QR signer acceptance |
-| Payments and recovery | 297 shared wallet tests and 55 mobile Rust tests (one external Electrum case excluded), exact-cost/RBF/unknown-outcome and secondary-account restore checks; native Android-to-iOS and iOS-to-Android encrypted restore on synthetic regtest; unified-signature and Electrum-header checks | Live BOLT12/Ark/Bridge settlement, portable app-state recovery/restore and current-source XBT consensus acceptance |
+| Payments and recovery | 297 shared wallet tests and 55 mobile Rust tests (one external Electrum case excluded), exact-cost/RBF/unknown-outcome and secondary-account restore checks; native Android-to-iOS and iOS-to-Android encrypted restore on synthetic regtest; unified-signature and Electrum-header checks; 173 protocol and 38 support tests with the explicit Knots script oracle | Live BOLT12/Ark/Bridge settlement, portable app-state recovery/restore and current-source XBT consensus acceptance |
 
 ### Open release gates — consolidated 2026-11-17
 
@@ -57,8 +57,8 @@ coordinated scope is iOS, Android, StartOS, Umbrel, Linux, macOS and Windows.
    Linux/Windows shell, including clean shutdown before editing and a separate
    replacement confirmation. Full Windows package run `44272566190` passes at
    `47f2cb77`, as does Linux/Lightning package run `44272566221`. The actual
-   Windows review-dialog interaction passes source CI at `965a3c31`; acceptance
-   in the frozen QA runner is pending. Complete combined installed Jam/Tor runtime
+   Windows review-dialog interaction passes source CI and the frozen QA runner
+   at `965a3c31` (full package run `44303445337`). Complete combined installed Jam/Tor runtime
    acceptance. No external Python or
    separate Kilombino app may be required for the bundled-host promise.
 3. **Complete portable recovery.** Finish the wallet-bound recovery envelope for
@@ -90,8 +90,10 @@ coordinated scope is iOS, Android, StartOS, Umbrel, Linux, macOS and Windows.
    large text and screen readers. Verify installed desktop default-browser,
    keyboard/accessibility and compact-window behavior on the supported OS matrix.
 7. **Close correctness and security acceptance.** Establish current-source XBT
-   consensus/signature acceptance; the 36 Bitcoin-fixture/kernel failures must
-   be resolved or correctly separated from the XBT acceptance suite. Complete
+   chain/transaction acceptance. The explicit Knots script suite now passes 173
+   protocol tests and 38 support tests, with no exclusions. Historical Bitcoin
+   signatures remain covered as rejected XBT authorizations. This closes the
+   script-verifier/fixture mismatch, not full-node or final-candidate acceptance. Complete
    final candidate regression and security review of spending, RBF, PSBT/change
    validation, permissions, TLS, storage failure and recovery. Process-crash tests
    do not establish storage power-loss or actual-payment shutdown acceptance.
@@ -123,9 +125,9 @@ physical-device changes remain in force until the specific work is authorized.
 
 The saved uncertain Ark attempt remains reserved in the private payment ledger.
 A failed sender plus an unavailable receiver record does not justify a retry or
-release of that reservation. The upstream protocol suite still has its documented
-36 failures against bitcoin fixtures/kernel; this result is not a passing XBT
-consensus test. No candidate was installed or published in this test pass.
+release of that reservation. The historical 36-failure Bitcoin-kernel run is superseded for XBT script
+acceptance by `just unit-xbt`. The upstream `just unit` verifier remains Bitcoin-only
+and is not the XBT release oracle. No candidate was installed or published in this test pass.
 
 The additional support-crate suite passes 136 tests. RPC cookie rotation passes
 in direct and SOCKS configurations; the transport tests reject redirects and
@@ -4271,3 +4273,23 @@ installer, installed node change or combined runtime acceptance.
 Android run `44299001483` at `2a299374` now passes both native ABIs and all 52
 instrumentation cases on each of API 35 and API 36. The previous API 35 dependency
 resolution failure did not recur; no dependency version or retry policy changed.
+
+
+### Explicit XBT script verification — 2026-11-18
+
+The native Apple Silicon run uses the checksum-verified Knots
+29.4.3.knots20260508 consensus library and all published verification flags.
+`just unit-xbt "-- --include-ignored"` passes 173 protocol tests and 38 support
+tests, including the previously excluded dust-placement fuzz case. Modified
+outputs, input amounts, other-input scripts, signature bytes and sighash types
+are rejected. StandardV2 forfeits and complete VTXO chains use the same oracle.
+
+Current fixed VTXO signatures are generated with the XBT implementation and
+accepted by Knots. Historical Bitcoin v1/v2 encodings still decode and round-trip,
+but their signatures and historical forfeit bundle cannot authorize XBT. No
+production signature validation or serialization format changes.
+
+The new Linux CI job pins the official archive checksum and runs the same suite.
+Its first remote result remains pending until recorded. Full-node policy, chain
+maturity, live settlement and final installed artifacts remain separate gates.
+See [the test instructions](../docs/xbt-consensus-tests.md).

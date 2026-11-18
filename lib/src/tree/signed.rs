@@ -2167,7 +2167,9 @@ mod test {
 			unsigned.internal_sighashes.iter().for_each(|h| eng.input(&h[..]));
 			siphash24::Hash::from_engine(eng)
 		};
-		assert_eq!(sighashes_hash.to_string(), "78ae911f557c0b86");
+		// XBT unified-sighash fixture; signed tree paths are also checked by Knots
+		// in unit-xbt, independently of this deterministic digest regression.
+		assert_eq!(sighashes_hash.to_string(), "18844ff1690254c4");
 
 		let signed = unsigned.into_signed_tree(vec![random_sig; nb_nodes]);
 
