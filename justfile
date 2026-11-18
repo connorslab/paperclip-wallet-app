@@ -28,6 +28,7 @@ unit-profiles:
 
 unit-creation:
 	cargo test --locked -p bark-cli --lib seed::tests
+	cargo test --locked -p bark-cli --lib generated_mnemonic_does_not_turn_rpc_creation_into_a_restore
 
 unit-electrum:
 	cargo test --locked -p electrum-client --lib xbt_header_tests

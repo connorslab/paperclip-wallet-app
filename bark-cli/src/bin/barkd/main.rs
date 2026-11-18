@@ -1,3 +1,5 @@
+mod host_wallets;
+
 use std::io::Read;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::path::PathBuf;
@@ -18,6 +20,7 @@ use bark_rest::error::ContextExt;
 use bark_rest::auth::AuthToken;
 
 use bark::fs_perms;
+use host_wallets::{HostWallets, Identity};
 
 use bark_cli::VERSION_DEV_MARKER;
 use bark_cli::connection;
@@ -354,7 +357,9 @@ fn generate_store_auth_token(datadir: &PathBuf) -> anyhow::Result<AuthToken> {
 }
 
 fn wallet_create_request_to_create_opts(req: CreateWalletRequest) -> anyhow::Result<CreateOpts> {
-	let mnemonic = bark_cli::seed::resolve(req.mnemonic, req.seed_generation)
+	let generated_mnemonic = req.mnemonic.is_none();
+	let generation = req.seed_generation.or_else(|| generated_mnemonic.then_some(bark_json::web::SeedGeneration::System { words: 12 }));
+	let mnemonic = bark_cli::seed::resolve(req.mnemonic, generation)
 		.badarg("Invalid wallet entropy selection")?;
 
 	#[allow(deprecated)]
@@ -409,6 +414,7 @@ fn wallet_create_request_to_create_opts(req: CreateWalletRequest) -> anyhow::Res
 		signet: req.network == BarkNetwork::Signet,
 		mutinynet: req.network == BarkNetwork::Mutinynet,
 		mnemonic: mnemonic,
+		generated_mnemonic,
 		birthday_height: req.birthday_height.map(Into::into),
 		config: config,
 	})
@@ -416,6 +422,7 @@ fn wallet_create_request_to_create_opts(req: CreateWalletRequest) -> anyhow::Res
 
 async fn wallet_state(
 	datadir: PathBuf, auth_token: Option<AuthToken>, expose_mnemonic: bool, shutdown: CancellationToken,
+	host_wallets: Arc<tokio::sync::Mutex<HostWallets>>,
 ) -> anyhow::Result<bark_rest::ServerStateBuilder> {
 	let opened_wallet = tokio::select! {
 		_ = shutdown.cancelled() => anyhow::bail!("Wallet startup cancelled"),
@@ -425,6 +432,9 @@ async fn wallet_state(
 		anyhow::bail!("Wallet startup cancelled");
 	}
 	let wallet_opt = if let Some(wallet) = opened_wallet {
+		let mnemonic = bip39::Mnemonic::from_str(&read_mnemonic(&datadir).await?)?;
+		let identity = Identity::new(wallet.properties().await?.network, &mnemonic);
+		host_wallets.lock().await.claim(&datadir, identity)?;
 		wallet.start_daemon()?;
 		info!("Wallet loaded and daemon started");
 		Some(wallet)
@@ -435,13 +445,27 @@ async fn wallet_state(
 
 	let on_wallet_create: Box<OnWalletCreate> = Box::new({
 		let datadir = datadir.clone();
+		let host_wallets = host_wallets.clone();
 
 		move |req: CreateWalletRequest| {
 			let datadir = datadir.clone();
+			let host_wallets = host_wallets.clone();
 
 			Box::pin(async move {
+				let network = match req.network {
+					BarkNetwork::Mainnet => bitcoin::Network::Bitcoin,
+					BarkNetwork::Regtest => bitcoin::Network::Regtest,
+					BarkNetwork::Signet | BarkNetwork::Mutinynet => bitcoin::Network::Signet,
+				};
 				let create_opts = wallet_create_request_to_create_opts(req)?;
-				create_wallet(&datadir, USER_AGENT, create_opts).await?;
+				let mnemonic = create_opts.mnemonic.as_ref().context("Wallet entropy was not resolved")?;
+				let mut identities = host_wallets.lock().await;
+				identities.claim(&datadir, Identity::new(network, mnemonic))
+					.badarg("This wallet is already present or its setup needs recovery. Reopen Paperclip and select its existing profile before retrying")?;
+				if let Err(error) = create_wallet(&datadir, USER_AGENT, create_opts).await {
+					identities.release_if_absent(&datadir);
+					return Err(error);
+				}
 				let wallet = open_wallet(&datadir, USER_AGENT).await?
 					.expect("Wallet should exist");
 
@@ -460,13 +484,17 @@ async fn wallet_state(
 
 	let on_wallet_delete: Box<OnWalletDelete> = Box::new({
 		let datadir = datadir.clone();
+		let host_wallets = host_wallets.clone();
 		move || {
 			let datadir = datadir.clone();
+			let host_wallets = host_wallets.clone();
 
 			// NB: No need to stop the daemon here, it will be stopped when the wallet is removed from the server state
 
 			Box::pin(async move {
+				let mut identities = host_wallets.lock().await;
 				connection::wipe_datadir_except_barkd_files(&datadir)?;
+				identities.release_if_absent(&datadir);
 				Ok(())
 			})
 		}
@@ -574,7 +602,8 @@ async fn main() -> anyhow::Result<()>{
 		Some(token)
 	};
 
-	let builder = wallet_state(datadir.clone(), auth_token.clone(), cli.expose_mnemonic, shutdown.clone()).await?;
+	let host_wallets = Arc::new(tokio::sync::Mutex::new(HostWallets::default()));
+	let builder = wallet_state(datadir.clone(), auth_token.clone(), cli.expose_mnemonic, shutdown.clone(), host_wallets.clone()).await?;
 
 	// Serve the embedded bark-web SPA from the same origin as the REST API.
 	#[cfg(feature = "barkd-web-ui")]
@@ -600,11 +629,12 @@ async fn main() -> anyhow::Result<()>{
 		let expose_mnemonic = cli.expose_mnemonic;
 		let open: Arc<bark_rest::profiles::OpenProfile> = Arc::new(move |path| {
 			let auth = auth_token.clone();
+			let host_wallets = host_wallets.clone();
 			let shutdown = shutdown.clone();
 			let mut web = defaults.clone();
 			web.wallet_data_path = path.display().to_string(); web.datadir = path.clone();
 			Box::pin(async move {
-				Ok(wallet_state(path, auth, expose_mnemonic, shutdown.clone()).await?.web(web).build(shutdown))
+				Ok(wallet_state(path, auth, expose_mnemonic, shutdown.clone(), host_wallets).await?.web(web).build(shutdown))
 			})
 		});
 		builder.profiles(Arc::new(bark_rest::profiles::Profiles::open(&datadir, open).await?))
@@ -645,6 +675,84 @@ async fn main() -> anyhow::Result<()>{
 #[cfg(test)]
 mod test {
 	use super::*;
+
+	#[cfg(feature = "barkd-web-ui")]
+	#[tokio::test]
+	async fn duplicate_seed_is_rejected_by_main_and_profile_routes_before_creation() {
+		let root = std::env::temp_dir().join(format!("paperclip-duplicate-route-{}-{}", std::process::id(),
+			std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+		std::fs::create_dir(&root).unwrap();
+		fs_perms::harden(&root, 0o700).unwrap();
+		let phrase = bip39::Mnemonic::from_entropy(&[3;16]).unwrap();
+		let identities = Arc::new(tokio::sync::Mutex::new(HostWallets::default()));
+		identities.lock().await.claim(&root.join("existing"), Identity::new(bitcoin::Network::Regtest, &phrase)).unwrap();
+		let shutdown = CancellationToken::new();
+		let auth = AuthToken::new([9;32]);
+		let builder = wallet_state(root.clone(), Some(auth.clone()), false, shutdown.clone(), identities.clone()).await.unwrap();
+		let open: Arc<bark_rest::profiles::OpenProfile> = Arc::new({
+			let shutdown = shutdown.clone(); let identities = identities.clone(); let auth = auth.clone();
+			move |path| {
+				let shutdown = shutdown.clone(); let identities = identities.clone(); let auth = auth.clone();
+				Box::pin(async move {
+					Ok(wallet_state(path, Some(auth), false, shutdown.clone(), identities).await?.build(shutdown))
+				})
+			}
+		});
+		let profiles = Arc::new(bark_rest::profiles::Profiles::open(&root, open).await.unwrap());
+		let server = RestServer::start(&Config { port:0, ..Default::default() },
+			Arc::new(builder.profiles(profiles).build(shutdown.clone())), shutdown).await.unwrap();
+		#[cfg(any(feature = "tls-native-roots", feature = "tls-webpki-roots"))]
+		let _ = rustls::crypto::ring::default_provider().install_default();
+		let client = reqwest::Client::builder().no_proxy().timeout(std::time::Duration::from_secs(5)).build().unwrap();
+		let url = format!("http://{}", server.local_addr());
+		let id = "a".repeat(64);
+		let registered = client.post(format!("{url}/api/profiles")).bearer_auth(auth.encode())
+			.json(&serde_json::json!({"id":id,"label":"Synthetic"})).send().await.unwrap();
+		assert_eq!(registered.status(), reqwest::StatusCode::OK);
+		for route in ["/api/v1/wallet/create".to_owned(), format!("/api/profiles/{id}/v1/wallet/create")] {
+			let response = client.post(format!("{url}{route}")).bearer_auth(auth.encode())
+				.json(&serde_json::json!({"network":"regtest","mnemonic":phrase.to_string(),"birthday_height":0}))
+				.send().await.unwrap();
+			assert_eq!(response.status(), reqwest::StatusCode::BAD_REQUEST);
+			let body = response.text().await.unwrap();
+			assert!(body.contains("existing profile"));
+			assert!(!body.contains(&phrase.to_string()));
+		}
+		// A completed failure before key persistence may retry; it must preserve
+		// the other profile's catalog and must not retain a stale reservation.
+		let different = bip39::Mnemonic::from_entropy(&[4;16]).unwrap();
+		for _ in 0..2 {
+			let response = client.post(format!("{url}/api/v1/wallet/create")).bearer_auth(auth.encode())
+				.json(&serde_json::json!({"network":"regtest","mnemonic":different.to_string(),"birthday_height":0}))
+				.send().await.unwrap();
+			assert_eq!(response.status(), reqwest::StatusCode::INTERNAL_SERVER_ERROR);
+			assert!(root.join("hot-wallets/profiles.json").is_file());
+		}
+		for path in [root.clone(), root.join("hot-wallets").join(id)] {
+			assert!(!path.join("mnemonic").exists());
+			assert!(!path.join("config.toml").exists());
+		}
+		server.stop_wait().await.unwrap();
+		std::fs::remove_dir_all(root).unwrap();
+	}
+
+	#[test]
+	fn generated_entropy_keeps_new_wallet_birthday_rules() {
+		for generation in [serde_json::Value::Null, serde_json::json!({"method":"system","words":24}),
+			serde_json::json!({"method":"dice","words":12,"sides":6,"rolls":vec![1;50],"fair_dice_acknowledged":true})] {
+			let request = serde_json::from_value(serde_json::json!({"network":"regtest","seed_generation":generation})).unwrap();
+			let opts = wallet_create_request_to_create_opts(request).unwrap();
+			assert!(opts.generated_mnemonic);
+			assert!(opts.mnemonic.is_some());
+			assert!(opts.birthday_height.is_none());
+		}
+		let phrase = bip39::Mnemonic::from_entropy(&[3;16]).unwrap();
+		let request = serde_json::from_value(serde_json::json!({"network":"regtest","mnemonic":phrase.to_string(),"birthday_height":0})).unwrap();
+		let restored = wallet_create_request_to_create_opts(request).unwrap();
+		assert!(!restored.generated_mnemonic);
+		assert!(restored.mnemonic.unwrap() == phrase);
+		assert_eq!(restored.birthday_height, Some(0.into()));
+	}
 
 	#[test]
 	fn launcher_lifetime_is_explicitly_opt_in() {

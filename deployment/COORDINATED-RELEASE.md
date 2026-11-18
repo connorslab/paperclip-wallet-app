@@ -3508,3 +3508,25 @@ The Windows launcher now presents a setup-recovery dialog for damaged or missing
 runtime configuration instead of silently exiting a windowed executable. Six
 local policy/runtime tests pass. A new native packaged-dialog test checks that
 this failure never initializes wallet storage; native acceptance is pending.
+
+
+### Host wallet creation matches mobile identity and entropy rules
+
+The main wallet and all desktop/StartOS/Umbrel hot profiles share an identity
+reservation during creation and deletion. The same seed on the same network
+cannot start a second profile with independent payment journals. Detection uses
+a full seed digest, not the short display fingerprint. Startup checks loaded
+wallets before starting each daemon. Cancellation retains the reservation;
+failed creation or deletion releases it only when the mnemonic is confirmed
+absent. A partial or uncertain setup must be inspected after reopening.
+
+New system/dice entropy is now distinguished from restored words through the
+creation backend. A generated mnemonic no longer mistakenly requires an RPC
+restore birthday. Imported words retain the required birthday/rescan rules.
+The internal generation flag cannot be supplied as a CLI option.
+
+Validation: 12 daemon tests and four connection tests pass, including authenticated
+main/profile rejection before key/config writes, network separation, duplicate
+claims, cancellation and persistence checks. Two entropy tests and the new RPC
+birthday boundary test pass. These are isolated fixtures, not funded multi-wallet
+or installed-package acceptance.

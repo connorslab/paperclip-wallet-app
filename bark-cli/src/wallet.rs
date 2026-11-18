@@ -291,6 +291,11 @@ pub struct CreateOpts {
 	#[arg(long)]
 	pub mnemonic: Option<bip39::Mnemonic>,
 
+	/// The daemon resolved new system/dice entropy before calling creation.
+	/// This is not a CLI option: supplied restore words must keep restore rules.
+	#[arg(skip)]
+	pub generated_mnemonic: bool,
+
 	/// The wallet/mnemonic's birthday blockheight to start syncing when recovering.
 	#[arg(long)]
 	pub birthday_height: Option<BlockHeight>,
@@ -397,6 +402,29 @@ pub async fn create_wallet(
 	Ok(())
 }
 
+/// Return whether creation can start at the current tip. Restore words must keep
+/// their explicit RPC rescan birthday; generated words must not require one.
+fn validate_creation_birthday(opts: &CreateOpts, config: &Config) -> anyhow::Result<bool> {
+	// Explicit new-wallet entropy is already a mnemonic, but is not a restore.
+	let is_new_wallet = opts.mnemonic.is_none() || opts.generated_mnemonic;
+	if !is_new_wallet {
+		if opts.birthday_height.is_none() {
+			// Only Bitcoin Core requires a birthday height to avoid syncing the entire chain.
+			if config.bitcoind_address.is_some() {
+				bail!("You need to set the --birthday-height field when recovering from mnemonic.");
+			}
+		} else if config.esplora_address.is_some() {
+			warn!("The given --birthday-height will be ignored because you're using Esplora.");
+		}
+	} else {
+		if opts.birthday_height.is_some() {
+			bail!("A birthday height is only valid when restoring existing words.");
+		}
+	}
+
+	Ok(is_new_wallet)
+}
+
 /// In this method we create the wallet and if it fails, the datadir will be wiped again.
 async fn try_create_wallet(
 	datadir: &Path,
@@ -435,21 +463,7 @@ async fn try_create_wallet(
 		config.user_agent = Some(user_agent.to_owned());
 	}
 
-	// A mnemonic implies that the user wishes to recover an existing wallet.
-	if opts.mnemonic.is_some() {
-		if opts.birthday_height.is_none() {
-			// Only Bitcoin Core requires a birthday height to avoid syncing the entire chain.
-			if config.bitcoind_address.is_some() {
-				bail!("You need to set the --birthday-height field when recovering from mnemonic.");
-			}
-		} else if config.esplora_address.is_some() {
-			warn!("The given --birthday-height will be ignored because you're using Esplora.");
-		}
-	} else {
-		if opts.birthday_height.is_some() {
-			bail!("Can't set --birthday-height if --mnemonic is not set.");
-		}
-	}
+	let is_new_wallet = validate_creation_birthday(&opts, &config)?;
 
 	// chain source client
 	let chain_spec = config.chain_source()
@@ -459,7 +473,6 @@ async fn try_create_wallet(
 	chain.require_version().await.context("chain source version check failed")?;
 
 	// generate seed
-	let is_new_wallet = opts.mnemonic.is_none();
 	let mnemonic = opts.mnemonic.unwrap_or_else(|| bip39::Mnemonic::generate(12).expect("12 is valid"));
 	let seed = mnemonic.to_seed("");
 
@@ -609,9 +622,30 @@ mod test {
 			signet: true,
 			mutinynet: false,
 			mnemonic: None,
+			generated_mnemonic: false,
 			birthday_height: None,
 			config: ConfigOpts::default(),
 		}
+	}
+
+	#[test]
+	fn generated_mnemonic_does_not_turn_rpc_creation_into_a_restore() {
+		let dir = tmp_dir();
+		let mut opts = failing_create_opts();
+		opts.config = ConfigOpts { ark: Some("http://127.0.0.1:1".into()),
+			bitcoind: Some("http://127.0.0.1:1".into()), bitcoind_user: Some("fixture".into()),
+			bitcoind_pass: Some("fixture".into()), ..Default::default() };
+		let config = opts.config.write_to_file(Network::Regtest, dir.join("config.toml")).unwrap();
+		assert!(validate_creation_birthday(&opts, &config).unwrap());
+		opts.mnemonic = Some(bip39::Mnemonic::from_entropy(&[3;16]).unwrap());
+		assert!(validate_creation_birthday(&opts, &config).is_err());
+		opts.generated_mnemonic = true;
+		assert!(validate_creation_birthday(&opts, &config).unwrap());
+		opts.birthday_height = Some(0.into());
+		assert!(validate_creation_birthday(&opts, &config).is_err());
+		opts.generated_mnemonic = false;
+		assert!(!validate_creation_birthday(&opts, &config).unwrap());
+		fs::remove_dir_all(dir).unwrap();
 	}
 
 	/// --gap-limit is config, not a one-shot: it must land in config.toml so
