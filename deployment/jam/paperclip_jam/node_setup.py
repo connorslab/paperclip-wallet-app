@@ -17,6 +17,8 @@ MAX_INPUT = 96 * 1024
 MAX_REPLY = 64 * 1024
 CHECK_TIMEOUT = 20
 MESSAGES = {
+    'review_required': 'Review and confirm the new node connection before saving.',
+    'stale_review': 'The saved connection changed. Inspect it and review the new settings again.',
     'invalid_settings': 'Check the node address and RPC credentials.',
     'insecure_address': 'Use HTTPS, an onion address through Tor, or a local node.',
     'tor_required': 'Start the bundled Tor connection before checking this node.',

@@ -4019,3 +4019,29 @@ isolated copied runtime. All eight controller cases also pass against the actual
 copied Mac runtime. Linux CI now builds and tests that source-preview path. The
 Windows native-window test explicitly requires initial setup for Jars packages
 and defers it once before asserting that no Jars storage was initialized.
+
+
+### Reviewed native connection replacement backend
+
+The private helper now replaces a saved node only with explicit confirmation and
+the current public connection ID. It holds the Jars lifetime lock, verifies the
+replacement using the existing XBT/TLS rules and checks the expected ID again
+before atomic replacement. A successful save rotates that ID, so a stale screen
+or uncertain earlier save cannot silently submit the same change again. The
+controller rejects stale reviews before starting Tor. Initial setup remains
+create-only; missing, damaged, linked or legacy records cannot be migrated by
+this operation. Wallet and recovery files remain untouched.
+
+Ten replacement cases cover successful save, preserved wallet/journal files,
+explicit confirmation, stale IDs, authentication failure, service locking,
+missing/legacy/damaged/linked records, a record changed during verification, and
+flush failures before and after rename. The final source node suite passes all
+48 cases, both from source and with the rebuilt frozen macOS helper; the native
+controller suite passes nine cases in both modes. Frozen source hashes match the
+implementation and strict deep ad-hoc signatures verify after execution. Native
+Windows/Linux acceptance of replacement remains pending. The review/change UI for
+existing connections remains open; this backend is not exposed as a browser API.
+
+Previous guided-setup Windows package run `44264493972`, prerequisite
+`44264493931`, macOS shell `44264493941` and native Tor `44264494118` pass.
+Linux/Lightning `44264493899` is still running its later native package checks.

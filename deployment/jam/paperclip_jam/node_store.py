@@ -1,14 +1,16 @@
-"""Create-once native Jars node settings; never replace a prior connection."""
+"""Private native node settings with explicit, version-bound replacement."""
+import asyncio
 from contextlib import contextmanager
 from dataclasses import dataclass
 import json
+import logging
 import os
 from pathlib import Path
 import re
 import secrets
 import stat
 
-from paperclip_jam.node_setup import MAX_INPUT, NodeSettings, NodeSetupError
+from paperclip_jam.node_setup import MAX_INPUT, NodeSettings, NodeSetupError, verify, report_failure
 
 if os.name == 'nt':
     from windows import private_storage as native
@@ -136,6 +138,87 @@ def load(root):
         return StoredNode(record['connection_id'], settings)
     except (ValueError, TypeError, KeyError, NodeSetupError):
         raise NodeSetupError('storage_failure') from None
+
+
+def require_current(root, expected):
+    """A successful or uncertain previous save invalidates the old review."""
+    if not isinstance(expected, str) or not re.fullmatch('[0-9a-f]{32}', expected):
+        raise NodeSetupError('review_required')
+    current = load(root)
+    if current is None or current.connection_id != expected:
+        raise NodeSetupError('stale_review')
+    return current
+
+
+def replace_verified(root, settings, expected):
+    """Caller holds desktop.lock and has verified the reviewed replacement node.
+
+    Only the connection record changes. Wallets, recovery journals and legacy
+    configuration remain untouched. A failed flush after rename is uncertain;
+    never roll back or automatically repeat it.
+    """
+    root = Path(root)
+    require_current(root, expected)
+    identity = secrets.token_hex(16)
+    encoded = json.dumps({'version': 1, 'connection_id': identity, 'settings':
+        {key: getattr(settings, key) for key in ('endpoint', 'username', 'password', 'tor', 'ca_pem')}},
+        separators=(',', ':'), ensure_ascii=False).encode()
+    if len(encoded) > MAX_INPUT:
+        raise NodeSetupError('invalid_settings')
+    try:
+        with directory(root) as parent:
+            if os.name == 'nt':
+                require_current(root, expected)
+                native.atomic_write_private(root / NAME, encoded)
+            else:
+                temporary = '.node-' + secrets.token_hex(16) + '.tmp'
+                fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
+                    0o600, dir_fd=parent)
+                replaced = False
+                try:
+                    with os.fdopen(fd, 'wb') as stream:
+                        stream.write(encoded)
+                        stream.flush()
+                        os.fsync(stream.fileno())
+                    require_current(root, expected)
+                    os.replace(temporary, NAME, src_dir_fd=parent, dst_dir_fd=parent)
+                    replaced = True
+                    os.fsync(parent)
+                finally:
+                    if not replaced:
+                        os.unlink(temporary, dir_fd=parent)
+    except (OSError, ValueError):
+        raise NodeSetupError('storage_failure') from None
+    return {'saved': True, 'active': False, 'connection_id': identity}
+
+
+def replace_pipe(root, source, destination, socks_port=None):
+    """Private native request; caller must hold the complete Jars lifetime lock."""
+    logging.disable(logging.CRITICAL)
+    try:
+        encoded = source.read(MAX_INPUT + 1)
+        if len(encoded) > MAX_INPUT:
+            raise NodeSetupError('invalid_settings')
+        try:
+            request = json.loads(encoded)
+            if (not isinstance(request, dict)
+                    or set(request) != {'settings', 'expected_connection_id', 'confirmed'}
+                    or request['confirmed'] is not True):
+                raise NodeSetupError('review_required')
+            expected = request['expected_connection_id']
+            require_current(root, expected)
+            settings = NodeSettings.parse(request['settings'])
+        except (ValueError, UnicodeError, TypeError):
+            raise NodeSetupError('invalid_settings') from None
+        result = asyncio.run(verify(settings, socks_port))
+        result.update(replace_verified(root, settings, expected))
+    except NodeSetupError as error:
+        return report_failure(destination, error.code)
+    except Exception:
+        return report_failure(destination, 'unavailable')
+    destination.write(json.dumps(result) + '\n')
+    destination.flush()
+    return 0
 
 
 def public_state(root):

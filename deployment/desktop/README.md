@@ -516,3 +516,26 @@ loaded libraries to check that crypto, TLS and libevent came from that directory
 The native Tor CI workflow tests prepared, relocated runtimes with networking
 disabled on Linux, Windows and macOS. Unrun architectures are not implied by
 successful archive verification or another host's tests.
+
+
+## Native node settings
+
+Initial guided setup in AppKit and the shared Linux/Windows shell verifies an XBT
+node before saving private settings. Deferring Jars leaves its wallet
+uninitialized and starts the main wallet with owned Tor. Saved-state inspection
+is read-only and does not claim the node is reachable. Credentials travel through
+private child pipes, never the wallet browser or command arguments.
+
+The internal `--replace-node` mode supports a reviewed replacement after the
+Jars service is closed. Its bounded stdin object contains `settings`, the
+`expected_connection_id` from saved-state inspection, and `confirmed: true`.
+The helper holds the Jars lifetime lock throughout verification and atomic save.
+It refuses missing, damaged, linked or legacy records and stale review IDs before
+contacting the node. It checks the ID again after verification, rotates the ID
+on success and preserves every wallet, journal and legacy configuration file.
+A write failure after replacement is uncertain: inspect saved state and obtain
+a new review; do not roll back or automatically retry.
+
+This is an internal native-controller operation, not a web API. The user-facing
+review/change screen remains required before ordinary users can manage an
+existing connection. Initial setup never invokes replacement.

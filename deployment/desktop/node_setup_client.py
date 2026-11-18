@@ -23,6 +23,8 @@ MESSAGES = {
     'setup_in_use': 'Close the other Jars session before saving this connection.',
     'invalid_settings': 'Check the node address, username and password.',
     'redirect': 'Use the final RPC address. Redirects are not allowed.',
+    'review_required': 'Review and confirm the new node connection before saving.',
+    'stale_review': 'The saved connection changed. Reopen its settings and review the new connection again.',
 }
 
 
@@ -66,15 +68,24 @@ class NodeSetupClient:
                 try:stream.close()
                 except OSError:pass
 
-    def status(self):
+    def inspect(self):
         value=self.call('--node-status')
         if value.get('live_connection')!='not_checked' or value.get('state') not in ('saved','not_configured','existing_wallet'):
             raise StartupError('The saved Jars connection needs inspection. Your data was kept.')
-        return value['state']
+        return value
 
-    def save(self, settings, progress):
+    def status(self):
+        return self.inspect()['state']
+
+    def save(self, settings, progress, *, expected_connection_id=None, confirmed=False):
         if not isinstance(settings,dict) or type(settings.get('tor',False)) is not bool:
             raise StartupError('Check the node configuration.')
+        if expected_connection_id is not None and confirmed is not True:
+            raise StartupError(MESSAGES['review_required'])
+        if expected_connection_id is not None:
+            current = self.inspect()
+            if current.get('state') != 'saved' or current.get('connection_id') != expected_connection_id:
+                raise StartupError(MESSAGES['stale_review'])
         private_directory(self.root)
         tor=None
         try:
@@ -93,7 +104,11 @@ class NodeSetupClient:
                     if time.monotonic()>deadline: raise StartupError('Tor could not finish connecting. Try again on a working network.')
                     self.stopping.wait(0.5)
             progress('Verifying your XBT node…')
-            value=self.call('--configure-node',settings,socks)
+            if expected_connection_id is None:
+                value=self.call('--configure-node',settings,socks)
+            else:
+                value=self.call('--replace-node',{'settings':settings,
+                    'expected_connection_id':expected_connection_id,'confirmed':confirmed},socks)
             if value.get('ready') is not True or value.get('saved') is not True or value.get('active') is not False:
                 raise StartupError('The saved result is uncertain. Reopen Paperclip to inspect it.')
         finally:

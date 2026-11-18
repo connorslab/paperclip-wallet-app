@@ -193,6 +193,7 @@ def main():
     setup_mode = parser.add_mutually_exclusive_group()
     setup_mode.add_argument('--check-node', action='store_true')
     setup_mode.add_argument('--configure-node', action='store_true')
+    setup_mode.add_argument('--replace-node', action='store_true')
     setup_mode.add_argument('--serve-node', action='store_true')
     setup_mode.add_argument('--node-status', action='store_true')
     parser.add_argument('--tor-socks-port', type=int)
@@ -220,7 +221,7 @@ def main():
         from paperclip_jam.node_rpc import run as serve_node
         serve_node(args.data_dir, args.tor_socks_port)
         return 0
-    if args.configure_node:
+    if args.configure_node or args.replace_node:
         if args.tor_control_port is not None or args.tor_cookie_path is not None:
             parser.error('Node setup does not open the Tor controller.')
         os.umask(0o077)
@@ -228,8 +229,15 @@ def main():
         from paperclip_jam.node_setup import check_pipe, report_failure
         from paperclip_jam import node_store
         try:
-            private_directory(args.data_dir)
+            if args.replace_node:
+                # Replacement never creates a missing root or migrates legacy state.
+                with node_store.directory(args.data_dir):
+                    pass
+            else:
+                private_directory(args.data_dir)
             with entry_lock(args.data_dir):
+                if args.replace_node:
+                    return node_store.replace_pipe(args.data_dir, sys.stdin.buffer, sys.stdout, args.tor_socks_port)
                 return check_pipe(sys.stdin.buffer, sys.stdout, args.tor_socks_port,
                     admit=lambda: node_store.admit(args.data_dir),
                     save=lambda settings: node_store.save_initial(args.data_dir, settings))

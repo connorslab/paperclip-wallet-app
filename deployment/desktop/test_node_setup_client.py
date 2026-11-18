@@ -62,6 +62,25 @@ class SetupClientTests(NodeFixture):
         self.assertEqual(result, self.runtime)
         self.assertEqual(self.calls, [])
 
+    def test_replacement_requires_review_and_rejects_a_consumed_review(self):
+        client = self.client(); port = self.node()
+        settings = {'endpoint':f'http://127.0.0.1:{port}', 'username':'fixture', 'password':'synthetic-secret'}
+        client.save(settings, lambda _: None)
+        identity = client.inspect()['connection_id']
+        self.calls.clear()
+        with self.assertRaises(StartupError):
+            client.save(settings, lambda _: None, expected_connection_id=identity)
+        self.assertEqual(self.calls, [])
+        client.save(settings, lambda _: None, expected_connection_id=identity, confirmed=True)
+        self.assertNotEqual(client.inspect()['connection_id'], identity)
+        self.calls.clear()
+        with patch('node_setup_client.ManagedTor') as tor:
+            with self.assertRaises(StartupError) as error:
+                client.save(dict(settings,tor=True), lambda _: None, expected_connection_id=identity, confirmed=True)
+            tor.assert_not_called()
+        self.assertIn('changed', str(error.exception))
+        self.assertEqual(self.calls, [])
+
     def test_cancelled_helper_is_reaped_and_does_not_save(self):
         client = self.client(); self.stopping.set()
         with self.assertRaises(StartupError): client.call('--node-status')
