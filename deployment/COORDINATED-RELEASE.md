@@ -50,8 +50,8 @@ coordinated scope is iOS, Android, StartOS, Umbrel, Linux, macOS and Windows.
    through an owned restricted RPC child is implemented and passes macOS source
    and frozen-helper checks plus Linux container checks on both architectures;
    Windows package validation for this activation change remains in progress.
-   Complete public saved-state inspection, reviewed connection changes, guided
-   setup UI and combined installed Jam/Tor
+   Read-only saved-state inspection is implemented and does not imply a live
+   connection. Complete reviewed connection changes, guided setup UI and combined installed Jam/Tor
    runtime acceptance on the native desktops. No external Python or
    separate Kilombino app may be required for the bundled-host promise.
 3. **Complete portable recovery.** Finish the wallet-bound recovery envelope for
@@ -3954,3 +3954,32 @@ container run `44255662395` then passes on both x86-64 and ARM64. Native Tor
 run `44255358583` and macOS shell run `44255358547` also pass. Windows package
 validation remains in progress in run `44255661989`. Both commits are mirrored to `feature/android-wallet`; guided setup,
 reviewed configuration changes and installed-host acceptance remain open.
+
+
+### Read-only native node status and Windows validation correction
+
+At `bc7e41e`, the internal `--node-status` command distinguishes unconfigured
+storage, a valid saved connection, existing wallet state and configuration that
+needs attention. It never contacts a node, starts Tor, takes the lifetime lock,
+creates a missing directory or changes saved files. Results omit endpoints,
+usernames, passwords and certificates. A random public connection identifier and
+transport category can identify a saved record, but `live_connection` remains
+`not_checked`. Damaged or unsafe records cannot appear as a blank setup form.
+
+Six new status tests cover missing/empty roots, saved credentials, existing
+configuration, damaged records, inspection during the service lock and hard-linked
+files. The rebuilt macOS helper passes all 38 node preflight/storage/RPC/status
+cases; its source hashes match `bc7e41e` and its strict deep ad-hoc signature
+verifies after testing. Linux container run `44258480209` passes on both supported
+architectures. Native UI integration and reviewed connection changes remain open.
+
+Previous Windows run `44255661989` stopped on a fixture assertion: Windows
+startup deliberately creates a private temporary directory before verifying the
+saved node. The rejected-node test incorrectly expected no directory. Test-only
+correction `4309b79` requires that directory to be private and empty on Windows,
+while retaining the no-fallback, unchanged-credentials and no-other-files checks.
+The workflow now runs all node cases together so one failure cannot hide the
+remaining cases. Final Windows activation/status validation remains pending in
+run `44258480321`. No Windows production-runtime fix or final acceptance is
+claimed from this fixture correction. The prior Windows prerequisite run
+`44255358635` passes. Both changes are mirrored to `feature/android-wallet`.
