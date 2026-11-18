@@ -3662,3 +3662,30 @@ The previous increment at `6b64061` passes native Windows prerequisite run
 `44226850971`, Windows bundled Jars `44226851137`, bundled Jam `44226850978`, and
 macOS shell `44226851080`. Linux backend `44226851040` is still running at this
 record; it is not counted as a pass.
+
+
+### Portable native Apple Tor and Jars validation
+
+The native ARM64 Mac preview now passes all 14 real Jars/wallet/launcher lifecycle
+cases after relocation, with access to Homebrew, `/usr/local` and the original app
+blocked. The package includes its Python, Jars, crypto, CA and Tor runtimes. Its
+deep strict ad-hoc signature verifies before and after the tests. A separate owned
+Tor process, with the same build-host restrictions, reaches 100% bootstrap. No
+node request, wallet creation or payment was made.
+
+This test uses Tor Project's macOS ARM64 expert bundle 16.0.1 (Tor 0.4.9.16),
+verified against the published Tor Browser Developers primary fingerprint
+`EF6E286DDA85EA2A4BA7DE684E2C6E8793298290`. The original archive's SHA-256 is
+`0b7d022017c31e3f972d06465bcd7ac50feb66ac825547419a934914fe4bb156`.
+Its upstream embedded Mach-O signatures failed Apple's validation and startup.
+The original archive was preserved; a separate development copy was ad-hoc signed,
+verified and inventoried again before packaging. Included license notices were
+preserved. This accepts the tested native component/runtime path, not Developer ID
+signing, notarization, installed upgrades or the other OS/CPU combinations.
+
+Source and verification references: [official expert bundles](https://download.torproject.org/tor/)
+and [Tor's published signing key and verification instructions](https://support.torproject.org/tor-browser/getting-started/verifying-tor-browser/).
+The runtime remains an explicitly supplied build input; no distribution is fetched
+or enabled automatically. Guided node-RPC setup and native Windows/Linux Tor
+acceptance are still open. Linux backend run `44226851040` at `6b64061` also
+completed successfully, closing the previously pending backend check.
