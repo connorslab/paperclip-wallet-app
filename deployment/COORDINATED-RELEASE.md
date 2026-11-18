@@ -3910,8 +3910,8 @@ source hashes match `6aa9f82`, and its strict deep ad-hoc signature verifies aft
 testing. Linux container run `44251692870` passes on x86-64 and ARM64: each
 companion suite passes 118 cases with four scope exclusions, and each supervisor
 suite passes four cases with four combined-wallet exclusions. Windows
-frozen storage acceptance remains pending in run `44251692863`; earlier Windows
-preflight results do not establish this new save path. Mandatory `just checks`
-passes. Both implementation commits are mirrored to `feature/android-wallet`.
+run `44251692863` passes its frozen node preflight/private-storage step and
+relocated Jars/TLS step; the broader wallet/window build remains in progress.
+The native Tor matrix `44251692912` also passes. Mandatory `just checks` passes. Both implementation commits are mirrored to `feature/android-wallet`.
 All tests use synthetic nodes and disposable storage; no live node, funded
 wallet, deployment or release-signing acceptance is claimed.
