@@ -3744,3 +3744,18 @@ its isolated network-disabled component test had passed. The new explicit
 activation component run passes, but the combined failure is not considered
 resolved until the full Jars/wallet/window rerun passes. The updated combined
 Windows and Linux runs remain pending at this record. No candidate was deployed.
+
+
+The combined Linux backend run `44233346423` at `3fceff4` completed successfully,
+including the prepared official Tor input, relocated frozen Jars/wallet lifecycle,
+packaged window and real Chromium checks. Native Tor run `44236514500` at
+`b587e3f` also passes on Windows 2025 as well as the previous five runner targets;
+its Windows tests include the launcher's held ownership/recovery file handles.
+This rules out the OS version or those handles alone as the observed cause.
+
+Windows combined run `44234758218` at `265297f` reproduces the earlier failure.
+The new diagnostic locates it at reading private control files, before controller
+authentication or network activation. A test with the exact Jars interpreter and
+original prepared runtime path is now included before the long package build.
+It reports only an integer Windows error code when available, never raw private
+metadata. The integration failure remains open while that test runs.

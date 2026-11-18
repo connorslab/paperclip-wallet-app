@@ -431,8 +431,12 @@ Neither mode sends a node request or a payment. Run `test_managed_jam.py` with
 `--tor /path/to/tor` and the existing `--python`, `--entry` and `--binary` inputs
 for combined ownership, TLS and recovery checks.
 
-Native Apple testing used Tor 0.4.9.16. Windows Tor binary/private-file behavior,
-release bundling and complete live bootstrap/node acceptance remain unverified.
+Native checks of the pinned Tor 0.4.9.16 input cover Windows x86-64, Linux
+x86-64/ARM64 and macOS Intel/ARM64, including private control files, explicit
+SOCKS activation and retry. The ARM64 Mac also has a separate successful full
+bootstrap check. Combined runtime, installed-host and live-node acceptance are
+tracked separately in [the coordinated release checklist](../COORDINATED-RELEASE.md).
+A passing Tor component check alone does not accept a complete wallet package.
 
 
 ## Tor package inputs
