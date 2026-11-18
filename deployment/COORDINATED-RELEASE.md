@@ -43,8 +43,9 @@ coordinated scope is iOS, Android, StartOS, Umbrel, Linux, macOS and Windows.
    the desktop profile requirement.
 2. **Finish native runtime delivery.** The complete frozen Windows Jars service
    and owned desktop integration pass native CI at `2d584f6`, including the
-   packaged window. Complete supported Jam/Tor and node-RPC setup on the native
-   desktops, then validate the enabled packaged runtime. No external Python or
+   packaged window. Owned Tor component checks now pass on all five pinned native targets, including
+   explicit SOCKS activation. Complete guided node-RPC setup and the combined
+   installed Jam/Tor runtime acceptance on the native desktops. No external Python or
    separate Kilombino app may be required for the bundled-host promise.
 3. **Complete portable recovery.** Finish the wallet-bound recovery envelope for
    older app warnings, remote-node records and Bridge conversions, with an
@@ -3715,3 +3716,31 @@ The previous packaging increment `dcfdbb9` now passes Windows prerequisite
 Linux backend `44229967503`. New combined Windows/Linux package runs include the
 prepared Tor distribution and remain pending; no installation or release has
 been performed.
+
+
+### Native Tor activation and actionable startup errors
+
+The pinned Tor distribution now passes native component checks on Linux x86-64
+and ARM64, macOS Intel and ARM64, and Windows x86-64. Run `44234758222` at
+`265297f` includes explicit network activation and a SOCKS handshake, private
+control authentication, failed-start cleanup and fresh retry. It does not require
+a node, create wallet keys or submit payments. Full network bootstrap was
+previously verified separately on the ARM64 Mac package.
+
+Damaged Tor package metadata now gives a reinstall instruction before wallet
+state or child services are created. Startup failures identify a fixed stage
+without exposing exception contents, paths or control data. A simulated
+activation timeout verifies child cleanup and a fresh start.
+
+The native ARM64 Mac preview at `3377186` passes 15 frozen/relocated Jars, wallet
+and launcher cases with Homebrew, `/usr/local` and the original app path denied.
+Its ad-hoc signature verifies after execution. A separate native AppKit smoke
+check of the earlier portable preview reached ready state and closed cleanly,
+with no keys created and its signature preserved. These are development-package
+checks, not Developer ID, notarization or installed-user acceptance.
+
+The combined Windows run `44233346292` at `3fceff4` failed during Tor startup;
+its isolated network-disabled component test had passed. The new explicit
+activation component run passes, but the combined failure is not considered
+resolved until the full Jars/wallet/window rerun passes. The updated combined
+Windows and Linux runs remain pending at this record. No candidate was deployed.
