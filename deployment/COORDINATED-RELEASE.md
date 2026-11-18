@@ -3400,6 +3400,16 @@ The pinned history API now selects private native file handles, stable reader/
 writer ownership and atomic CSV replacement on Windows. It preserves the upstream
 entry format, chronological ordering, legacy-name migration and outcome handling.
 Native cases cover reopen/rewrite, parallel appends, legacy migration and refusing
-unsafe ACLs without modifying the original data. Those native checks are pending.
-The complete upstream history test module passes on macOS against the patched
+unsafe ACLs without modifying the original data. All five pass in native Windows
+CI at `bdb9dbc`. All 172 upstream history tests pass on macOS against the patched
 module. This is history-storage validation, not live payment acceptance.
+
+### Windows Jars fidelity-bond metadata
+
+The pinned bond registry uses private native reads and atomic replacement on
+Windows, retaining its existing per-wallet path, verified ownership migration
+and fail-closed parsing rules. Native cases cover independent wallets, idempotent
+legacy migration, corrupted data and unsafe permissions; CI acceptance is pending.
+All 58 upstream registry and migration tests pass on macOS against the patched
+module. This validates storage compatibility, not live bond funding, withdrawal
+or physical signer support.
