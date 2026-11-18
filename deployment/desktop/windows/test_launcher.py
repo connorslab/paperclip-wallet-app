@@ -1,8 +1,10 @@
 """Windows browser policy checks; these never launch a real browser or wallet."""
+import json
 import os
 from pathlib import Path
 import subprocess
 import sys
+import tempfile
 import unittest
 from unittest.mock import patch
 
@@ -58,6 +60,39 @@ class BrowserPolicy(unittest.TestCase):
             self.assertEqual(os.environ, before)
             run.side_effect = subprocess.TimeoutExpired('browser helper', 10)
             self.assertFalse(launcher.open_default_browser(good))
+
+
+class PackageRuntime(unittest.TestCase):
+    def test_missing_damaged_and_incomplete_runtime_fail_before_startup(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            executable = Path(temporary) / 'Paperclip.exe'
+            configuration = executable.parent / 'runtime.json'
+            with self.assertRaises(OSError):
+                launcher.packaged_jars(executable)
+            for value in (b'null', b'[]', b'{', b'"secret synthetic content"',
+                          b'{"format":true,"jars":false}', b'{"format":1,"jars":0}',
+                          b'{"format":1,"jars":false,"extra":true}', b' ' * 4097):
+                configuration.write_bytes(value)
+                with self.assertRaises(ValueError):
+                    launcher.packaged_jars(executable)
+            configuration.write_text(json.dumps({'format':1, 'jars':True}))
+            with self.assertRaises(ValueError):
+                launcher.packaged_jars(executable)
+            configuration.write_text(json.dumps({'format':1, 'jars':False}))
+            self.assertIsNone(launcher.packaged_jars(executable))
+            jars = executable.parent / 'PaperclipJars/PaperclipJars.exe'
+            jars.parent.mkdir(); jars.write_bytes(b'fixture only')
+            configuration.write_text(json.dumps({'format':1, 'jars':True}))
+            self.assertEqual(launcher.packaged_jars(executable), jars)
+
+    def test_visible_setup_error_closes_its_window(self):
+        from unittest.mock import Mock
+        root = Mock()
+        with patch('tkinter.Tk', return_value=root), patch('tkinter.messagebox.showerror') as show:
+            self.assertEqual(launcher.setup_error('Reinstall this package.'), 1)
+            root.withdraw.assert_called_once()
+            show.assert_called_once_with('Paperclip setup required', 'Reinstall this package.', parent=root)
+            root.destroy.assert_called_once()
 
 
 if __name__ == '__main__':

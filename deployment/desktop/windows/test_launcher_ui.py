@@ -97,6 +97,46 @@ class PreviewWindow(unittest.TestCase):
             finally:
                 self.window.close(); self.pump(lambda: self.window.closed)
 
+    def test_damaged_packaged_runtime_shows_recovery_without_starting_wallet(self):
+        if EXECUTABLE is None:
+            self.skipTest('Pass --executable to test the frozen window entry point')
+        # EXECUTABLE is a disposable QA package, never an installed/funded app.
+        configuration = EXECUTABLE.parent / 'runtime.json'
+        original = configuration.read_bytes()
+        try:
+            configuration.write_text('{"format":true,"jars":false}')
+            with tempfile.TemporaryDirectory(prefix='paperclip-windows-damaged-qa-') as temporary:
+                data = Path(temporary) / 'app'
+                child = subprocess.Popen([str(EXECUTABLE), '--qa-root', str(data)],
+                    stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                handle = None
+                try:
+                    deadline = time.monotonic() + 20
+                    while handle is None:
+                        self.assertIsNone(child.poll(), 'Damaged package exited without a visible explanation')
+                        self.assertLess(time.monotonic(), deadline, 'Setup recovery dialog did not appear')
+                        matches = []
+                        def inspect(hwnd, _):
+                            if (win32process.GetWindowThreadProcessId(hwnd)[1] == child.pid
+                                    and win32gui.IsWindowVisible(hwnd)
+                                    and win32gui.GetWindowText(hwnd) == 'Paperclip setup required'):
+                                matches.append(hwnd)
+                        win32gui.EnumWindows(inspect, None)
+                        if matches:
+                            handle = matches[0]
+                        time.sleep(.05)
+                    text = []
+                    win32gui.EnumChildWindows(handle, lambda hwnd, _: text.append(win32gui.GetWindowText(hwnd)), None)
+                    self.assertIn('Your saved wallets have not been changed.', ' '.join(text))
+                    self.assertFalse(data.exists(), 'Invalid package must not initialize wallet storage')
+                    win32gui.PostMessage(handle, win32con.WM_CLOSE, 0, 0)
+                    self.assertEqual(child.wait(timeout=10), 1)
+                finally:
+                    if child.poll() is None:
+                        child.kill(); child.wait(timeout=5)
+        finally:
+            configuration.write_bytes(original)
+
     def test_packaged_window_owns_daemon_and_closes_via_native_window_message(self):
         if EXECUTABLE is None:
             self.skipTest('Pass --executable to test the frozen window entry point')

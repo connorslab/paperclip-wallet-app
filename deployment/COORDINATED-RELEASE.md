@@ -41,11 +41,9 @@ coordinated scope is iOS, Android, StartOS, Umbrel, Linux, macOS and Windows.
    and physical-signer acceptance is still required. Complete the remaining end-to-end review of boarding,
    hardware signing and exit paths. Mobile wallet switching alone does not close
    the desktop profile requirement.
-2. **Finish native runtime delivery.** Accept the complete frozen Windows Jars
-   service and its desktop integration. Native checks now cover the pinned
-   wallet lifecycle lock, identity and input metadata, history, bond registry,
-   and entry environment; those component results do not establish the complete
-   service. Complete supported Jam/Tor and node-RPC setup on the native
+2. **Finish native runtime delivery.** The complete frozen Windows Jars service
+   and owned desktop integration pass native CI at `2d584f6`, including the
+   packaged window. Complete supported Jam/Tor and node-RPC setup on the native
    desktops, then validate the enabled packaged runtime. No external Python or
    separate Kilombino app may be required for the bundled-host promise.
 3. **Complete portable recovery.** Finish the wallet-bound recovery envelope for
@@ -3489,3 +3487,24 @@ The broader native-host Rust regression pass also succeeds: 297 wallet tests,
 113 REST tests (one existing ignored test), and 53 mobile Rust tests (one existing
 ignored test). Workspace checks pass. Existing iOS and Android clients already
 handle the `not_sent` outcome; no serialized proof or replayable approval was added.
+
+
+### Windows bundled Jars and mobile rejection acceptance
+
+Native Windows run `44210294143` at `2d584f6` passes crypto and API imports,
+private TLS generation, four frozen-Jars lifecycle cases, seven combined
+wallet/Jars ownership and recovery cases, and three frozen/native window cases.
+The source-package collision with the installed Jars Windows adapters is fixed;
+the executable starts from its packaged imports. The Windows prerequisite run
+`44210294129` also passes. This accepts the unfunded runtime/package workflow,
+not signing, installed upgrades, Tor/RPC setup or live payments.
+
+The fresh-Lightning change also passes an ARM64 iOS simulator app build and
+bundle verification, both ARM64/x86-64 Android native builds and their combined
+APK, 14 focused Swift tests and seven Android policy/backup unit tests. No funded
+device was changed or candidate published.
+
+The Windows launcher now presents a setup-recovery dialog for damaged or missing
+runtime configuration instead of silently exiting a windowed executable. Six
+local policy/runtime tests pass. A new native packaged-dialog test checks that
+this failure never initializes wallet storage; native acceptance is pending.

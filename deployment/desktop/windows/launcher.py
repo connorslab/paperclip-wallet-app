@@ -66,6 +66,41 @@ def open_default_browser(url):
         return False
 
 
+
+def packaged_jars(executable):
+    """Reject an incomplete package before creating storage or starting children."""
+    package = executable.parent
+    with (package / 'runtime.json').open('rb') as file:
+        encoded = file.read(4097)
+    if len(encoded) > 4096:
+        raise ValueError('Invalid runtime configuration')
+    configuration = json.loads(encoded)
+    if (not isinstance(configuration, dict) or set(configuration) != {'format', 'jars'}
+            or type(configuration['format']) is not int or configuration['format'] != 1
+            or type(configuration['jars']) is not bool):
+        raise ValueError('Invalid runtime configuration')
+    if not configuration['jars']:
+        return None
+    jars = package / 'PaperclipJars/PaperclipJars.exe'
+    if not jars.is_file():
+        raise ValueError('Missing Jars runtime')
+    return jars
+
+
+def setup_error(message):
+    # Frozen Windows builds have no console: argparse.error would disappear
+    # without telling the user why no wallet window opened.
+    import tkinter as tk
+    from tkinter import messagebox
+    root = tk.Tk()
+    root.withdraw()
+    try:
+        messagebox.showerror('Paperclip setup required', message, parent=root)
+    finally:
+        root.destroy()
+    return 1
+
+
 def main():
     if os.name != 'nt':
         raise SystemExit('Use the launcher for your operating system.')
@@ -81,17 +116,11 @@ def main():
     jars = args.jam_executable
     if getattr(sys, 'frozen', False):
         if jars is not None:
-            parser.error('The packaged app uses only its bundled Jars runtime.')
+            return setup_error('This Paperclip package uses its bundled Jars service. Open it without an external Jars override.')
         try:
-            configuration = json.loads((Path(sys.executable).parent / 'runtime.json').read_text())
-            if (set(configuration) != {'format','jars'} or configuration['format'] != 1
-                    or not isinstance(configuration['jars'],bool)):
-                raise ValueError('Invalid runtime configuration')
-            if configuration['jars']:
-                jars = Path(sys.executable).parent / 'PaperclipJars/PaperclipJars.exe'
-                if not jars.is_file():raise ValueError('Missing Jars runtime')
+            jars = packaged_jars(Path(sys.executable))
         except (OSError, ValueError):
-            parser.error('The packaged runtime is incomplete. Reinstall this Paperclip package.')
+            return setup_error('Paperclip is missing required app files or its package is damaged. Reinstall Paperclip, then try again. Your saved wallets have not been changed.')
     if binary is None:
         if not getattr(sys, 'frozen', False):
             parser.error('Supply the development daemon with --binary')
@@ -114,4 +143,4 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    raise SystemExit(main())
