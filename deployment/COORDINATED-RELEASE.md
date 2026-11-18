@@ -3540,3 +3540,21 @@ The host identity increment also passes four profile-routing tests, the existing
 profile-preservation cleanup test, a native Apple daemon build and its isolated
 profile lifecycle check. Both remote branches contain `ff8e78ef`. No installed
 or funded multi-wallet operation is inferred from these checks.
+
+
+### Container authentication storage checks
+
+The shared container bootstrap now reads its existing owner credential through a
+checked directory/file handle. It refuses symbolic links, hard links, non-regular
+files, foreign ownership, shared file permissions and oversized or noncanonical
+tokens. It no longer changes an existing credential's permissions as a side effect
+of reading it. A restored credential with shared permissions requires explicit
+owner correction before startup; no wallet keys or existing token are replaced.
+New credentials are created exclusively and synced with their parent directory.
+
+Six isolated authentication tests pass, including link/FIFO rejection, unchanged
+external files and corrupted-token preservation. Three package-generator tests
+and the real daemon/container-entrypoint smoke test pass on the native Apple
+host without node access or keys. Linux CI now includes the authentication and
+package contracts; these checks do not establish installed-volume restore.
+Windows prerequisite run `44212946969` at `ff8e78ef` also passed in full.

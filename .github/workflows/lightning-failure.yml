@@ -44,6 +44,8 @@ jobs:
         run: |
           python3 -m unittest discover -s deployment -p test_managed_chain.py
           python3 -m unittest discover -s deployment -p test_node_tor.py
+          python3 -m unittest discover -s deployment -p test_container.py
+          python3 -m unittest discover -s deployment -p test_package.py
       - name: Unfunded native daemon lifecycle prerequisite
         run: |
           export BARK_WEB_DIST="$PWD/web"
