@@ -3759,3 +3759,26 @@ authentication or network activation. A test with the exact Jars interpreter and
 original prepared runtime path is now included before the long package build.
 It reports only an integer Windows error code when available, never raw private
 metadata. The integration failure remains open while that test runs.
+
+
+### Windows Tor control-file ownership
+
+The Windows package failure is traced to the owner check on newly created Tor
+control metadata. An elevated launcher's default object owner can be the
+Administrators group rather than the current user. Paperclip correctly refused
+the resulting files before authentication. The pinned Jars interpreter test
+reproduced the failure without running Jars or the wallet.
+
+Before starting its owned Tor child, Paperclip now sets and verifies its process
+token's default object owner as its existing user SID. It does not change token
+identity, groups, privileges or default ACL, repair existing files, or accept
+foreign-owned metadata. This follows Windows'
+[default object owner semantics](https://learn.microsoft.com/en-us/windows/win32/secauthz/owner-of-a-new-object).
+
+At `193ae47`, native run `44238441244` passes on all six runner entries, including
+elevated PowerShell and an installed storage adapter on Windows 2022 and 2025.
+The 21 Windows storage tests include child-created file ownership, unchanged
+existing files and unchanged token permissions; the Tor suite includes private
+control authentication, SOCKS activation, failure cleanup and retry. Full frozen
+Windows Jars/wallet/window run `44238439520` is pending. Linux backend run
+`44234758174` at the earlier shared startup-diagnostic revision also passed.
