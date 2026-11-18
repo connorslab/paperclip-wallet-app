@@ -45,7 +45,9 @@ coordinated scope is iOS, Android, StartOS, Umbrel, Linux, macOS and Windows.
    and owned desktop integration pass native CI at `193ae47`, including the
    packaged window. Owned Tor component checks now pass on all five pinned native targets, including
    explicit SOCKS activation. Read-only native node preflight is implemented and
-   verified on macOS and Linux. Complete private configuration persistence, the
+   verified on macOS, Linux and Windows. Initial private configuration storage is
+   implemented, with inactive saves and no replacement of existing connections.
+   Complete configuration activation and reviewed connection changes, the
    owned restricted RPC runtime, guided setup UI and combined installed Jam/Tor
    runtime acceptance on the native desktops. No external Python or
    separate Kilombino app may be required for the bundled-host promise.
@@ -3871,8 +3873,9 @@ TLS, onion, error and no-state-write checks. Its source hashes match `8b06179`,
 and its strict deep ad-hoc signature remains valid after testing. Container run
 `44247857425` passes on both Linux architectures: 106 companion cases with four
 scope exclusions, plus four supervisor cases with four combined-wallet exclusions.
-Windows frozen preflight remains pending in run `44248250309`; no Windows
-preflight acceptance is claimed from the source or macOS results.
+Windows frozen preflight passes in run `44248250309`, along with its private
+storage, wallet/Jars/Tor integration and packaged-window checks. The corresponding
+Linux desktop run `44248250250` and Windows prerequisite run `44248250239` pass.
 
 The native Tor run exposed an existing Windows crash-test timing assumption.
 Test-only change `b343197` verifies live exclusion, terminates and waits for the
@@ -3882,3 +3885,33 @@ Application locks and permissions are unchanged. Run `44248250338` passes all si
 native runner entries, including the installed storage and Tor checks on Windows
 2022 and 2025. Final package, installed-host and live-payment acceptance remain
 separate. Both source changes are mirrored to `feature/android-wallet`.
+
+
+### Initial native Jars node configuration
+
+At `10fd150`, the internal `--configure-node` helper saves a verified initial
+connection in private versioned storage. It holds the desktop lifetime lock
+through admission, verification and durable exclusive creation. Failed
+verification saves no credentials. Existing configuration, wallets, recovery
+journals and competing files are never replaced. Partial writes stay in place
+and require inspection; automatic retries cannot overwrite them.
+
+The acknowledgement contains a random public connection identifier and
+`active: false`, with no credentials. At `6aa9f82`, normal startup refuses a pending
+connection record so it cannot silently fall back to the default RPC node. This
+is an internal, inactive setup component: the guided UI, public saved-state
+inspection, reviewed connection changes and owned restricted RPC activation
+remain required before installed acceptance.
+
+Native macOS passes all 23 node preflight/storage tests and seven existing child
+lifecycle cases. The rebuilt frozen helper also passes the 23-case suite, with
+subprocess network, verification, storage and pending-startup checks. Its recorded
+source hashes match `6aa9f82`, and its strict deep ad-hoc signature verifies after
+testing. Linux container run `44251692870` passes on x86-64 and ARM64: each
+companion suite passes 118 cases with four scope exclusions, and each supervisor
+suite passes four cases with four combined-wallet exclusions. Windows
+frozen storage acceptance remains pending in run `44251692863`; earlier Windows
+preflight results do not establish this new save path. Mandatory `just checks`
+passes. Both implementation commits are mirrored to `feature/android-wallet`.
+All tests use synthetic nodes and disposable storage; no live node, funded
+wallet, deployment or release-signing acceptance is claimed.
