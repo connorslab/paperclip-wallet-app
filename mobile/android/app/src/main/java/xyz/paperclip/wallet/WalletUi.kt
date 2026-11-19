@@ -172,6 +172,8 @@ internal fun PaperclipApp(
 			LaunchedEffect(route, s.review != null, s.result != null, s.address.isNotEmpty()) {
 				if (route in listOf("Send", "Receive")) scroll.scrollTo(0)
 			}
+			var bridgeOfferDraft by remember(s.activeID) { mutableStateOf("") }
+			LaunchedEffect(route) { if (route != "Send" && route != "Lightning") bridgeOfferDraft = "" }
 			var nodePage by rememberSaveable { mutableStateOf("balance") }
 			LaunchedEffect(nodePage) { if (route == "Lightning") scroll.scrollTo(0) }
 			fun navigate(next: String) {
@@ -309,11 +311,11 @@ internal fun PaperclipApp(
 													Text(
 														"This watch-only wallet cannot sign payments.",
 													)
-												else -> Send(s, model)
+												else -> Send(s, model, initialDestination = bridgeOfferDraft)
 											}
 										"Receive" -> Receive(s, model, receiveMethod)
 										"Lightning" -> {
-											if (lightning != null) NodeLightning(lightning, initialPage = nodePage, onPageChanged = { nodePage = it })
+											if (lightning != null) NodeLightning(lightning, initialPage = nodePage, onPageChanged = { nodePage = it }, initialInvoice = bridgeOfferDraft)
 											HingeSafeContent {
 											if (nodePage == "balance") NavCard(
 												"Paperclip Bridge",
@@ -399,6 +401,11 @@ internal fun PaperclipApp(
 													s.profiles
 														.firstOrNull { it.id == s.activeID }
 														?.kind == "hot",
+													onPayOffer = { offer, ark ->
+														bridgeOfferDraft = offer
+														navigate(if (ark) "Send" else "Lightning")
+														if (!ark) nodePage = "pay"
+													},
 												)
 										"Jars", "Coinjoin" -> JoinBlaketPage(jarsState)
 										"Experimental" -> CardBlock("Experimental") {
@@ -927,10 +934,10 @@ internal fun SeedWords(words: List<String>) {
 }
 
 @Composable
-internal fun Send(s: WalletState, model: WalletModel) {
+internal fun Send(s: WalletState, model: WalletModel, initialDestination: String = "") {
 	val unit = LocalBitcoinUnit.current
 	// Keep the draft when reviewing/cancelling, but never persist payment details to saved state.
-	var destination by remember { mutableStateOf("") }
+	var destination by remember { mutableStateOf(initialDestination) }
 	var amount by remember { mutableStateOf("") }
 	var source by rememberSaveable { mutableStateOf("Ark") }
 	var scanning by remember { mutableStateOf(false) }

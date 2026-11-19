@@ -1,6 +1,7 @@
 //! Server-owned bridge quotes. Funding and settlement remain separate states;
 //! outgoing funding requires an exact review and never repeats a submission.
 mod client;
+mod reusable;
 mod funding;
 mod ark_funding;
 mod protocol;
@@ -50,7 +51,7 @@ struct Record {
 pub fn router() -> Router<Arc<ServerState>> {
 	Router::new().route("/info",get(info)).route("/quotes",get(list).post(quote))
 		.route("/check",post(check)).route("/prepare-funding",post(funding::prepare)).route("/fund",post(funding::fund))
-		.route("/prepare-ark-funding",post(ark_funding::prepare)).route("/fund-ark",post(ark_funding::fund)).layer(DefaultBodyLimit::max(8192))
+		.route("/prepare-ark-funding",post(ark_funding::prepare)).route("/fund-ark",post(ark_funding::fund)).layer(DefaultBodyLimit::max(8192)).merge(reusable::router())
 }
 fn now() -> u64 { SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs() }
 fn response(result: anyhow::Result<Value>) -> (StatusCode, HeaderMap, Json<Value>) {

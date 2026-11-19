@@ -11,7 +11,9 @@ struct Build61Preview: View {
                 WalletView()
             } else {
             NavigationStack {
-            if ProcessInfo.processInfo.arguments.contains("-wallet-health-preview") {
+            if ProcessInfo.processInfo.arguments.contains("-bridge-reusable-preview") {
+                BridgeReusableView()
+            } else if ProcessInfo.processInfo.arguments.contains("-wallet-health-preview") {
                 WalletHealthView()
             } else if ProcessInfo.processInfo.arguments.contains("-recovered-send-preview") {
                 SendView.recoveredPaymentPreview(confirmed: ProcessInfo.processInfo.arguments.contains("-confirmed-send-preview"))

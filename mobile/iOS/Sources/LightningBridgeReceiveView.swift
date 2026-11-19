@@ -20,6 +20,9 @@ struct LightningBridgeReceiveView: View {
                     Text("Share a Spamcoin (BTC) invoice and receive XBT on your node.")
                         .font(.subheadline).foregroundStyle(PaperclipTheme.muted)
                 }
+                NavigationLink { BridgeReusableView() } label: {
+                    WalletNavigationRow("Reusable BOLT12 bridge", subtitle: "Create, restore or revoke a cross-network offer", icon: "qrcode")
+                }.buttonStyle(.plain)
                 if let record = current {
                     requestCard(record)
                 } else {

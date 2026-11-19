@@ -33,6 +33,15 @@ window.PaperclipReview = (() => {
     return node;
   }
   return { ask: message => open(document.createTextNode(message)),
+    bridgeOffer(review) {
+      const content = element('div', '', 'withdrawal-review');
+      const details = element('dl', '', 'jam-payment-costs');
+      for (const [label, value] of review.rows) {
+        const row = element('div', ''); row.append(element('dt', label), element('dd', value)); details.append(row);
+      }
+      content.append(details, element('p', review.notice, 'withdrawal-review-note'));
+      return open(content, review.title);
+    },
     nodeRecovery(review) {
       const content = element('div', '', 'withdrawal-review node-recovery-review');
       const details = element('dl', '', 'jam-payment-costs');

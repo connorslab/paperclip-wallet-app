@@ -1,7 +1,7 @@
 'use strict';
 // Navigation never repeats a wallet action or dismisses an uncertain payment.
 (() => {
-  const titles = {overview:'Your wallet', transfer:'Send & receive', onchain:'On-chain', lightning:'Lightning', node:'Your Lightning node', 'node-pay':'Send from your node', 'node-receive':'Receive into your node', 'node-activity':'Node payment activity', 'bridge-send':'Pay BTC with XBT', 'bridge-send-detail':'Review Bridge payment', 'bridge-send-activity':'Bridge payment activity', bridge:'Paperclip Bridge', 'bridge-detail':'Bridge receive request', 'bridge-activity':'Bridge activity', activity:'Activity', settings:'Settings', recovery:'Recovery', health:'Wallet health', coinjoin:'Jars', wallets:'Your wallets', signing:'Send with your signer'};
+  const titles = {overview:'Your wallet', transfer:'Send & receive', onchain:'On-chain', lightning:'Lightning', node:'Your Lightning node', 'node-pay':'Send from your node', 'node-receive':'Receive into your node', 'node-activity':'Node payment activity', 'bridge-reusable':'Reusable bridge offers', 'bridge-send':'Pay BTC with XBT', 'bridge-send-detail':'Review Bridge payment', 'bridge-send-activity':'Bridge payment activity', bridge:'Paperclip Bridge', 'bridge-detail':'Bridge receive request', 'bridge-activity':'Bridge activity', activity:'Activity', settings:'Settings', recovery:'Recovery', health:'Wallet health', coinjoin:'Jars', wallets:'Your wallets', signing:'Send with your signer'};
   let current = 'overview';
   const valid = view => Object.hasOwn(titles, view);
   const requestedView = () => valid(location.hash.slice(1)) ? location.hash.slice(1) : 'overview';

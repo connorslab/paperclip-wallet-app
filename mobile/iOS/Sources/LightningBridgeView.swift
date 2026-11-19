@@ -38,6 +38,9 @@ struct LightningBridgeView: View {
                         .font(.subheadline).foregroundStyle(PaperclipTheme.muted)
                     Label("Beta · Mainnet", systemImage: "flask").font(.caption)
                 }
+                NavigationLink { BridgeReusableView() } label: {
+                    WalletNavigationRow("Reusable BOLT12 bridge", subtitle: "Create, restore or revoke a cross-network offer", icon: "qrcode")
+                }.buttonStyle(.plain)
                 if let record = current { paymentCard(record) }
                 else { composeCard }
                 if busy { ProgressView("Checking payment…") }
@@ -93,7 +96,7 @@ struct LightningBridgeView: View {
                     .font(.caption).foregroundStyle(PaperclipTheme.muted)
             } else { Text("Uses the shared XBT Core Lightning or LND connection from the Lightning tab.").font(.caption).foregroundStyle(PaperclipTheme.muted) }
             Button { scanning = true } label: { Label("Scan invoice", systemImage: "qrcode.viewfinder") }.disabled(busy)
-            TextField("Spamcoin (BTC) Lightning invoice", text: $invoice, axis: .vertical)
+            TextField("Spamcoin (BTC) invoice or amountless offer", text: $invoice, axis: .vertical)
                 .lineLimit(3...5).textInputAutocapitalization(.never).autocorrectionDisabled().disabled(busy)
                 .accessibilityIdentifier("bridge-recipient")
             if let availability = model.availability {
@@ -101,7 +104,9 @@ struct LightningBridgeView: View {
                     Text("Current range: \(btcAmount(min)) – \(btcAmount(max))").font(.caption)
                 }
             }
-            if let estimate {
+            if invoice.trimmingCharacters(in: .whitespacesAndNewlines).lowercased().hasPrefix("lno1") {
+                NavigationLink("Review BOLT12 bridge offer") { BridgeReusableView(destination: invoice.trimmingCharacters(in: .whitespacesAndNewlines), receiveXBT: false) }.buttonStyle(WalletPrimaryButtonStyle())
+            } else if let estimate {
                 Divider()
                 LabeledContent("Recipient receives", value: btcAmount(estimate.sat))
                 USDValue(sats: nil, equivalentSats: BridgeDirection.paySpamcoin.xbtEquivalentSats(spamcoinSats: estimate.sat, rate: estimate.rate))

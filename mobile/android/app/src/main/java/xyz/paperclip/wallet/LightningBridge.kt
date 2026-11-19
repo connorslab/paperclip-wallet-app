@@ -66,10 +66,10 @@ internal class LightningBridge(private val apiKey: String = "") {
 		if (apiKey.isEmpty()) "https://lightning.paperclip-xbt.xyz/bridge/api/"
 		else "https://lightning.paperclip-xbt.xyz/bridge/private/v1/"
 
-	private suspend fun request(path: String, body: JSONObject? = null): JSONObject =
+	private suspend fun request(path: String, body: JSONObject? = null, publicAPI: Boolean = false): JSONObject =
 		withContext(Dispatchers.IO) {
-			val r = Request.Builder().url(base + path)
-			if (apiKey.isNotEmpty()) r.header("Authorization", "Bearer $apiKey")
+			val r = Request.Builder().url((if (publicAPI) "https://lightning.paperclip-xbt.xyz/bridge/api/" else base) + path)
+			if (!publicAPI && apiKey.isNotEmpty()) r.header("Authorization", "Bearer $apiKey")
 			if (body != null)
 				r.post(body.toString().toRequestBody("application/json".toMediaType()))
 			val call = client.newCall(r.build())
@@ -85,6 +85,17 @@ internal class LightningBridge(private val apiKey: String = "") {
 				j
 			}
 		}
+
+	suspend fun reusableAvailable(): Boolean = (request("reusable/info", publicAPI = true).opt("available") as? Boolean) ?: error("Invalid reusable availability")
+	suspend fun reusable(action: String, token: String, destination: String? = null, receiveXbt: Boolean? = null): JSONObject {
+		require(action in listOf("register", "lookup", "revoke") && ReusableOffer.validToken(token))
+		val body = JSONObject().put("token", token)
+		if (action == "register") {
+			ReusableOffer.validate(checkNotNull(destination), checkNotNull(receiveXbt))
+			body.put("destination_offer", destination).put("destination_xbt", receiveXbt)
+		}
+		return request("reusable/$action", body, publicAPI = true).also { ReusableOffer.response(it) }
+	}
 
 	suspend fun availability(receiveXbt: Boolean) =
 		request("info?direction=" + if (receiveXbt) "toBLAKE2b" else "toSHA256")

@@ -30,7 +30,7 @@ struct SendView: View {
     @State private var recoveryLoaded = false
     @State private var recovery: [String: Any]?
     @State private var amountIssue: ArkAmountIssue?
-    init(onchain: Bool = true) { _onchain = State(initialValue: onchain) }
+    init(onchain: Bool = true, initialDestination: String = "") { _onchain = State(initialValue: onchain); _destination = State(initialValue: initialDestination) }
     #if DEBUG && targetEnvironment(simulator)
     static func recoveredPaymentPreview(confirmed: Bool = false) -> SendView {
         var view = SendView()

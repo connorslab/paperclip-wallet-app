@@ -1,0 +1,86 @@
+[
+  {
+    "name": "btc",
+    "offer": "lno1pg89qctsv4exxmrfwqs8getnwstzzqnehen8a7wuhwk9tgrzjh8gwzc8q2dlekedec5djk0js9d3d7qhnq",
+    "xbt": false,
+    "valid": true
+  },
+  {
+    "name": "xbt",
+    "offer": "lno1pg89qctsv4exxmrfwqs8getnwsxyzqgqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq93pqfumuen7l8wthtz45p3ftn58pvrs9xlumvkuu2xet8egzkcklqtes",
+    "xbt": true,
+    "valid": true
+  },
+  {
+    "name": "uppercase",
+    "offer": "LNO1PG89QCTSV4EXXMRFWQS8GETNWSXYZQGQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQ93PQFUMUEN7L8WTHTZ45P3FTN58PVRS9XLUMVKUU2XET8EGZKCKLQTES",
+    "xbt": true,
+    "valid": true
+  },
+  {
+    "name": "wrong network",
+    "offer": "lno1pg89qctsv4exxmrfwqs8getnwstzzqnehen8a7wuhwk9tgrzjh8gwzc8q2dlekedec5djk0js9d3d7qhnq",
+    "xbt": true,
+    "valid": false
+  },
+  {
+    "name": "wrong currency",
+    "offer": "lno1pg89qctsv4exxmrfwqs8getnwsxyzqgqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq93pqfumuen7l8wthtz45p3ftn58pvrs9xlumvkuu2xet8egzkcklqtes",
+    "xbt": false,
+    "valid": false
+  },
+  {
+    "name": "fixed amount",
+    "offer": "lno1pqqszzsw2pshqetjvdkxjupqw3jhxaqkyyp8n0nx0muaewav2ksx99wwsu9swq5mlndjmn3gm9vl9q2mzmup0xq",
+    "xbt": false,
+    "valid": false
+  },
+  {
+    "name": "quantity",
+    "offer": "lno1pg89qctsv4exxmrfwqs8getnws2qzqgkyyp8n0nx0muaewav2ksx99wwsu9swq5mlndjmn3gm9vl9q2mzmup0xq",
+    "xbt": false,
+    "valid": false
+  },
+  {
+    "name": "expired",
+    "offer": "lno1pg89qctsv4exxmrfwqs8getnws8qzqgkyyp8n0nx0muaewav2ksx99wwsu9swq5mlndjmn3gm9vl9q2mzmup0xq",
+    "xbt": false,
+    "valid": false
+  },
+  {
+    "name": "truncated",
+    "offer": "lno1pg89qctsv4exxmrfwqs8getnwstzzqnehen8a7wuhwk9tgrzjh8gwzc8q2dlekedec5djk0js9d3d7q",
+    "xbt": false,
+    "valid": false
+  },
+  {
+    "name": "invoice prefix",
+    "offer": "lni1pg89qctsv4exxmrfwqs8getnwstzzqnehen8a7wuhwk9tgrzjh8gwzc8q2dlekedec5djk0js9d3d7qhnq",
+    "xbt": false,
+    "valid": false
+  },
+  {
+    "name": "mixed case",
+    "offer": "LNO1Pg89qctsv4exxmrfwqs8getnwstzzqnehen8a7wuhwk9tgrzjh8gwzc8q2dlekedec5djk0js9d3d7qhnq",
+    "xbt": false,
+    "valid": false
+  },
+  {
+    "name": "whitespace",
+    "offer": "lno1pg89qctsv4exxmrfwqs8getnwstzzqnehen8a7wuhwk9tgrzjh8gwzc8q2dlekedec5djk0js9d3d7qhnq ",
+    "xbt": false,
+    "valid": false
+  },
+  {
+    "name": "bad chain",
+    "offer": "lno1qgsqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq2pegxzur9wf3kc6tsyp6x2um5zcssy7d7vel0nh9m4326qc54e6rskpczn07dktww9rv4nu5ptvt0s9uc",
+    "xbt": false,
+    "valid": false
+  },
+  {
+    "name": "zero padded integer",
+    "offer": "lno1pg89qctsv4exxmrfwqs8getnws8qyq8lzcssy7d7vel0nh9m4326qc54e6rskpczn07dktww9rv4nu5ptvt0s9uc",
+    "xbt": false,
+    "valid": false
+  }
+]

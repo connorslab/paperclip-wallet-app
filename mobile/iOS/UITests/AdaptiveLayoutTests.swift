@@ -2,6 +2,28 @@ import XCTest
 
 /// Synthetic fixtures only: no wallet credentials, synchronization or payments.
 final class AdaptiveLayoutTests: XCTestCase {
+	func testReusableBridgeReviewDoesNotRegisterOrSend() {
+		continueAfterFailure = false
+		let app = XCUIApplication()
+		app.launchArguments = ["-build61-preview", "-bridge-reusable-preview", "-appearance", "dark"]
+		app.launch()
+		let field = app.descendants(matching: .any).matching(identifier: "bridge-reusable-destination").firstMatch
+		XCTAssertTrue(field.waitForExistence(timeout: 15))
+		field.tap(); field.typeText("lno1pg89qctsv4exxmrfwqs8getnwsxyzqgqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq93pqfumuen7l8wthtz45p3ftn58pvrs9xlumvkuu2xet8egzkcklqtes")
+		app.swipeUp()
+		let review = app.buttons["Review offer"]
+		XCTAssertTrue(review.waitForExistence(timeout: 10))
+		XCTAssertTrue(review.isEnabled)
+		review.tap()
+		XCTAssertTrue(app.buttons["Create reusable offer"].waitForExistence(timeout: 10))
+		XCTAssertFalse(app.buttons["Confirm and send"].exists)
+		XCTAssertFalse(app.staticTexts["Your saved offers"].exists)
+		capture(app,"Reusable Bridge review")
+		app.buttons["Edit"].tap()
+		XCTAssertTrue(field.waitForExistence(timeout: 10))
+		// Never press Create: this test must not register a production offer.
+	}
+
 	func testRecoveredConfirmationShowsOriginalWhenReplacementLostRace() {
 		continueAfterFailure = false
 		let app = XCUIApplication()

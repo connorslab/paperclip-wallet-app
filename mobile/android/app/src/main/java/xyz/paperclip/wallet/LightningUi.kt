@@ -18,7 +18,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 
 @Composable
-internal fun NodeLightning(model: LightningModel, initialPage: String = "balance", onPageChanged: (String) -> Unit = {}) {
+internal fun NodeLightning(model: LightningModel, initialPage: String = "balance", onPageChanged: (String) -> Unit = {}, initialInvoice: String = "") {
 	val unit = LocalBitcoinUnit.current
 	val focus = LocalFocusManager.current
 	val s by model.state.collectAsStateWithLifecycle()
@@ -40,7 +40,8 @@ internal fun NodeLightning(model: LightningModel, initialPage: String = "balance
 				s.connection.proxy.takeUnless { it == "builtin" } ?: "socks5h://127.0.0.1:9050",
 			)
 		}
-	var invoice by remember { mutableStateOf("") }
+	var invoice by remember { mutableStateOf(initialInvoice) }
+	LaunchedEffect(initialInvoice) { if (initialInvoice.isNotEmpty()) model.clearReview() }
 	var amount by remember { mutableStateOf("") }
 	var fee by remember { mutableStateOf(unit.input(100)) }
 	var offer by remember { mutableStateOf(false) }

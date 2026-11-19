@@ -25,12 +25,15 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 
 @Composable
-internal fun BridgePage(model: BridgeModel, canUseArk: Boolean) {
+internal fun BridgePage(model: BridgeModel, canUseArk: Boolean, onPayOffer: (String, Boolean) -> Unit = { _, _ -> }) {
 	val state by model.state.collectAsStateWithLifecycle()
+	var reusable by remember { mutableStateOf(false) }
+	var reusableDestination by remember { mutableStateOf("") }
+	if (reusable) { ReusableBridgePage(initialDestination = reusableDestination, canUseArk = canUseArk, onPayOffer = onPayOffer, onBack = { reusable = false }); return }
 	LaunchedEffect(model) { model.load() }
 	DisposableEffect(model) { onDispose { model.invalidateReview() } }
 	BridgeContent(state, canUseArk, { direction -> BridgeStatusBadge(model, direction) },
-		model::quote, model::fund, model::check, model::saveKey, model::selectSaved)
+		model::quote, model::fund, model::check, model::saveKey, model::selectSaved, { text -> reusableDestination = text; reusable = true })
 }
 
 /** Separate entry, review, activity and access pages keep payment authorization explicit. */
@@ -44,6 +47,7 @@ internal fun BridgeContent(
 	onCheck: () -> Unit,
 	onSaveKey: (String) -> Unit,
 	onSelect: (String) -> Unit,
+	onReusable: (String) -> Unit = {},
 ) {
 	val unit = LocalBitcoinUnit.current
 	val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
@@ -108,6 +112,7 @@ internal fun BridgeContent(
 								}
 							}
 						}
+						BridgeMenu("Reusable BOLT12 bridge", "Create, restore or revoke a cross-network offer", !s.busy) { onReusable("") }
 						BridgeMenu("Bridge activity", "Saved quotes and payment outcomes", !s.busy) { navigate("activity") }
 						TextButton(onClick = { navigate("access") }, enabled = !s.busy) { Text("Bridge connection") }
 					}
@@ -125,7 +130,7 @@ internal fun BridgeContent(
 							}
 							if (source == "node") OutlinedTextField(fee, { fee = it }, label = { Text("Maximum routing fee in ${unit.title}") }, enabled = !s.busy, modifier = Modifier.fillMaxWidth())
 						}
-						WalletPrimaryButton(onClick = { onQuote(invoice, if (incoming || !canUseArk) "node" else source, incoming, unit.backendAmount(amount), unit.backendAmount(fee)) }, enabled = !s.busy, modifier = Modifier.fillMaxWidth()) {
+						WalletPrimaryButton(onClick = { if (!incoming && invoice.trim().startsWith("lno1", ignoreCase = true)) onReusable(invoice.trim()) else onQuote(invoice, if (incoming || !canUseArk) "node" else source, incoming, unit.backendAmount(amount), unit.backendAmount(fee)) }, enabled = !s.busy, modifier = Modifier.fillMaxWidth()) {
 							Text(if (incoming) "Create invoice and review" else "Review conversion")
 						}
 					}
@@ -199,7 +204,7 @@ private fun bridgeRecordStatus(record: org.json.JSONObject): String = when {
 	else -> "Saved quote · not funded by Paperclip"
 }
 @Composable
-private fun BridgeMenu(title: String, subtitle: String, enabled: Boolean, action: () -> Unit) {
+internal fun BridgeMenu(title: String, subtitle: String, enabled: Boolean, action: () -> Unit) {
 	OutlinedButton(onClick = action, enabled = enabled, shape = RoundedCornerShape(22.dp), modifier = Modifier.fillMaxWidth()) {
 		Column(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
 			Text(title, style = MaterialTheme.typography.titleMedium)

@@ -2,6 +2,10 @@ import SwiftUI
 import PaperclipMobile
 
 struct LightningView: View {
+    init(initialPayment: String? = nil) {
+        _payInvoice = State(initialValue: initialPayment ?? "")
+        _page = State(initialValue: initialPayment == nil ? nil : .pay)
+    }
     @AppStorage("displayUnit") private var unit: BitcoinUnit = .sats
     @Environment(\.scenePhase) private var scene
     @State private var busy = false
@@ -614,7 +618,7 @@ extension LightningView {
 
 // Keep nested Bridge destinations independent of the node dashboard's state.
 private struct LightningBridgeMenu: View {
-    private enum Destination: Hashable { case pay, receive }
+    private enum Destination: Hashable { case pay, receive, reusable }
     @State private var destination: Destination?
     var body: some View {
         WalletSection("Paperclip Bridge") {
@@ -626,10 +630,15 @@ private struct LightningBridgeMenu: View {
             Button { destination = .receive } label: {
                 WalletNavigationRow("Receive from Spamcoin (BTC)", subtitle: "Receive XBT on your CLN or LND node", icon: "arrow.down.left")
             }.buttonStyle(WalletNavigationButtonStyle()).accessibilityIdentifier("bridge-open-receive")
+            Divider()
+            Button { destination = .reusable } label: {
+                WalletNavigationRow("Reusable BOLT12 bridge", subtitle: "Receive across networks with one offer", icon: "qrcode")
+            }.buttonStyle(WalletNavigationButtonStyle())
         }.navigationDestination(item: $destination) { destination in
             switch destination {
             case .pay: LightningBridgeView(source: .node)
             case .receive: LightningBridgeReceiveView()
+            case .reusable: BridgeReusableView()
             }
         }
     }

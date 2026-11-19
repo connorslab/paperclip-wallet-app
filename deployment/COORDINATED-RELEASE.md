@@ -4302,3 +4302,11 @@ The new node step is wired into Linux CI; that added step remains pending.
 Live settlement, complete Ark lifecycle and final installed artifacts remain
 separate gates.
 See [the test instructions](../docs/xbt-consensus-tests.md).
+
+## Reusable BOLT12 bridge integration (November 18)
+The user explicitly added this capability to the release scope. iOS, Android and
+shared server/desktop flows now register, recover and revoke amountless receiving
+offers; outgoing BTC offers route into that flow, and issued XBT offers hand off
+to existing Ark/CLN/LND reviews. See [BRIDGE-BOLT12.md](BRIDGE-BOLT12.md) for the
+verified deployed contract and management-key recovery policy. Synthetic protocol,
+recovery, UI and build checks do not close live settlement or signed-package gates.

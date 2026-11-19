@@ -111,11 +111,11 @@ public actor LightningBridge {
     }
     deinit { session.invalidateAndCancel() }
     private struct Failure: Decodable { let error: String?; let wait_s: Int? }
-    private func request<T: Decodable>(_ path: String, body: [String: Any]? = nil, timeout: TimeInterval? = nil) async throws -> T {
-        guard let url = URL(string: path, relativeTo: base) else { throw BridgeError.invalidQuote }
+    private func request<T: Decodable>(_ path: String, body: [String: Any]? = nil, timeout: TimeInterval? = nil, publicAPI: Bool = false) async throws -> T {
+        guard let url = URL(string: path, relativeTo: publicAPI ? URL(string: "https://lightning.paperclip-xbt.xyz/bridge/api/")! : base) else { throw BridgeError.invalidQuote }
         var request = URLRequest(url: url)
         if let timeout { request.timeoutInterval = timeout }
-        if !key.isEmpty { request.setValue("Bearer " + key, forHTTPHeaderField: "Authorization") }
+        if !publicAPI && !key.isEmpty { request.setValue("Bearer " + key, forHTTPHeaderField: "Authorization") }
         if let body {
             request.httpMethod = "POST"; request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             request.httpBody = try JSONSerialization.data(withJSONObject: body)
@@ -127,6 +127,23 @@ public actor LightningBridge {
         }
         guard response.statusCode == 200 else { throw BridgeError.unavailable("Bridge unavailable (\(response.statusCode)). Try again shortly.") }
         return try JSONDecoder().decode(T.self, from: data)
+    }
+    public func reusableAvailable() async throws -> Bool {
+        struct Availability: Decodable { let available: Bool }
+        let value: Availability = try await request("reusable/info", timeout: 8, publicAPI: true)
+        return value.available
+    }
+    public func reusable(_ action: String, token: String, destination: String? = nil, receiveXBT: Bool? = nil) async throws -> BridgeReusableOffer {
+        guard ["register", "lookup", "revoke"].contains(action), BridgeReusableOffer.validToken(token) else { throw BridgeError.invalidQuote }
+        var body: [String: Any] = ["token": token]
+        if action == "register" {
+            guard let destination, let receiveXBT else { throw BridgeError.invalidQuote }
+            try BridgeReusableOffer.validateOffer(destination, xbt: receiveXBT)
+            body["destination_offer"] = destination; body["destination_xbt"] = receiveXBT
+        }
+        let result: BridgeReusableOffer = try await request("reusable/" + action, body: body, publicAPI: true)
+        try result.validate()
+        return result
     }
     public func availability(direction: BridgeDirection = .paySpamcoin) async throws -> BridgeAvailability { try await request("info?direction=\(direction.rawValue)", timeout: 8) }
     public func check(_ invoice: String, direction: BridgeDirection = .paySpamcoin) async throws -> BridgeEstimate {
@@ -150,6 +167,9 @@ public actor LightningBridge {
     }
     private static func message(_ code: String, wait: Int?) -> String {
         switch code {
+        case "invalid_destination_offer": return "Use an amountless mainnet BOLT12 offer from the receiving wallet."
+        case "invalid_management_key": return "Enter a valid private management key."
+        case "reusable_unavailable", "monitor_unavailable": return "Reusable bridging is temporarily unavailable. Your saved request is kept for recovery."
         case "unauthorized": return "The private bridge API key was not accepted. Check Bridge connection settings."
         case "wait": return "This invoice already has a recent quote. Wait \(max(1, wait ?? 60)) seconds before requesting another."
         case "price_pause", "price_stale", "stale_price": return "The bridge is paused while pricing stabilizes. Try again shortly."

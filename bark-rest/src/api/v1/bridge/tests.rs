@@ -123,6 +123,8 @@ async fn routes_require_authentication_and_an_unlocked_wallet() {
 	let state = Arc::new(ServerState::builder().auth_token(token.clone()).build(CancellationToken::new()));
 	let router = crate::api::v1::router(&state).with_state(state);
 	for (path,method,body) in [
+		("/bridge/reusable","GET",""),("/bridge/reusable/info","GET",""),
+		("/bridge/reusable","POST",r#"{"action":"lookup","id":"fixture"}"#),
 		("/bridge/info?direction=toSHA256","GET",""),("/bridge/quotes","GET",""),
 		("/bridge/quotes","POST",r#"{"direction":"toSHA256","invoice":"fixture"}"#),
 		("/bridge/prepare-ark-funding","POST",r#"{"hash":"fixture"}"#),

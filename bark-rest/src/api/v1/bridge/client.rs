@@ -21,6 +21,15 @@ impl Bridge {
 			.map_err(|_| anyhow::anyhow!("Could not securely reach the bridge. Check again shortly"))?;
 		decode(response).await
 	}
+	pub async fn reusable_info(&self) -> anyhow::Result<Value> {
+		let result: Value = self.request("reusable/info",None,8).await?;
+		ensure!(result["available"].is_boolean(), "Invalid bridge availability"); Ok(json!({"available":result["available"]}))
+	}
+	pub async fn reusable(&self, action: &str, body: Value) -> anyhow::Result<super::reusable::Binding> {
+		ensure!(["register","lookup","revoke"].contains(&action), "Invalid offer operation");
+		self.request(&format!("reusable/{action}"),Some(body),35).await
+	}
+
 	pub async fn availability(&self, direction: Direction) -> anyhow::Result<Availability> {
 		let result: Availability = self.request(&format!("info?direction={}",direction.text()),None,8).await?;
 		result.validate()?; Ok(result)

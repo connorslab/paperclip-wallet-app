@@ -134,6 +134,10 @@
     event.preventDefault(); void act('Preparing your conversion. No payment has been sent…',async saved => {
       if (!ready || (!canSend && !arkReady()) || network !== 'bitcoin') throw new Error('Load your saved node and Bridge history first.');
       const invoice = $('bridge-pay-invoice').value.trim().toLowerCase();
+      if (invoice.startsWith('lno1')) {
+        PaperclipNavigation.show('bridge-reusable');
+        window.dispatchEvent(new CustomEvent('paperclip:bridge-offer',{detail:invoice})); return;
+      }
       if (!/^lnbc[0-9a-z]+$/.test(invoice) || invoice.length > 2000) throw new Error('Enter a fixed-amount BTC Lightning invoice.');
       const row = await api('bridge/quotes',{direction,invoice}); if (!current(saved)) return;
       validate(row); if (row.target_invoice !== invoice) throw new Error('The conversion changed your recipient invoice. Nothing was sent.');
