@@ -18,6 +18,44 @@ import org.junit.Test
 /** Presentation states only: no quote, invoice, send or wallet opening. */
 class PaymentFlowLayoutTest {
 	@get:Rule val compose = createComposeRule()
+	@Test fun qrBoardingRequiresExplicitSameNetworkHotRecipient() {
+		var selected: Pair<String, String>? = null
+		val state = WalletState(activeID = "qr", profiles = listOf(
+			WalletProfile("qr", "QR signer", "hardware", "xbt-mainnet"),
+			WalletProfile("hot", "Everyday wallet", "hot", "xbt-mainnet"),
+			WalletProfile("other", "Other network", "hot", "xbt-regtest"),
+			WalletProfile("watch", "Watch only", "watch", "xbt-mainnet")))
+		compose.setContent { MaterialTheme(colorScheme = paperclipColors(true)) { Surface {
+			Column(Modifier.fillMaxSize().safeDrawingPadding().verticalScroll(rememberScrollState()).padding(20.dp)) {
+				HardwareBoardDestination(state, { source, target -> selected = source to target }, {})
+			}
+		} } }
+		compose.onNodeWithText("Continue to boarding").assertIsNotEnabled()
+		compose.onNodeWithText("Other network").assertDoesNotExist()
+		compose.onNodeWithText("Watch only").assertDoesNotExist()
+		compose.onNodeWithText("Everyday wallet").performClick()
+		org.junit.Assert.assertNull(selected)
+		compose.onNodeWithText("Continue to boarding").performScrollTo().performClick()
+		compose.runOnIdle { org.junit.Assert.assertEquals("qr" to "hot", selected) }
+		compose.onNodeWithText("Confirm and board").assertDoesNotExist()
+	}
+	@Test fun boardingRetainsQrSourceAndOffersConnectionBeforeReview() {
+		val context = InstrumentationRegistry.getInstrumentation().targetContext
+		val model = WalletModel(context.applicationContext as Application)
+		val state = WalletState(activeID = "hot", hardwareBoardSourceID = "qr", profiles = listOf(
+			WalletProfile("qr", "QR signer", "hardware", "xbt-mainnet"),
+			WalletProfile("hot", "Everyday wallet", "hot", "xbt-mainnet")))
+		compose.setContent { MaterialTheme(colorScheme = paperclipColors(true)) { Surface {
+			Column(Modifier.fillMaxSize().safeDrawingPadding().verticalScroll(rememberScrollState()).padding(20.dp)) {
+				HardwarePayment(state, model, boarding = true)
+			}
+		} } }
+		compose.onNodeWithText("QR signer").assertIsSelected()
+		compose.onNodeWithText("XBT address").assertDoesNotExist()
+		compose.onNodeWithText("Connect wallet").performScrollTo().assertIsDisplayed().assertIsEnabled()
+		compose.onNodeWithText("Review boarding").assertIsNotEnabled()
+		compose.onNodeWithText("Confirm and board").assertDoesNotExist()
+	}
 	@Test fun savedSendShowsLatestReplacementWithoutReplayControls() {
 		val context = InstrumentationRegistry.getInstrumentation().targetContext
 		val model = WalletModel(context.applicationContext as Application)

@@ -10,10 +10,37 @@ import java.util.Base64
 import kotlinx.coroutines.delay
 import org.json.JSONObject
 
+/** Selects a destination only. No payment is prepared by this screen. */
+@Composable
+internal fun HardwareBoardDestination(s: WalletState, onContinue: (String, String) -> Unit, onAddWallet: () -> Unit) {
+	val source = s.profiles.firstOrNull { it.id == s.activeID && it.kind == "hardware" }
+	var destinationID by remember(s.activeID) { mutableStateOf("") }
+	val destinations = s.profiles.filter { it.kind == "hot" && it.network == source?.network }
+	CardBlock("From your QR wallet") {
+		Text(source?.name ?: "Choose a QR wallet", style = MaterialTheme.typography.titleMedium)
+		Text("Your QR signer approves the funding transaction. After boarding, the receiving mobile wallet controls the Ark funds. Its backup protects their recovery.")
+	}
+	CardBlock("Receive in Ark") {
+		if (destinations.isEmpty()) {
+			Text("Add a mobile wallet on this network to receive your Ark funds.")
+			OutlinedButton(onClick = onAddWallet, enabled = !s.busy) { Text("Add mobile wallet") }
+		} else {
+			destinations.forEach { profile ->
+				FilterChip(selected = destinationID == profile.id, onClick = { destinationID = profile.id }, label = { Text(profile.name) })
+			}
+			WalletPrimaryButton(onClick = { source?.let { onContinue(it.id, destinationID) } },
+				enabled = !s.busy && source != null && destinations.any { it.id == destinationID }) {
+				Text("Continue to boarding")
+			}
+			Text("Next: enter an amount and review the full cost. Nothing is sent when you continue.", style = MaterialTheme.typography.bodySmall)
+		}
+	}
+}
+
 @Composable
 internal fun HardwarePayment(s: WalletState, model: WalletModel, boarding: Boolean = false) {
 	val unit = LocalBitcoinUnit.current
-	var sourceID by remember(s.activeID) { mutableStateOf("") }
+	var sourceID by remember(s.activeID) { mutableStateOf(if (boarding) s.hardwareBoardSourceID ?: "" else "") }
 	val importOperation = if (boarding) "ark_hardware_import" else "hardware_import"
 	var destination by remember(s.activeID) { mutableStateOf("") }
 	var amount by remember(s.activeID) { mutableStateOf("") }
@@ -55,7 +82,7 @@ internal fun HardwarePayment(s: WalletState, model: WalletModel, boarding: Boole
 							label = { Text(profile.name) },
 						)
 					}
-			} else
+			} else {
 				OwnedWalletDestination(s, destination) { destination = it }
 				OutlinedTextField(
 					destination,
@@ -63,6 +90,7 @@ internal fun HardwarePayment(s: WalletState, model: WalletModel, boarding: Boole
 					label = { Text("XBT address") },
 					modifier = Modifier.fillMaxWidth(),
 				)
+			}
 			OutlinedTextField(
 				amount,
 				{ amount = it },
@@ -75,6 +103,10 @@ internal fun HardwarePayment(s: WalletState, model: WalletModel, boarding: Boole
 					Text("Send Max", Modifier.weight(1f))
 					Switch(maximum, { maximum = it })
 				}
+			if (!s.connected) {
+				Text(if (boarding) "Connect the receiving wallet before reviewing this deposit." else "Connect your wallet before reviewing this payment.")
+				OutlinedButton(onClick = { model.connect(s.connection) }, enabled = !s.busy) { Text("Connect wallet") }
+			}
 			if (boarding)
 				WalletPrimaryButton(
 					onClick = { model.prepareHardwareBoard(sourceID, unit.backendAmount(amount)) },

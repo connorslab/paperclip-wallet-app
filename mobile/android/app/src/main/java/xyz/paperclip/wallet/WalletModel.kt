@@ -15,6 +15,8 @@ import org.json.JSONObject
 data class WalletState(
 	val profiles: List<WalletProfile> = emptyList(),
 	val activeID: String = "",
+	// Navigation only; no quote, signature or spending approval.
+	val hardwareBoardSourceID: String? = null,
 	val toolsResult: JSONObject? = null,
 	val loaded: Boolean = false,
 	val hasWallet: Boolean = false,
@@ -98,6 +100,7 @@ class WalletModel internal constructor(
 				network = network,
 				profiles = profiles,
 				activeID = id,
+				hardwareBoardSourceID = null,
 			)
 		}
 		if (present) {
@@ -143,6 +146,7 @@ class WalletModel internal constructor(
 				it.copy(
 					profiles = profiles,
 					activeID = id,
+					hardwareBoardSourceID = null,
 					hasWallet = profiles.isNotEmpty(),
 					network = network,
 					chain = chain,
@@ -173,16 +177,31 @@ class WalletModel internal constructor(
 				ark = null,
 				profiles = profiles,
 				activeID = id,
+				hardwareBoardSourceID = null,
 			)
 		}
 	}
 
-	fun selectWallet(id: String) = job {
+	fun selectWallet(id: String) = job { selectWalletState(id) }
+
+	fun openHardwareBoard(sourceID: String, destinationID: String) = job {
+		val profiles = engine.profiles()
+		val source = profiles.firstOrNull { it.id == sourceID }
+		val destination = profiles.firstOrNull { it.id == destinationID }
+		require(engine.activeID() == sourceID && source?.kind == "hardware" &&
+			destination?.kind == "hot" && destination.network == source.network) {
+			"Choose a mobile Ark wallet on the same network as your QR wallet."
+		}
+		selectWalletState(destinationID, sourceID)
+	}
+
+	private suspend fun selectWalletState(id: String, boardingSourceID: String? = null) {
 		clearBackup()
 		val selection = engine.select(id)
 		change {
 			it.copy(
 				activeID = id,
+				hardwareBoardSourceID = boardingSourceID,
 				network = selection.network,
 				chain = selection.balance,
 				ark = null,
@@ -216,6 +235,7 @@ class WalletModel internal constructor(
 			it.copy(
 				profiles = profiles,
 				activeID = id,
+				hardwareBoardSourceID = null,
 				hasWallet = true,
 				phrase = "",
 				chain = 0,
@@ -251,6 +271,7 @@ class WalletModel internal constructor(
 				it.copy(
 					profiles = profiles,
 					activeID = id,
+					hardwareBoardSourceID = null,
 					hasWallet = true,
 					phrase = "",
 					chain = 0,
@@ -716,6 +737,7 @@ class WalletModel internal constructor(
 				network = network,
 				profiles = profiles,
 				activeID = id,
+				hardwareBoardSourceID = null,
 				ark = null,
 				connected = false,
 				review = null,

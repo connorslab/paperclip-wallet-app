@@ -164,6 +164,10 @@ struct DashboardView: View {
                     NavigationLink { OnchainOverviewView() } label: {
                         accountRow("On-chain", subtitle: store.supportsArk ? (store.onchainAccount == "segwit" ? "SegWit" : "Taproot") : "Account balance", icon: "link", amount: store.onchain)
                     }.buttonStyle(.plain)
+                    if store.isHardware {
+                        Divider()
+                        HardwareBoardEntryLink()
+                    }
                     if store.supportsArk {
                         Divider()
                         NavigationLink { ArkOverviewView() } label: {
@@ -220,6 +224,9 @@ struct DashboardView: View {
                 RadialGradient(colors: [PaperclipTheme.orange.opacity(0.10), .clear], center: .topLeading, startRadius: 0, endRadius: 420)
             }.ignoresSafeArea()
         }.navigationBarTitleDisplayMode(.inline)
+            .navigationDestination(item: $store.hardwareBoardSourceID) { sourceID in
+                HardwareBoardView(initialSourceID: sourceID)
+            }
             .task {
                 #if DEBUG && targetEnvironment(simulator)
                 if ProcessInfo.processInfo.arguments.contains("-build61-preview") { return }
@@ -386,6 +393,7 @@ struct OnchainOverviewView: View {
                     if !store.isWatchOnly { NavigationLink { WalletSendView() } label: { Label("Send", systemImage: "arrow.up.right").frame(maxWidth: .infinity) }.modifier(GlassAction()) }
                     NavigationLink { ReceiveView() } label: { Label("Receive", systemImage: "arrow.down.left").frame(maxWidth: .infinity) }.modifier(GlassAction())
                 }
+                if store.isHardware { HardwareBoardEntryLink() }
                 NavigationLink { OnchainAddressesView() } label: { WalletNavigationRow("Wallet addresses", subtitle: "View derived receive and change addresses", icon: "list.bullet") }
             }
             WalletSection("On-chain transactions") {

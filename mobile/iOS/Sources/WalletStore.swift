@@ -9,6 +9,11 @@ import LocalAuthentication
     var isHardware: Bool { selectedProfile?.kind == .hardware }
     var isWatchOnly: Bool { selectedProfile?.kind == .watch }
     var walletID: String { selectedProfile?.id ?? "setup" }
+    // Navigation intent only. It never stores a quote, signature or spending approval.
+    @Published var hardwareBoardSourceID: String?
+    #if DEBUG && targetEnvironment(simulator)
+    var previewWalletSelection: ((WalletProfile) -> Void)?
+    #endif
     @Published var loaded = false
     @Published var hasWallet = false
     @Published var busy = false
@@ -85,9 +90,23 @@ import LocalAuthentication
         loaded = true
     }
     func selectWallet(_ profile: WalletProfile) async throws {
+        hardwareBoardSourceID = nil
+        #if DEBUG && targetEnvironment(simulator)
+        if let previewWalletSelection { previewWalletSelection(profile); return }
+        #endif
         guard !Maintenance.shared.busy else { throw WalletFailure(message: "Ark maintenance is finishing. Try switching again in a moment.") }
         try await engine.activate(profile.id)
         await load()
+    }
+    func openHardwareBoard(source: WalletProfile, destination: WalletProfile) async throws {
+        guard selectedProfile == source, source.kind == .hardware,
+              profiles.contains(source), profiles.contains(destination),
+              destination.supportsArk, destination.network == source.network else {
+            throw WalletFailure(message: "Choose a mobile Ark wallet on the same network as your QR wallet.")
+        }
+        try await selectWallet(destination)
+        guard walletID == destination.id else { throw WalletFailure(message: "Could not open the receiving wallet.") }
+        hardwareBoardSourceID = source.id
     }
     func run(_ action: @escaping @MainActor () async throws -> Void) {
         guard !busy else { return }

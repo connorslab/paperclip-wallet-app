@@ -4360,3 +4360,25 @@ Current Android JVM checks pass 114 tests with four explicit live exclusions.
 Release lint completes with zero errors, 42 warnings and three hints. Required
 `just checks` passes. Candidate binaries and detailed evidence remain private;
 no release upload or publication has occurred.
+
+### QR wallet boarding entry — 2026-11-19
+
+The iOS QR wallet dashboard and on-chain account now link directly to Move to Ark.
+Users explicitly select a same-network mobile hot wallet, then enter the existing
+reviewed QR funding flow with the hardware source preselected. Watch-only and
+other-network recipients are excluded. The receiving mobile wallet owns the Ark
+keys; the chooser explains this before switching wallets. Opening this route does
+not prepare or approve a payment. Native simulator checks cover recipient
+selection, source retention and returning to the receiving wallet without replay.
+
+Android has the equivalent dashboard route and destination selection, retains the
+source across wallet switching, and offers a connection action before review.
+The recipient-address field is now shown only for ordinary hardware payments,
+not Ark boarding. Physical signer and funded boarding acceptance remain open.
+
+Verification: Xcode native iOS simulator navigation/back test and unsigned device
+Release build passed. Android debug build, 114 unit tests (4 explicit live cases
+excluded), and two isolated API 36 screen tests passed. These tests create no
+quotes, signatures or payments; they do not close physical signing or live Ark
+boarding gates. Repository pre-commit checks passed. No funded device update or
+public distribution was performed for this change.

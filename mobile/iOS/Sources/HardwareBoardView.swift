@@ -1,7 +1,71 @@
 import SwiftUI
 import PaperclipMobile
 
+struct HardwareBoardEntryLink: View {
+    @EnvironmentObject var store: WalletStore
+    var body: some View {
+        if let source = store.selectedProfile, source.kind == .hardware {
+            NavigationLink { HardwareBoardDestinationView(source: source) } label: {
+                WalletNavigationRow("Move to Ark", subtitle: "Choose a mobile wallet, then sign with QR", icon: "arrow.down.to.line")
+            }.buttonStyle(.plain).accessibilityIdentifier("hardware-move-to-ark")
+        }
+    }
+}
+
+struct HardwareBoardDestinationView: View {
+    let source: WalletProfile
+    @EnvironmentObject var store: WalletStore
+    @State private var destinationID = ""
+    private var destinations: [WalletProfile] { store.profiles.filter { $0.supportsArk && $0.network == source.network } }
+    private var supported: Bool { source.descriptor?.hasPrefix("wpkh(") == true || source.descriptor?.hasPrefix("tr(") == true }
+    var body: some View {
+        ScrollView { VStack(spacing: 16) {
+            WalletSection("From your QR wallet") {
+                Label(source.name, systemImage: "qrcode").font(.headline)
+                Text("Choose the mobile wallet that will receive this Ark deposit.")
+                Text("Your QR signer approves the on-chain funding transaction. After boarding, the receiving mobile wallet controls the Ark funds. Its backup protects their recovery.")
+                    .font(.subheadline).foregroundStyle(PaperclipTheme.muted)
+            }
+            if !supported {
+                WalletSection {
+                    Text("Direct boarding needs a native SegWit (BIP84) or Taproot (BIP86) QR account. Add that account from your signer to continue.")
+                    NavigationLink("Add QR account") { PublicWalletImportView(hardware: true) }
+                }
+            } else if destinations.isEmpty {
+                WalletSection {
+                    Text("Add a mobile wallet on this network to receive and recover your Ark funds. Your QR signing keys stay on your device.")
+                    NavigationLink("Add mobile wallet") { SetupView(adding: true) }
+                }
+            } else {
+                WalletSection("Receive in Ark") {
+                    ForEach(destinations) { profile in
+                        Button { destinationID = profile.id } label: {
+                            HStack {
+                                Label(profile.name, systemImage: "wallet.pass").frame(maxWidth: .infinity, alignment: .leading)
+                                Image(systemName: destinationID == profile.id ? "checkmark.circle.fill" : "circle")
+                            }.frame(minHeight: 48).contentShape(Rectangle())
+                        }.buttonStyle(.plain).accessibilityIdentifier("ark-destination-" + profile.id)
+                            .accessibilityValue(destinationID == profile.id ? "Selected" : "Not selected")
+                    }
+                    Button("Continue to boarding") {
+                        Task {
+                            await store.pauseSync()
+                            guard let destination = destinations.first(where: { $0.id == destinationID }) else { return }
+                            store.run { try await store.openHardwareBoard(source: source, destination: destination) }
+                        }
+                    }.buttonStyle(WalletPrimaryButtonStyle()).disabled(destinationID.isEmpty || (store.busy && !store.syncing))
+                    Text("Next: enter an amount and review the full cost. Nothing is sent when you continue.").font(.caption).foregroundStyle(PaperclipTheme.muted)
+                }
+            }
+            if !store.message.isEmpty { Text(store.message).font(.caption).foregroundStyle(PaperclipTheme.muted) }
+        }.walletPageContent() }.walletPageBackground()
+            .navigationTitle("Move to Ark").navigationBarTitleDisplayMode(.inline)
+            .task { await store.pauseSync() }
+    }
+}
+
 struct HardwareBoardView: View {
+    init(initialSourceID: String = "") { _sourceID = State(initialValue: initialSourceID) }
     @EnvironmentObject var store: WalletStore
     @AppStorage("displayUnit") private var unit: BitcoinUnit = .sats
     @State private var sourceID = ""
@@ -42,6 +106,7 @@ struct HardwareBoardView: View {
                         Text("Choose a QR wallet").tag("")
                         ForEach(sources) { Text($0.name).tag($0.id) }
                     }
+                    .accessibilityIdentifier("ark-boarding-source")
                     TextField("Deposit · " + unit.amountPrompt, text: $amount).keyboardType(.decimalPad)
                     Text("Use a native SegWit (BIP84) or Taproot (BIP86) account. Ark requires a stable funding transaction ID; legacy and nested SegWit accounts cannot board directly.")
                         .font(.caption).foregroundStyle(PaperclipTheme.muted)

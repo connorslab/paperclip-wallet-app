@@ -2,6 +2,37 @@ import XCTest
 
 /// Synthetic fixtures only: no wallet credentials, synchronization or payments.
 final class AdaptiveLayoutTests: XCTestCase {
+    func testQRWalletCanChooseArkRecipientWithoutPreparingPayment() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["-build61-preview", "-wallet-shell-preview", "-hardware-boarding-entry-preview", "-appearance", "dark"]
+        app.launch()
+        let entry = app.buttons["hardware-move-to-ark"]
+        XCTAssertTrue(entry.waitForExistence(timeout: 15))
+        if !entry.isHittable { app.swipeUp() }
+        entry.tap()
+        let next = app.buttons["Continue to boarding"]
+        XCTAssertTrue(next.waitForExistence(timeout: 10))
+        XCTAssertFalse(next.isEnabled)
+        XCTAssertFalse(app.buttons["ark-destination-wrong-network"].exists)
+        XCTAssertFalse(app.buttons["ark-destination-watch"].exists)
+        app.buttons["ark-destination-preview"].tap()
+        capture(app, "Choose Ark receiving wallet")
+        next.tap()
+        XCTAssertTrue(app.navigationBars["Board to Ark · Beta"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["ark-boarding-source"].exists)
+        XCTAssertTrue(app.buttons["ark-boarding-source"].label.contains("My QR signer"))
+        XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "Everyday wallet")).firstMatch.exists)
+        XCTAssertFalse(app.buttons["Confirm and board"].exists)
+        capture(app, "QR wallet boarding entry")
+        app.navigationBars["Board to Ark · Beta"].buttons.firstMatch.tap()
+        XCTAssertFalse(app.navigationBars["Board to Ark · Beta"].exists)
+        XCTAssertFalse(app.buttons["hardware-move-to-ark"].exists)
+        // Returning to the receiving wallet must not reopen boarding automatically.
+        XCTAssertTrue(app.buttons["Active wallet: Everyday wallet. Switch wallet"].waitForExistence(timeout: 5))
+        // Never request a quote, generate a PSBT or broadcast in this UI fixture.
+    }
+
 	func testReusableBridgeReviewDoesNotRegisterOrSend() {
 		continueAfterFailure = false
 		let app = XCUIApplication()

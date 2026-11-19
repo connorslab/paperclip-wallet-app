@@ -162,6 +162,9 @@ internal fun PaperclipApp(
 			LaunchedEffect(s.activeID, s.loaded, s.hasWallet) {
 				if (s.loaded && s.hasWallet && navigationWalletID != s.activeID) {
 					navigation = navigation.resetPaths()
+					if (s.hardwareBoardSourceID != null && s.profiles.any { it.id == s.activeID && it.kind == "hot" }) {
+						navigation = navigation.selectTab("Wallet").open("Hardware boarding")
+					}
 					navigationWalletID = s.activeID
 				}
 			}
@@ -419,6 +422,7 @@ internal fun PaperclipApp(
 													s.activeID,
 													s.network == "xbt-mainnet",
 												)
+										"Move to Ark" -> HardwareBoardDestination(s, model::openHardwareBoard) { navigate("Wallets") }
 										"Hardware payment" -> HardwarePayment(s, model)
 										"Hardware boarding" ->
 											HardwarePayment(s, model, boarding = true)
@@ -687,6 +691,7 @@ private fun Dashboard(s: WalletState, model: WalletModel, navigate: (String) -> 
 			BalanceRow("Ark", if (hidden) "••••" else s.ark?.let { sats(it) } ?: "Not synced")
 		}
 	}
+	if (kind == "hardware") NavCard("Move to Ark", "Choose a mobile wallet, then sign with QR", Icons.Default.QrCode) { navigate("Move to Ark") }
 	if (s.expiryHeight != null)
 		NavCard("Ark maintenance", "Earliest expiry · block ${s.expiryHeight}", Icons.Default.Build) { navigate("Ark maintenance") }
 

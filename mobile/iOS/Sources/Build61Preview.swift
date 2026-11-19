@@ -71,6 +71,14 @@ struct Build61Preview: View {
             if ProcessInfo.processInfo.arguments.contains("-own-transfer-preview") {
                 store.profiles.append(WalletProfile(id: "preview-cold", name: "My Krux savings", kind: .hardware, network: "xbt-mainnet"))
             }
+            if ProcessInfo.processInfo.arguments.contains("-hardware-boarding-entry-preview") {
+                let source = WalletProfile(id: "preview-qr", name: "My QR signer", kind: .hardware, network: "xbt-mainnet", descriptor: "wpkh(presentation-only)")
+                store.profiles.append(source)
+                store.profiles.append(WalletProfile(id: "wrong-network", name: "Other network", kind: .hot, network: "xbt-regtest"))
+                store.profiles.append(WalletProfile(id: "watch", name: "Watch-only account", kind: .watch, network: "xbt-mainnet"))
+                store.selectedProfile = source
+                store.previewWalletSelection = { profile in store.selectedProfile = profile; store.network = profile.network; store.message = "" }
+            }
             store.onchain = 100000; store.onchainConfirmed = 0; store.onchainPending = 100000; store.ark = 100000
             store.observed = Date()
             if ProcessInfo.processInfo.arguments.contains("-dashboard-preview") || ProcessInfo.processInfo.arguments.contains("-wallet-shell-preview") {
