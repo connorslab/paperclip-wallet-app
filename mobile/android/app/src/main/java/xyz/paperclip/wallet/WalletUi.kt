@@ -205,7 +205,7 @@ internal fun PaperclipApp(
 							listOf(
 									"Wallet" to Icons.Default.AccountBalanceWallet,
 									"Lightning" to Icons.Default.Bolt,
-									"Jars" to Icons.Default.Inventory2,
+									"Jars" to JarNavigationIcon,
 									"Activity" to Icons.Default.History,
 									"Settings" to Icons.Default.Tune,
 								)

@@ -98,7 +98,7 @@ struct WalletView: View {
                     NavigationStack { LightningView() }
                         .tabItem { Label("Lightning", systemImage: "bolt.fill") }.tag(Tab.lightning)
                     NavigationStack { JoinBlaketView() }
-                        .tabItem { Label("Jars", systemImage: "cylinder.fill") }.tag(Tab.jars)
+                        .tabItem { Label("Jars", image: "JarIcon") }.tag(Tab.jars)
                     ZStack { NavigationStack { ActivityView() }.id(store.walletID) }
                         .tabItem { Label("Activity", systemImage: "clock.arrow.circlepath") }.tag(Tab.activity)
                     ZStack { NavigationStack { SettingsView() }.id(store.walletID) }
