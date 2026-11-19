@@ -2,7 +2,8 @@
 
 The next major release includes iOS, Android, Umbrel, StartOS and signed Linux,
 macOS and Windows desktop packages from one reviewed source revision. Android distribution includes **Google Play and a signed APK
-download**. Prepare candidates independently, then publish in one coordinated
+download**. Windows distribution is an **MSI or EXE in GitHub Releases only**;
+Microsoft Store distribution is excluded. Prepare candidates independently, then publish in one coordinated
 release window after every platform meets the acceptance criteria below. Store
 review and propagation can finish at different times; do not promise simultaneous
 availability to the minute.
@@ -4310,3 +4311,52 @@ offers; outgoing BTC offers route into that flow, and issued XBT offers hand off
 to existing Ark/CLN/LND reviews. See [BRIDGE-BOLT12.md](BRIDGE-BOLT12.md) for the
 verified deployed contract and management-key recovery policy. Synthetic protocol,
 recovery, UI and build checks do not close live settlement or signed-package gates.
+
+
+### Initial release identities and distribution — 2026-11-19
+
+The owner confirmed that Android Play and Windows signing accounts do not exist.
+Windows distribution is an MSI or EXE in GitHub Releases only. Do not substitute
+Microsoft Store distribution or treat a self-signed certificate as a trusted
+publisher certificate.
+
+New RSA-4096 Android app and upload identities and an Ed25519 release-manifest
+identity are stored outside the checkout. Public certificates, fingerprints and
+the repeatable Android signing tool are in `deployment/signing`. Passwords are in
+the macOS Keychain; the signing helper refuses interactive authentication.
+An encrypted recovery archive has two local copies. An isolated restore verified
+both Android certificates, a signature from the recovered Linux key and the
+recovered macOS key against its certificate request. An off-device recovery copy
+and separately held recovery key are still required; two copies on one Mac do
+not close disaster recovery.
+
+Android release builds now use `xyz.paperclip.wallet.android`, version 0.2.0 (5).
+Debug builds retain the preview application ID and label. Release signing is a
+separate step and cannot fall back to the debug key. Google Play must import the
+app signing identity and use the separate upload identity so Play and direct APK
+updates remain compatible. Play account verification and delivered-APK acceptance
+remain open. The local macOS Developer ID request is prepared, but Apple issuance
+and notarization require account access. No trusted Windows certificate has been
+issued, no enrollment has been purchased and no candidate has been published.
+
+The prior Android preview CI `44550405904` initially failed during dependency
+download. The exact dependencies were subsequently reachable, and a rerun passed
+both API 35/36 app jobs and both native architectures. This is evidence for
+`f4332473`, not acceptance of the new release identity or final signed packages.
+
+
+The local Android 0.2.0 (5) candidate now has a verified app-key APK signature,
+a separate upload-key AAB signature and a signed checksum manifest. Rust release
+libraries were rebuilt for ARM64 and x86_64. Package checks verify the production
+ID and label, non-debuggable state, both ABIs and 16 KB alignment of every native
+ELF load segment. Fresh API 36/16 KB emulator installation and authenticated
+onboarding launch pass. A same-version in-place reinstall preserves a synthetic
+app-data marker, and Android rejects an update signed by an unrelated key.
+The release build ignores the debug screenshot/unlock flag. No wallet was
+created or funded in these checks. These checks do not establish a Play-delivered
+update, migration of a funded wallet, physical-device acceptance or live payments.
+
+Current Android JVM checks pass 114 tests with four explicit live exclusions.
+Release lint completes with zero errors, 42 warnings and three hints. Required
+`just checks` passes. Candidate binaries and detailed evidence remain private;
+no release upload or publication has occurred.

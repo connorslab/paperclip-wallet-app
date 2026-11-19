@@ -9,11 +9,11 @@ android {
     compileSdk { version = release(37) { minorApiLevel = 1 } }
     ndkVersion = "28.0.13004108"
     defaultConfig {
-        applicationId = "xyz.paperclip.wallet.android.preview"
+        applicationId = "xyz.paperclip.wallet.android"
         minSdk = 28
         targetSdk = 36
-        versionCode = 4
-        versionName = "0.2.0-parity.70"
+        versionCode = 5
+        versionName = "0.2.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk { abiFilters += (project.findProperty("abis")?.toString() ?: "arm64-v8a,x86_64").split(',') }
         externalNativeBuild { cmake { arguments += "-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON" } }
@@ -22,7 +22,14 @@ android {
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
     externalNativeBuild { cmake { path = file("src/main/cpp/CMakeLists.txt"); version = "3.22.1" } }
     packaging { jniLibs.useLegacyPackaging = false }
-    buildTypes { release { isMinifyEnabled = false } }
+    buildTypes {
+        debug {
+            applicationIdSuffix = ".preview"
+            versionNameSuffix = "-preview"
+        }
+        // Signing is a separate offline step. Never fall back to a debug key.
+        release { isMinifyEnabled = false }
+    }
 }
 dependencies {
     implementation("androidx.window:window:1.4.0")
