@@ -222,6 +222,27 @@ final class JoinBlaketTests: XCTestCase {
         value.merge(changes) { _, new in new }
         return "paperclip-jars:" + (try JSONSerialization.data(withJSONObject: value)).base64EncodedString().replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "=", with: "")
     }
+    func testLivePairingTLSWithSyntheticGrant() async throws {
+        let env = ProcessInfo.processInfo.environment
+        guard let origin = env["PAPERCLIP_PAIRING_TEST_ORIGIN"], let pins = env["PAPERCLIP_PAIRING_TEST_PINS"] else {
+            throw XCTSkip("Requires a reachable Paperclip host and verified certificate fingerprints")
+        }
+        // No real grant is used. Reaching the host's authorization rejection
+        // proves the production client completed TLS and sent its status request.
+        for (fingerprints, valid) in [(pins, true), (String(repeating: "0", count: 64), false)] {
+            let pair = try JoinBlaketPairing(text: pairingText(["endpoint":origin, "certificate_sha256":fingerprints]))
+            let client = try JoinBlaketClient(connection: pair.connection, pairing: pair)
+            do {
+                _ = try await client.status(pair.authorization())
+                XCTFail("Host accepted a synthetic grant")
+            } catch JoinBlaketError.pairingUnavailable {
+                XCTAssertTrue(valid, "An unrelated pin reached HTTP")
+            } catch JoinBlaketError.pairingCertificateChanged {
+                XCTAssertFalse(valid, "Verified pins failed TLS")
+            }
+        }
+    }
+
     func testOnionPairingRequiresTorAndRetainsTLSPin() throws {
         let host = String(repeating: "a", count: 56) + ".onion"
         let pair = try JoinBlaketPairing(text: pairingText(["endpoint":"http://" + host]))

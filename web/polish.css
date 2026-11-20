@@ -452,3 +452,11 @@ button,a,summary {touch-action:manipulation}
 
 .metrics .actions {margin-top:16px}
 #jam-bond-coins label {min-height:44px;overflow-wrap:anywhere}
+
+.jam-phone-entry {display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;padding:16px;border:1px solid var(--stroke);border-radius:16px}
+.jam-phone-entry h3,.jam-phone-entry p,#jam-pairing-fields h3 {margin:0}
+.jam-phone-entry p {color:var(--muted);margin-top:4px}
+#jam-pairing-fields[hidden] {display:none}
+#jam-pairing-panel .jam-pairing-layout {grid-template-columns:minmax(0,1fr)}
+#jam-pairing-code {max-width:32rem;margin-inline:auto;text-align:center}
+#jam-pairing-code .jam-pairing-actions {justify-content:center}

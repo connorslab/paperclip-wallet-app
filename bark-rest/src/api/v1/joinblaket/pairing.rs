@@ -137,14 +137,25 @@ fn published_https(value: &str) -> Vec<reqwest::Url> {
 	if addresses.len() > 32 { return vec![]; }
 	addresses.iter().filter_map(|value| https_origin(value)).collect()
 }
-async fn verified_pairing_pin(endpoint: &str, published: &[reqwest::Url], ca: &str) -> anyhow::Result<String> {
+async fn verified_pairing_pin(endpoint: &str, published: &[reqwest::Url], ca: &str, scheme: Option<rustls::SignatureScheme>) -> anyhow::Result<String> {
+	use rustls::pki_types::{CertificateDer, pem::PemObject};
 	let url = https_origin(endpoint).context("Use a published HTTPS address")?;
 	ensure!(published.contains(&url), "This address is not published by the host");
 	ensure!(!ca.is_empty() && ca.len() <= 32 * 1024, "Host certificate trust is unavailable");
-	let root = reqwest::Certificate::from_pem(ca.as_bytes()).context("Host certificate trust is unavailable")?;
-	let mut client = reqwest::Client::builder().use_rustls_tls().no_proxy()
-		.redirect(reqwest::redirect::Policy::none()).timeout(std::time::Duration::from_secs(8))
-		.tls_built_in_root_certs(false).add_root_certificate(root).tls_info(true);
+	let mut roots = rustls::RootCertStore::empty();
+	roots.add(CertificateDer::from_pem_slice(ca.as_bytes())?)?;
+	let mut provider = rustls::crypto::ring::default_provider();
+	if let Some(scheme) = scheme {
+		// Restrict the handshake signature we advertise, keeping the full set
+		// of certificate-chain verification algorithms and the same trust root.
+		let mapping = provider.signature_verification_algorithms.mapping;
+		let index = mapping.iter().position(|entry| entry.0 == scheme).context("Unsupported pairing signature scheme")?;
+		provider.signature_verification_algorithms.mapping = &mapping[index..=index];
+	}
+	let tls = rustls::ClientConfig::builder_with_provider(Arc::new(provider))
+		.with_safe_default_protocol_versions()?.with_root_certificates(roots).with_no_client_auth();
+	let mut client = reqwest::Client::builder().use_preconfigured_tls(tls).no_proxy()
+		.redirect(reqwest::redirect::Policy::none()).timeout(std::time::Duration::from_secs(8)).tls_info(true);
 	// Minimal containers may have no mDNS resolver. StartOS publishes the LAN
 	// addresses of this same interface; use those for transport while retaining
 	// the requested hostname for SNI and certificate verification.
@@ -164,14 +175,27 @@ async fn verified_pairing_pin(endpoint: &str, published: &[reqwest::Url], ca: &s
 		.and_then(|info| info.peer_certificate()).context("Host certificate unavailable")?;
 	Ok(sha256::Hash::hash(certificate).to_string())
 }
+async fn verified_pairing_pins(endpoint: &str, published: &[reqwest::Url], ca: &str) -> anyhow::Result<Vec<String>> {
+	use rustls::SignatureScheme::{ECDSA_NISTP256_SHA256, ED25519};
+	// StartOS can serve both an ECDSA leaf and an Ed25519 leaf at the same
+	// origin. Include only leaves actually authenticated by a TLS handshake.
+	let probes = [None, Some(ECDSA_NISTP256_SHA256), Some(ED25519)]
+		.map(|scheme| verified_pairing_pin(endpoint, published, ca, scheme));
+	let mut pins = Vec::new();
+	for pin in futures::future::join_all(probes).await.into_iter().flatten() {
+		if !pins.contains(&pin) { pins.push(pin); }
+	}
+	ensure!(!pins.is_empty(), "No verified host certificate");
+	Ok(pins)
+}
 async fn connection(Query(query): Query<ConnectionQuery>) -> (StatusCode, HeaderMap, Json<Value>) {
 	let onion = std::env::var("BARKD_JARS_PAIRING_ONION").ok().and_then(|value| onion_endpoint(&value));
 	let published = published_https(&std::env::var("BARKD_JARS_PAIRING_HTTPS_ORIGINS").unwrap_or_default());
 	let mut value = json!({"onion_endpoint":onion,"https_endpoints":published.iter().map(|url| url.as_str()).collect::<Vec<_>>()});
 	if let Some(endpoint) = query.endpoint {
 		let ca = std::env::var("BARKD_JARS_PAIRING_CA_PEM").unwrap_or_default();
-		match verified_pairing_pin(&endpoint, &published, &ca).await {
-			Ok(pin) => { value["https_endpoint"] = endpoint.into(); value["certificate_sha256"] = pin.into(); }
+		match verified_pairing_pins(&endpoint, &published, &ca).await {
+			Ok(pins) => { value["https_endpoint"] = endpoint.into(); value["certificate_sha256"] = json!(pins[0]); value["certificate_sha256_pins"] = json!(pins); }
 			Err(_) => { value["certificate_error"] = "Could not verify this host's HTTPS certificate. Use Tor pairing, or enter a fingerprint verified in your host settings.".into(); }
 		}
 	}
@@ -270,7 +294,7 @@ mod tests {
 			String::from_utf8(request).unwrap()
 		});
 		let published = [https_origin(&url).unwrap(), https_origin(&url.replace(host, "127.0.0.1")).unwrap()];
-		let result = verified_pairing_pin(&url, &published, ca).await;
+		let result = verified_pairing_pin(&url, &published, ca, None).await;
 		(result, server.join().unwrap())
 	}
 
@@ -290,8 +314,19 @@ mod tests {
 		assert!(wrong_root.is_err()); assert!(request.is_empty());
 		let (redirect, _) = pairing_tls_probe("localhost", PAIRING_CA, "302 Found").await;
 		assert!(redirect.is_err());
-		assert!(verified_pairing_pin("https://127.0.0.1:1/", &[], PAIRING_CA).await.unwrap_err().to_string().contains("not published"));
-		assert!(verified_pairing_pin("https://localhost/", &[https_origin("https://localhost/").unwrap()], "").await.is_err());
+		assert!(verified_pairing_pin("https://127.0.0.1:1/", &[], PAIRING_CA, None).await.unwrap_err().to_string().contains("not published"));
+		assert!(verified_pairing_pin("https://localhost/", &[https_origin("https://localhost/").unwrap()], "", None).await.is_err());
+	}
+
+	#[tokio::test]
+	#[ignore = "requires a reachable dual-certificate host and its trusted CA"]
+	async fn pairing_live_verified_certificate_set() {
+		let origin = std::env::var("PAPERCLIP_PAIRING_TEST_ORIGIN").unwrap();
+		let ca = std::fs::read_to_string(std::env::var("PAPERCLIP_PAIRING_TEST_CA").unwrap()).unwrap();
+		let expected = std::env::var("PAPERCLIP_PAIRING_TEST_PINS").unwrap();
+		let pins = verified_pairing_pins(&origin, &[https_origin(&origin).unwrap()], &ca).await.unwrap();
+		assert_eq!(pins.into_iter().collect::<std::collections::BTreeSet<_>>(),
+			expected.split(',').map(String::from).collect());
 	}
 
 	fn record() -> Record { Record { scope:Scope::Manage, id:digest(&format!("pj1_{}", "a".repeat(64))),label:"Test phone".into(),wallet:"fixture.jmdat".into(),

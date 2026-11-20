@@ -61,7 +61,7 @@ for(const item of bookCases) {
      if(p==='joinblaket/pairings/connection') {
       if(url.searchParams.has('endpoint') && trustGate) { trustWaiting=true; await trustGate; }
       value={onion_endpoint:hidePairingOnion?null:'http://'+'a'.repeat(56)+'.onion/',https_endpoints:['https://host.example.invalid/']};
-      if(url.searchParams.get('endpoint')==='https://host.example.invalid/') Object.assign(value,{https_endpoint:'https://host.example.invalid/',certificate_sha256:'b'.repeat(64)});
+      if(url.searchParams.get('endpoint')==='https://host.example.invalid/') Object.assign(value,{https_endpoint:'https://host.example.invalid/',certificate_sha256:'b'.repeat(64),certificate_sha256_pins:['b'.repeat(64),'e'.repeat(64)]});
       if(url.searchParams.get('endpoint')==='https://wrong.local/') Object.assign(value,{https_endpoint:'https://other.local/',certificate_sha256:'c'.repeat(64)});
      }
      if(p==='joinblaket/pairings') {
@@ -197,13 +197,13 @@ for(const item of bookCases) {
     PaperclipReceive.encode = value => { if(value.startsWith('paperclip-jars:')) window.syntheticPairing = JSON.parse(atob(value.slice(15).replaceAll('-','+').replaceAll('_','/'))); return encode(value); };
    });
    hidePairingOnion=true;
-   await page.locator('#jam-pairing-panel > summary').click();
+   await page.locator('#jam-pairing-open').click();
    await page.waitForFunction(()=>document.querySelector('#jam-pairing-transport').value==='https');
    assert.equal(await page.locator('#jam-pairing-endpoint').inputValue(),'https://host.example.invalid/','HTTPS-only host has a ready-to-use address');
    await page.locator('#jam-pairing-transport').selectOption('tor');
-   await page.locator('#jam-pairing-panel > summary').click();
+   await page.locator('#jam-pairing-open').click();
    hidePairingOnion=false;
-   await page.locator('#jam-pairing-panel > summary').click();
+   await page.locator('#jam-pairing-open').click();
    await page.waitForFunction(()=>document.querySelector('#jam-pairing-endpoint').value.endsWith('.onion/'));
    assert.equal(await page.locator('#jam-pairing-transport').inputValue(),'tor');
    await page.locator('#jam-pairing-transport').selectOption('https');
@@ -233,9 +233,10 @@ for(const item of bookCases) {
    await page.getByRole('button',{name:'Confirm',exact:true}).click();
    await page.locator('#jam-pairing-code').waitFor({state:'visible'});
    assert.equal(pairingCreates,1);
-   assert.equal(await page.evaluate(()=>window.syntheticPairing.certificate_sha256),'b'.repeat(64),'QR includes verified leaf without manual entry');
+   assert.equal(await page.evaluate(()=>window.syntheticPairing.certificate_sha256),['b'.repeat(64),'e'.repeat(64)].join(','),'QR includes both verified leaves without manual entry');
    assert.equal(await page.locator('#jam-pairing-code input, #jam-pairing-code textarea').count(),0,'Bearer is not shown as plaintext');
    await page.locator('#jam-pairing-hide').click();
+   await page.locator('#jam-pairing-open').click();
    assert(await page.locator('#jam-pairing-code').isHidden());
    assert.equal(await page.locator('#jam-pairing-qr').getAttribute('src'),null);
    await page.getByRole('button',{name:'Revoke access',exact:true}).click();
@@ -251,6 +252,7 @@ for(const item of bookCases) {
    await page.getByRole('button',{name:'Confirm',exact:true}).click();
    await page.locator('#jam-pairing-code').waitFor({state:'visible'});
    assert.equal(pairings[0].scope,'jars_pay_v1');
+   await page.locator('#jam-pairing-hide').click(); await page.locator('#jam-pairing-open').click();
    await page.locator('#jam-pairing-scope').selectOption('jars_manage_v1');
    assert(await page.locator('#jam-pairing-code').isHidden(),'Changing permission hides the previous private code');
    assert.equal(pairings[0].scope,'jars_pay_v1','UI selection does not silently change an existing grant');
@@ -270,13 +272,14 @@ for(const item of bookCases) {
    assert.equal(pairingCreates,3);
    assert.equal(await page.evaluate(()=>window.syntheticPairing.certificate_sha256),'','HTTPS fingerprint must not carry into Tor pairing');
    if(process.env.SCREENSHOT_DIR) { fs.mkdirSync(process.env.SCREENSHOT_DIR,{recursive:true}); await page.screenshot({path:path.join(process.env.SCREENSHOT_DIR,`jars-tor-${width}.png`),fullPage:true}); }
+   await page.locator('#jam-pairing-hide').click(); await page.locator('#jam-pairing-open').click();
    await page.locator('#jam-pairing-endpoint').fill('http://'+'b'.repeat(56)+'.onion/');
    assert(await page.locator('#jam-pairing-code').isHidden(),'Editing the host hides the old private code');
    await page.getByRole('button',{name:'Revoke access',exact:true}).click();
    await page.getByRole('button',{name:'Confirm',exact:true}).click();
    await page.getByText('No paired devices.',{exact:true}).waitFor();
    assert.equal(pairingRevokes,3);
-   await page.locator('#jam-pairing-panel > summary').click();
+   await page.locator('#jam-pairing-open').click();
    await page.locator('#jam-payments-panel summary').first().click();
    await page.locator('#jam-payments-load').click();
    await page.getByRole('heading',{name:'Status unknown'}).waitFor();

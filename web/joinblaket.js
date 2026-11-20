@@ -227,7 +227,7 @@
   new MutationObserver(() => { if (panel.hidden) hideSetupSecrets(); }).observe(panel, {attributes:true, attributeFilter:['hidden']});
   let pairingCode = '', pairingQR = null;
   function clearPairingCode() {
-    pairingCode = ''; $('jam-pairing-code').hidden = true; $('jam-pairing-qr').removeAttribute('src');
+    pairingCode = ''; $('jam-pairing-fields').hidden = false; $('jam-pairing-code').hidden = true; $('jam-pairing-qr').removeAttribute('src');
     if (pairingQR) URL.revokeObjectURL(pairingQR); pairingQR = null;
   }
   async function pairingCall(path, body) {
@@ -312,7 +312,9 @@
       // Bind the result to this exact address and this unchanged form revision.
       const trust = await pairingCall('joinblaket/pairings/connection?endpoint='+encodeURIComponent(endpoint.href)).catch(() => ({}));
       if (edit !== pairingEdit) throw new Error('Connection changed. Review the new connection before pairing.');
-      if (trust.https_endpoint === endpoint.href && /^[0-9a-f]{64}$/.test(trust.certificate_sha256 || '')) pin = trust.certificate_sha256;
+      const pins = trust.certificate_sha256_pins ?? [trust.certificate_sha256];
+      if (trust.https_endpoint === endpoint.href && Array.isArray(pins) && pins.length >= 1 && pins.length <= 4 &&
+          pins.every(pin => typeof pin === 'string' && /^[0-9a-f]{64}$/.test(pin))) pin = pins.join(',');
       else if (hostHTTPS.includes(endpoint.href) || (Array.isArray(trust.https_endpoints) && trust.https_endpoints.includes(endpoint.href)) || endpoint.hostname === 'localhost' || endpoint.hostname.endsWith('.local') || endpoint.hostname.endsWith('.internal') || endpoint.hostname.endsWith('.onion') || /^\[|^\d+\.\d+\.\d+\.\d+$/.test(endpoint.hostname)) {
         throw new Error('Your host could not add a verified certificate. Choose Tor pairing, or add a fingerprint verified in your host settings under Advanced certificate settings.');
       }
@@ -326,15 +328,23 @@
     const payload = JSON.stringify({kind:'paperclip-jars-v1',scope:value.scope,endpoint:endpoint.href,wallet,token:value.token,expires:value.expires,certificate_sha256:pin});
     pairingCode = 'paperclip-jars:'+btoa(String.fromCharCode(...new TextEncoder().encode(payload))).replaceAll('+','-').replaceAll('/','_').replace(/=+$/,'');
     pairingQR = URL.createObjectURL(new Blob([PaperclipReceive.encode(pairingCode)], {type:'image/svg+xml'}));
-    $('jam-pairing-qr').src = pairingQR; $('jam-pairing-code').hidden = false;
+    $('jam-pairing-qr').src = pairingQR; $('jam-pairing-fields').hidden = true; $('jam-pairing-code').hidden = false;
+    $('jam-pairing-code').scrollIntoView({block:'nearest'});
     await loadPairings();
   });
   $('jam-pairing-copy').onclick = () => work(async () => { if (pairingCode) { await PaperclipReceive.copy(pairingCode); $('jam-status').textContent = 'Private pairing code copied.'; } });
-  $('jam-pairing-hide').onclick = clearPairingCode;
+  $('jam-pairing-hide').onclick = () => { setPairingOpen(false); $('jam-pairing-open').focus(); };
   $('jam-pairing-scope').onchange = () => { pairingEdit++; clearPairingCode(); };
   $('jam-pairing-load').onclick = () => work(loadPairings);
-  $('jam-pairing-panel').addEventListener('toggle', () => { if (!$('jam-pairing-panel').open) { pairingEdit++; clearPairingCode(); } else discoverPairingAddress(); });
-  document.addEventListener('visibilitychange', () => { if (document.hidden) clearPairingCode(); });
+  function setPairingOpen(open) {
+    $('jam-pairing-panel').hidden = !open;
+    $('jam-pairing-open').setAttribute('aria-expanded',String(open));
+    $('jam-pairing-open').textContent = open ? 'Close setup' : 'Pair a phone';
+    if (open) { discoverPairingAddress(); $('jam-pairing-label').focus(); }
+    else { pairingEdit++; clearPairingCode(); }
+  }
+  $('jam-pairing-open').onclick = () => setPairingOpen($('jam-pairing-panel').hidden);
+  document.addEventListener('visibilitychange', () => { if (document.hidden) { pairingEdit++; clearPairingCode(); } });
   new MutationObserver(() => { if (panel.hidden) { pairingEdit++; clearPairingCode(); } }).observe(panel, {attributes:true, attributeFilter:['hidden']});
   let payments = null;
   function paymentRecord(value, expectedID) {
@@ -721,7 +731,7 @@
     sendDialog.close();
     toolsDialog.close();
     closeBackup(); $('jam-create-password').value = ''; $('jam-create-confirm').value = '';
-    clearPairingCode(); $('jam-pairing-list').replaceChildren(); $('jam-pairing-panel').open = false;
+    clearPairingCode(); $('jam-pairing-list').replaceChildren(); setPairingOpen(false);
     market = null; renderMarket();
     generation++; payments = null; renderPayments(); $('jam-payments-panel').open = false; authorization = null; jars = []; session = null; selected = 0;
     $('jam-password').value = ''; $('jam-passphrase').value = ''; needsRefresh = false; $('jam-wallet').replaceChildren(); $('jam-unlock-fields').hidden = true;

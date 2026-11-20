@@ -316,8 +316,11 @@ round-trip acceptance remains separate from local SOCKS and UI tests.
 ### Automatic HTTPS pairing certificates
 
 StartOS supplies its published HTTPS origins and its public root CA. When the
-owner creates a phone code, the host makes a bounded, credential-free TLS request
-to the selected published origin and includes the verified leaf SHA256 in the QR.
+owner creates a phone code, the host probes the selected origin without credentials
+using the default TLS signature list, ECDSA P-256 and Ed25519. StartOS can serve
+different leaves according to the client handshake. Each probe verifies the
+hostname and chain against the configured CA. The QR includes the distinct
+SHA256 leaf fingerprints from successful probes.
 The phone keeps the existing exact-certificate check. No certificate installation
 or manual fingerprint copy is needed for this path. Unknown roots, hostname
 mismatches and redirects fail closed. Missing trust never enables insecure TLS.
