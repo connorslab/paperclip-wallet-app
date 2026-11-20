@@ -47,7 +47,7 @@ const PaperclipJarSend = {
     const q=row?.quote;
     if (terms.bond_locktime != null && (terms.coinjoin || (terms.bond_outpoint == null && terms.bond_locktime <= now))) throw new Error('Bond unlock date passed. Create a new review.');
     if (!this.id(id) || row?.id!==id || row.state!=='prepared' || !this.id(row.approval) || !Number.isSafeInteger(row.expires) || row.expires<=now || row.expires>now+300 ||
-        !q || q.wallet!==wallet || q.jar!==terms.jar || q.purpose!==(terms.bond_outpoint != null ? 'withdraw_bond' : terms.bond_locktime == null ? 'send' : 'fund_bond') || (q.bond_locktime??null)!==(terms.bond_locktime??null) || q.destination!==terms.destination || (terms.bond_outpoint != null ? q.total_sat : q.amount_sat)!==terms.amount_sat || (q.bond_outpoint??null)!==(terms.bond_outpoint??null) ||
+        !q || q.wallet!==wallet || q.jar!==terms.jar || q.purpose!==(terms.bond_outpoint != null ? 'withdraw_bond' : terms.bond_locktime == null ? 'send' : 'fund_bond') || (q.bond_locktime??null)!==(terms.bond_locktime??null) || q.destination!==terms.destination || (terms.bond_outpoint != null || terms.funding_inputs ? q.total_sat : q.amount_sat)!==terms.amount_sat || (q.bond_outpoint??null)!==(terms.bond_outpoint??null) ||
         ![q.amount_sat,q.fee_sat,q.total_sat].every(v=>Number.isSafeInteger(v)&&v>=0&&v<=2100000000000000) ||
         q.fee_sat>terms.max_fee_sat || q.amount_sat+q.fee_sat!==q.total_sat || !this.id(q.txid) || q.rbf!==!Boolean(terms.coinjoin) || (q.coinjoin??false)!==(terms.coinjoin??false) ||
         !['xbt-mainnet','xbt-testnet','xbt-signet','xbt-regtest'].includes(q.network) ||

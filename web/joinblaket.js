@@ -1,6 +1,6 @@
 'use strict';
 (() => {
-  let authorization = null, jars = [], session = null, selected = 0, busy = false, generation = 0, needsRefresh = false;
+  let authorization = null, jars = [], coins = [], session = null, selected = 0, busy = false, generation = 0, needsRefresh = false;
   const panel = document.querySelector('[data-screen="coinjoin"]');
   const toolsDialog = $('jam-tools-dialog');
   const toolTitles = {settings:'Maker settings',market:'Order book',bond:'Fidelity bond',guide:'How earning works'};
@@ -11,6 +11,7 @@
       $('jam-tool-title').textContent = toolTitles[key];
       toolsDialog.dataset.tool = key;
       toolsDialog.querySelectorAll('[data-jam-tool]').forEach(section => { section.hidden = section.dataset.jamTool !== key; });
+      if (key === 'bond') renderBondCoins();
       toolsDialog.showModal();
       if (key === 'market') $('jam-market-refresh').click();
       toolsDialog.scrollTop = 0;
@@ -23,7 +24,7 @@
     .observe($('jam-status'), {childList:true,subtree:true,characterData:true});
 
   const sendDialog = $('jam-send-dialog');
-  let sendDraft = null, sendReview = null, sendAttempted = false, sendJar = 0, sendTicket = 0, sendSubmitting = false, sendBond = null, bondTarget = null, sendWithdrawal = null;
+  let sendDraft = null, sendReview = null, sendAttempted = false, sendJar = 0, sendTicket = 0, sendSubmitting = false, sendBond = null, sendWithdrawal = null;
   function renderSend() {
     $('jam-send-form').hidden = sendAttempted;
     $('jam-send-review').hidden = !sendReview;
@@ -31,10 +32,13 @@
     $('jam-send-progress').hidden = !busy || !sendAttempted || !!sendReview;
     $('jam-send-progress-title').textContent = sendSubmitting ? 'Submitting payment' : sendDraft?.terms.coinjoin ? 'Preparing CoinJoin' : 'Preparing payment';
     $('jam-send-progress-detail').textContent = sendSubmitting ? 'Waiting for your Jam node. Keep this screen open; the payment will not be sent again automatically.' : sendDraft?.terms.coinjoin ? 'Finding participants and checking the exact fees. This can take up to three minutes. Nothing is broadcast until you review and send.' : 'Checking the recipient, coins and fees before review.';
-    $('jam-send-mode').textContent = sendWithdrawal ? 'Withdraws the entire bond, less the mining fee. This bond will no longer support your maker. Your node checks maturity again before sending.' : sendBond ? 'Unlocks '+sendBond.month+'-01 at 00:00 UTC. Back up your Jam wallet first; these coins will be locked. Bond funding is public and earnings are not guaranteed.' : $('jam-send-coinjoin').checked ?
+    $('jam-send-mode').textContent = sendWithdrawal ? 'Withdraws the entire bond, less the mining fee. This bond will no longer support your maker. Your node checks maturity again before sending.' : sendBond ? amount(sendBond.total)+' from '+sendBond.points.length+(sendBond.points.length===1?' selected coin':' selected coins')+', less the mining fee. The funded amount is fixed. Unlocks '+sendBond.month+'-01 at 00:00 UTC. Back up your Jam wallet first; these coins will be locked. Bond funding is public and earnings are not guaranteed.' : $('jam-send-coinjoin').checked ?
       'Pay with other participants. Review maker and mining fees before sending. If CoinJoin is unavailable, no direct payment is made.' : 'Direct payment. This transaction will not use CoinJoin.';
+    $('jam-bond-coins').disabled = busy;
+    $('jam-bond-month').disabled = busy;
     sendDialog.querySelectorAll('button,input').forEach(el=>el.disabled=busy);
-    $('jam-send-address').readOnly = !!sendBond;
+    $('jam-send-address').closest('label').hidden = !!sendBond;
+    $('jam-send-amount').closest('label').hidden = !!sendBond;
     $('jam-send-coinjoin').closest('label').hidden = !!sendBond || !!sendWithdrawal;
     $('jam-send-amount').readOnly = !!sendWithdrawal;
     $('jam-send-close').disabled = false;
@@ -42,25 +46,28 @@
   }
   $('jam-send-coinjoin').onchange = renderSend;
   function openSend(bond = null, withdrawal = null) {
-    if (busy || !authorization) return;
+    if (!authorization || (busy && !bond)) return;
     const wasBond=!!sendBond, wasWithdrawal=!!sendWithdrawal; sendBond=bond; sendWithdrawal=withdrawal;
     if(withdrawal) { $('jam-send-address').value=''; $('jam-send-amount').value=String(withdrawal.value_sat); $('jam-send-coinjoin').checked=false; }
     else if(wasWithdrawal) $('jam-send-amount').value='';
-    if(bond) { $('jam-send-address').value=bond.address; $('jam-send-coinjoin').checked=false; }
-    else if(wasBond) { $('jam-send-address').value=''; }
+    if(bond) { $('jam-send-amount').value=String(bond.total); $('jam-send-address').value=bond.address; $('jam-send-coinjoin').checked=false; }
+    else if(wasBond) { if(!withdrawal) $('jam-send-amount').value=''; $('jam-send-address').value=''; }
     sendTicket++; sendDraft=null; sendReview=null; sendAttempted=false; sendSubmitting=false; sendJar=withdrawal ? 0 : selected;
     $('jam-send-result').textContent='Check payment activity'; $('jam-send-status').textContent='';
     $('jam-send-title').textContent=withdrawal?'Withdraw fidelity bond':(bond?'Fund from ':'Send from ')+jars.find(jar=>jar.id===sendJar).name;
-    renderSend(); sendDialog.showModal(); $('jam-send-address').focus();
+    renderSend(); sendDialog.showModal(); $(bond?'jam-send-rate':'jam-send-address').focus();
   };
   $('jam-send').onclick = () => openSend();
-  $('jam-bond-fund').onclick = () => { if(!bondTarget || busy) return; toolsDialog.close(); openSend({...bondTarget}); };
   $('jam-send-close').onclick = () => sendDialog.close();
   sendDialog.addEventListener('close',()=>{ sendTicket++; sendReview=null; sendDraft=null; });
   new MutationObserver(()=>{ if(panel.hidden || !$('jam-dashboard').hidden && !authorization) sendDialog.close(); }).observe(panel,{attributes:true,attributeFilter:['hidden']});
   $('jam-send-prepare').onclick = () => work(async()=>{
     if (sendAttempted || !sendDialog.open) return;
     const terms=PaperclipJarSend.terms(sendJar,$('jam-send-address').value.trim(),$('jam-send-amount').value,$('jam-send-rate').value,$('jam-send-limit').value,$('jam-send-coinjoin').checked,sendWithdrawal?.locktime ?? sendBond?.locktime ?? null,sendWithdrawal?.outpoint ?? null);
+    if (sendBond) {
+      if (terms.max_fee_sat >= sendBond.total) throw new Error('Set a maximum mining fee below the selected coin total.');
+      terms.funding_inputs = sendBond.points;
+    }
     const id=Array.from(crypto.getRandomValues(new Uint8Array(32)),v=>v.toString(16).padStart(2,'0')).join('');
     const ticket=sendTicket, wallet=authorization.wallet;
     sendDraft={id,wallet,terms}; sendAttempted=true; renderSend();
@@ -75,7 +82,7 @@
       const group=document.createElement('div'), dt=document.createElement('dt'), dd=document.createElement('dd'); dt.textContent=label;dd.textContent=value;group.append(dt,dd);$('jam-send-costs').append(group);
     }
     $('jam-send-commit').textContent=terms.bond_outpoint != null?'Withdraw bond':terms.bond_locktime == null?'Send payment':'Fund bond';
-    $('jam-send-destination').textContent=row.quote.destination;
+    $('jam-send-destination').textContent=sendBond ? 'Selected coins: '+sendBond.points.join(', ') : row.quote.destination;
     sendDialog.querySelector('.jam-tool-body').scrollTop=0;
     $('jam-send-expiry').textContent='Review expires '+new Date(row.expires*1000).toLocaleTimeString()+(terms.coinjoin?'. Discarding may leave coins reserved briefly.':'');
   });
@@ -420,7 +427,20 @@
     }
   }
   function clearAddress() { window.PaperclipReceive?.clear('jam-address'); $('jam-address').textContent = ''; }
-  function clearBond() { bondTarget=null; $('jam-bond-fund').hidden=true; window.PaperclipReceive?.clear('jam-bond-address'); $('jam-bond-address').textContent = ''; $('jam-bond-detail').textContent = ''; }
+  function renderBondCoins() {
+    const group = $('jam-bond-coins'), legend = document.createElement('legend');
+    legend.textContent = 'Coins in ' + jars.find(jar => jar.id === selected).name;
+    group.replaceChildren(legend);
+    for (const coin of coins.filter(coin => coin.mixdepth === selected && coin.confirmations > 0 &&
+      coin.frozen === false && (coin.locktime == null || coin.locktime === '') && PaperclipBonds.outpoint(coin.utxo) && Number.isSafeInteger(coin.value) && coin.value > 0)) {
+      const label = document.createElement('label'), checkbox = document.createElement('input');
+      label.className = 'compact-check'; checkbox.type = 'checkbox'; checkbox.value = coin.utxo;
+      label.title = coin.utxo;
+      label.append(checkbox, amount(coin.value) + ' · ' + coin.utxo.slice(0,8) + '…' + coin.utxo.slice(-8));
+      group.append(label);
+    }
+    if (group.children.length === 1) group.append('No confirmed, unfrozen coins in this jar.');
+  }
   function validateBondMonth(month) {
     const year = Number(month.slice(0,4)), number = Number(month.slice(5));
     if (!/^[0-9]{4}-[0-9]{2}$/.test(month) || year < 2020 || year > 2099 || number < 1 || number > 12 || Date.UTC(year,number-1,1) <= Date.now())
@@ -544,7 +564,6 @@
     if (focusedJar !== undefined) $('jam-jars').querySelector(`[data-jar="${focusedJar}"]`)?.focus({preventScroll:true});
     const jar = jars.find(jar => jar.id === selected);
     if (jar) {
-      if (bondTarget) $('jam-bond-fund').textContent = 'Fund from ' + jar.name;
       $('jam-selected-name').textContent = jar.name; $('jam-receive').textContent = 'Receive into ' + jar.name;
       for (const [field, label] of [['confirmed_sat','Confirmed'],['pending_sat','Pending'],['frozen_sat','Frozen'],['bond_sat','Fidelity bonds']]) {
         if (jar[field] === 0 && field !== 'confirmed_sat') continue;
@@ -599,7 +618,7 @@
       jar.id !== id || typeof jar.name !== 'string' || ['total_sat','confirmed_sat','pending_sat','frozen_sat','bond_sat'].some(field => !Number.isSafeInteger(jar[field]) || jar[field] < 0))) {
       throw new Error('JoinBlaket returned invalid jar balances. Refresh before continuing.');
     }
-    session = current; jars = result.jars; needsRefresh = false;
+    session = current; jars = result.jars; coins = Array.isArray(result.utxos) ? result.utxos : []; needsRefresh = false;
   }
   async function discoverWallets() {
     const identity = token, ticket = generation;
@@ -664,21 +683,18 @@
     }
     const hint=document.createElement('p'); hint.className='hint'; hint.textContent='Stop your maker before withdrawing. Maturity uses your node’s chain time and is checked again before review and broadcast.'; root.append(hint);
   });
-  $('jam-bond-month').oninput = clearBond;
   $('jam-bond-review').onclick = () => work(async () => {
-    const month = $('jam-bond-month').value, wallet = authorization?.wallet;
+    const month = $('jam-bond-month').value, wallet = authorization?.wallet, jar = selected, ticket = generation;
     validateBondMonth(month);
-    if (!wallet) throw new Error('Unlock your Jars wallet first.');
-    if (!await window.PaperclipReview.ask('Create a bond address for ' + wallet + '?\n\nCoins sent here will be locked until ' + month + '-01 at 00:00 UTC. Creating the address sends no funds. Review the amount and mining fee separately when funding. Earnings are not guaranteed.')) return;
-    validateBondMonth(month); clearBond();
+    const points = [...$('jam-bond-coins').querySelectorAll('input:checked')].map(input => input.value);
+    if (!points.length || points.length > 200) throw new Error('Choose 1 to 200 coins from your jar.');
+    const total = points.reduce((sum, point) => sum + coins.find(coin => coin.utxo === point).value, 0);
     const result = await call('bond_address', {lock_month:month});
-    if (result.wallet !== wallet || result.lock_month !== month || typeof result.address !== 'string' || !result.address || result.address.length > 128 || /\s/.test(result.address))
-      throw new Error('Jam returned an invalid bond address. No funding was requested.');
-    $('jam-bond-detail').textContent = 'Wallet: ' + wallet + ' · Unlocks ' + month + '-01 at 00:00 UTC. Address ready; no funds sent. Back up your Jam wallet before funding.';
-    bondTarget={address:result.address,month,locktime:Date.parse(month+'-01T00:00:00Z')/1000};
-    $('jam-bond-fund').hidden=false; $('jam-bond-fund').textContent='Fund from '+jars.find(jar=>jar.id===selected).name;
-    $('jam-bond-address').textContent = result.address;
-    window.PaperclipReceive.show('jam-bond-address', result.address, 'Bond · unlocks ' + month + '-01 UTC');
+    if (!toolsDialog.open || toolsDialog.dataset.tool !== 'bond' || ticket !== generation || selected !== jar || authorization?.wallet !== wallet) return;
+    if (result.wallet !== wallet || result.lock_month !== month || typeof result.address !== 'string' || !/^[A-Za-z0-9]{14,90}$/.test(result.address))
+      throw new Error('Your host could not prepare this bond.');
+    toolsDialog.close();
+    openSend({address:result.address,month,locktime:Date.parse(month+'-01T00:00:00Z')/1000,points,total});
   });
   $('jam-receive').onclick = () => work(async () => {
     const result = await call('address', {jar: selected});
@@ -709,6 +725,6 @@
     market = null; renderMarket();
     generation++; payments = null; renderPayments(); $('jam-payments-panel').open = false; authorization = null; jars = []; session = null; selected = 0;
     $('jam-password').value = ''; $('jam-passphrase').value = ''; needsRefresh = false; $('jam-wallet').replaceChildren(); $('jam-unlock-fields').hidden = true;
-    clearAddress(); clearBond(); $('jam-bonds').replaceChildren(); $('jam-bond-month').value = ''; render();
+    clearAddress(); coins=[]; $('jam-bond-coins').replaceChildren(); $('jam-bonds').replaceChildren(); $('jam-bond-month').value = ''; render();
   }).observe($('wallet'), {attributes:true, attributeFilter:['hidden']});
 })();

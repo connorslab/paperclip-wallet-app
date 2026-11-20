@@ -87,6 +87,9 @@ class JamAdapter:
         elif bond is not None:
             raise PaymentConflict('Use the bond funding review for a registered bond destination')
         selected = request['input_utxos']
+        if purpose == 'fund_bond' and selected:
+            if any(point not in by_outpoint or by_outpoint[point].confirmations <= 0 or by_outpoint[point].frozen for point in selected):
+                raise PaymentConflict('Selected jar coins must be confirmed and available')
         if purpose == 'withdraw_bond':
             if not selected or len(selected) != 1 or not request['send_max']:
                 raise PaymentConflict('Choose one matured bond and review its full withdrawal')
@@ -107,6 +110,10 @@ class JamAdapter:
         if purpose != 'withdraw_bond' and any(coin.locktime is not None for coin in used):
             raise PaymentConflict('Bond coins require a separate withdrawal review')
         total = prepared.send_amount + prepared.fee
+        if purpose == 'fund_bond' and selected and request['send_max']:
+            actual = {f'{coin.txid}:{coin.vout}' for coin in used}
+            if actual != set(selected) or len(used) != len(selected) or prepared.change_amount or total != request['max_total_sat']:
+                raise PaymentConflict('Selected bond inputs or their total changed; review again')
         if prepared.fee < 0 or prepared.fee > request['max_fee_sat'] or total > request['max_total_sat']:
             raise PaymentConflict('Prepared payment exceeds the approved cost limits')
         if not request['send_max'] and prepared.send_amount != request['amount_sat']:
@@ -151,14 +158,14 @@ class JamAdapter:
             coin = current.get(item['outpoint'])
             if coin is None or coin.value != item['amount_sat'] or coin.scriptpubkey != item['scriptpubkey'] or coin.locktime != item['locktime']:
                 raise PaymentConflict('Selected coins changed; create a new payment review')
-            if quote['purpose'] == 'withdraw_bond' and coin.confirmations <= 0:
-                raise PaymentConflict('Bond confirmation changed; wait for confirmation before withdrawing')
+            if quote['purpose'] in ('fund_bond', 'withdraw_bond') and coin.confirmations <= 0:
+                raise PaymentConflict('Selected coins must be confirmed before the bond transaction')
             chain_coin = await backend.get_utxo(coin.txid, coin.vout)
             self.idle()
             if chain_coin is None or chain_coin.value != coin.value or chain_coin.scriptpubkey != coin.scriptpubkey:
                 raise PaymentConflict('The node no longer reports the reviewed unspent coins')
-            if quote['purpose'] == 'withdraw_bond' and (type(chain_coin.confirmations) is not int or chain_coin.confirmations <= 0):
-                raise PaymentConflict('The node no longer reports a confirmed bond; wait for confirmation before withdrawing')
+            if quote['purpose'] in ('fund_bond', 'withdraw_bond') and (type(chain_coin.confirmations) is not int or chain_coin.confirmations <= 0):
+                raise PaymentConflict('The node no longer reports confirmed inputs for this bond transaction')
 
     async def broadcast(self, signed, quote):
         self.authorize()

@@ -85,7 +85,7 @@ for(const item of bookCases) {
       if(body.operation==='wallets') value={wallets:['Sample Jars.jmdat']};
       else if(body.operation==='unlock') { assert.equal(body.bip39_passphrase,'fixture-passphrase'); value={walletname:'Sample Jars.jmdat',token:'fixture-token'}; }
       else if(body.operation==='status') value={session:true,wallet_name:'Sample Jars.jmdat',maker_running:false,coinjoin_in_process:false,rescanning:false};
-      else if(body.operation==='coins') value={jars};
+      else if(body.operation==='coins') value={jars,utxos:[{mixdepth:0,utxo:"1".repeat(64)+":0",confirmations:2,value:200000,frozen:false,locktime:null}]};
       else if(body.operation==='address') { assert(Number.isInteger(body.jar)&&body.jar>=0&&body.jar<5);received.push(body.jar);value={address:'bc1qsyntheticdisplayonly'+body.jar}; }
       else if(body.operation==='payments') value={payments:[recovery]};
       else if(body.operation==='check_payment') {
@@ -100,6 +100,14 @@ for(const item of bookCases) {
       else if(body.operation==='cancel_payment') {
        if(failCancel)return route.fulfill({status:504,json:{message:'Synthetic cancellation timeout'}});
        value={...recovery,state:'cancelled'};
+      }
+      else if(body.operation==='prepare_payment') {
+       assert.deepEqual(body.send.funding_inputs,['1'.repeat(64)+':0']);
+       assert.equal(body.send.amount_sat,200000);
+       value={id:body.payment_id,state:'prepared',approval:'e'.repeat(64),expires:Math.floor(Date.now()/1000)+120,quote:{
+        wallet:body.wallet,jar:0,network:'xbt-regtest',wallet_identity:'xbt-regtest:'+ '2'.repeat(64),purpose:'fund_bond',
+        bond_locktime:body.send.bond_locktime,destination:body.send.destination,fee_sat:150,total_sat:200000,
+        amount_sat:199850,rbf:true,txid:'3'.repeat(64)}};
       }
       else if(body.operation==='bond_address') {
        assert.equal(body.lock_month,'2099-12');
@@ -380,24 +388,27 @@ for(const item of bookCases) {
    await page.locator('#jam-bond-review').click();
    await page.locator('#jam-status').filter({hasText:'future month'}).waitFor();
    assert.equal(actions.filter(action=>action==='bond_address').length,0);
+   assert.equal(await page.locator('#jam-bond-coins input').count(),0);
+   await closeTool(); await page.locator('.jam-jar').nth(0).click(); await openTool('bond');
    await page.locator('#jam-bond-month').fill('2099-12');
    await page.locator('#jam-bond-review').click();
-   await page.getByRole('button',{name:'Go back',exact:true}).click();
-   assert.equal(actions.filter(action=>action==='bond_address').length,0,'Cancel must not register an address');
+   assert.equal(actions.filter(action=>action==='bond_address').length,0);
+   await page.locator('#jam-bond-coins input').check();
    await page.locator('#jam-bond-review').click();
-   assert.match(await page.locator('.review-sheet').textContent(),/Sample Jars.jmdat[\s\S]*2099-12-01[\s\S]*no funds/);
-   await page.getByRole('button',{name:'Confirm',exact:true}).click();
-   await page.locator('#jam-bond-detail').filter({hasText:'Address ready; no funds sent'}).waitFor();
-   assert.equal(actions.filter(action=>action==='bond_address').length,1);
-   if(process.env.SCREENSHOT_DIR)await page.screenshot({path:path.join(process.env.SCREENSHOT_DIR,`joinblaket-bond-${width}.png`),fullPage:true,animations:'disabled'});
-   assert.equal(actions.filter(action=>/maker|send|fund/.test(action)).length,0);
-   await page.locator('#jam-bond-month').fill('2098-12');
-   assert.equal(await page.locator('#jam-bond-address').textContent(),'','Editing must clear the old bond address');
-   await page.locator('#jam-bond-month').fill('2099-12');failBond=true;
-   await page.locator('#jam-bond-review').click();await page.getByRole('button',{name:'Confirm',exact:true}).click();
+   await page.locator('#jam-send-dialog').waitFor();
+   assert(await page.locator('#jam-send-address').isHidden());
+   assert(await page.locator('#jam-send-amount').isHidden());
+   assert.match(await page.locator('#jam-send-mode').textContent(),/200,000 sats/);
+   await page.locator('#jam-send-prepare').click();
+   await page.locator('#jam-send-commit').waitFor();
+   assert.equal(await page.locator('#jam-send-hero').textContent(),'199,850 sats');
+   assert.match(await page.locator('#jam-send-costs').textContent(),/150 sats/);
+   await page.locator('#jam-send-close').click();
+   assert.equal(actions.filter(action=>action==='commit_payment').length,0);
+   await openTool('bond'); await page.locator('#jam-bond-coins input').check(); failBond=true;
+   await page.locator('#jam-bond-review').click();
    await page.locator('#jam-status').filter({hasText:'Synthetic bond timeout'}).waitFor();
-   assert.equal(actions.filter(action=>action==='bond_address').length,2,'Timed-out registration must not be replayed');
-   assert.equal(await page.locator('#jam-bond-address').textContent(),'');
+   assert.equal(actions.filter(action=>action==='bond_address').length,2);
    if(process.env.SCREENSHOT_DIR) {
     await page.locator('#network').evaluate(el=>el.textContent='UI TEST FIXTURE · NOT LIVE FUNDS');
     await page.screenshot({path:path.join(process.env.SCREENSHOT_DIR,`joinblaket-${width}.png`),fullPage:true,animations:'disabled'});

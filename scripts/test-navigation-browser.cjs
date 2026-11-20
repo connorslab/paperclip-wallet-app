@@ -23,7 +23,7 @@ const fs = require('node:fs'), path = require('node:path'), assert = require('no
    await page.locator('#token').fill('synthetic-token');
    await page.getByRole('button',{name:'Unlock wallet',exact:true}).click();
    await page.locator('#wallet').waitFor({state:'visible'});
-   for (const view of ['transfer','onchain','lightning','coinjoin','activity','settings','overview']) {
+   for (const view of ['onchain','lightning','coinjoin','activity','settings','overview']) {
     const nested=['transfer','onchain'].includes(view);
     const menu=page.locator(`.view-nav [data-view="${nested?'overview':view}"]`);
     await menu.click();
@@ -65,7 +65,12 @@ const fs = require('node:fs'), path = require('node:path'), assert = require('no
     }
    }
    await page.locator('.view-nav [data-view="overview"]').click();
-   await page.locator('.overview-note [data-view="transfer"]').click();
+   for (const [route,visible,hidden] of [['ark-receive','#receive','#send'],['onchain-send','#chain-send','#deposit'],['onchain-receive','#deposit','#chain-send'],['ark-send','#send','#receive']]) {
+    await page.locator('.metrics [data-view="'+route+'"]').click();
+    assert(await page.locator(visible).isVisible());
+    assert(await page.locator(hidden).isHidden());
+    if (route !== 'ark-send') await page.locator('.view-nav [data-view="overview"]').click();
+   }
    await page.locator('#destination').fill('ark-synthetic-draft');
    await page.locator('.view-nav [data-view="settings"]').click();
    await page.goBack();

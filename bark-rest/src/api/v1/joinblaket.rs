@@ -58,6 +58,7 @@ struct SendTerms {
 	#[serde(default)] coinjoin: bool,
 	#[serde(default)] bond_locktime: Option<i64>,
 	#[serde(default)] bond_outpoint: Option<String>,
+	#[serde(default)] funding_inputs: Option<Vec<String>>,
 }
 impl SendTerms {
 	fn purpose(&self) -> &'static str { if self.bond_outpoint.is_some() { "withdraw_bond" } else if self.bond_locktime.is_some() { "fund_bond" } else { "send" } }
@@ -71,9 +72,14 @@ impl SendTerms {
 		} else if let Some(stamp) = self.bond_locktime {
 			ensure!(!self.coinjoin && stamp > chrono::Utc::now().timestamp() && stamp <= 4_099_766_400, "Review the future bond unlock date; bond funding cannot use CoinJoin");
 		}
-		Ok(json!({"id":id,"purpose":self.purpose(),"input_utxos":self.bond_outpoint.as_ref().map(|p| vec![p]),"bond_locktime":self.bond_locktime,"jar":self.jar,"destination":self.destination,
-			"amount_sat":if self.bond_outpoint.is_some() { 0 } else { self.amount_sat },"send_max":self.bond_outpoint.is_some(),"fee_rate_millisat_vb":self.fee_rate_millisat_vb,
-			"max_fee_sat":self.max_fee_sat,"max_total_sat":if self.bond_outpoint.is_some() { self.amount_sat } else { self.amount_sat+self.max_fee_sat },"rbf":!self.coinjoin,"coinjoin":self.coinjoin}))
+		let sweep = self.funding_inputs.is_some() || self.bond_outpoint.is_some();
+		if let Some(points) = &self.funding_inputs {
+			ensure!(self.purpose() == "fund_bond" && self.max_fee_sat < self.amount_sat && (1..=200).contains(&points.len())
+				&& points.iter().all(|p| valid_bond_outpoint(p)) && points.iter().collect::<std::collections::HashSet<_>>().len() == points.len(), "Select distinct jar coins to fund this bond");
+		}
+		Ok(json!({"id":id,"purpose":self.purpose(),"input_utxos":self.funding_inputs.clone().or_else(|| self.bond_outpoint.clone().map(|p| vec![p])),"bond_locktime":self.bond_locktime,"jar":self.jar,"destination":self.destination,
+			"amount_sat":if sweep { 0 } else { self.amount_sat },"send_max":sweep,"fee_rate_millisat_vb":self.fee_rate_millisat_vb,
+			"max_fee_sat":self.max_fee_sat,"max_total_sat":if sweep { self.amount_sat } else { self.amount_sat+self.max_fee_sat },"rbf":!self.coinjoin,"coinjoin":self.coinjoin}))
 	}
 }
 
@@ -96,7 +102,7 @@ fn verify_send_terms(review: &Value, terms: &SendTerms) -> anyhow::Result<()> {
 	let q = &review["quote"];
 	let purpose = terms.purpose();
 	ensure!(q["purpose"] == purpose
-		&& q["bond_locktime"].as_i64() == terms.bond_locktime && q["coinjoin"].as_bool().unwrap_or(false) == terms.coinjoin && q["jar"] == terms.jar && q["destination"] == terms.destination && (if terms.bond_outpoint.is_some() { q["total_sat"] == terms.amount_sat } else { q["amount_sat"] == terms.amount_sat })
+		&& q["bond_locktime"].as_i64() == terms.bond_locktime && q["coinjoin"].as_bool().unwrap_or(false) == terms.coinjoin && q["jar"] == terms.jar && q["destination"] == terms.destination && (if terms.bond_outpoint.is_some() || terms.funding_inputs.is_some() { q["total_sat"] == terms.amount_sat } else { q["amount_sat"] == terms.amount_sat })
 		&& q["bond_outpoint"].as_str() == terms.bond_outpoint.as_deref()
 		&& q["fee_sat"].as_u64().is_some_and(|v| v <= terms.max_fee_sat), "Jam changed the recipient, jar, amount or fee limit; check the saved review");
 	Ok(())
@@ -303,6 +309,11 @@ async fn execute_bound(input: Request, expected_identity: Option<&str>) -> anyho
 				let result = upstream(&client, &base, &["wallet", &input.wallet, "paperclip", "payments"], &input.token, Some(body)).await?;
 				ensure!(result["id"] == id, "Jam returned a different payment");
 				let review = send_review(&result, &input.wallet, key, chrono::Utc::now().timestamp())?;
+				if let Some(selected) = &terms.funding_inputs {
+					let used = result["quote"]["inputs"].as_array().context("Missing bond inputs")?;
+					let points = used.iter().filter_map(|coin| coin["outpoint"].as_str()).collect::<std::collections::HashSet<_>>();
+					ensure!(used.len() == selected.len() && selected.iter().all(|p| points.contains(p.as_str())) && result["quote"]["change_sat"] == 0, "Jam changed the selected bond inputs");
+				}
 				verify_send_terms(&review, terms)?;
 				return Ok(review);
 			}
@@ -486,7 +497,7 @@ mod tests {
 	#[test]
 	fn jam_send_reviews_bind_wallet_recipient_cost_and_expiry() {
 		let cases: Vec<Value> = serde_json::from_str(include_str!("../../../../mobile/Tests/PaperclipMobileTests/Fixtures/jam-send-review.json")).unwrap();
-		let terms = SendTerms { jar:0, destination:"bcrt1qsyntheticrecipient".into(), amount_sat:20000, fee_rate_millisat_vb:1000, max_fee_sat:500, coinjoin:false, bond_locktime:None, bond_outpoint:None };
+		let terms = SendTerms { jar:0, destination:"bcrt1qsyntheticrecipient".into(), amount_sat:20000, fee_rate_millisat_vb:1000, max_fee_sat:500, coinjoin:false, bond_locktime:None, bond_outpoint:None, funding_inputs:None };
 		let identity = format!("xbt-regtest:{}", "c".repeat(64));
 		for case in cases {
 			let result = send_review(&case["review"], "fixture.jmdat", &identity, 2000000000).and_then(|review| {
@@ -499,6 +510,15 @@ mod tests {
 		let funding = SendTerms { bond_locktime:Some(2_100_000_000), ..terms.clone() };
 		let body = funding.body(&"a".repeat(64)).unwrap();
 		assert_eq!(body["purpose"], "fund_bond"); assert_eq!(body["bond_locktime"], 2_100_000_000);
+		let points = vec![format!("{}:0", "1".repeat(64)), format!("{}:1", "2".repeat(64))];
+		let selected = SendTerms { funding_inputs:Some(points.clone()), ..funding.clone() };
+		let sweep = selected.body(&"a".repeat(64)).unwrap();
+		assert_eq!(sweep["input_utxos"], json!(points));
+		assert_eq!(sweep["max_total_sat"], selected.amount_sat);
+		assert_eq!(sweep["amount_sat"], 0);
+		assert_eq!(sweep["send_max"], true);
+		assert!(SendTerms { funding_inputs:Some(vec![points[0].clone(); 2]), ..selected.clone() }.body(&"a".repeat(64)).is_err());
+		assert!(SendTerms { bond_locktime:None, ..selected }.body(&"a".repeat(64)).is_err());
 		assert!(SendTerms { coinjoin:true, ..funding.clone() }.body(&"a".repeat(64)).is_err());
 		assert!(SendTerms { bond_locktime:Some(1), ..funding }.body(&"a".repeat(64)).is_err());
 		let withdrawal = SendTerms { bond_locktime:Some(1_800_000_000), bond_outpoint:Some(format!("{}:0", "1".repeat(64))), ..terms.clone() };

@@ -161,7 +161,7 @@ gate; the main wallet's MIT license alone does not cover this companion image.
 
 Paperclip can fund a newly registered bond from its selected jar through the
 reviewed payment API. The client binds `fund_bond`, address, UTC locktime, jar,
-fixed amount and fee cap. It negotiates `bond_funding` before preparation and
+amount and fee cap. In the desktop wallet the user selects confirmed, unfrozen outputs in one jar. The host sweeps those exact outputs into a single bond, deducts the reviewed mining fee and checks for zero change. The bond amount and unlock date are fixed once funded. It negotiates `bond_funding` before preparation and
 never substitutes an ordinary send or CoinJoin. The companion's existing address
 ownership, registry, future-date and one-shot broadcast checks remain authoritative.
 The funding UI does not start the maker or claim confirmation.

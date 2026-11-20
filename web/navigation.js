@@ -1,7 +1,7 @@
 'use strict';
 // Navigation never repeats a wallet action or dismisses an uncertain payment.
 (() => {
-  const titles = {overview:'Your wallet', transfer:'Send & receive', onchain:'On-chain', lightning:'Lightning', 'ark-lightning':'Send from Ark', 'ark-lightning-receive':'Receive into Ark', 'ark-lightning-offer':'Ark reusable offer', 'ark-lightning-status':'Ark payment status', node:'Your Lightning node', 'node-pay':'Send from your node', 'node-receive':'Receive into your node', 'node-activity':'Node payment activity', 'bridge-reusable':'Reusable bridge offers', 'bridge-send':'Pay BTC with XBT', 'bridge-send-detail':'Review Bridge payment', 'bridge-send-activity':'Bridge payment activity', bridge:'Paperclip Bridge', 'bridge-detail':'Bridge receive request', 'bridge-activity':'Bridge activity', activity:'Activity', settings:'Settings', recovery:'Recovery', health:'Wallet health', coinjoin:'Jars', wallets:'Your wallets', signing:'Send with your signer'};
+  const titles = {overview:'Your wallet', 'ark-send':'Send Ark', 'ark-receive':'Receive Ark', 'onchain-send':'Send on-chain', 'onchain-receive':'Receive on-chain', transfer:'Send & receive', onchain:'On-chain', lightning:'Lightning', 'ark-lightning':'Send from Ark', 'ark-lightning-receive':'Receive into Ark', 'ark-lightning-offer':'Ark reusable offer', 'ark-lightning-status':'Ark payment status', node:'Your Lightning node', 'node-pay':'Send from your node', 'node-receive':'Receive into your node', 'node-activity':'Node payment activity', 'bridge-reusable':'Reusable bridge offers', 'bridge-send':'Pay BTC with XBT', 'bridge-send-detail':'Review Bridge payment', 'bridge-send-activity':'Bridge payment activity', bridge:'Paperclip Bridge', 'bridge-detail':'Bridge receive request', 'bridge-activity':'Bridge activity', activity:'Activity', settings:'Settings', recovery:'Recovery', health:'Wallet health', coinjoin:'Jars', wallets:'Your wallets', signing:'Send with your signer'};
   let current = 'overview', revision = 0;
   const valid = view => Object.hasOwn(titles, view);
   const requestedView = () => valid(location.hash.slice(1)) ? location.hash.slice(1) : 'overview';
@@ -9,6 +9,7 @@
     if (!valid(view) || $('wallet').hidden) return;
     if (window.PaperclipAccounts?.selectedId && view.startsWith('ark-lightning')) view = 'lightning';
     if (window.PaperclipAccounts?.selectedId && ['transfer','onchain'].includes(view)) view = view === 'transfer' ? 'signing' : 'overview';
+    if (window.PaperclipAccounts?.selectedId && /^(ark|onchain)-(send|receive)$/.test(view)) view = 'overview';
     if (!window.PaperclipAccounts?.selectedId && view === 'signing') view = 'wallets';
     window.PaperclipReview?.cancel();
     if (view !== current) $('status').textContent = '';
@@ -20,10 +21,10 @@
     document.title = titles[view] + ' · Paperclip Wallet';
     document.querySelectorAll('[data-screen]').forEach(panel => {
       const kind = window.PaperclipAccounts?.selectedId ? 'hardware' : 'hot';
-      panel.hidden = (panel.dataset.screen !== view && !(panel.dataset.screen === 'ark-lightning' && view.startsWith('ark-lightning')) && !(panel.dataset.screen === 'node' && view.startsWith('node-')) && !(panel.dataset.screen === 'bridge' && ['bridge-detail','bridge-activity'].includes(view)) && !(panel.dataset.screen === 'bridge-send' && view.startsWith('bridge-send-'))) || (!!panel.dataset.wallet && panel.dataset.wallet !== kind);
+      panel.hidden = (panel.dataset.screen !== view && panel.dataset.paymentScreen !== view && !(panel.dataset.screen === 'transfer' && ['ark-send','ark-receive'].includes(view)) && !(panel.dataset.screen === 'ark-lightning' && view.startsWith('ark-lightning')) && !(panel.dataset.screen === 'node' && view.startsWith('node-')) && !(panel.dataset.screen === 'bridge' && ['bridge-detail','bridge-activity'].includes(view)) && !(panel.dataset.screen === 'bridge-send' && view.startsWith('bridge-send-'))) || (!!panel.dataset.wallet && panel.dataset.wallet !== kind);
       panel.classList.toggle('view-enter', !panel.hidden);
     });
-    const section = ['recovery', 'wallets', 'health'].includes(view) ? 'settings' : ['transfer', 'onchain', 'signing'].includes(view) ? 'overview' : (view.startsWith('node') || view.startsWith('bridge') || view.startsWith('ark-lightning')) ? 'lightning' : view;
+    const section = ['recovery', 'wallets', 'health'].includes(view) ? 'settings' : ['transfer', 'onchain', 'signing','ark-send','ark-receive','onchain-send','onchain-receive'].includes(view) ? 'overview' : (view.startsWith('node') || view.startsWith('bridge') || view.startsWith('ark-lightning')) ? 'lightning' : view;
     document.querySelectorAll('.view-nav [data-view]').forEach(button => {
       const selected = button.dataset.view === section;
       button.setAttribute('aria-pressed', String(selected));
@@ -31,6 +32,10 @@
     });
     document.querySelectorAll('[data-ark-task]').forEach(task => { task.hidden = task.dataset.arkTask !== view; });
     document.querySelectorAll('.task-switch [data-view]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.view === view)));
+    document.querySelector('.transfer-switch').hidden = view === 'ark-send' || view === 'ark-receive';
+    if (view === 'ark-send' || view === 'ark-receive') transfer(view.slice(4));
+    $('board').hidden = view === 'onchain-receive';
+    $('board').nextElementSibling.hidden = view === 'onchain-receive';
     window.scrollTo({top:0, behavior:'instant'});
     if (focus) heading.focus({preventScroll:true});
     window.dispatchEvent(new CustomEvent('paperclip:view', {detail:view}));

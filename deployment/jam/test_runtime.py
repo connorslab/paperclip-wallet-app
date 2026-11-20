@@ -4,6 +4,7 @@ Run in the pinned dependency environment after applying install.py. No node,
 production credentials or externally funded wallet is accessed by these tests.
 """
 import asyncio
+from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 import shutil
@@ -341,6 +342,22 @@ class RuntimeTest(unittest.TestCase):
         self.assertEqual(self.client.post(target,json={'approval':review['approval']}).status_code,504)
         self.assertEqual(self.client.post(target,json={'approval':review['approval']}).json()['state'],'unknown')
         self.backend.broadcast_transaction.assert_awaited_once()
+
+    def test_bond_funding_sweeps_only_selected_coins_less_fee(self):
+        bond, _ = self.registered_bond()
+        second = replace(self.coin, txid='2' * 64, value=50_000)
+        other = replace(self.coin, txid='3' * 64, value=300_000)
+        self.wallet.utxo_cache[0].extend([second, other])
+        points = [self.coin.outpoint, second.outpoint]
+        total = self.coin.value + second.value
+        self.body.update(purpose='fund_bond', destination=bond.address, bond_locktime=bond.locktime,
+            amount_sat=0, send_max=True, input_utxos=points, max_total_sat=total)
+        with patch('paperclip_jam.adapter.time.time', return_value=bond.locktime - 3600):
+            quote = self.prepare()['quote']
+        self.assertCountEqual([coin['outpoint'] for coin in quote['inputs']], points)
+        self.assertEqual(quote['amount_sat'] + quote['fee_sat'], total)
+        self.assertEqual(quote['change_sat'], 0)
+        self.backend.broadcast_transaction.assert_not_awaited()
 
     def test_registered_bond_funding_signs_only_after_exact_date_review(self):
         bond, script = self.registered_bond()

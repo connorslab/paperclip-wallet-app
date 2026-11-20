@@ -449,3 +449,6 @@ button,a,summary {touch-action:manipulation}
 .jam-book-offers th,.jam-book-offers td{padding:.65rem;white-space:nowrap;border-bottom:1px solid var(--stroke)}
 .jam-book-offers th{font-size:.8rem;color:var(--muted)}
 @media(min-width:800px){.book-stats{grid-template-columns:repeat(4,minmax(0,1fr))}}
+
+.metrics .actions {margin-top:16px}
+#jam-bond-coins label {min-height:44px;overflow-wrap:anywhere}
