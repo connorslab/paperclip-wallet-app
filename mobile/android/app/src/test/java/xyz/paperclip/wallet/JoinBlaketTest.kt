@@ -11,6 +11,24 @@ import org.junit.Test
 import org.json.JSONObject
 
 class JoinBlaketTest {
+    @Test fun untrustedPairingExplainsNewCodeWithoutRetry() = runBlocking {
+        val pair = JoinBlaketPairing.parse(pairingText())
+        var calls = 0
+        var certificateFailure = true
+        val http = OkHttpClient.Builder().retryOnConnectionFailure(false).addInterceptor {
+            calls++
+            if (certificateFailure) throw javax.net.ssl.SSLHandshakeException("Synthetic untrusted root")
+            throw SocketTimeoutException("Synthetic timeout")
+        }.build()
+        val client = JoinBlaketClient(pair.connection, http, pair)
+        val first = runCatching { client.status(pair.authorization()) }.exceptionOrNull()
+        assertTrue(first?.message.orEmpty().contains("automatic certificate setup"))
+        assertEquals(1, calls)
+        certificateFailure = false
+        assertTrue(runCatching { client.status(pair.authorization()) }.exceptionOrNull() is SocketTimeoutException)
+        assertEquals(2, calls)
+    }
+
     @Test fun pairedBondInventoryUsesReadOnlyHostRoute() = runBlocking {
         val pair=JoinBlaketPairing.parse(pairingText())
         val fixtures=org.json.JSONArray(checkNotNull(javaClass.getResourceAsStream("/jam-bonds.json")).bufferedReader().use { it.readText() })

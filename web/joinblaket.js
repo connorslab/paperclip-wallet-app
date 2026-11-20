@@ -248,7 +248,11 @@
   }
   const onionHost = host => /^[a-z2-7]{56}\.onion$/.test(host);
   let hostOnion = onionHost(location.hostname) ? location.origin : '';
-  let pairingEdit = 0;
+  let pairingEdit = 0, hostHTTPS = [];
+  function directPairingAddress() {
+    if (location.protocol === 'https:' && !onionHost(location.hostname)) return location.origin;
+    return hostHTTPS.find(address => new URL(address).hostname === location.hostname) || hostHTTPS[0] || '';
+  }
   function pairingRoute() {
     const tor = $('jam-pairing-transport').value === 'tor';
     $('jam-pairing-route-hint').textContent = tor
@@ -260,15 +264,24 @@
   pairingRoute();
   $('jam-pairing-transport').onchange = () => {
     pairingEdit++; clearPairingCode();
-    $('jam-pairing-endpoint').value = $('jam-pairing-transport').value === 'tor' ? hostOnion : (location.protocol === 'https:' && !onionHost(location.hostname) ? location.origin : '');
+    $('jam-pairing-endpoint').value = $('jam-pairing-transport').value === 'tor' ? hostOnion : directPairingAddress();
     $('jam-pairing-pin').value = ''; pairingRoute();
   };
+  $('jam-pairing-endpoint').addEventListener('input', () => { $('jam-pairing-pin').value = ''; });
   for (const id of ['jam-pairing-endpoint','jam-pairing-pin','jam-pairing-label']) $(id).addEventListener('input', () => { pairingEdit++; clearPairingCode(); });
   async function discoverPairingAddress() {
     const edit = pairingEdit;
     try {
       const value = await pairingCall('joinblaket/pairings/connection');
-      if (!value.onion_endpoint) return;
+      hostHTTPS = Array.isArray(value.https_endpoints) ? value.https_endpoints.filter(address => {
+        try { const url = new URL(address); return url.protocol === 'https:' && !url.username && !url.password && !url.search && !url.hash && url.pathname === '/'; } catch { return false; }
+      }).map(address => new URL(address).href) : [];
+      if (!value.onion_endpoint) {
+        if (edit === pairingEdit && !$('jam-pairing-endpoint').value && directPairingAddress()) {
+          $('jam-pairing-transport').value = 'https'; $('jam-pairing-endpoint').value = directPairingAddress(); pairingRoute();
+        }
+        return;
+      }
       const url = new URL(value.onion_endpoint);
       if (!onionHost(url.hostname) || !['http:','https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash || url.pathname !== '/') return;
       hostOnion = url.href;
@@ -280,12 +293,23 @@
     const scope = $('jam-pairing-scope').value;
     if (!['jars_manage_v1','jars_pay_v1'].includes(scope)) throw new Error('Choose phone permissions.');
     if (!$('jam-pairing-endpoint').value.trim()) throw new Error($('jam-pairing-transport').value === 'tor' ? 'Enter your Paperclip host’s onion address, or choose HTTPS for a direct connection.' : 'Enter your Paperclip host’s HTTPS address.');
-    const endpoint = new URL($('jam-pairing-endpoint').value.trim()), pin = $('jam-pairing-pin').value.trim().toLowerCase(), label = $('jam-pairing-label').value.trim();
+    const endpoint = new URL($('jam-pairing-endpoint').value.trim()), label = $('jam-pairing-label').value.trim();
+    let pin = $('jam-pairing-pin').value.trim().toLowerCase();
     const tor = $('jam-pairing-transport').value === 'tor', edit = pairingEdit;
     if (tor ? !onionHost(endpoint.hostname) : endpoint.protocol !== 'https:' || endpoint.hostname.endsWith('.onion')) throw new Error(tor ? 'Use a full v3 onion address for Tor pairing.' : 'Use HTTPS, or select Tor for an onion address.');
     if (!label || [...label].length > 48 || /[\x00-\x1f\x7f]/.test(label)) throw new Error('Name this device using 1 to 48 characters.');
     if (!(endpoint.protocol === 'https:' || (endpoint.protocol === 'http:' && endpoint.hostname.endsWith('.onion'))) || endpoint.username || endpoint.password || endpoint.search || endpoint.hash || (pin && (!/^[0-9a-f]{64}$/.test(pin) || endpoint.protocol !== 'https:'))) throw new Error('Use the Paperclip HTTPS address or its onion address, with a verified certificate fingerprint if needed.');
-    if (!await window.PaperclipReview.ask('Pair a phone with '+authorization.wallet+' through '+endpoint.href+'? '+(scope === 'jars_pay_v1' ? 'This phone can manage and send funds from this Jars wallet for up to 30 days.' : 'This phone can manage Jars receiving, maker controls and status for up to 30 days. Sending is not allowed.')+' Keep the code private.')) return;
+    if (endpoint.protocol === 'https:' && !pin) {
+      // Only the host can discover a pin, and only for its OS-published origins.
+      // Bind the result to this exact address and this unchanged form revision.
+      const trust = await pairingCall('joinblaket/pairings/connection?endpoint='+encodeURIComponent(endpoint.href)).catch(() => ({}));
+      if (edit !== pairingEdit) throw new Error('Connection changed. Review the new connection before pairing.');
+      if (trust.https_endpoint === endpoint.href && /^[0-9a-f]{64}$/.test(trust.certificate_sha256 || '')) pin = trust.certificate_sha256;
+      else if (hostHTTPS.includes(endpoint.href) || (Array.isArray(trust.https_endpoints) && trust.https_endpoints.includes(endpoint.href)) || endpoint.hostname === 'localhost' || endpoint.hostname.endsWith('.local') || endpoint.hostname.endsWith('.internal') || endpoint.hostname.endsWith('.onion') || /^\[|^\d+\.\d+\.\d+\.\d+$/.test(endpoint.hostname)) {
+        throw new Error('Your host could not add a verified certificate. Choose Tor pairing, or add a fingerprint verified in your host settings under Advanced certificate settings.');
+      }
+    }
+    if (!await window.PaperclipReview.ask('Pair a phone with '+authorization.wallet+' through '+endpoint.href+'? '+(scope === 'jars_pay_v1' ? 'This phone can manage and send funds from this Jars wallet for up to 30 days.' : 'This phone can manage Jars receiving, maker controls and status for up to 30 days. Sending is not allowed.')+(pin ? ' The verified host certificate is included; no certificate setup is needed on your phone.' : '')+' Keep the code private.')) return;
     if (edit !== pairingEdit) throw new Error('Connection changed. Review the new connection before pairing.');
     const wallet = authorization.wallet;
     const value = await pairingCall('joinblaket/pairings', {label,wallet,token:authorization.token,scope});
@@ -303,7 +327,7 @@
   $('jam-pairing-load').onclick = () => work(loadPairings);
   $('jam-pairing-panel').addEventListener('toggle', () => { if (!$('jam-pairing-panel').open) { pairingEdit++; clearPairingCode(); } else discoverPairingAddress(); });
   document.addEventListener('visibilitychange', () => { if (document.hidden) clearPairingCode(); });
-  new MutationObserver(() => { if (panel.hidden) clearPairingCode(); }).observe(panel, {attributes:true, attributeFilter:['hidden']});
+  new MutationObserver(() => { if (panel.hidden) { pairingEdit++; clearPairingCode(); } }).observe(panel, {attributes:true, attributeFilter:['hidden']});
   let payments = null;
   function paymentRecord(value, expectedID) {
     const hex = value => typeof value === 'string' && /^[0-9a-f]{64}$/.test(value);

@@ -296,7 +296,7 @@ the raw Jam API endpoint or main-wallet password. iOS and Android recognize the
 onion address and start embedded Tor after the user reviews the connection.
 Management-only grants cannot send; revocation and wallet binding are unchanged.
 
-The authenticated `joinblaket/pairings/connection` endpoint advertises only a
+The authenticated `joinblaket/pairings/connection` endpoint advertises a
 validated v3 onion URL from `BARKD_JARS_PAIRING_ONION`. StartOS supplies an existing
 published UI onion address; Umbrel passes its `APP_HIDDEN_SERVICE`. The hint does
 not enable a host's Tor service or open any port. If the host has no published
@@ -312,3 +312,29 @@ onion addresses through Tor. Pairing never falls back to a direct connection,
 redirects credentials or retries an uncertain operation automatically. The host
 must remain online and its Jars wallet unlocked. Installed-host/public-Tor
 round-trip acceptance remains separate from local SOCKS and UI tests.
+
+### Automatic HTTPS pairing certificates
+
+StartOS supplies its published HTTPS origins and its public root CA. When the
+owner creates a phone code, the host makes a bounded, credential-free TLS request
+to the selected published origin and includes the verified leaf SHA256 in the QR.
+The phone keeps the existing exact-certificate check. No certificate installation
+or manual fingerprint copy is needed for this path. Unknown roots, hostname
+mismatches and redirects fail closed. Missing trust never enables insecure TLS.
+A changed certificate requires a fresh code from the verified host.
+
+The shared web UI used by Umbrel and Windows also fills available HTTPS addresses,
+hides manual fingerprint entry under Advanced certificate settings, clears trust
+when the address changes, and rejects stale discovery results. Umbrel continues
+to discover its existing onion address automatically. Publicly trusted HTTPS
+works with the phone's normal trust store. Native desktop outbound Tor does not
+publish a new server; pairing still needs an explicitly published reachable host.
+
+Administrator-managed HTTPS hosts can opt into the same verified discovery with
+`BARKD_JARS_PAIRING_HTTPS_ORIGINS` (JSON array of exact HTTPS origins) and
+`BARKD_JARS_PAIRING_CA_PEM` (public CA certificate only). These must come from
+trusted host configuration, never request headers or a phone. Private keys and
+Jam credentials must not be supplied. The StartOS wrapper sets these values
+without a user setup step. Minimal containers use OS-published IPs on the same
+port for mDNS transport while retaining hostname verification. The endpoint
+creates no grant and sends no authentication header, cookie or wallet operation.

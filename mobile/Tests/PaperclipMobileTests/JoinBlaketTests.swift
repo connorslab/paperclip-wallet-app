@@ -35,6 +35,21 @@ private final class JamStub: URLProtocol {
 }
 
 final class JoinBlaketTests: XCTestCase {
+    func testUntrustedPairingExplainsNewCodeWithoutRetry() async throws {
+        let pair = try JoinBlaketPairing(text: pairingText())
+        let configuration = URLSessionConfiguration.ephemeral; configuration.protocolClasses = [JamStub.self]
+        JamStub.requests = []; JamStub.failure = .serverCertificateUntrusted
+        defer { JamStub.failure = nil; JamStub.requests = [] }
+        let client = try JoinBlaketClient(connection: pair.connection, configuration: configuration, pairing: pair)
+        do { _ = try await client.status(pair.authorization()); XCTFail("Untrusted certificate accepted") }
+        catch { XCTAssertTrue(error.localizedDescription.contains("automatic certificate setup")) }
+        XCTAssertEqual(JamStub.requests.count, 1)
+        JamStub.failure = .timedOut
+        do { _ = try await client.status(pair.authorization()); XCTFail("Timeout accepted") }
+        catch { XCTAssertEqual((error as? URLError)?.code, .timedOut) }
+        XCTAssertEqual(JamStub.requests.count, 2, "No automatic retry")
+    }
+
     func testPairedBondInventoryUsesReadOnlyHostRoute() async throws {
         let pair = try JoinBlaketPairing(text: pairingText())
         let configuration = URLSessionConfiguration.ephemeral; configuration.protocolClasses = [JamStub.self]

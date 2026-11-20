@@ -252,7 +252,14 @@ internal class JoinBlaketClient internal constructor(
 		return suspendCancellableCoroutine { continuation ->
 			continuation.invokeOnCancellation { call.cancel() }
 			call.enqueue(object : Callback {
-				override fun onFailure(call: Call, e: IOException) { continuation.resumeWithException(e) }
+				override fun onFailure(call: Call, e: IOException) {
+					val failure = if (pairing != null && (e is javax.net.ssl.SSLHandshakeException || e is javax.net.ssl.SSLPeerUnverifiedException)) {
+						IOException(if (connection.pin.isEmpty())
+							"This pairing code is missing a trusted host certificate. On your Paperclip host, open Jars → Pair a phone and create a new code with automatic certificate setup, or choose Tor pairing."
+						else "The host certificate does not match this pairing code. Verify your host, then create a new code in Jars → Pair a phone.", e)
+					} else e
+					continuation.resumeWithException(failure)
+				}
 				override fun onResponse(call: Call, response: Response) {
 					try {
 						val result = response.use {

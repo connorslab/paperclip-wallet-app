@@ -4459,3 +4459,29 @@ checks pass. Browser fixtures exercise sorting, filters, pages, malformed data,
 empty/stale/unavailable responses and preserved maker terms across five widths.
 The first Android attempt was blocked by the owned emulator’s System UI ANR;
 after recovery, the test passes. No live maker was started or payment made.
+
+
+### Jars pairing certificate setup — 2026-11-20
+
+StartOS now supplies trusted host origins and its public CA for bounded,
+credential-free discovery of the actual HTTPS leaf fingerprint. New pairing QR
+codes include that fingerprint automatically; iOS and Android retain their
+existing TLS validation. Shared Umbrel/Windows/web pairing also gains automatic
+published-address selection, advanced manual trust settings and stale-result
+rejection. Windows does not publish a new listening service, and Umbrel retains
+its existing published onion route. Mobile certificate failures now explain how
+to create a fresh code or use Tor instead of displaying only a platform TLS error.
+Synthetic CA/hostname/redirect rejection, native mobile tests and wrapper address
+fixtures are separate from installed-host pairing acceptance. Existing iPhone
+codes do not acquire a missing pin retroactively. Validate a newly generated code
+on the updated StartOS package before closing installed phone-pairing acceptance.
+
+Validation: shared REST unit suite 120 passed, one live credential test explicitly
+excluded; Swift Jars 24 and TLS challenge 1 passed; Android Jars 26 passed; native
+ARM64 iOS simulator build and Android debug APK build passed. Jars browser flows
+passed at 320/390/840/1280/1440 pixels, with a final 390-pixel run also checking
+HTTPS-only fallback and stale-certificate rejection. Shared web/transport and
+package composition checks passed. `just checks` passed. An initial generic iOS
+simulator build requested x86_64 against the existing ARM64 Rust archive; selecting
+the native ARM64 target resolved that build invocation issue. No installed-phone
+or live StartOS TLS claim is made from these results.

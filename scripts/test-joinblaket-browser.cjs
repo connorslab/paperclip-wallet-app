@@ -41,7 +41,7 @@ for(const item of bookCases) {
    const recoveryCases=JSON.parse(fs.readFileSync(path.join(__dirname,'../mobile/Tests/PaperclipMobileTests/Fixtures/jam-recovery.json')));
    let recovery=structuredClone(recoveryCases[3].payment); recovery.quote.wallet='Sample Jars.jmdat';
    const accounts=[{id:'a'.repeat(64),label:'Krux savings',kind:'hardware'},{id:'b'.repeat(64),label:'Watch savings',kind:'watch'}];
-   const received=[]; let pairings=[], pairingCreates=0, pairingRevokes=0;
+   const received=[]; let pairings=[], pairingCreates=0, pairingRevokes=0, trustGate=null, releaseTrust=null, trustWaiting=false, hidePairingOnion=false;
    const jars=['Apricot','Blueberry','Cherry','Date','Elderberry'].map((name,id)=>({id,name,total_sat:id===0?200000:0,confirmed_sat:id===0?200000:0,pending_sat:0,frozen_sat:0,bond_sat:0}));
    await page.route('http://wallet.test/**',async route=>{
     const url=new URL(route.request().url()),p=url.pathname.replace('/api/v1/','');
@@ -58,7 +58,12 @@ for(const item of bookCases) {
       value={confirmed_sat:50000,pending_sat:0,transactions:[],last_broadcast:null};
      }
      if(p==='joinblaket/connection') value={configured:true,ui_url:'https://jam.example.test/'};
-     if(p==='joinblaket/pairings/connection') value={onion_endpoint:'http://'+'a'.repeat(56)+'.onion/'};
+     if(p==='joinblaket/pairings/connection') {
+      if(url.searchParams.has('endpoint') && trustGate) { trustWaiting=true; await trustGate; }
+      value={onion_endpoint:hidePairingOnion?null:'http://'+'a'.repeat(56)+'.onion/',https_endpoints:['https://host.example.invalid/']};
+      if(url.searchParams.get('endpoint')==='https://host.example.invalid/') Object.assign(value,{https_endpoint:'https://host.example.invalid/',certificate_sha256:'b'.repeat(64)});
+      if(url.searchParams.get('endpoint')==='https://wrong.local/') Object.assign(value,{https_endpoint:'https://other.local/',certificate_sha256:'c'.repeat(64)});
+     }
      if(p==='joinblaket/pairings') {
       if(route.request().method()==='POST') {
        const body=route.request().postDataJSON(); assert.equal(body.wallet,'Sample Jars.jmdat'); assert.equal(body.token,'fixture-token');
@@ -174,19 +179,48 @@ for(const item of bookCases) {
    if(process.env.SCREENSHOT_DIR) await page.locator('#jam-tools-dialog').screenshot({path:path.join(process.env.SCREENSHOT_DIR,`maker-settings-${width}.png`),animations:'disabled'});
    await page.locator('#jam-fee-mode').selectOption('fixed');
    await closeTool();
-   await page.locator('#jam-pairing-panel summary').click();
+   await page.evaluate(() => {
+    const encode = PaperclipReceive.encode;
+    PaperclipReceive.encode = value => { if(value.startsWith('paperclip-jars:')) window.syntheticPairing = JSON.parse(atob(value.slice(15).replaceAll('-','+').replaceAll('_','/'))); return encode(value); };
+   });
+   hidePairingOnion=true;
+   await page.locator('#jam-pairing-panel > summary').click();
+   await page.waitForFunction(()=>document.querySelector('#jam-pairing-transport').value==='https');
+   assert.equal(await page.locator('#jam-pairing-endpoint').inputValue(),'https://host.example.invalid/','HTTPS-only host has a ready-to-use address');
+   await page.locator('#jam-pairing-transport').selectOption('tor');
+   await page.locator('#jam-pairing-panel > summary').click();
+   hidePairingOnion=false;
+   await page.locator('#jam-pairing-panel > summary').click();
    await page.waitForFunction(()=>document.querySelector('#jam-pairing-endpoint').value.endsWith('.onion/'));
    assert.equal(await page.locator('#jam-pairing-transport').inputValue(),'tor');
    await page.locator('#jam-pairing-transport').selectOption('https');
+   assert.equal(await page.locator('#jam-pairing-endpoint').inputValue(),'https://host.example.invalid/','Published HTTPS is filled automatically');
+   await page.locator('#jam-pairing-endpoint').fill('http://wallet.test/');
    await page.locator('#jam-pairing-label').fill('Fixture phone');
    await page.locator('#jam-pairing-create').click();
    await page.waitForFunction(()=>document.querySelector('#jam-status').textContent.includes('HTTPS'));
    assert.equal(pairingCreates,0,'Plain LAN HTTP must not issue a pairing');
+   for(const address of ['https://start.local/','https://wrong.local/']) {
+    await page.locator('#jam-pairing-endpoint').fill(address);
+    await page.locator('#jam-pairing-create').click();
+    await page.waitForFunction(()=>document.querySelector('#jam-status').textContent.includes('could not add a verified certificate'));
+    assert.equal(pairingCreates,0,'No grant for missing or mismatched private-host trust');
+   }
+   await page.locator('#jam-pairing-endpoint').fill('https://host.example.invalid/');
+   trustGate=new Promise(resolve=>{releaseTrust=resolve;});
+   await page.locator('#jam-pairing-create').click();
+   for(let i=0;i<100&&!trustWaiting;i++) await new Promise(resolve=>setTimeout(resolve,10));
+   assert(trustWaiting,'Certificate discovery began');
+   await page.evaluate(()=>{const field=document.querySelector('#jam-pairing-endpoint');field.value='https://changed.local/';field.dispatchEvent(new Event('input',{bubbles:true}));});
+   releaseTrust();trustGate=null;
+   await page.waitForFunction(()=>document.querySelector('#jam-status').textContent.includes('Connection changed'));
+   assert.equal(pairingCreates,0,'A delayed certificate cannot attach to an edited endpoint');
    await page.locator('#jam-pairing-endpoint').fill('https://host.example.invalid/');
    await page.locator('#jam-pairing-create').click();
    await page.getByRole('button',{name:'Confirm',exact:true}).click();
    await page.locator('#jam-pairing-code').waitFor({state:'visible'});
    assert.equal(pairingCreates,1);
+   assert.equal(await page.evaluate(()=>window.syntheticPairing.certificate_sha256),'b'.repeat(64),'QR includes verified leaf without manual entry');
    assert.equal(await page.locator('#jam-pairing-code input, #jam-pairing-code textarea').count(),0,'Bearer is not shown as plaintext');
    await page.locator('#jam-pairing-hide').click();
    assert(await page.locator('#jam-pairing-code').isHidden());
@@ -221,6 +255,7 @@ for(const item of bookCases) {
    await page.getByRole('button',{name:'Confirm',exact:true}).click();
    await page.locator('#jam-pairing-code').waitFor({state:'visible'});
    assert.equal(pairingCreates,3);
+   assert.equal(await page.evaluate(()=>window.syntheticPairing.certificate_sha256),'','HTTPS fingerprint must not carry into Tor pairing');
    if(process.env.SCREENSHOT_DIR) { fs.mkdirSync(process.env.SCREENSHOT_DIR,{recursive:true}); await page.screenshot({path:path.join(process.env.SCREENSHOT_DIR,`jars-tor-${width}.png`),fullPage:true}); }
    await page.locator('#jam-pairing-endpoint').fill('http://'+'b'.repeat(56)+'.onion/');
    assert(await page.locator('#jam-pairing-code').isHidden(),'Editing the host hides the old private code');
@@ -228,7 +263,7 @@ for(const item of bookCases) {
    await page.getByRole('button',{name:'Confirm',exact:true}).click();
    await page.getByText('No paired devices.',{exact:true}).waitFor();
    assert.equal(pairingRevokes,3);
-   await page.locator('#jam-pairing-panel summary').click();
+   await page.locator('#jam-pairing-panel > summary').click();
    await page.locator('#jam-payments-panel summary').first().click();
    await page.locator('#jam-payments-load').click();
    await page.getByRole('heading',{name:'Status unknown'}).waitFor();

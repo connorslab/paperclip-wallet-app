@@ -96,10 +96,12 @@ public struct JoinBlaketConnection: Codable, Equatable, Sendable {
 }
 
 public enum JoinBlaketError: LocalizedError {
-    case sessionExpired, pairingUnavailable, coinJoinUnavailable, invalidResponse, wrongWallet, invalidBondMonth, requestFailed(Int)
+    case sessionExpired, pairingUnavailable, pairingCertificateRequired, pairingCertificateChanged, coinJoinUnavailable, invalidResponse, wrongWallet, invalidBondMonth, requestFailed(Int)
     public var errorDescription: String? {
         switch self {
         case .sessionExpired: return "Unlock your JoinBlaket wallet again to continue."
+        case .pairingCertificateRequired: return "This pairing code is missing a trusted host certificate. On your Paperclip host, open Jars → Pair a phone and create a new code with automatic certificate setup, or choose Tor pairing."
+        case .pairingCertificateChanged: return "The host certificate does not match this pairing code. Verify your host, then create a new code in Jars → Pair a phone."
         case .pairingUnavailable: return "Check Jars on your Paperclip host. If Jam locked or restarted, unlock it there and create a new pairing. Check status before retrying an action."
         case .coinJoinUnavailable: return "Update your Jam server to use reviewed CoinJoin sends. No direct payment was requested."
         case .invalidResponse: return "JoinBlaket returned an unreadable response. Refresh before continuing."
@@ -421,7 +423,14 @@ public actor JoinBlaketClient {
             }
             return data
         } catch {
-            if let failure = delegate.failure { throw failure }
+            if let failure = delegate.failure {
+                if pairing != nil { throw JoinBlaketError.pairingCertificateChanged }
+                throw failure
+            }
+            if pairing != nil, let failure = error as? URLError,
+               [.serverCertificateUntrusted, .serverCertificateHasUnknownRoot, .serverCertificateHasBadDate, .serverCertificateNotYetValid].contains(failure.code) {
+                throw connection.certificateSHA256.isEmpty ? JoinBlaketError.pairingCertificateRequired : JoinBlaketError.pairingCertificateChanged
+            }
             throw error
         }
     }

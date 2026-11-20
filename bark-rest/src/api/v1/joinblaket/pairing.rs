@@ -4,7 +4,7 @@
 use std::{io::Write, path::{Path, PathBuf}, sync::Arc};
 
 use anyhow::{Context, ensure};
-use axum::{Json, Router, extract::{DefaultBodyLimit, State}, http::{HeaderMap, StatusCode, header}, routing::{get, post}};
+use axum::{Json, Router, extract::{DefaultBodyLimit, Query, State}, http::{HeaderMap, StatusCode, header}, routing::{get, post}};
 use bitcoin::hashes::{Hash, sha256};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -119,9 +119,63 @@ fn onion_endpoint(value: &str) -> Option<String> {
 		url.path() != "/" { return None; }
 	Some(url.to_string())
 }
-async fn connection() -> (StatusCode, HeaderMap, Json<Value>) {
-	let endpoint = std::env::var("BARKD_JARS_PAIRING_ONION").ok().and_then(|value| onion_endpoint(&value));
-	response(StatusCode::BAD_REQUEST, Ok(json!({"onion_endpoint":endpoint})))
+#[derive(Default, Deserialize)]
+struct ConnectionQuery { endpoint: Option<String> }
+
+// Discovery only contacts origins supplied by the package, not arbitrary URLs
+// from the browser or proxy headers. No grant, cookie or Jam token is sent.
+fn https_origin(value: &str) -> Option<reqwest::Url> {
+	let url = reqwest::Url::parse(value).ok()?;
+	if url.scheme() != "https" || url.host_str()?.ends_with(".onion") ||
+		!url.username().is_empty() || url.password().is_some() || url.query().is_some() ||
+		url.fragment().is_some() || url.path() != "/" { return None; }
+	Some(url)
+}
+fn published_https(value: &str) -> Vec<reqwest::Url> {
+	if value.len() > 16 * 1024 { return vec![]; }
+	let addresses = serde_json::from_str::<Vec<String>>(value).unwrap_or_default();
+	if addresses.len() > 32 { return vec![]; }
+	addresses.iter().filter_map(|value| https_origin(value)).collect()
+}
+async fn verified_pairing_pin(endpoint: &str, published: &[reqwest::Url], ca: &str) -> anyhow::Result<String> {
+	let url = https_origin(endpoint).context("Use a published HTTPS address")?;
+	ensure!(published.contains(&url), "This address is not published by the host");
+	ensure!(!ca.is_empty() && ca.len() <= 32 * 1024, "Host certificate trust is unavailable");
+	let root = reqwest::Certificate::from_pem(ca.as_bytes()).context("Host certificate trust is unavailable")?;
+	let mut client = reqwest::Client::builder().use_rustls_tls().no_proxy()
+		.redirect(reqwest::redirect::Policy::none()).timeout(std::time::Duration::from_secs(8))
+		.tls_built_in_root_certs(false).add_root_certificate(root).tls_info(true);
+	// Minimal containers may have no mDNS resolver. StartOS publishes the LAN
+	// addresses of this same interface; use those for transport while retaining
+	// the requested hostname for SNI and certificate verification.
+	if let Some(host) = url.host_str().filter(|host| host.ends_with(".local")) {
+		let addresses: Vec<std::net::SocketAddr> = published.iter()
+			.filter(|other| other.port_or_known_default() == url.port_or_known_default())
+			.filter_map(|other| other.host_str()?.trim_matches(['[', ']']).parse::<std::net::IpAddr>().ok()
+				.map(|ip| std::net::SocketAddr::new(ip, 0))).collect();
+		if !addresses.is_empty() { client = client.resolve_to_addrs(host, &addresses); }
+	}
+	let client = client.build()?;
+	// HEAD obtains the peer certificate without fetching a wallet page. HTTP
+	// status does not affect TLS verification; redirects are never followed.
+	let response = client.head(url).send().await.context("Could not verify the host certificate")?;
+	ensure!(!response.status().is_redirection(), "Use the host's final HTTPS address");
+	let certificate = response.extensions().get::<reqwest::tls::TlsInfo>()
+		.and_then(|info| info.peer_certificate()).context("Host certificate unavailable")?;
+	Ok(sha256::Hash::hash(certificate).to_string())
+}
+async fn connection(Query(query): Query<ConnectionQuery>) -> (StatusCode, HeaderMap, Json<Value>) {
+	let onion = std::env::var("BARKD_JARS_PAIRING_ONION").ok().and_then(|value| onion_endpoint(&value));
+	let published = published_https(&std::env::var("BARKD_JARS_PAIRING_HTTPS_ORIGINS").unwrap_or_default());
+	let mut value = json!({"onion_endpoint":onion,"https_endpoints":published.iter().map(|url| url.as_str()).collect::<Vec<_>>()});
+	if let Some(endpoint) = query.endpoint {
+		let ca = std::env::var("BARKD_JARS_PAIRING_CA_PEM").unwrap_or_default();
+		match verified_pairing_pin(&endpoint, &published, &ca).await {
+			Ok(pin) => { value["https_endpoint"] = endpoint.into(); value["certificate_sha256"] = pin.into(); }
+			Err(_) => { value["certificate_error"] = "Could not verify this host's HTTPS certificate. Use Tor pairing, or enter a fingerprint verified in your host settings.".into(); }
+		}
+	}
+	response(StatusCode::BAD_REQUEST, Ok(value))
 }
 async fn list(State(state): State<Arc<ServerState>>) -> (StatusCode, HeaderMap, Json<Value>) {
 	let _guard = state.jam_pairings.lock().await;
@@ -177,6 +231,69 @@ async fn request(State(state): State<Arc<ServerState>>, headers: HeaderMap, Json
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use std::{io::Read, net::TcpListener, thread, time::Duration};
+	use base64::Engine;
+	const PAIRING_CA: &str = include_str!("fixtures/pairing-ca.pem");
+	const PAIRING_CERT: &[u8] = include_bytes!("fixtures/pairing-leaf.der");
+	// Synthetic localhost-only server key; never used for wallet data or release signing.
+	const PAIRING_TEST_KEY: &[u8] = include_bytes!("fixtures/pairing-test-key.der");
+
+	#[test]
+	fn pairing_https_discovery_only_accepts_published_origins() {
+		assert_eq!(published_https(r#"["https://start.local:123/","http://start.local/","https://[fe80::1%4]:123/","https://user@start.local/","https://start.local/path","https://start.local/?token=secret"]"#).len(), 1);
+		assert!(published_https("not-json").is_empty());
+		assert!(published_https(&serde_json::to_string(&vec!["https://start.local/";33]).unwrap()).is_empty());
+		assert!(https_origin(&format!("https://{}.onion/", "a".repeat(56))).is_none());
+	}
+
+	async fn pairing_tls_probe(host: &str, ca: &str, status: &str) -> (anyhow::Result<String>, String) {
+		let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+		let url = format!("https://{}:{}/", host, listener.local_addr().unwrap().port());
+		let config = rustls::ServerConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
+			.with_safe_default_protocol_versions().unwrap().with_no_client_auth()
+			.with_single_cert(vec![PAIRING_CERT.to_vec().into()], rustls::pki_types::PrivatePkcs8KeyDer::from(PAIRING_TEST_KEY.to_vec()).into()).unwrap();
+		let reply = format!("HTTP/1.1 {status}\r\nContent-Length: 0\r\nLocation: https://untrusted.invalid/\r\nConnection: close\r\n\r\n");
+		let server = thread::spawn(move || {
+			let (socket, _) = listener.accept().unwrap();
+			socket.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
+			let session = rustls::ServerConnection::new(Arc::new(config)).unwrap();
+			let mut stream = rustls::StreamOwned::new(session, socket);
+			let mut request = vec![];
+			loop {
+				let mut bytes = [0;1024];
+				let Ok(count) = stream.read(&mut bytes) else { break; };
+				if count == 0 { break; }
+				request.extend_from_slice(&bytes[..count]);
+				if request.windows(4).any(|b| b == b"\r\n\r\n") || request.len() > 4096 { break; }
+			}
+			let _ = stream.write_all(reply.as_bytes()); let _ = stream.flush();
+			String::from_utf8(request).unwrap()
+		});
+		let published = [https_origin(&url).unwrap(), https_origin(&url.replace(host, "127.0.0.1")).unwrap()];
+		let result = verified_pairing_pin(&url, &published, ca).await;
+		(result, server.join().unwrap())
+	}
+
+	#[tokio::test]
+	async fn pairing_https_verifies_chain_hostname_and_leaf_without_credentials() {
+		let (pin, request) = pairing_tls_probe("localhost", PAIRING_CA, "401 Unauthorized").await;
+		assert_eq!(pin.unwrap(), sha256::Hash::hash(PAIRING_CERT).to_string());
+		assert!(request.starts_with("HEAD / HTTP/1.1"));
+		assert!(!request.to_ascii_lowercase().contains("authorization:"));
+		assert!(!request.to_ascii_lowercase().contains("cookie:"));
+		let (mdns, _) = pairing_tls_probe("pairing-fixture.local", PAIRING_CA, "200 OK").await;
+		assert_eq!(mdns.unwrap(), sha256::Hash::hash(PAIRING_CERT).to_string());
+		let (wrong_name, request) = pairing_tls_probe("127.0.0.1", PAIRING_CA, "200 OK").await;
+		assert!(wrong_name.is_err()); assert!(request.is_empty());
+		let wrong_ca = format!("-----BEGIN CERTIFICATE-----\n{}\n-----END CERTIFICATE-----", base64::engine::general_purpose::STANDARD.encode(include_bytes!("../remote_node/fixtures/node-cert.der")));
+		let (wrong_root, request) = pairing_tls_probe("localhost", &wrong_ca, "200 OK").await;
+		assert!(wrong_root.is_err()); assert!(request.is_empty());
+		let (redirect, _) = pairing_tls_probe("localhost", PAIRING_CA, "302 Found").await;
+		assert!(redirect.is_err());
+		assert!(verified_pairing_pin("https://127.0.0.1:1/", &[], PAIRING_CA).await.unwrap_err().to_string().contains("not published"));
+		assert!(verified_pairing_pin("https://localhost/", &[https_origin("https://localhost/").unwrap()], "").await.is_err());
+	}
+
 	fn record() -> Record { Record { scope:Scope::Manage, id:digest(&format!("pj1_{}", "a".repeat(64))),label:"Test phone".into(),wallet:"fixture.jmdat".into(),
 		identity:format!("xbt-regtest:{}", "b".repeat(64)),upstream:"fixture-upstream".into(),token:"synthetic-jam-secret".into(),expires:100 } }
 	fn input(operation: &str) -> Request { serde_json::from_value(json!({"operation":operation,"wallet":"fixture.jmdat"})).unwrap() }
