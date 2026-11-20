@@ -99,7 +99,7 @@ async function connectWallet() {
     lightningDebitLimit = info.lightning_debit_limit === true;
     hardwareArkEnabled = info.hardware_ark_boarding === true && submissionJournal;
     $('ln-controls').disabled = !lightningEnabled;
-    $('ln-capability').textContent = lightningEnabled ? 'Ark Lightning available · payments depend on channel and Ark pool liquidity.' : 'This ASP has not enabled funded Lightning. Payment controls are unavailable.';
+    $('ln-capability').textContent = lightningEnabled ? 'Ark Lightning available \u00b7 payments depend on channel and Ark pool liquidity.' : 'This ASP has not enabled funded Lightning. Payment controls are unavailable.';
     $('network').textContent = network === 'bitcoin' ? 'XBT MAINNET \u00b7 EXPERIMENTAL' : 'XBT REGTEST';
     await globalThis.PaperclipAccounts?.restore();
     if (!session || token !== session) return;
