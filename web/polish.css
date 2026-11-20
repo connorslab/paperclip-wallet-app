@@ -423,3 +423,17 @@ button,a,summary {touch-action:manipulation}
 #jam-pairing-list { display: grid; gap: 12px; margin-top: 12px; }
 @media (min-width: 1000px) { .jam-pairing-layout:has(#jam-pairing-code:not([hidden])) { grid-template-columns: minmax(0, 1fr) 320px; } }
 @media (max-width: 480px) { .jam-pairing-fields { grid-template-columns: minmax(0, 1fr); } }
+
+/* A compact order book uses the same surface and type scale as Jars tools. */
+.jam-book-controls{display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:end}
+.jam-book-offer{padding:16px 0;border-top:1px solid var(--stroke)}
+.jam-book-offer h3{font-size:.85rem;overflow-wrap:anywhere;margin:0 0 12px}
+.jam-book-offer dl{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin:0}
+.jam-book-offer dt{font-size:.8rem;color:var(--muted)}
+.jam-book-offer dd{margin:4px 0 0;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.jam-book-pagination{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.jam-book-pagination[hidden]{display:none}
+@media(max-width:480px){.jam-book-controls{grid-template-columns:1fr}.jam-book-offer dl{gap:10px}}
+
+.jam-tools-sheet[data-tool="market"]{width:min(960px,calc(100vw - 32px));max-width:960px}
+@media(min-width:900px){.jam-book-offer dl{grid-template-columns:.8fr 1.5fr 1fr 1fr 1fr}}

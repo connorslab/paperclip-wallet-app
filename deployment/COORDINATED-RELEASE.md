@@ -4440,3 +4440,22 @@ iOS simulator build requested an unavailable x86_64 Rust library; the native
 ARM64 simulator build/test passes. The first Android UI run was before the test
 emulator unlocked; software rendering and an unlocked rerun pass. No physical
 wallet, production service, live pairing grant or payment was changed.
+
+### Read-only Jars order book — 2026-11-19
+
+The existing market comparison now also returns supported public offers. iOS,
+Android and the shared StartOS/Umbrel/Linux/macOS/Windows UI provide fee/capacity
+sorting, eligibility filtering, ten-offer pages and explicit snapshot freshness.
+The median still uses one cheapest eligible offer per verified bonded maker;
+showing an offer is not an approval to trade. No spending or pairing permissions
+are expanded, no raw bond proof or wallet data is relayed, and old hosts display
+an update message instead of an empty order book. Local verification and final
+source revision are recorded in the private readiness log; installed host/mobile
+acceptance remains separate from synthetic validation.
+
+Validation: eight watcher/normalization tests, 23 shared Swift Jars tests, 25
+Android JVM Jars tests, and native iOS/Android order-book navigation/pagination
+checks pass. Browser fixtures exercise sorting, filters, pages, malformed data,
+empty/stale/unavailable responses and preserved maker terms across five widths.
+The first Android attempt was blocked by the owned emulator’s System UI ANR;
+after recovery, the test passes. No live maker was started or payment made.

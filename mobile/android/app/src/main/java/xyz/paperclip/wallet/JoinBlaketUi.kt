@@ -89,7 +89,7 @@ internal fun JoinBlaketPage(state: JoinBlaketUiState) {
 	var comparisonAmount by remember { mutableStateOf("100000") }
 	var showChecks by remember { mutableStateOf(false) }
 	var makerPage by remember { mutableStateOf<String?>(null) }
-	val showMarket = makerPage == "Market fees"
+	val showMarket = makerPage == "Order book"
 	var market by remember { mutableStateOf<JoinBlaketMarket?>(null) }
 	var marketUnavailable by remember { mutableStateOf(false) }
 	var marketNow by remember { mutableStateOf(java.time.Instant.now().epochSecond) }
@@ -289,7 +289,7 @@ internal fun JoinBlaketPage(state: JoinBlaketUiState) {
 				Text("Earn with your jars", style = MaterialTheme.typography.titleMedium)
 				Text(if (running) "Maker running" else "Maker paused", color = MaterialTheme.colorScheme.onSurfaceVariant)
 				if (!running) Text(readiness.nextStep, style = MaterialTheme.typography.bodySmall)
-				for ((title, detail) in listOf("Maker settings" to "Your fee and minimum amount", "Market fees" to "Compare current maker fees", "Fidelity bond" to "Lock date and bond address", "How earning works" to "A short guide to earning")) {
+				for ((title, detail) in listOf("Maker settings" to "Your fee and minimum amount", "Order book" to "Browse offers, fees and liquidity", "Fidelity bond" to "Lock date and bond address", "How earning works" to "A short guide to earning")) {
 					TextButton(onClick = { makerPage = title }, modifier = Modifier.fillMaxWidth()) {
 						Row(Modifier.fillMaxWidth(), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
 							Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
@@ -308,7 +308,8 @@ internal fun JoinBlaketPage(state: JoinBlaketUiState) {
 					Text(checkNotNull(makerPage), Modifier.weight(1f), style = MaterialTheme.typography.headlineSmall)
 					TextButton(onClick = { makerPage = null }) { Text("Done") }
 				}
-				Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+				val toolScroll = rememberScrollState()
+				Column(Modifier.weight(1f).verticalScroll(toolScroll).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
 					WalletSurface {
 						Column(Modifier.padding(18.dp).animateContentSize(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
 							if (makerPage == "Maker settings") {
@@ -348,16 +349,24 @@ internal fun JoinBlaketPage(state: JoinBlaketUiState) {
 							LaunchedEffect(comparisonAmount, client, authorization) { market = null; marketUnavailable = false }
 							if (showMarket) {
 								OutlinedTextField(comparisonAmount, { comparisonAmount = it }, label = { Text("Compare CoinJoin amount (sats)") }, enabled = !busy, modifier = Modifier.fillMaxWidth())
-								Text("Compare at this CoinJoin amount. One lowest supported offer per verified bonded maker; mining fees are excluded.", style = MaterialTheme.typography.bodySmall)
+								Text("Maker fees only · mining fees excluded.", style = MaterialTheme.typography.bodySmall)
 								market?.let { Text(it.summary(marketNow)); Text("Fetched " + java.time.Instant.ofEpochSecond(it.fetched).atZone(java.time.ZoneId.systemDefault()).toLocalTime().withNano(0), style = MaterialTheme.typography.bodySmall) }
 								if (marketUnavailable) Text("Order book unavailable. Your selected fee is unchanged.")
 								TextButton(enabled = !busy, onClick = { run {
 									market = null; marketUnavailable = false
-									try { market = checkNotNull(client).market(comparisonAmount.toLongOrNull() ?: 0, checkNotNull(authorization)) }
+									val requestedAmount = comparisonAmount
+									val requestedClient = client; val requestedAuth = authorization
+									try {
+										val result = checkNotNull(requestedClient).market(requestedAmount.toLongOrNull() ?: 0, checkNotNull(requestedAuth))
+										if (comparisonAmount == requestedAmount && client === requestedClient && authorization == requestedAuth) market = result
+									}
 									catch (e: CancellationException) { throw e }
-									catch (_: Exception) { marketUnavailable = true }
-								} }) { Text("Refresh market fees") }
-								Text("A market snapshot is not a forecast. Your fee changes only when you select it.", style = MaterialTheme.typography.bodySmall)
+									catch (_: Exception) { if (comparisonAmount == requestedAmount && client === requestedClient && authorization == requestedAuth) marketUnavailable = true }
+								} }) { Text("Refresh order book") }
+								var aboutBook by remember { mutableStateOf(false) }
+								TextButton(onClick = { aboutBook = !aboutBook }) { Text("About this order book") }
+								if (aboutBook) Text("Your host’s snapshot of supported offers. The median uses one lowest eligible offer per verified bonded maker. Offers can change; browsing never changes your maker settings.", style = MaterialTheme.typography.bodySmall)
+								market?.let { key(it) { JarsOrderBookRows(it, marketNow) { scope.launch { toolScroll.animateScrollTo(0) } } } }
 							}
 							if (showMakerGuide) {
 								Text("Higher fees can reduce selection. Mining fee contribution: 0 sats.", style = MaterialTheme.typography.bodySmall)
@@ -576,4 +585,39 @@ internal fun JoinBlaketPage(state: JoinBlaketUiState) {
 			}
 		}
 	}
+}
+
+@Composable
+private fun JarsOrderBookRows(market: JoinBlaketMarket, now: Long, pageChanged: () -> Unit) {
+	var eligible by remember { mutableStateOf(false) }
+	var largest by remember { mutableStateOf(false) }
+	var page by remember { mutableStateOf(0) }
+	if (market.offers == null) { Text("Update your Paperclip host to browse individual offers."); return }
+	if (market.status !in setOf("fresh", "empty") || market.updated == null || now - market.updated > 120) { Text("Refresh to browse current offers."); return }
+	val rows = market.visibleOffers(eligible, largest)
+	Row(Modifier.fillMaxWidth(), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+		Text("Eligible for this amount", Modifier.weight(1f))
+		Switch(checked = eligible, onCheckedChange = { eligible = it; page = 0 })
+	}
+	Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+		FilterChip(selected = !largest, onClick = { largest = false; page = 0 }, label = { Text("Lowest fee") })
+		FilterChip(selected = largest, onClick = { largest = true; page = 0 }, label = { Text("Largest offer") })
+	}
+	Text("${rows.size} offers · ${rows.map { it.maker }.distinct().size} makers", style = MaterialTheme.typography.titleSmall)
+	if (rows.isEmpty()) Text("No offers match this filter.")
+	for (offer in rows.drop(page * 10).take(10)) {
+		HorizontalDivider()
+		SelectionContainer { Text(offer.maker, style = MaterialTheme.typography.labelMedium) }
+		Text(offer.feeLabel, style = MaterialTheme.typography.titleMedium)
+		Text(if (offer.bonded) "Bond verified" else "Bond not verified", style = MaterialTheme.typography.bodySmall)
+		Text("${"%,d".format(offer.min)}–${"%,d".format(offer.max)} sats")
+		Text(if (offer.covers(market.amount)) "Maker fee at this amount: ${offer.cost} sats" else "Outside your comparison amount", style = MaterialTheme.typography.bodySmall)
+		Text("Mining contribution: ${offer.contribution} sats", style = MaterialTheme.typography.bodySmall)
+	}
+	if (rows.isNotEmpty()) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+		TextButton(enabled = page > 0, onClick = { page--; pageChanged() }) { Text("Previous") }
+		Text("${page + 1} / ${maxOf(1, (rows.size + 9) / 10)}", style = MaterialTheme.typography.bodySmall)
+		TextButton(enabled = (page + 1) * 10 < rows.size, onClick = { page++; pageChanged() }) { Text("Next") }
+	}
+	if (market.excluded > 0) Text("${market.excluded} unsupported or malformed offers excluded.", style = MaterialTheme.typography.bodySmall)
 }

@@ -1,0 +1,553 @@
+[
+  {
+    "name": "fixed relative half-even unverified and outside range",
+    "valid": true,
+    "value": {
+      "amount_sat": 50000,
+      "fetched_at": 2000000000,
+      "book_updated_at": 2000000000,
+      "status": "fresh",
+      "maker_count": 1,
+      "median_fee_sat": "100",
+      "excluded_offer_count": 0,
+      "offers": [
+        {
+          "id": 0,
+          "maker": "J5SyntheticA",
+          "fee": "100",
+          "relative": false,
+          "min_sat": 27300,
+          "max_sat": 1000000,
+          "fee_sat": 100,
+          "mining_contribution_sat": 0,
+          "bond_verified": true
+        },
+        {
+          "id": 1,
+          "maker": "J5SyntheticB",
+          "fee": "0.00005",
+          "relative": true,
+          "min_sat": 27300,
+          "max_sat": 2000000,
+          "fee_sat": 2,
+          "mining_contribution_sat": 0,
+          "bond_verified": false
+        },
+        {
+          "id": 2,
+          "maker": "J5SyntheticC",
+          "fee": "100",
+          "relative": false,
+          "min_sat": 100000,
+          "max_sat": 3000000,
+          "fee_sat": 100,
+          "mining_contribution_sat": 0,
+          "bond_verified": true
+        }
+      ]
+    }
+  },
+  {
+    "name": "html maker",
+    "valid": false,
+    "value": {
+      "amount_sat": 50000,
+      "fetched_at": 2000000000,
+      "book_updated_at": 2000000000,
+      "status": "fresh",
+      "maker_count": 1,
+      "median_fee_sat": "100",
+      "excluded_offer_count": 0,
+      "offers": [
+        {
+          "id": 0,
+          "maker": "<script>",
+          "fee": "100",
+          "relative": false,
+          "min_sat": 27300,
+          "max_sat": 1000000,
+          "fee_sat": 100,
+          "mining_contribution_sat": 0,
+          "bond_verified": true
+        },
+        {
+          "id": 1,
+          "maker": "J5SyntheticB",
+          "fee": "0.00005",
+          "relative": true,
+          "min_sat": 27300,
+          "max_sat": 2000000,
+          "fee_sat": 2,
+          "mining_contribution_sat": 0,
+          "bond_verified": false
+        },
+        {
+          "id": 2,
+          "maker": "J5SyntheticC",
+          "fee": "100",
+          "relative": false,
+          "min_sat": 100000,
+          "max_sat": 3000000,
+          "fee_sat": 100,
+          "mining_contribution_sat": 0,
+          "bond_verified": true
+        }
+      ]
+    }
+  },
+  {
+    "name": "overflow",
+    "valid": false,
+    "value": {
+      "amount_sat": 50000,
+      "fetched_at": 2000000000,
+      "book_updated_at": 2000000000,
+      "status": "fresh",
+      "maker_count": 1,
+      "median_fee_sat": "100",
+      "excluded_offer_count": 0,
+      "offers": [
+        {
+          "id": 0,
+          "maker": "J5SyntheticA",
+          "fee": "100",
+          "relative": false,
+          "min_sat": 27300,
+          "max_sat": 2100000000000001,
+          "fee_sat": 100,
+          "mining_contribution_sat": 0,
+          "bond_verified": true
+        },
+        {
+          "id": 1,
+          "maker": "J5SyntheticB",
+          "fee": "0.00005",
+          "relative": true,
+          "min_sat": 27300,
+          "max_sat": 2000000,
+          "fee_sat": 2,
+          "mining_contribution_sat": 0,
+          "bond_verified": false
+        },
+        {
+          "id": 2,
+          "maker": "J5SyntheticC",
+          "fee": "100",
+          "relative": false,
+          "min_sat": 100000,
+          "max_sat": 3000000,
+          "fee_sat": 100,
+          "mining_contribution_sat": 0,
+          "bond_verified": true
+        }
+      ]
+    }
+  },
+  {
+    "name": "wrong rounded fee",
+    "valid": false,
+    "value": {
+      "amount_sat": 50000,
+      "fetched_at": 2000000000,
+      "book_updated_at": 2000000000,
+      "status": "fresh",
+      "maker_count": 1,
+      "median_fee_sat": "100",
+      "excluded_offer_count": 0,
+      "offers": [
+        {
+          "id": 0,
+          "maker": "J5SyntheticA",
+          "fee": "100",
+          "relative": false,
+          "min_sat": 27300,
+          "max_sat": 1000000,
+          "fee_sat": 3,
+          "mining_contribution_sat": 0,
+          "bond_verified": true
+        },
+        {
+          "id": 1,
+          "maker": "J5SyntheticB",
+          "fee": "0.00005",
+          "relative": true,
+          "min_sat": 27300,
+          "max_sat": 2000000,
+          "fee_sat": 2,
+          "mining_contribution_sat": 0,
+          "bond_verified": false
+        },
+        {
+          "id": 2,
+          "maker": "J5SyntheticC",
+          "fee": "100",
+          "relative": false,
+          "min_sat": 100000,
+          "max_sat": 3000000,
+          "fee_sat": 100,
+          "mining_contribution_sat": 0,
+          "bond_verified": true
+        }
+      ]
+    }
+  },
+  {
+    "name": "string boolean",
+    "valid": false,
+    "value": {
+      "amount_sat": 50000,
+      "fetched_at": 2000000000,
+      "book_updated_at": 2000000000,
+      "status": "fresh",
+      "maker_count": 1,
+      "median_fee_sat": "100",
+      "excluded_offer_count": 0,
+      "offers": [
+        {
+          "id": 0,
+          "maker": "J5SyntheticA",
+          "fee": "100",
+          "relative": "false",
+          "min_sat": 27300,
+          "max_sat": 1000000,
+          "fee_sat": 100,
+          "mining_contribution_sat": 0,
+          "bond_verified": true
+        },
+        {
+          "id": 1,
+          "maker": "J5SyntheticB",
+          "fee": "0.00005",
+          "relative": true,
+          "min_sat": 27300,
+          "max_sat": 2000000,
+          "fee_sat": 2,
+          "mining_contribution_sat": 0,
+          "bond_verified": false
+        },
+        {
+          "id": 2,
+          "maker": "J5SyntheticC",
+          "fee": "100",
+          "relative": false,
+          "min_sat": 100000,
+          "max_sat": 3000000,
+          "fee_sat": 100,
+          "mining_contribution_sat": 0,
+          "bond_verified": true
+        }
+      ]
+    }
+  },
+  {
+    "name": "unsupported fee",
+    "valid": false,
+    "value": {
+      "amount_sat": 50000,
+      "fetched_at": 2000000000,
+      "book_updated_at": 2000000000,
+      "status": "fresh",
+      "maker_count": 1,
+      "median_fee_sat": "100",
+      "excluded_offer_count": 0,
+      "offers": [
+        {
+          "id": 0,
+          "maker": "J5SyntheticA",
+          "fee": "123",
+          "relative": false,
+          "min_sat": 27300,
+          "max_sat": 1000000,
+          "fee_sat": 100,
+          "mining_contribution_sat": 0,
+          "bond_verified": true
+        },
+        {
+          "id": 1,
+          "maker": "J5SyntheticB",
+          "fee": "0.00005",
+          "relative": true,
+          "min_sat": 27300,
+          "max_sat": 2000000,
+          "fee_sat": 2,
+          "mining_contribution_sat": 0,
+          "bond_verified": false
+        },
+        {
+          "id": 2,
+          "maker": "J5SyntheticC",
+          "fee": "100",
+          "relative": false,
+          "min_sat": 100000,
+          "max_sat": 3000000,
+          "fee_sat": 100,
+          "mining_contribution_sat": 0,
+          "bond_verified": true
+        }
+      ]
+    }
+  },
+  {
+    "name": "negative contribution",
+    "valid": false,
+    "value": {
+      "amount_sat": 50000,
+      "fetched_at": 2000000000,
+      "book_updated_at": 2000000000,
+      "status": "fresh",
+      "maker_count": 1,
+      "median_fee_sat": "100",
+      "excluded_offer_count": 0,
+      "offers": [
+        {
+          "id": 0,
+          "maker": "J5SyntheticA",
+          "fee": "100",
+          "relative": false,
+          "min_sat": 27300,
+          "max_sat": 1000000,
+          "fee_sat": 100,
+          "mining_contribution_sat": -1,
+          "bond_verified": true
+        },
+        {
+          "id": 1,
+          "maker": "J5SyntheticB",
+          "fee": "0.00005",
+          "relative": true,
+          "min_sat": 27300,
+          "max_sat": 2000000,
+          "fee_sat": 2,
+          "mining_contribution_sat": 0,
+          "bond_verified": false
+        },
+        {
+          "id": 2,
+          "maker": "J5SyntheticC",
+          "fee": "100",
+          "relative": false,
+          "min_sat": 100000,
+          "max_sat": 3000000,
+          "fee_sat": 100,
+          "mining_contribution_sat": 0,
+          "bond_verified": true
+        }
+      ]
+    }
+  },
+  {
+    "name": "duplicate ids",
+    "valid": false,
+    "value": {
+      "amount_sat": 50000,
+      "fetched_at": 2000000000,
+      "book_updated_at": 2000000000,
+      "status": "fresh",
+      "maker_count": 1,
+      "median_fee_sat": "100",
+      "excluded_offer_count": 0,
+      "offers": [
+        {
+          "id": 0,
+          "maker": "J5SyntheticA",
+          "fee": "100",
+          "relative": false,
+          "min_sat": 27300,
+          "max_sat": 1000000,
+          "fee_sat": 100,
+          "mining_contribution_sat": 0,
+          "bond_verified": true
+        },
+        {
+          "id": 1,
+          "maker": "J5SyntheticB",
+          "fee": "0.00005",
+          "relative": true,
+          "min_sat": 27300,
+          "max_sat": 2000000,
+          "fee_sat": 2,
+          "mining_contribution_sat": 0,
+          "bond_verified": false
+        },
+        {
+          "id": 2,
+          "maker": "J5SyntheticC",
+          "fee": "100",
+          "relative": false,
+          "min_sat": 100000,
+          "max_sat": 3000000,
+          "fee_sat": 100,
+          "mining_contribution_sat": 0,
+          "bond_verified": true
+        },
+        {
+          "id": 0,
+          "maker": "J5SyntheticA",
+          "fee": "100",
+          "relative": false,
+          "min_sat": 27300,
+          "max_sat": 1000000,
+          "fee_sat": 100,
+          "mining_contribution_sat": 0,
+          "bond_verified": true
+        }
+      ]
+    }
+  },
+  {
+    "name": "missing timestamp",
+    "valid": false,
+    "value": {
+      "amount_sat": 50000,
+      "fetched_at": 2000000000,
+      "book_updated_at": null,
+      "status": "fresh",
+      "maker_count": 1,
+      "median_fee_sat": "100",
+      "excluded_offer_count": 0,
+      "offers": [
+        {
+          "id": 0,
+          "maker": "J5SyntheticA",
+          "fee": "100",
+          "relative": false,
+          "min_sat": 27300,
+          "max_sat": 1000000,
+          "fee_sat": 100,
+          "mining_contribution_sat": 0,
+          "bond_verified": true
+        },
+        {
+          "id": 1,
+          "maker": "J5SyntheticB",
+          "fee": "0.00005",
+          "relative": true,
+          "min_sat": 27300,
+          "max_sat": 2000000,
+          "fee_sat": 2,
+          "mining_contribution_sat": 0,
+          "bond_verified": false
+        },
+        {
+          "id": 2,
+          "maker": "J5SyntheticC",
+          "fee": "100",
+          "relative": false,
+          "min_sat": 100000,
+          "max_sat": 3000000,
+          "fee_sat": 100,
+          "mining_contribution_sat": 0,
+          "bond_verified": true
+        }
+      ]
+    }
+  },
+  {
+    "name": "stale offers",
+    "valid": false,
+    "value": {
+      "amount_sat": 50000,
+      "fetched_at": 2000000000,
+      "book_updated_at": 2000000000,
+      "status": "stale",
+      "maker_count": 0,
+      "median_fee_sat": null,
+      "excluded_offer_count": 0,
+      "offers": [
+        {
+          "id": 0,
+          "maker": "J5SyntheticA",
+          "fee": "100",
+          "relative": false,
+          "min_sat": 27300,
+          "max_sat": 1000000,
+          "fee_sat": 100,
+          "mining_contribution_sat": 0,
+          "bond_verified": true
+        },
+        {
+          "id": 1,
+          "maker": "J5SyntheticB",
+          "fee": "0.00005",
+          "relative": true,
+          "min_sat": 27300,
+          "max_sat": 2000000,
+          "fee_sat": 2,
+          "mining_contribution_sat": 0,
+          "bond_verified": false
+        },
+        {
+          "id": 2,
+          "maker": "J5SyntheticC",
+          "fee": "100",
+          "relative": false,
+          "min_sat": 100000,
+          "max_sat": 3000000,
+          "fee_sat": 100,
+          "mining_contribution_sat": 0,
+          "bond_verified": true
+        }
+      ]
+    }
+  },
+  {
+    "name": "bad excluded count",
+    "valid": false,
+    "value": {
+      "amount_sat": 50000,
+      "fetched_at": 2000000000,
+      "book_updated_at": 2000000000,
+      "status": "fresh",
+      "maker_count": 1,
+      "median_fee_sat": "100",
+      "excluded_offer_count": -1,
+      "offers": [
+        {
+          "id": 0,
+          "maker": "J5SyntheticA",
+          "fee": "100",
+          "relative": false,
+          "min_sat": 27300,
+          "max_sat": 1000000,
+          "fee_sat": 100,
+          "mining_contribution_sat": 0,
+          "bond_verified": true
+        },
+        {
+          "id": 1,
+          "maker": "J5SyntheticB",
+          "fee": "0.00005",
+          "relative": true,
+          "min_sat": 27300,
+          "max_sat": 2000000,
+          "fee_sat": 2,
+          "mining_contribution_sat": 0,
+          "bond_verified": false
+        },
+        {
+          "id": 2,
+          "maker": "J5SyntheticC",
+          "fee": "100",
+          "relative": false,
+          "min_sat": 100000,
+          "max_sat": 3000000,
+          "fee_sat": 100,
+          "mining_contribution_sat": 0,
+          "bond_verified": true
+        }
+      ]
+    }
+  },
+  {
+    "name": "older host summary only",
+    "valid": true,
+    "value": {
+      "amount_sat": 50000,
+      "fetched_at": 2000000000,
+      "book_updated_at": 2000000000,
+      "status": "fresh",
+      "maker_count": 1,
+      "median_fee_sat": "100"
+    }
+  }
+]

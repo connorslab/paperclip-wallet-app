@@ -360,6 +360,21 @@ final class JoinBlaketTests: XCTestCase {
         do { _ = try await c.discardPayment(id: id, authorization: auth); XCTFail("Lost reply") } catch {}
         XCTAssertEqual(JamStub.requests.filter { $0.httpMethod == "POST" }.count, 1)
     }
+    func testOrderBookFixturesAndSorting() throws {
+        struct Case: Decodable { let name: String; let valid: Bool; let value: JoinBlaketMarket }
+        let url = Bundle.module.url(forResource: "jars-orderbook", withExtension: "json", subdirectory: "Fixtures")!
+        let rows = try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as! [[String: Any]]
+        for row in rows {
+            let data = try JSONSerialization.data(withJSONObject: row)
+            let result = Result { let item = try JSONDecoder().decode(Case.self, from: data); try item.value.validate(amount: 50000, now: 2000000000); return item.value }
+            XCTAssertEqual((try? result.get()) != nil, row["valid"] as? Bool, row["name"] as! String)
+            if let book = try? result.get(), book.offers != nil {
+                XCTAssertEqual(book.visibleOffers(eligibleOnly: false, largestFirst: false).map(\.id), [1,0,2])
+                XCTAssertEqual(book.visibleOffers(eligibleOnly: true, largestFirst: false).map(\.id), [0])
+                XCTAssertEqual(book.visibleOffers(eligibleOnly: false, largestFirst: true).map(\.id), [2,1,0])
+            }
+        }
+    }
     func testMarketSummaryRejectsWrongAmountAndExpires() throws {
         let now = Int64(Date().timeIntervalSince1970)
         let data = try JSONSerialization.data(withJSONObject:["amount_sat":100000,"fetched_at":now,"book_updated_at":now,"status":"fresh","maker_count":2,"median_fee_sat":"75.5"])

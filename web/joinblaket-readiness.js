@@ -77,3 +77,36 @@ const PaperclipBonds = {
     return value;
   }
 };
+
+// Only normalized, bounded public offer fields reach the order-book view.
+const PaperclipOrderBook = {
+  validate(value, amount) {
+    if (value.offers == null) return; // Older hosts still provide the median.
+    const money = n => Number.isSafeInteger(n) && n >= 0 && n <= 2100000000000000;
+    if (!Array.isArray(value.offers) || value.offers.length > 10000 || !Number.isInteger(value.excluded_offer_count) || value.excluded_offer_count < 0 || value.offers.length + value.excluded_offer_count > 10000 ||
+        (!['fresh','empty'].includes(value.status) && value.offers.length)) throw new Error('Invalid order book');
+    if (value.offers.length && (!Number.isInteger(value.book_updated_at) || value.book_updated_at < value.fetched_at-120 || value.book_updated_at > value.fetched_at+30)) throw new Error('Invalid order book timestamp');
+    const ids = new Set();
+    for (const row of value.offers) {
+      if (!row || !Number.isInteger(row.id) || row.id < 0 || row.id >= 10000 || ids.has(row.id) || typeof row.maker !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(row.maker) ||
+          typeof row.relative !== 'boolean' || typeof row.bond_verified !== 'boolean' || typeof row.fee !== 'string' || ![row.min_sat,row.max_sat,row.fee_sat,row.mining_contribution_sat].every(money) || row.min_sat > row.max_sat) throw new Error('Invalid order book offer');
+      ids.add(row.id);
+      let expected;
+      if (row.relative) {
+        const index = PaperclipMakerReadiness.rates.indexOf(row.fee);
+        if (index < 0) throw new Error('Unsupported offer rate');
+        const product = BigInt(amount) * BigInt(PaperclipMakerReadiness.perMillion[index]), scale = 1000000n;
+        const whole = product / scale, remainder = product % scale;
+        expected = Number(whole + (remainder * 2n > scale || (remainder * 2n === scale && whole % 2n === 1n) ? 1n : 0n));
+      } else {
+        expected = Number(row.fee);
+        if (String(expected) !== row.fee || !PaperclipMakerReadiness.fixed.includes(expected)) throw new Error('Unsupported offer fee');
+      }
+      if (row.fee_sat !== expected) throw new Error('Invalid offer fee');
+    }
+  },
+  rows(value, eligible, largest) {
+    return (value.offers || []).filter(row => !eligible || row.bond_verified && row.min_sat <= value.amount_sat && row.max_sat >= value.amount_sat)
+      .sort((a,b) => (largest ? b.max_sat-a.max_sat : 0) || a.fee_sat-b.fee_sat || a.id-b.id);
+  }
+};

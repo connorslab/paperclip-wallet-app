@@ -219,15 +219,57 @@ public struct JoinBlaketPayment: Decodable, Identifiable, Sendable {
     }
 }
 
+public struct JoinBlaketOffer: Decodable, Sendable, Identifiable {
+    public let id: Int
+    public let maker: String, fee: String
+    public let relative: Bool, bond_verified: Bool
+    public let min_sat: UInt64, max_sat: UInt64, fee_sat: UInt64, mining_contribution_sat: UInt64
+    public var feeLabel: String { relative ? JoinBlaketMakerFee.label(fee) : "\(fee) sats" }
+    public func covers(_ amount: UInt64) -> Bool { min_sat <= amount && amount <= max_sat }
+    public func validate(amount: UInt64) throws {
+        guard (0..<10000).contains(id), maker.range(of: "^[A-Za-z0-9_-]{1,128}$", options: .regularExpression) != nil,
+              min_sat <= max_sat, [max_sat, fee_sat, mining_contribution_sat].allSatisfy({ $0 <= 2_100_000_000_000_000 }) else { throw JoinBlaketError.invalidResponse }
+        let expected: UInt64
+        if relative {
+            guard JoinBlaketMakerFee.rates.contains(fee), let rate = Decimal(string: fee, locale: Locale(identifier: "en_US_POSIX")) else { throw JoinBlaketError.invalidResponse }
+            var raw = Decimal(amount) * rate, rounded = Decimal()
+            NSDecimalRound(&rounded, &raw, 0, .bankers)
+            expected = NSDecimalNumber(decimal: rounded).uint64Value
+        } else {
+            guard let value = UInt64(fee), String(value) == fee, JoinBlaketMakerFee.fixed.contains(value) else { throw JoinBlaketError.invalidResponse }
+            expected = value
+        }
+        guard fee_sat == expected else { throw JoinBlaketError.invalidResponse }
+    }
+}
+
 public struct JoinBlaketMarket: Decodable, Sendable {
     public let amount_sat: UInt64, fetched_at: Int64
     public let book_updated_at: Int64?
     public let status: String
     public let maker_count: Int
     public let median_fee_sat: String?
+    public let offers: [JoinBlaketOffer]?
+    public let excluded_offer_count: Int?
+    public func visibleOffers(eligibleOnly: Bool, largestFirst: Bool) -> [JoinBlaketOffer] {
+        (offers ?? []).filter { !eligibleOnly || ($0.bond_verified && $0.covers(amount_sat)) }.sorted { a, b in
+            if largestFirst && a.max_sat != b.max_sat { return a.max_sat > b.max_sat }
+            if a.fee_sat != b.fee_sat { return a.fee_sat < b.fee_sat }
+            return a.id < b.id
+        }
+    }
     public func validate(amount: UInt64, now: Int64 = Int64(Date().timeIntervalSince1970)) throws {
         guard amount_sat == amount, ["fresh", "stale", "empty", "unavailable"].contains(status),
               fetched_at <= now + 30, fetched_at >= now - 120, (0...10000).contains(maker_count) else { throw JoinBlaketError.invalidResponse }
+        if let offers {
+            guard offers.count <= 10000, Set(offers.map(\.id)).count == offers.count,
+                  let excluded = excluded_offer_count, (0...10000).contains(excluded), offers.count + excluded <= 10000,
+                  (["fresh", "empty"].contains(status) || offers.isEmpty) else { throw JoinBlaketError.invalidResponse }
+            if !offers.isEmpty {
+                guard let stamp = book_updated_at, stamp >= now - 120, stamp <= now + 30 else { throw JoinBlaketError.invalidResponse }
+            }
+            for offer in offers { try offer.validate(amount: amount) }
+        }
         if status == "fresh" {
             guard maker_count > 0, let stamp = book_updated_at, stamp <= now + 30, stamp >= now - 120,
                   let fee = median_fee_sat, fee.range(of: "^[0-9]{1,16}(\\.5)?$", options: .regularExpression) != nil,

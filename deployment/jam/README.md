@@ -107,7 +107,18 @@ The comparison uses each verified, current bonded maker's lowest supported offer
 that covers the amount. Fixed and relative offers are compared in sats, with the
 same rounding as the pinned Jam fee calculation. The median excludes mining
 contributions and is not the taker's total cost or a prediction of earnings.
-It does not publish maker identifiers or wallet information.
+The same response includes normalized supported offers for the read-only Order
+book page on iOS, Android and the shared server/desktop UI. Public maker nicknames,
+fixed/relative fees, minimum/maximum amounts, mining contributions and current
+bond verification are shown. Raw bond proofs, UTXOs and wallet information are
+not relayed. Unverified bonds and out-of-range offers remain browsable but do not
+enter the median. Unsupported/malformed rows are counted and excluded.
+
+Clients can sort by maker fee or largest offer and filter for verified bonds
+covering the comparison amount. Ten offers appear per page. Refreshing or changing
+filters never starts a maker, changes a fee, or prepares a payment. Old hosts that
+only supply the median show an explicit update message. Stale rows disappear until
+refresh; no external order-book website or additional pairing permission is used.
 
 Snapshots older than 120 seconds are stale. Missing, disconnected, malformed or
 unverified data does not become a zero median. The reader has a ten-second limit,

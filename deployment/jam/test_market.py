@@ -53,6 +53,31 @@ class MarketTests(unittest.TestCase):
         for amount in [True,0,27300.0,2100000000000001]:
             with self.assertRaises(ValueError): summarize(data,amount,NOW)
 
+    def test_order_book_includes_noneligible_rows_without_weighting_median(self):
+        rows = [offer('maker-a'), offer('maker-b', '0.000050', 'sw0reloffer'), offer('maker-c')]
+        rows[1]['fidelity_bond_verified'] = False
+        rows[2]['minsize'] = 100000
+        rows[0]['txfee'] = 25
+        value = summarize(book(rows), 50000, NOW)
+        self.assertEqual(value['maker_count'], 1)
+        self.assertEqual(value['median_fee_sat'], '100')
+        self.assertEqual(len(value['offers']), 3)
+        self.assertEqual(value['offers'][1]['fee'], '0.00005')
+        self.assertEqual(value['offers'][1]['fee_sat'], 2)
+        self.assertFalse(value['offers'][1]['bond_verified'])
+        self.assertEqual(value['offers'][0]['mining_contribution_sat'], 25)
+        self.assertEqual(value['excluded_offer_count'], 0)
+        self.assertEqual(summarize(book(rows), 50000, NOW+121)['offers'], [])
+
+    def test_order_book_excludes_unsafe_fields_and_counts_unsupported_rows(self):
+        rows = [offer('<script>'), offer('maker', '123'), offer('good')]
+        rows[2].update(secret='never relay', fidelity_bond_data={'cert_expiry':110,'utxo':'private'})
+        value = summarize(book(rows), 100000, NOW)
+        self.assertEqual(value['excluded_offer_count'], 2)
+        self.assertEqual(len(value['offers']), 1)
+        self.assertNotIn('secret', value['offers'][0])
+        self.assertNotIn('fidelity_bond_data', value['offers'][0])
+
 class MarketTransportTests(unittest.IsolatedAsyncioTestCase):
     async def test_host_snapshot_is_bounded_and_never_follows_redirects(self):
         import json

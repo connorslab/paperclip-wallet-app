@@ -208,6 +208,20 @@ private struct JarsSendView: View {
         return try await client.checkPayment(id: id, authorization: authorization)
     }
     func market(_ amount: UInt64) async throws -> JoinBlaketMarket {
+#if DEBUG
+        if previewOnly {
+            let now = Int64(Date().timeIntervalSince1970)
+            let rows: [[String: Any]] = (0..<12).map { i in
+                ["id": i, "maker": "J5Synthetic\(i)", "fee": "100", "relative": false,
+                 "min_sat": 27300, "max_sat": 1000000 + i, "fee_sat": 100,
+                 "mining_contribution_sat": 0, "bond_verified": i % 2 == 0]
+            }
+            let data = try JSONSerialization.data(withJSONObject: ["amount_sat": amount, "fetched_at": now, "book_updated_at": now, "status": "fresh", "maker_count": 6, "median_fee_sat": "100", "offers": rows, "excluded_offer_count": 0])
+            let value = try JSONDecoder().decode(JoinBlaketMarket.self, from: data)
+            try value.validate(amount: amount)
+            return value
+        }
+#endif
         guard !previewOnly, let client, let authorization else { throw JoinBlaketError.sessionExpired }
         return try await client.market(amount: amount, authorization: authorization)
     }
@@ -279,7 +293,7 @@ private struct JarsSendView: View {
 
 struct JoinBlaketView: View {
     private enum MakerPage: String, Hashable {
-        case settings = "Maker settings", market = "Market fees", bond = "Fidelity bond", guide = "How earning works"
+        case settings = "Maker settings", market = "Order book", bond = "Fidelity bond", guide = "How earning works"
     }
     @State private var makerPage: MakerPage?
     private struct SendContext: Identifiable {
@@ -435,7 +449,7 @@ struct JoinBlaketView: View {
             }
             makerRoute(.settings, subtitle: "Your fee and minimum amount", icon: "slider.horizontal.3")
             Divider()
-            makerRoute(.market, subtitle: "Compare current maker fees", icon: "chart.bar")
+            makerRoute(.market, subtitle: "Browse offers, fees and liquidity", icon: "chart.bar")
             Divider()
             makerRoute(.bond, subtitle: "Lock date and bond address", icon: "lock.shield")
             Divider()
@@ -456,35 +470,37 @@ struct JoinBlaketView: View {
         }.buttonStyle(WalletNavigationButtonStyle()).accessibilityIdentifier("jars-tool-" + String(describing: page))
     }
     private func toolPage(_ page: MakerPage) -> some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                switch page {
-                case .settings: makerSettings
-                case .market: marketSettings
-                case .bond: bondSetup
-                case .guide: makerGuide
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    switch page {
+                    case .settings: makerSettings
+                    case .market: marketSettings(proxy)
+                    case .bond: bondSetup
+                    case .guide: makerGuide
+                    }
+                    if model.busy { ProgressView().frame(maxWidth: .infinity) }
+                    if let message = model.message { Text(message).font(.subheadline) }
+                }.walletPageContent()
+            }.walletPageBackground().navigationTitle(page.rawValue).navigationBarTitleDisplayMode(.inline)
+                .disabled(model.busy)
+                .confirmationDialog(model.session?.maker_running == true ? "Stop your server’s maker?" : "Start making on your Jam server?", isPresented: $confirmMaker) {
+                    Button(model.session?.maker_running == true ? "Stop maker" : "Start maker") {
+                        model.perform { try await model.maker(start: model.session?.maker_running != true, minimum: UInt64(minimum) ?? 0, fee: relativeMode ? 0 : (UInt64(makerFee) ?? 0), relativeFee: relativeMode ? relativeRate : nil) }
+                    }
+                } message: {
+                    Text(model.session?.maker_running == true ? "Existing CoinJoins may need to finish before the maker stops." : "Minimum CoinJoin: \(minimum) sats. Your fee: \(relativeMode ? JoinBlaketMakerFee.label(relativeRate) + " of the CoinJoin amount" : makerFee + " sats per CoinJoin"). Mining fee contribution: 0 sats. The maker uses eligible Jam jars and keeps running when Paperclip closes.")
                 }
-                if model.busy { ProgressView().frame(maxWidth: .infinity) }
-                if let message = model.message { Text(message).font(.subheadline) }
-            }.walletPageContent()
-        }.walletPageBackground().navigationTitle(page.rawValue).navigationBarTitleDisplayMode(.inline)
-            .disabled(model.busy)
-            .confirmationDialog(model.session?.maker_running == true ? "Stop your server’s maker?" : "Start making on your Jam server?", isPresented: $confirmMaker) {
-                Button(model.session?.maker_running == true ? "Stop maker" : "Start maker") {
-                    model.perform { try await model.maker(start: model.session?.maker_running != true, minimum: UInt64(minimum) ?? 0, fee: relativeMode ? 0 : (UInt64(makerFee) ?? 0), relativeFee: relativeMode ? relativeRate : nil) }
+                .alert("Create bond address?", isPresented: $confirmBond) {
+                    Button("Create address") {
+                        let month = reviewedBondMonth
+                        model.perform { try await model.prepareBond(month: month) }
+                    }
+                    Button("Cancel", role: .cancel) {}
+                } message: {
+                    Text("Wallet: \(model.selectedWallet). Coins sent here will be locked until \(reviewedBondMonth)-01 at 00:00 UTC. Creating the address sends no funds. Review the amount and mining fee separately when funding. Earnings are not guaranteed.")
                 }
-            } message: {
-                Text(model.session?.maker_running == true ? "Existing CoinJoins may need to finish before the maker stops." : "Minimum CoinJoin: \(minimum) sats. Your fee: \(relativeMode ? JoinBlaketMakerFee.label(relativeRate) + " of the CoinJoin amount" : makerFee + " sats per CoinJoin"). Mining fee contribution: 0 sats. The maker uses eligible Jam jars and keeps running when Paperclip closes.")
-            }
-            .alert("Create bond address?", isPresented: $confirmBond) {
-                Button("Create address") {
-                    let month = reviewedBondMonth
-                    model.perform { try await model.prepareBond(month: month) }
-                }
-                Button("Cancel", role: .cancel) {}
-            } message: {
-                Text("Wallet: \(model.selectedWallet). Coins sent here will be locked until \(reviewedBondMonth)-01 at 00:00 UTC. Creating the address sends no funds. Review the amount and mining fee separately when funding. Earnings are not guaranteed.")
-            }
+        }
     }
     private var makerSettings: some View {
         WalletSection("Your maker offer") {
@@ -517,20 +533,28 @@ struct JoinBlaketView: View {
             .disabled(model.previewOnly || model.needsRefresh || (model.session?.maker_running != true && !makerReadiness.canStart))
         }
     }
-    private var marketSettings: some View {
+    private func marketSettings(_ proxy: ScrollViewProxy) -> some View {
         WalletSection("Order book") {
             amountField("CoinJoin amount", text: $comparisonAmount, accessibility: "Compare CoinJoin amount (sats)")
-            Text("Compare at this CoinJoin amount. One lowest supported offer per verified bonded maker; mining fees are excluded.").font(.caption)
+            Text("Maker fees only · mining fees excluded.").font(.caption)
             TimelineView(.periodic(from: .now, by: 15)) { context in
                 if let market { Text(market.summary(now: context.date)).font(.subheadline) }
             }
             if let market { Text("Fetched \(Date(timeIntervalSince1970: Double(market.fetched_at)), style: .time)").font(.caption).foregroundStyle(PaperclipTheme.muted) }
             if marketUnavailable { Text("Order book unavailable. Your selected fee is unchanged.").font(.caption) }
-            Button("Refresh market fees") { model.perform {
+            Button("Refresh order book") { model.perform {
+                let requestedAmount = comparisonAmount
+                let revision = model.authorizationRevision
                 market = nil; marketUnavailable = false
-                do { market = try await model.market(UInt64(comparisonAmount) ?? 0) } catch { marketUnavailable = true }
-            } }.disabled(model.previewOnly)
-            Text("A market snapshot is not a forecast. Your fee changes only when you select it.").font(.caption).foregroundStyle(PaperclipTheme.muted)
+                do {
+                    let result = try await model.market(UInt64(requestedAmount) ?? 0)
+                    if comparisonAmount == requestedAmount && revision == model.authorizationRevision { market = result }
+                } catch { if comparisonAmount == requestedAmount && revision == model.authorizationRevision { marketUnavailable = true } }
+            } }
+            DisclosureGroup("About this order book") {
+                Text("Your host’s snapshot of supported offers. The median uses one lowest eligible offer per verified bonded maker. Offers can change; browsing never changes your maker settings.").font(.caption).foregroundStyle(PaperclipTheme.muted)
+            }
+            if let market { JarsOrderBookRows(market: market, pageChanged: { proxy.scrollTo("jars-orderbook-top", anchor: .top) }).id(market.fetched_at) }
         }
     }
     private var makerGuide: some View {
@@ -852,5 +876,60 @@ private struct JoinBlaketRecoveryView: View {
     private func perform(_ action: @escaping @MainActor () async throws -> Void) {
         guard !busy else { return }; busy = true; message = nil
         Task { defer { busy = false }; do { try await action() } catch { message = error is JoinBlaketError ? error.localizedDescription : "Could not check payment status. Check your connection and try again." } }
+    }
+}
+
+private struct JarsOrderBookRows: View {
+    let market: JoinBlaketMarket
+    let pageChanged: () -> Void
+    @State private var eligibleOnly = false
+    @State private var largestFirst = false
+    @State private var page = 0
+    private var rows: [JoinBlaketOffer] { market.visibleOffers(eligibleOnly: eligibleOnly, largestFirst: largestFirst) }
+    var body: some View {
+        if market.offers == nil {
+            Text("Update your Paperclip host to browse individual offers.").font(.caption)
+        } else {
+            TimelineView(.periodic(from: .now, by: 15)) { context in
+                if ["fresh", "empty"].contains(market.status), let stamp = market.book_updated_at, Int64(context.date.timeIntervalSince1970) - stamp <= 120 {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Toggle("Eligible for this amount", isOn: $eligibleOnly)
+                        Picker("Sort offers", selection: $largestFirst) {
+                            Text("Lowest fee").tag(false)
+                            Text("Largest offer").tag(true)
+                        }.pickerStyle(.segmented)
+                        Text("\(rows.count) offers · \(Set(rows.map(\.maker)).count) makers").font(.subheadline.bold()).id("jars-orderbook-top")
+                        if rows.isEmpty { Text("No offers match this filter.").font(.subheadline) }
+                        ForEach(Array(rows.dropFirst(page * 10).prefix(10))) { offer in
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text(offer.maker).font(.caption.monospaced()).textSelection(.enabled)
+                                HStack {
+                                    Text(offer.feeLabel).font(.headline)
+                                    Spacer()
+                                    Text(offer.bond_verified ? "Bond verified" : "Bond not verified").font(.caption).foregroundStyle(PaperclipTheme.muted)
+                                }
+                                Text("\(offer.min_sat.formatted())–\(offer.max_sat.formatted()) sats").font(.subheadline).monospacedDigit()
+                                Text(offer.covers(market.amount_sat) ? "Maker fee at this amount: \(offer.fee_sat.formatted()) sats" : "Outside your comparison amount").font(.caption)
+                                Text("Mining contribution: \(offer.mining_contribution_sat.formatted()) sats").font(.caption).foregroundStyle(PaperclipTheme.muted)
+                            }.padding(.vertical, 8)
+                            Divider()
+                        }
+                        if !rows.isEmpty {
+                            HStack {
+                                Button("Previous") { page -= 1 }.disabled(page == 0)
+                                Spacer()
+                                Text("\(page + 1) / \(max(1, (rows.count + 9) / 10))").font(.caption.monospacedDigit())
+                                Spacer()
+                                Button("Next") { page += 1 }.disabled((page + 1) * 10 >= rows.count)
+                            }
+                        }
+                        if let excluded = market.excluded_offer_count, excluded > 0 { Text("\(excluded) unsupported or malformed offers excluded.").font(.caption) }
+                    }
+                } else { Text("Refresh to browse current offers.").font(.caption) }
+            }
+            .onChange(of: page) { _, _ in pageChanged() }
+            .onChange(of: eligibleOnly) { _, _ in page = 0 }
+            .onChange(of: largestFirst) { _, _ in page = 0 }
+        }
     }
 }

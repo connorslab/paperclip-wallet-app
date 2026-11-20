@@ -239,11 +239,21 @@ final class AdaptiveLayoutTests: XCTestCase {
 		checks.tap()
 		capture(app, "Maker settings page")
 		app.navigationBars["Maker settings"].buttons.firstMatch.tap()
-		openJarsTool(app, "market", "Market fees")
+		openJarsTool(app, "market", "Order book")
 		XCTAssertTrue(app.textFields["Compare CoinJoin amount (sats)"].exists)
-		XCTAssertFalse(app.buttons["Refresh market fees"].isEnabled, "Preview cannot contact a live watcher")
+		XCTAssertTrue(app.buttons["Refresh order book"].isEnabled)
+		app.buttons["Refresh order book"].tap()
+		let maker = app.staticTexts["J5Synthetic0"]
+		for _ in 0..<8 { if maker.isHittable { break }; app.scrollViews.firstMatch.swipeUp() }
+		XCTAssertTrue(maker.isHittable, "Preview returns synthetic offers without contacting a watcher")
+		XCTAssertTrue(app.staticTexts["12 offers · 12 makers"].exists)
 		capture(app, "Market comparison page")
-		app.navigationBars["Market fees"].buttons.firstMatch.tap()
+		let nextOffers = app.buttons["Next"].firstMatch
+		for _ in 0..<18 { if nextOffers.isHittable { break }; app.scrollViews.firstMatch.swipeUp() }
+		XCTAssertTrue(nextOffers.isHittable); nextOffers.tap()
+		XCTAssertTrue(app.staticTexts["J5Synthetic10"].waitForExistence(timeout: 5))
+		XCTAssertFalse(app.staticTexts["J5Synthetic0"].exists)
+		app.navigationBars["Order book"].buttons.firstMatch.tap()
 		openJarsTool(app, "settings", "Maker settings")
 		XCTAssertTrue(app.staticTexts["At 1,000,000 sats, your fee is 50 sats."].exists, "Fee draft survives navigation")
 		app.navigationBars["Maker settings"].buttons.firstMatch.tap()

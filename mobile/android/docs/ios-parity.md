@@ -123,3 +123,12 @@ pins for HTTPS, and saves a scoped grant only after verifying the wallet. An
 actual local SOCKS exchange confirms that the onion hostname reaches the proxy
 without local DNS, with the grant only in Authorization. Both native UI review
 and cancellation tests pass; live installed-host Tor acceptance is separate.
+
+## Jars order book — 2026-11-19
+
+Android and iOS browse the same normalized host order book as the shared desktop
+UI: public maker, fee type/rate, amount range, fee at the comparison amount, mining
+contribution and bond verification. Sorting, eligibility filtering and ten-offer
+pages do not alter maker terms. Shared malformed-response and half-even fee
+rounding fixtures exercise all three clients. Existing paired Tor read access is
+reused; older hosts retain the median and display an upgrade message.

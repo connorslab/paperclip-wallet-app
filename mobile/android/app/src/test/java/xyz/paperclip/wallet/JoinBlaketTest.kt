@@ -311,6 +311,19 @@ class JoinBlaketTest {
 		assertTrue(runCatching { client.prepareSend(JoinBlaketSendDraft(0,"bcrt1qsyntheticrecipient",20000,1000,500),pair.authorization()) }.isFailure)
 		assertEquals(0,calls)
 	}
+	@Test fun orderBookFixturesAndSorting() {
+		val cases = org.json.JSONArray(checkNotNull(javaClass.getResourceAsStream("/jars-orderbook.json")).bufferedReader().use { it.readText() })
+		for (i in 0 until cases.length()) {
+			val row = cases.getJSONObject(i)
+			val result = runCatching { JoinBlaketMarket.parse(row.getJSONObject("value"), 50000, 2000000000) }
+			assertEquals(row.getString("name"), row.getBoolean("valid"), result.isSuccess)
+			result.getOrNull()?.takeIf { it.offers != null }?.let {
+				assertEquals(listOf(1,0,2),it.visibleOffers(false,false).map { it.id })
+				assertEquals(listOf(0),it.visibleOffers(true,false).map { it.id })
+				assertEquals(listOf(2,1,0),it.visibleOffers(false,true).map { it.id })
+			}
+		}
+	}
 	@Test fun marketSummaryRejectsWrongAmountAndExpires() {
 		val now = java.time.Instant.now().epochSecond
 		val row = JSONObject().put("amount_sat",100000L).put("fetched_at",now).put("book_updated_at",now).put("status","fresh").put("maker_count",2).put("median_fee_sat","75.5")

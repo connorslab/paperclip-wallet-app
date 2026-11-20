@@ -41,7 +41,30 @@ internal data class JoinBlaketMakerReadiness(
 	}
 }
 
-internal data class JoinBlaketMarket(val amount: Long, val fetched: Long, val updated: Long?, val status: String, val makers: Int, val median: String?) {
+internal data class JoinBlaketOffer(val id: Int, val maker: String, val fee: String, val relative: Boolean,
+	val min: Long, val max: Long, val cost: Long, val contribution: Long, val bonded: Boolean) {
+	val feeLabel: String get() = if (relative) JoinBlaketMakerFee.label(fee) else "$fee sats"
+	fun covers(amount: Long) = amount in min..max
+	companion object {
+		fun parse(value: JSONObject, amount: Long): JoinBlaketOffer {
+			fun number(key: String): Long { val v = value.get(key); require(v is Int || v is Long); return (v as Number).toLong().also { require(it in 0..2_100_000_000_000_000L) } }
+			val id = number("id"); val maker = value.get("maker"); val fee = value.get("fee")
+			val relative = value.get("relative"); val bonded = value.get("bond_verified")
+			require(id < 10000 && maker is String && maker.matches(Regex("[A-Za-z0-9_-]{1,128}")) && fee is String && relative is Boolean && bonded is Boolean)
+			val min = number("min_sat"); val max = number("max_sat"); val cost = number("fee_sat"); val contribution = number("mining_contribution_sat")
+			require(min <= max)
+			val expected = if (relative) {
+				require(fee in JoinBlaketMakerFee.rates)
+				amount.toBigDecimal().multiply(fee.toBigDecimal()).setScale(0, java.math.RoundingMode.HALF_EVEN).longValueExact()
+			} else { require(fee.toLongOrNull() in JoinBlaketMakerFee.fixed && fee.toLong().toString() == fee); fee.toLong() }
+			require(cost == expected)
+			return JoinBlaketOffer(id.toInt(), maker, fee, relative, min, max, cost, contribution, bonded)
+		}
+	}
+}
+
+internal data class JoinBlaketMarket(val amount: Long, val fetched: Long, val updated: Long?, val status: String, val makers: Int, val median: String?, val offers: List<JoinBlaketOffer>? = null, val excluded: Int = 0) {
+	fun visibleOffers(eligibleOnly: Boolean, largestFirst: Boolean): List<JoinBlaketOffer> = (offers ?: emptyList()).filter { !eligibleOnly || (it.bonded && it.covers(amount)) }.sortedWith(compareBy<JoinBlaketOffer> { if (largestFirst) -it.max else 0 }.thenBy { it.cost }.thenBy { it.id })
 	fun summary(now: Long = java.time.Instant.now().epochSecond): String {
 		if (status == "stale" || (updated != null && now - updated > 120)) return "Order book is stale. Refresh before comparing fees."
 		if (status == "empty") return "No verified bonded offers cover this amount. No median is available."
@@ -57,7 +80,14 @@ internal data class JoinBlaketMarket(val amount: Long, val fetched: Long, val up
 			require(integer("amount_sat") == amount && fetched in (now - 120)..(now + 30) && count in 0..10000 && status in setOf("fresh", "stale", "empty", "unavailable"))
 			if (status == "fresh") require(count > 0 && updated != null && updated in (now - 120)..(now + 30) && median != null && median.matches(Regex("[0-9]{1,16}(\\.5)?")) && median.toBigDecimal() <= java.math.BigDecimal("2100000000000000"))
 			else require(median == null && count == 0L)
-			return JoinBlaketMarket(amount, fetched, updated, status, count.toInt(), median)
+			val offers = if (value.isNull("offers")) null else value.getJSONArray("offers").let { rows ->
+				require(rows.length() <= 10000)
+				(0 until rows.length()).map { JoinBlaketOffer.parse(rows.getJSONObject(it), amount) }
+			}
+			val excluded = if (offers == null) 0 else integer("excluded_offer_count").also { require(it in 0..10000) }.toInt()
+			if (offers != null) require(offers.map { it.id }.distinct().size == offers.size && offers.size + excluded <= 10000 && (status in setOf("fresh", "empty") || offers.isEmpty()))
+			if (!offers.isNullOrEmpty()) require(updated != null && updated in (now - 120)..(now + 30))
+			return JoinBlaketMarket(amount, fetched, updated, status, count.toInt(), median, offers, excluded)
 		}
 	}
 }

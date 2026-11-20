@@ -5,6 +5,7 @@ one cheapest eligible offer per maker at the requested amount, so repeated offer
 from one maker do not dominate the median. These are advertisements, not earnings.
 """
 import json
+import re
 import time
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
@@ -27,7 +28,8 @@ def summarize(book, amount, now=None):
     if not integer(amount, 27_300):
         raise ValueError('Invalid comparison amount')
     result = {'amount_sat': amount, 'fetched_at': now, 'book_updated_at': None,
-              'status': 'unavailable', 'maker_count': 0, 'median_fee_sat': None}
+              'status': 'unavailable', 'maker_count': 0, 'median_fee_sat': None,
+              'offers': [], 'excluded_offer_count': 0}
     if not isinstance(book, dict) or not isinstance(book.get('offers'), list) or len(book['offers']) > 10_000:
         return result
     try:
@@ -46,17 +48,20 @@ def summarize(book, amount, now=None):
     if not integer(height, 1, 0xffffffff) or not isinstance(book.get('directory_nodes'), list) or not book['directory_nodes']:
         return result
     prices = {}
-    for offer in book['offers']:
+    for index, offer in enumerate(book['offers']):
+        result['excluded_offer_count'] += 1
         if not isinstance(offer, dict):
             continue
         maker, bond = offer.get('counterparty'), offer.get('fidelity_bond_data')
-        if not isinstance(maker, str) or not 1 <= len(maker) <= 256 or not isinstance(bond, dict):
+        if not isinstance(maker, str) or not re.fullmatch(r'[A-Za-z0-9_-]{1,128}', maker):
             continue
-        if offer.get('fidelity_bond_verified') is not True or offer.get('fidelity_bond_verification_stale') is not False:
+        verified = (isinstance(bond, dict) and offer.get('fidelity_bond_verified') is True
+                    and offer.get('fidelity_bond_verification_stale') is False
+                    and integer(bond.get('cert_expiry'), height, 0xffffffff))
+        if not integer(offer.get('minsize')) or not integer(offer.get('maxsize')) or offer['minsize'] > offer['maxsize']:
             continue
-        if not integer(bond.get('cert_expiry'), height, 0xffffffff):
-            continue
-        if not integer(offer.get('minsize')) or not integer(offer.get('maxsize')) or not offer['minsize'] <= amount <= offer['maxsize']:
+        contribution = offer.get('txfee', 0)
+        if not integer(contribution):
             continue
         # Compare maker fees before mining contributions; never present this as
         # the taker's total cost. Do not count malformed, non-grid or legacy fees.
@@ -77,7 +82,14 @@ def summarize(book, amount, now=None):
                 continue
         except (InvalidOperation, ValueError, OverflowError):
             continue
-        prices[maker] = min(sats, prices.get(maker, sats))
+        result['excluded_offer_count'] -= 1
+        result['offers'].append({'id': index, 'maker': maker, 'fee': str(sats) if offer['ordertype'] == 'sw0absoffer' else format(fee.normalize(), 'f'),
+                                 'relative': offer['ordertype'] == 'sw0reloffer',
+                                 'min_sat': offer['minsize'], 'max_sat': offer['maxsize'],
+                                 'fee_sat': sats, 'mining_contribution_sat': contribution,
+                                 'bond_verified': verified})
+        if verified and offer['minsize'] <= amount <= offer['maxsize']:
+            prices[maker] = min(sats, prices.get(maker, sats))
     fees = sorted(prices.values())
     if not fees:
         return dict(result, status='empty')

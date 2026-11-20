@@ -326,7 +326,7 @@ class JoinBlaketLayoutTest {
 			val now = java.time.Instant.now().epochSecond
 			val body = when (path) {
 				"/api/v1/session" -> """{"session":true,"wallet_name":"fixture.jmdat"}"""
-				"/api/v1/paperclip/market/100000" -> """{"amount_sat":100000,"fetched_at":$now,"book_updated_at":$now,"status":"fresh","maker_count":2,"median_fee_sat":"75.5"}"""
+				"/api/v1/paperclip/market/100000" -> """{"amount_sat":100000,"fetched_at":$now,"book_updated_at":$now,"status":"fresh","maker_count":2,"median_fee_sat":"75.5","excluded_offer_count":0,"offers":${org.json.JSONArray((0 until 12).map { i -> JSONObject().put("id",i).put("maker","J5Synthetic$i").put("fee","100").put("relative",false).put("min_sat",27300).put("max_sat",1000000+i).put("fee_sat",100).put("mining_contribution_sat",0).put("bond_verified",true) })}}"""
 				else -> error("Unexpected request")
 			}
 			okhttp3.Response.Builder().request(chain.request()).protocol(okhttp3.Protocol.HTTP_1_1).code(200).message("fixture")
@@ -353,11 +353,16 @@ class JoinBlaketLayoutTest {
 
 		capture("android-maker-settings")
 		compose.onNodeWithText("Done").performClick()
-		compose.onNodeWithText("Market fees").performScrollTo().performClick()
-		compose.onNodeWithText("Refresh market fees").performScrollTo().performClick()
+		compose.onNodeWithText("Order book").performScrollTo().performClick()
+		compose.onNodeWithText("Refresh order book").performScrollTo().performClick()
 		compose.waitUntil(10000) { compose.onAllNodesWithText("Median maker fee: 75.5 sats",substring=true).fetchSemanticsNodes().isNotEmpty() }
 		compose.onNodeWithText("Median maker fee: 75.5 sats",substring=true).performScrollTo().assertIsDisplayed()
+		compose.onNodeWithText("J5Synthetic0").performScrollTo().assertIsDisplayed()
+		compose.onAllNodesWithText("Bond verified")[0].assertExists()
 		capture("android-maker-market")
+		compose.onNodeWithText("Next").performScrollTo().performClick()
+		compose.onNodeWithText("J5Synthetic10").performScrollTo().assertIsDisplayed()
+		compose.onNodeWithText("J5Synthetic0").assertDoesNotExist()
 		compose.onNodeWithText("Done").performClick()
 		compose.onNodeWithText("Maker settings").performScrollTo().performClick()
 		compose.onNodeWithText("Your fee: 0.005%").performScrollTo().assertIsDisplayed()

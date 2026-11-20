@@ -8,6 +8,17 @@ for (const item of cases) {
  const value = vm.runInContext('PaperclipMakerReadiness.evaluate(item.minimum,item.fee,item.jars,item.session,item.needsRefresh)', policy);
  assert.deepEqual(JSON.parse(JSON.stringify(value)), item.expected, item.name);
 }
+const bookCases=JSON.parse(fs.readFileSync(path.join(__dirname,'../mobile/Tests/PaperclipMobileTests/Fixtures/jars-orderbook.json')));
+for(const item of bookCases) {
+ policy.book=item.value;
+ let valid=true;try { vm.runInContext('PaperclipOrderBook.validate(book,50000)',policy); } catch(_) { valid=false; }
+ assert.equal(valid,item.valid,item.name);
+ if(valid && item.value.offers) {
+  for(const [eligible,largest,expected] of [[false,false,[1,0,2]],[true,false,[0]],[false,true,[2,1,0]]]) {
+   assert.deepEqual(JSON.parse(JSON.stringify(vm.runInContext(`PaperclipOrderBook.rows(book,${eligible},${largest}).map(r=>r.id)`,policy))),expected);
+  }
+ }
+}
 (async()=>{
  const browser=await chromium.launch({headless:true,...(process.env.BROWSER_CHANNEL?{channel:process.env.BROWSER_CHANNEL}:{})});
  try {
@@ -79,7 +90,7 @@ for (const item of cases) {
       }
       else if(body.operation==='market') {
        const now=Math.floor(Date.now()/1000);
-       value={amount_sat:body.comparison_sat,fetched_at:now,book_updated_at:marketStatus==='stale'?now-121:now,status:marketStatus,maker_count:marketStatus==='fresh'?2:0,median_fee_sat:marketStatus==='fresh'?'75.5':null};
+       value={amount_sat:body.comparison_sat,fetched_at:now,book_updated_at:marketStatus==='stale'?now-121:now,status:marketStatus,maker_count:marketStatus==='fresh'?2:0,median_fee_sat:marketStatus==='fresh'?'75.5':null,excluded_offer_count:1,offers:marketStatus==='fresh'?Array.from({length:12},(_,id)=>({id,maker:'J5Synthetic'+id,fee:'100',relative:false,min_sat:27300,max_sat:1000000+id,fee_sat:100,mining_contribution_sat:0,bond_verified:id%2===0})):[]};
       }
       else if(body.operation==='cancel_payment') {
        if(failCancel)return route.fulfill({status:504,json:{message:'Synthetic cancellation timeout'}});
@@ -138,7 +149,20 @@ for (const item of cases) {
    }
    marketStatus='fresh';await page.locator('#jam-market-refresh').click();
    await page.waitForFunction(()=>document.querySelector('#jam-market-summary').textContent.includes('Median maker fee'));
-   if(process.env.SCREENSHOT_DIR) await page.locator('#jam-market-panel').screenshot({path:path.join(process.env.SCREENSHOT_DIR,`jam-market-${width}.png`),animations:'disabled'});
+   assert.equal(await page.locator('.jam-book-offer').count(),10);
+   await page.locator('#jam-book-next').click();
+   assert.equal(await page.locator('.jam-book-offer').count(),2);
+   assert.equal(await page.locator('#jam-book-page').textContent(),'2 / 2');
+   await page.locator('#jam-book-eligible').check();
+   assert.equal(await page.locator('.jam-book-offer').count(),6);
+   assert.equal(await page.locator('#jam-book-page').textContent(),'1 / 1');
+   await page.locator('#jam-book-sort').selectOption('size');
+   assert.equal(await page.locator('.jam-book-offer h3').first().textContent(),'J5Synthetic10');
+   await page.locator('#jam-book-eligible').uncheck();
+   await page.locator('#jam-book-sort').selectOption('fee');
+   assert.equal(await page.locator('.jam-book-offer h3').first().textContent(),'J5Synthetic0');
+   await page.locator('#jam-tools-dialog').evaluate(el=>el.scrollTop=0);
+   if(process.env.SCREENSHOT_DIR) await page.screenshot({path:path.join(process.env.SCREENSHOT_DIR,`jam-market-${width}.png`),animations:'disabled'});
    await page.locator('#jam-market-amount').fill('200000');
    assert.match(await page.locator('#jam-market-summary').textContent(),/Refresh to compare/);
    await page.locator('#jam-market-refresh').click();
