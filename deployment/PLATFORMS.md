@@ -77,8 +77,8 @@ for the shared source freeze, remaining feature gaps and publication sequence.
 
 ### Create and back up a Jars wallet
 
-With bundled JoinBlaket enabled in the host settings, open **Jars → Create a
-Jars wallet**. Choose a name and a separate Jam password of at least 12 characters,
+Bundled JoinBlaket starts with Paperclip. Open **Jars** to create a wallet,
+or unlock one already on the host. Choose a name and a separate Jam password of at least 12 characters,
 review creation, then back up the recovery words. No funds move during setup.
 Paperclip verifies the Jam password again before displaying the words. Write them
 down privately and confirm the requested words; do not use a mobile or QR signer
@@ -161,3 +161,21 @@ directory is private and included in the main-volume backup, but restoring it
 does not restore a restarted Jam daemon's delegation. Installed-host and full
 restore tests remain required. The current candidate's paired send/bond-funding
 flows are not complete and must not be advertised as release-ready.
+
+### Integrated Jars candidates
+
+New Umbrel candidates require both `--image` and `--jam-image`, each pinned to a
+verified multi-architecture digest. The image workflow tests the Jars companion
+on each architecture and retains its pin as `jam-image.txt`. Omitting the
+companion is an error; it must not produce a wallet with a dead Jars setup page.
+StartOS 0.4 uses its native wrapper: Jars defaults on and resolves the installed
+Knots (BLAKE2b) node independently of the main wallet's saved connection. An
+explicitly saved disable choice remains respected. Native desktop packages
+already start their bundled Jars runtime.
+
+The shared Jars page discovers wallets when opened. Empty hosts go straight to
+creation and backup; existing hosts offer unlock. No external Jam setup link is
+needed. This does not create keys, start a maker or submit a payment on navigation.
+The Lightning landing page separates Ark payments, connected CLN/LND wallets and
+the cross-network Bridge. Ark send, receive, offers and status use focused task
+views and retain the same payment review and unknown-outcome protections.

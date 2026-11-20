@@ -139,7 +139,7 @@
     if (pendingSetup && wallet !== pendingSetup) throw new Error('Check the same wallet after an interrupted creation.');
     const ticket = backupTicket;
     const config = await api('joinblaket/connection');
-    if (!config.configured) throw new Error('Enable the bundled JoinBlaket service in your Paperclip host settings first.');
+    if (!config.configured) throw new Error('Jars is not ready yet. Check Paperclip’s service status and try Refresh wallets.');
     if (ticket !== backupTicket || document.hidden || panel.hidden) return;
     if (!await PaperclipReview.ask('Create ' + wallet + ' on your connected JoinBlaket server? It has separate keys and five jars. Back up its recovery words before adding funds. No funds will move.')) return;
     if (ticket !== backupTicket || document.hidden || panel.hidden) return;
@@ -488,25 +488,32 @@
     }
     session = current; jars = result.jars; needsRefresh = false;
   }
-  $('jam-find').onclick = () => work(async () => {
+  async function discoverWallets() {
     const identity = token, ticket = generation;
-    const config = await api('joinblaket/connection');
-    if (identity !== token || ticket !== generation) return;
-    if (!config.configured) throw new Error('Connect the JoinBlaket service in your wallet server settings first.');
-    const handoff = $('jam-open'); handoff.hidden = true; handoff.removeAttribute('href');
-    if (typeof config.ui_url === 'string') {
-      const url = new URL(config.ui_url);
-      if (url.protocol === 'https:' && !url.hostname.endsWith('.onion') && !url.username && !url.password && !url.search && !url.hash) {
-        handoff.href = url.href; handoff.hidden = false;
-      }
+    $('jam-connection-state').textContent = 'Checking your Jars wallet…';
+    try {
+      const config = await api('joinblaket/connection');
+      if (identity !== token || ticket !== generation || panel.hidden) return;
+      if (!config.configured) throw new Error('Jars is not ready yet. Check Paperclip’s service status and try Refresh wallets.');
+      const result = await call('wallets');
+      if (!Array.isArray(result.wallets) || result.wallets.some(name => typeof name !== 'string')) throw new Error('Jam returned an invalid wallet list.');
+      if (identity !== token || ticket !== generation || panel.hidden) return;
+      $('jam-wallet').replaceChildren();
+      for (const name of result.wallets) { const option = document.createElement('option'); option.value = name; option.textContent = name; $('jam-wallet').append(option); }
+      $('jam-unlock-fields').hidden = result.wallets.length === 0;
+      $('jam-create-panel').open = result.wallets.length === 0;
+      $('jam-connect').dataset.empty = String(result.wallets.length === 0);
+      $('jam-connection-state').textContent = result.wallets.length ? 'Unlock your Jars wallet to continue.' : 'Create your Jars wallet here to get started.';
+    } catch (error) {
+      if (identity === token && ticket === generation && !panel.hidden) $('jam-connection-state').textContent = 'Your Jars wallet is currently unavailable. Refresh to try again.';
+      throw error;
     }
-    const result = await call('wallets');
-    if (!Array.isArray(result.wallets) || result.wallets.some(name => typeof name !== 'string')) throw new Error('Jam returned an invalid wallet list.');
-    $('jam-wallet').replaceChildren();
-    for (const name of result.wallets) { const option = document.createElement('option'); option.value = name; option.textContent = name; $('jam-wallet').append(option); }
-    $('jam-unlock-fields').hidden = result.wallets.length === 0;
-    $('jam-connection-state').textContent = result.wallets.length ? 'Select your separate Jam wallet.' : 'Create your Jars wallet here to get started.';
-  });
+  }
+  $('jam-find').onclick = () => work(discoverWallets);
+  // Opening Jars only discovers wallets. Creation always requires a fresh review.
+  new MutationObserver(() => {
+    if (!panel.hidden && token && !authorization && !busy) work(discoverWallets);
+  }).observe(panel, {attributes:true, attributeFilter:['hidden']});
   $('jam-unlock').onclick = () => work(async () => {
     const wallet = $('jam-wallet').value, password = $('jam-password').value, bip39_passphrase = $('jam-passphrase').value;
     $('jam-password').value = ''; $('jam-passphrase').value = '';
@@ -588,7 +595,6 @@
     clearPairingCode(); $('jam-pairing-list').replaceChildren(); $('jam-pairing-panel').open = false;
     market = null; renderMarket();
     generation++; payments = null; renderPayments(); $('jam-payments-panel').open = false; authorization = null; jars = []; session = null; selected = 0;
-    $('jam-open').hidden = true; $('jam-open').removeAttribute('href');
     $('jam-password').value = ''; $('jam-passphrase').value = ''; needsRefresh = false; $('jam-wallet').replaceChildren(); $('jam-unlock-fields').hidden = true;
     clearAddress(); clearBond(); $('jam-bonds').replaceChildren(); $('jam-bond-month').value = ''; render();
   }).observe($('wallet'), {attributes:true, attributeFilter:['hidden']});

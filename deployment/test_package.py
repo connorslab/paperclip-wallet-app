@@ -16,7 +16,7 @@ class PackageTest(unittest.TestCase):
             image = 'example.invalid/paperclip:test@sha256:' + 'a' * 64
             for platform in ('umbrel', 'startos'):
                 out = Path(directory) / platform
-                packaging.package(platform, image, out)
+                packaging.package(platform, image, out, jam_image=image if platform == 'umbrel' else None)
                 if platform == 'umbrel':
                     cfg = json.loads((out / 'docker-compose.yml').read_text())
                     service = cfg['services']['wallet']
@@ -31,12 +31,21 @@ class PackageTest(unittest.TestCase):
                         self.assertEqual(cfg['backup'][action]['args'][-1], '/data')
                     self.assertEqual(cfg['dependencies'], {}, 'Do not mandate a BTC node package')
                 with self.assertRaises(FileExistsError):
-                    packaging.package(platform, image, out)
+                    packaging.package(platform, image, out, jam_image=image if platform == 'umbrel' else None)
 
     def test_unpinned_image_rejected(self):
         with tempfile.TemporaryDirectory() as directory:
             with self.assertRaises(ValueError):
                 packaging.package('umbrel', 'repo:latest', Path(directory) / 'new')
+
+    def test_umbrel_cannot_silently_omit_its_jars_runtime(self):
+        image = 'example.invalid/paperclip:test@sha256:' + 'a' * 64
+        with tempfile.TemporaryDirectory() as directory:
+            for jam in (None, 'example.invalid/jam:latest'):
+                out = Path(directory) / 'incomplete'
+                with self.assertRaises(ValueError):
+                    packaging.package('umbrel', image, out, jam_image=jam)
+                self.assertFalse(out.exists(), 'Reject incomplete packages before writing files')
 
     def test_bundled_jam_has_separate_data_filtered_rpc_and_verified_loopback_tls(self):
         image = 'example.invalid/paperclip:test@sha256:' + 'a' * 64

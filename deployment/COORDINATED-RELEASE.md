@@ -4382,3 +4382,32 @@ excluded), and two isolated API 36 screen tests passed. These tests create no
 quotes, signatures or payments; they do not close physical signing or live Ark
 boarding gates. Repository pre-commit checks passed. No funded device update or
 public distribution was performed for this change.
+
+### Integrated Jars defaults and desktop Lightning organization — 2026-11-19
+
+The shared web UI now discovers Jars wallets on entry and opens creation for an
+empty host or unlock for existing wallets. External setup/handoff links are gone;
+creation still requires review, password verification and recovery-word backup.
+An unavailable service offers a retry, not a second wallet creation.
+
+StartOS candidate 0.10.0:7 changes the absent Jars setting to enabled and resolves
+its installed Knots dependency independently of the main wallet backend. Explicit
+disable choices and existing wallet connection settings remain preserved. The
+restricted RPC process, loopback HTTPS, separate volumes and public-certificate
+mount remain intact. New Umbrel packages require a pinned tested Jars companion;
+the image pipeline builds/tests both architectures and carries both image pins.
+
+Lightning now begins with distinct Ark and CLN/LND wallet cards and a separate
+Bridge section. Ark send, receive, reusable offers and payment lookup have
+focused task views. Leaving a task invalidates a delayed Ark payment review,
+even if the user returns before the quote arrives.
+
+Validation: shared web/transport/QR checks; browser navigation at 390/800/1280px;
+Jars creation/interruption/backup, maker/tools and direct/CoinJoin/bond/withdrawal
+recovery; CLN/LND and all three Bridge browser suites; delayed-response tests;
+46 package/runtime contract tests; StartOS wrapper type check, bundle and executed
+fresh/upgrade/disabled/missing-node daemon tests; required `just checks` and
+shared-source hashes. Screenshots use synthetic unfunded fixtures. Installed
+StartOS default startup/upgrade and actual bundled-host node connectivity still
+need candidate acceptance; these tests do not establish live payment settlement.
+No production service was restarted or updated by this change.

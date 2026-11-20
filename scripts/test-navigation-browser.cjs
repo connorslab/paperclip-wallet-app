@@ -35,11 +35,31 @@ const fs = require('node:fs'), path = require('node:path'), assert = require('no
     assert(!(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth)),'No horizontal overflow');
     assert((await menu.boundingBox()).height>=44,'Navigation touch target');
     assert.equal(await page.locator('[data-screen]:visible').first().evaluate(el=>getComputedStyle(el).animationName),'none','Reduced motion');
+    if (view === 'lightning') {
+      assert(await page.locator('#ln-pay').isHidden(),'Hub keeps Ark forms separate from the node');
+      assert(await page.locator('.node-entry [data-view=node]').isVisible());
+      await page.locator('[data-screen=lightning] [data-view=ark-lightning]').click();
+      assert(await page.locator('#ln-pay').isVisible());
+      if(process.env.SCREENSHOT_DIR)await page.screenshot({path:path.join(process.env.SCREENSHOT_DIR,`ark-send-${width}.png`),fullPage:true});
+      assert(await page.locator('#ln-receive').isHidden());
+      assert.equal(await menu.getAttribute('aria-current'),'page');
+      await page.locator('#ln-destination').fill('synthetic-ark-draft');
+      await page.locator('.task-switch [data-view=ark-lightning-receive]').click();
+      assert(await page.locator('#ln-receive').isVisible());
+      assert(await page.locator('#ln-pay').isHidden());
+      await page.goBack();await page.locator('#ln-pay').waitFor({state:'visible'});
+      assert.equal(await page.locator('#ln-destination').inputValue(),'synthetic-ark-draft');
+      await page.locator('.task-switch [data-view=ark-lightning-offer]').click();
+      assert(await page.locator('#ln-offer').isVisible());
+      await page.locator('.task-switch [data-view=ark-lightning-status]').click();
+      assert(await page.locator('#ln-check').isVisible());
+      await menu.click();
+    }
     if (view === 'settings') {
       assert(await page.locator('.menu-row small.hot-wallet-tool').isVisible(),'Hot wallet recovery guidance visible');
       assert(!(await page.locator('.menu-row small.cold-wallet-tool').isVisible()),'Signer recovery guidance hidden for hot wallets');
     }
-    if (process.env.SCREENSHOT_DIR && ['overview','coinjoin','settings'].includes(view)) {
+    if (process.env.SCREENSHOT_DIR && ['overview','lightning','coinjoin','settings'].includes(view)) {
       await page.locator('#network').evaluate(el=>el.textContent='UI FIXTURE · NO LIVE FUNDS');
       await page.screenshot({path:path.join(process.env.SCREENSHOT_DIR,`navigation-${view}-${width}.png`),fullPage:true});
     }

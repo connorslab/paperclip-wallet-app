@@ -74,6 +74,17 @@ jobs:
           docker run --rm --network none --entrypoint paperclip-wallet "$IMAGE" --version | grep -F '0.10.0'
           docker run --rm --network none -v "$PWD:/tests:ro" --entrypoint python3 "$IMAGE" /tests/deployment/test_daemon.py
           docker run --rm --network none -v "$PWD:/tests:ro" --entrypoint python3 "$IMAGE" /tests/deployment/desktop/test_native_daemon.py --binary /usr/local/bin/paperclip-walletd
+      - name: Build and test integrated Jars companion
+        env:
+          JAM_IMAGE: ghcr.io/connorslab/paperclip-wallet-app:jam-build-${{ github.run_id }}-${{ matrix.arch }}
+        run: |
+          docker build -f deployment/jam/Dockerfile --label "org.opencontainers.image.source=https://github.com/connorslab/paperclip-wallet-app" --label "org.opencontainers.image.revision=$GITHUB_SHA" -t "$JAM_IMAGE" .
+          docker run --rm --network none --entrypoint /opt/venv/bin/python -e PYTHONPATH=/tests -e PAPERCLIP_CONTAINER_TESTS=1 -v "$PWD/deployment/jam:/tests:ro" "$JAM_IMAGE" -m unittest discover -s /tests -p 'test_*.py'
+      - name: Publish tested Jars architecture image
+        if: inputs.publish
+        env:
+          JAM_IMAGE: ghcr.io/connorslab/paperclip-wallet-app:jam-build-${{ github.run_id }}-${{ matrix.arch }}
+        run: docker push "$JAM_IMAGE"
       - name: Publish tested architecture image
         if: inputs.publish
         env:
@@ -99,9 +110,13 @@ jobs:
           docker buildx imagetools create -t "$IMAGE:beta-$RUN_ID" "$IMAGE:build-$RUN_ID-amd64" "$IMAGE:build-$RUN_ID-arm64"
           digest=$(docker buildx imagetools inspect "$IMAGE:beta-$RUN_ID" --format '{{json .Manifest.Digest}}' | tr -d '"')
           ref="$IMAGE:beta-$RUN_ID@$digest"
+          docker buildx imagetools create -t "$IMAGE:jam-beta-$RUN_ID" "$IMAGE:jam-build-$RUN_ID-amd64" "$IMAGE:jam-build-$RUN_ID-arm64"
+          jam_digest=$(docker buildx imagetools inspect "$IMAGE:jam-beta-$RUN_ID" --format '{{json .Manifest.Digest}}' | tr -d '"')
+          jam_ref="$IMAGE:jam-beta-$RUN_ID@$jam_digest"
           mkdir -p dist
+          printf '%s\n' "$jam_ref" > dist/jam-image.txt
           printf '%s\n' "$ref" > dist/image.txt
-          python3 deployment/package.py umbrel --image "$ref" --output dist/umbrel/paperclip-wallet
+          python3 deployment/package.py umbrel --image "$ref" --jam-image "$jam_ref" --output dist/umbrel/paperclip-wallet
           python3 deployment/package.py startos --image "$ref" --output dist/startos/paperclip-wallet
           printf 'id: paperclip\nname: Paperclip Beta\n' > dist/umbrel/umbrel-app-store.yml
       - uses: actions/upload-artifact@v4

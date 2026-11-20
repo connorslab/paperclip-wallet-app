@@ -99,7 +99,7 @@ async function connectWallet() {
     lightningDebitLimit = info.lightning_debit_limit === true;
     hardwareArkEnabled = info.hardware_ark_boarding === true && submissionJournal;
     $('ln-controls').disabled = !lightningEnabled;
-    $('ln-capability').textContent = lightningEnabled ? 'Experimental XBT Lightning enabled. Channel and Ark pool liquidity are required. Recovery reserves are included in your payment cost.' : 'This ASP has not enabled funded Lightning. Payment controls are unavailable.';
+    $('ln-capability').textContent = lightningEnabled ? 'Ark Lightning available · payments depend on channel and Ark pool liquidity.' : 'This ASP has not enabled funded Lightning. Payment controls are unavailable.';
     $('network').textContent = network === 'bitcoin' ? 'XBT MAINNET \u00b7 EXPERIMENTAL' : 'XBT REGTEST';
     await globalThis.PaperclipAccounts?.restore();
     if (!session || token !== session) return;
@@ -439,17 +439,18 @@ $('chain-send').onsubmit = event => { event.preventDefault(); run(event.submitte
 $('ln-pay').onsubmit = event => { event.preventDefault(); run(event.submitter, async () => {
   if (!lightningEnabled) throw new Error('Lightning is not enabled in this wallet recovery profile.');
   const destination = $('ln-destination').value.trim(), amount = sats('ln-amount', true);
-  const paymentSession = token;
+  const paymentSession = token, context = walletContext(), navigation = window.PaperclipNavigation?.revision;
+  const unchanged = () => currentWallet(context) && navigation === window.PaperclipNavigation?.revision;
   if (!destination) throw new Error('Enter an XBT Lightning request.');
   if (!lightningDebitLimit) throw new Error('Update the wallet server before sending Lightning payments. It must support the approved payment limit.');
   const quote = await api('fees/lightning/review', {destination, amount_sat: amount});
   if (![quote.gross_amount_sat, quote.fee_sat, quote.net_amount_sat].every(Number.isSafeInteger) || quote.net_amount_sat <= 0 || (amount !== null && quote.net_amount_sat !== amount) || quote.fee_sat < 0 || quote.gross_amount_sat !== quote.net_amount_sat + quote.fee_sat) throw new Error('Invalid Lightning estimate. No payment was sent.');
   const costs = 'Maximum total: ' + quote.gross_amount_sat.toLocaleString() + ' sats\nIncludes ' + quote.fee_sat.toLocaleString() + ' sats in service fees and recovery reserves.\nIf the cost increases, you will need to review it again.';
-  if (!token || token !== paymentSession || $('wallet').hidden || destination !== $('ln-destination').value.trim() || amount !== sats('ln-amount', true)) throw new Error('Payment details changed. Review them again. No payment was sent.');
+  if (!unchanged() || !token || token !== paymentSession || $('wallet').hidden || destination !== $('ln-destination').value.trim() || amount !== sats('ln-amount', true)) throw new Error('Payment details changed. Review them again. No payment was sent.');
   if (!await PaperclipReview.ask('Pay ' + (quote.net_amount_sat.toLocaleString() + ' sats') + ' from Ark on ' + network + '?\n' + destination + '\n\n' + costs + '\nFailed payments may also consume refund reserves.')) return;
-  if (!token || token !== paymentSession || destination !== $('ln-destination').value.trim() || amount !== sats('ln-amount', true)) throw new Error('Payment details changed. Review again.');
+  if (!unchanged() || !token || token !== paymentSession || destination !== $('ln-destination').value.trim() || amount !== sats('ln-amount', true)) throw new Error('Payment details changed. Review again.');
   const result = await mutate('lightning/pay', {destination, amount_sat: quote.net_amount_sat, max_total_sat: quote.gross_amount_sat, comment: null});
-  if (!token || token !== paymentSession || $('wallet').hidden) return;
+  if (!unchanged() || !token || token !== paymentSession || $('wallet').hidden) return;
   $('ln-result').textContent = JSON.stringify(result, null, 2);
   paymentSummary('Submitted', 'Payment submitted once. Check Sent status before trying again.');
   transactionResult('pending', 'Payment submitted', 'Check Sent status to confirm whether the Lightning payment succeeded. Do not send it again.', result.payment_hash);

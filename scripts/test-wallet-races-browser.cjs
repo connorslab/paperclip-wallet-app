@@ -24,6 +24,7 @@ const cold='a'.repeat(64);
     const value=url.pathname==='/api/ui-platform'?{platform}:name==='wallet'?{fingerprint:'synthetic'}:name==='wallet/identity'?{network:'regtest',exit_profile:2,submission_journal:1,lightning_enabled:true,lightning_debit_limit:true}:
      name==='hardware/accounts'?{accounts:[{id:cold,label:'Savings signer',kind:'hardware'}]}:
      name==='wallet/balance'?{spendable_sat:12345}:name==='onchain/balance'?{confirmed_sat:6789}:
+     name==='fees/lightning/review'?{net_amount_sat:1000,fee_sat:10,gross_amount_sat:1010}:
      name==='lightning/receives/invoice'?{invoice:'ln-test-'+body.amount_sat}:
      name==='onchain/send/prepare'?{...body,request_id:'d'.repeat(64),fee_sat:100,total_sat:body.amount_sat+100}:
      name==='onchain/send/commit'?{txid:'b'.repeat(64),state:'submitted'}:
@@ -47,9 +48,25 @@ const cold='a'.repeat(64);
   finally{await page.close();}
  }
  try{
+  await scenario('Ark quote cannot reopen review after switching Lightning tasks',async({page,hold,settled,calls})=>{
+   await page.locator('.view-nav [data-view=lightning]').click();
+   await page.locator('[data-screen=lightning] [data-view=ark-lightning]').click();
+   await page.locator('#ln-destination').fill('synthetic-xbt-invoice');
+   const delayed=hold(name=>name==='fees/lightning/review');
+   await page.locator('#ln-pay button').click();await delayed.seen;
+   await page.locator('.task-switch [data-view=ark-lightning-receive]').click();
+   await page.locator('.task-switch [data-view=ark-lightning]').click();
+   delayed.release();await settled();
+   assert.equal(await page.locator('.review-sheet[open]').count(),0,'Returning to the same form does not restore approval');
+   assert.equal(calls.filter(call=>call.name==='lightning/pay').length,0);
+   await page.locator('#ln-pay button').click();
+   await page.getByRole('button',{name:'Go back',exact:true}).click();await settled();
+   assert.equal(calls.filter(call=>call.name==='lightning/pay').length,0,'Fresh review can be cancelled');
+  });
   for(const [width,platform] of [[390,'startos'],[1280,'umbrel']]) {
    await scenario('receive draft edits invalidate QR '+platform+'/'+width,async({page,hold,settled,calls})=>{
     await page.locator('.view-nav [data-view="lightning"]').click();
+    await page.locator('[data-screen=lightning] [data-view=ark-lightning-receive]').click();
     await page.locator('#ln-receive-amount').fill('1000');
     await page.locator('#ln-description').fill('First request');
     const delayed=hold(name=>name==='lightning/receives/invoice');

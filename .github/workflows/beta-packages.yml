@@ -23,9 +23,11 @@ jobs:
         run: |
           [[ "$BASE_RUN" =~ ^[0-9]+$ ]]
           test "$(gh run view "$BASE_RUN" --json workflowName --jq .workflowName)" = 'Beta wallet images'
+          test "$(gh run view "$BASE_RUN" --json headSha --jq .headSha)" = "$GITHUB_SHA"
           gh run watch "$BASE_RUN" --exit-status --interval 30
           gh run download "$BASE_RUN" -n paperclip-beta-package-sources -D base
           grep -Eq '^ghcr.io/connorslab/paperclip-wallet-app:beta-[0-9]+@sha256:[a-f0-9]{64}$' base/image.txt
+          grep -Eq '^ghcr.io/connorslab/paperclip-wallet-app:jam-beta-[0-9]+@sha256:[a-f0-9]{64}$' base/jam-image.txt
       - name: Check adapter and package contracts
         run: |
           python3 -m unittest discover -s deployment -p test_managed_chain.py
@@ -60,7 +62,8 @@ jobs:
             docker rm -f wallet-$arch
             docker image rm "$(cat dist/image.txt)"
           done
-          python3 deployment/package.py umbrel --image "$(cat dist/image.txt)" --output dist/umbrel/paperclip-wallet
+          cp base/jam-image.txt dist/jam-image.txt
+          python3 deployment/package.py umbrel --image "$(cat dist/image.txt)" --jam-image "$(cat dist/jam-image.txt)" --output dist/umbrel/paperclip-wallet
           printf 'id: paperclip\nname: Paperclip Beta\n' > dist/umbrel/umbrel-app-store.yml
       - uses: actions/upload-artifact@v4
         with:

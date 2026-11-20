@@ -7,7 +7,7 @@ const fs=require('node:fs'),path=require('node:path'),assert=require('node:asser
   for(const width of [390,1280]) {
    const page=await browser.newPage({viewport:{width,height:900}}), errors=[];
    page.setDefaultTimeout(15000); page.on('pageerror',e=>errors.push(e.message));
-   let created=false, creates=0, backups=0, delayBackup=false, releaseBackup;
+   let configured=false, created=false, creates=0, backups=0, delayBackup=false, releaseBackup;
    const wallet='Test-Jars.jmdat', password='synthetic-password', phrase=Array(12).fill('fixture').join(' ');
    await page.route('http://wallet.test/**',async route=>{
     const url=new URL(route.request().url()),p=url.pathname.replace('/api/v1/','');
@@ -19,7 +19,7 @@ const fs=require('node:fs'),path=require('node:path'),assert=require('node:asser
      if(p==='onchain/balance')value={confirmed_sat:0};
      if(p==='wallet/vtxos')value=[];
      if(p==='hardware/accounts')value={accounts:[]};
-     if(p==='joinblaket/connection')value={configured:true,ui_url:null};
+     if(p==='joinblaket/connection')value={configured,ui_url:null};
      if(p==='joinblaket/request') {
       const body=route.request().postDataJSON();
       if(body.operation==='wallets')value={wallets:created?[wallet]:[]};
@@ -44,8 +44,15 @@ const fs=require('node:fs'),path=require('node:path'),assert=require('node:asser
    });
    async function login(){await page.locator('#remember-session').uncheck();await page.locator('#token').fill('fixture-owner-token');await page.getByRole('button',{name:'Unlock wallet',exact:true}).click();await page.locator('#wallet').waitFor({state:'visible'});await page.locator('.view-nav [data-view="coinjoin"]').click();}
    await page.goto('http://wallet.test/');await login();
-   await page.locator('#jam-find').click();await page.getByText('Create your Jars wallet here to get started.',{exact:true}).waitFor();
-   await page.locator('#jam-create-panel summary').click();
+   await page.getByText('Your Jars wallet is currently unavailable. Refresh to try again.',{exact:true}).waitFor();
+   assert.equal(creates,0);configured=true;await page.locator('#jam-find').click();
+   await page.getByText('Create your Jars wallet here to get started.',{exact:true}).waitFor();
+   assert(await page.locator('#jam-create-panel').evaluate(el=>el.open));
+   assert.equal(await page.locator('#jam-connect a[href]').count(),0,'Integrated Jars must not send the owner to a separate setup app');
+   assert.equal(creates,0,'Discovery must not create a wallet');
+   await page.waitForFunction(()=>!document.querySelector('#jam-find').disabled);
+   await page.emulateMedia({reducedMotion:'reduce'});
+   if(process.env.SCREENSHOT_DIR)await page.screenshot({path:path.join(process.env.SCREENSHOT_DIR,`jars-create-${width}.png`),fullPage:true});
    await page.locator('#jam-create-name').fill('Test-Jars');await page.locator('#jam-create-password').fill(password);await page.locator('#jam-create-confirm').fill(password);
    await page.locator('#jam-create').click();await page.getByRole('button',{name:'Go back',exact:true}).click();assert.equal(creates,0);
    await page.locator('#jam-create').click();await page.getByRole('button',{name:'Confirm',exact:true}).click();

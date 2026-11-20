@@ -101,8 +101,9 @@ for (const item of cases) {
    await page.getByRole('button',{name:'Unlock wallet',exact:true}).click();
    await page.locator('#wallet').waitFor({state:'visible'});
    await page.locator('.view-nav [data-view="coinjoin"]').click();
-   await page.locator('#jam-find').click();
-   await page.waitForFunction(()=>document.querySelector('#jam-open').getAttribute('href')==='https://jam.example.test/');
+   await page.locator('#jam-unlock-fields').waitFor({state:'visible'});
+   assert.equal(await page.locator('#jam-create-panel').evaluate(el=>el.open),false,'Existing wallets default to unlock');
+   assert.equal(await page.locator('#jam-connect a[href]').count(),0);
    await page.locator('#jam-password').fill('fixture-password');
    await page.locator('#jam-unlock-fields summary').click();
    await page.locator('#jam-passphrase').fill('fixture-passphrase');
@@ -337,9 +338,9 @@ for (const item of cases) {
    await page.locator('#jam-maker').click();
    await page.evaluate(()=>{document.querySelector('#wallet').hidden=true;});
    await page.getByRole('button',{name:'Confirm',exact:true}).waitFor({state:'hidden'});
-   await page.waitForFunction(()=>document.querySelector('#jam-open').getAttribute('href')===null);
+   assert.equal(await page.locator('#jam-open').count(),0);
    assert.equal(actions.filter(action=>action==='start_maker').length,1,'A review from an ended session cannot start a maker');
-   await page.waitForFunction(()=>document.querySelector('#jam-open').getAttribute('href')===null);
+   assert.equal(await page.locator('#jam-open').count(),0);
    await page.close();
   }
   console.log('PASS Jar browser: phone/desktop, all five jars from hot/QR/watch accounts, separate authorization, hot-wallet isolation, password clearing, maker eligibility and uncertain-action recovery, no overflow/errors');

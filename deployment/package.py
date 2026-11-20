@@ -22,6 +22,8 @@ def package(platform, image, destination, app='paperclip-wallet', jam_image=None
         raise ValueError('Custom app IDs currently apply to Umbrel only')
     if jam_image is not None and platform != 'umbrel':
         raise ValueError('Bundled Jam on StartOS requires its 0.4 wrapper, not this legacy generator')
+    if platform == 'umbrel' and (jam_image is None or not re.fullmatch(r'[a-z0-9][a-z0-9.:/_-]*:[A-Za-z0-9_.-]+@sha256:[0-9a-f]{64}', jam_image)):
+        raise ValueError('Umbrel includes Jars: supply the tested immutable companion image with --jam-image')
     root = Path(__file__).resolve().parents[1]
     out = Path(destination)
     out.mkdir(parents=True, exist_ok=False)
@@ -49,8 +51,7 @@ def package(platform, image, destination, app='paperclip-wallet', jam_image=None
         }})
         (out / 'data').mkdir()
         (out / 'data/.gitkeep').touch()
-        if jam_image is not None:
-            add_bundled_jam(out, jam_image, app)
+        add_bundled_jam(out, jam_image, app)
     elif platform == 'startos':
         manifest = {
             'id': app, 'title': 'Paperclip Wallet Beta', 'version': '0.10.0.0', 'license': 'MIT',
