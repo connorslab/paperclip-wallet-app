@@ -11,7 +11,7 @@ for (const item of cases) {
 (async()=>{
  const browser=await chromium.launch({headless:true,...(process.env.BROWSER_CHANNEL?{channel:process.env.BROWSER_CHANNEL}:{})});
  try {
-  for(const width of [320,390,840,1280,1440]) {
+  for(const width of (process.env.PAPERCLIP_TEST_WIDTH ? [Number(process.env.PAPERCLIP_TEST_WIDTH)] : [320,390,840,1280,1440])) {
    const page=await browser.newPage({viewport:{width,height:1000}}),errors=[],actions=[];
    page.setDefaultTimeout(15000);
    const closeTool = async () => {
@@ -47,6 +47,7 @@ for (const item of cases) {
       value={confirmed_sat:50000,pending_sat:0,transactions:[],last_broadcast:null};
      }
      if(p==='joinblaket/connection') value={configured:true,ui_url:'https://jam.example.test/'};
+     if(p==='joinblaket/pairings/connection') value={onion_endpoint:'http://'+'a'.repeat(56)+'.onion/'};
      if(p==='joinblaket/pairings') {
       if(route.request().method()==='POST') {
        const body=route.request().postDataJSON(); assert.equal(body.wallet,'Sample Jars.jmdat'); assert.equal(body.token,'fixture-token');
@@ -150,6 +151,9 @@ for (const item of cases) {
    await page.locator('#jam-fee-mode').selectOption('fixed');
    await closeTool();
    await page.locator('#jam-pairing-panel summary').click();
+   await page.waitForFunction(()=>document.querySelector('#jam-pairing-endpoint').value.endsWith('.onion/'));
+   assert.equal(await page.locator('#jam-pairing-transport').inputValue(),'tor');
+   await page.locator('#jam-pairing-transport').selectOption('https');
    await page.locator('#jam-pairing-label').fill('Fixture phone');
    await page.locator('#jam-pairing-create').click();
    await page.waitForFunction(()=>document.querySelector('#jam-status').textContent.includes('HTTPS'));
@@ -183,6 +187,23 @@ for (const item of cases) {
    await page.getByRole('button',{name:'Confirm',exact:true}).click();
    await page.getByText('No paired devices.',{exact:true}).waitFor();
    assert.equal(pairingRevokes,2);
+   await page.locator('#jam-pairing-transport').selectOption('tor');
+   await page.locator('#jam-pairing-endpoint').fill('http://short.onion');
+   await page.locator('#jam-pairing-create').click();
+   await page.waitForFunction(()=>document.querySelector('#jam-status').textContent === 'Use a full v3 onion address for Tor pairing.');
+   assert.equal(pairingCreates,2,'Malformed onion cannot create a grant');
+   await page.locator('#jam-pairing-endpoint').fill('http://'+'a'.repeat(56)+'.onion/');
+   await page.locator('#jam-pairing-create').click();
+   await page.getByRole('button',{name:'Confirm',exact:true}).click();
+   await page.locator('#jam-pairing-code').waitFor({state:'visible'});
+   assert.equal(pairingCreates,3);
+   if(process.env.SCREENSHOT_DIR) { fs.mkdirSync(process.env.SCREENSHOT_DIR,{recursive:true}); await page.screenshot({path:path.join(process.env.SCREENSHOT_DIR,`jars-tor-${width}.png`),fullPage:true}); }
+   await page.locator('#jam-pairing-endpoint').fill('http://'+'b'.repeat(56)+'.onion/');
+   assert(await page.locator('#jam-pairing-code').isHidden(),'Editing the host hides the old private code');
+   await page.getByRole('button',{name:'Revoke access',exact:true}).click();
+   await page.getByRole('button',{name:'Confirm',exact:true}).click();
+   await page.getByText('No paired devices.',{exact:true}).waitFor();
+   assert.equal(pairingRevokes,3);
    await page.locator('#jam-pairing-panel summary').click();
    await page.locator('#jam-payments-panel summary').first().click();
    await page.locator('#jam-payments-load').click();

@@ -23,6 +23,10 @@ public struct JoinBlaketPairing: Decodable, Sendable, CustomStringConvertible, C
               token.hasPrefix("pj1_"), JoinBlaketPayment.validID(String(token.dropFirst(4))),
               !wallet.isEmpty, wallet.utf8.count <= 256, !wallet.contains("/"), !wallet.contains("\\"), wallet != ".", wallet != ".." else { throw ConnectionError.invalidCredential }
         try connection.validate()
+        if connection.useTor {
+            let host = URL(string: endpoint)?.host?.lowercased() ?? ""
+            guard host.range(of: "^[a-z2-7]{56}\\.onion$", options: .regularExpression) != nil else { throw ConnectionError.invalidCredential }
+        }
     }
     public var connection: JoinBlaketConnection {
         var value = JoinBlaketConnection(); value.endpoint = endpoint; value.certificateSHA256 = certificate_sha256
@@ -316,7 +320,7 @@ public actor JoinBlaketClient {
         configuration.httpCookieStorage = nil
         configuration.urlCache = nil
         configuration.requestCachePolicy = .reloadIgnoringLocalAndRemoteCacheData
-        configuration.timeoutIntervalForRequest = 30
+        configuration.timeoutIntervalForRequest = connection.useTor ? 90 : 30
         configuration.timeoutIntervalForResource = 190
         if connection.useTor {
             let proxy = try EndpointPolicy.proxy(connection.torProxy)
@@ -343,7 +347,7 @@ public actor JoinBlaketClient {
             url.appendPathComponent(component)
         }
         var request = URLRequest(url: url)
-        request.timeoutInterval = preparingCoinJoin ? 190 : 30
+        request.timeoutInterval = preparingCoinJoin ? 190 : (connection.useTor ? 90 : 30)
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         if let pairing {
             guard authorization?.wallet == pairing.wallet, authorization?.token == pairing.token else { throw JoinBlaketError.wrongWallet }

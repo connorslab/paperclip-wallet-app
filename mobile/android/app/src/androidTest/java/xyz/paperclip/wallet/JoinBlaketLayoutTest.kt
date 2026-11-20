@@ -132,7 +132,8 @@ class JoinBlaketLayoutTest {
 	}
 	@Test fun pairingReviewShowsScopeAndCancelDoesNotConnect() = checkPairingReview("jars_manage_v1", "Sending, key export and your main wallet are not included.")
 	@Test fun paymentPairingReviewExplainsSpendingAndCancelDoesNotConnect() = checkPairingReview("jars_pay_v1", "Allows managing and sending funds")
-	private fun checkPairingReview(scope: String, permission: String) {
+	@Test fun torPairingReviewShowsBuiltInTorAndCancelDoesNotConnect() = checkPairingReview("jars_manage_v1", "Sending, key export and your main wallet are not included.", "http://" + "a".repeat(56) + ".onion")
+	private fun checkPairingReview(scope: String, permission: String, endpoint: String = "https://host.example.invalid") {
 		val state = JoinBlaketUiState()
 		compose.setContent { MaterialTheme(colorScheme = paperclipColors(true)) { Surface {
 			Column(Modifier.fillMaxSize().safeDrawingPadding().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -140,12 +141,13 @@ class JoinBlaketLayoutTest {
 			}
 		} } }
 		val payload = JSONObject().put("kind", "paperclip-jars-v1").put("scope", scope)
-			.put("endpoint", "https://host.example.invalid").put("wallet", "fixture.jmdat").put("token", "pj1_" + "a".repeat(64))
+			.put("endpoint", endpoint).put("wallet", "fixture.jmdat").put("token", "pj1_" + "a".repeat(64))
 			.put("expires", 4_000_000_000L).put("certificate_sha256", "")
 		val code = "paperclip-jars:" + java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(payload.toString().toByteArray())
 		compose.onNodeWithText("Paste pairing code").performScrollTo().performTextInput(code)
 		compose.onNodeWithText("Review connection").performScrollTo().performClick()
-		compose.onNodeWithText("https://host.example.invalid").assertExists()
+		compose.onNodeWithText(endpoint).assertExists()
+		compose.onNodeWithText(if (endpoint.contains(".onion")) "Built-in Tor" else "HTTPS").assertExists()
 		compose.onNodeWithText("fixture.jmdat").assertExists()
 		compose.onNodeWithText(permission, substring = true).assertExists()
 		compose.onNodeWithText("Verify and save connection").performScrollTo().assertIsDisplayed()

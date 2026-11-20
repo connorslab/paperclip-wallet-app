@@ -4411,3 +4411,32 @@ shared-source hashes. Screenshots use synthetic unfunded fixtures. Installed
 StartOS default startup/upgrade and actual bundled-host node connectivity still
 need candidate acceptance; these tests do not establish live payment settlement.
 No production service was restarted or updated by this change.
+
+### Jars QR pairing over Tor — 2026-11-19
+
+All mobile clients and the shared StartOS/Umbrel/native-desktop web UI now expose
+Tor pairing explicitly. The host form defaults to Tor, discovers a published
+onion hint where supplied, retains a direct HTTPS option, and invalidates a
+visible code when its connection or permissions change. StartOS reads its own
+published interface addresses; Umbrel passes the platform's hidden-service name.
+Neither integration creates a new public listener or changes host Tor settings.
+Native desktop shells use the same pairing form; automatically hosting a native
+onion service is not implemented by this change.
+
+iOS/Android review shows Built-in Tor and connection progress. Both reject
+malformed onion pairing hosts and retain pin validation. iOS onion requests use
+a bounded 90-second request timeout, retaining no proxy failover. The Android
+local SOCKS test verifies domain-name routing, the scoped endpoint/header and
+no credentials in URL/body; existing pin/retry/redirect tests remain passing.
+Installed mobile-to-host Tor pairing and revocation must still be accepted on
+final packages; these local checks do not establish live reachability.
+
+Validation for this change: six Rust pairing tests, 22 shared Swift Jars tests,
+27 Android JVM pairing/transport tests, one native iOS and one Android emulator
+Tor review/cancel test, four package contracts, StartOS typecheck/bundle/daemon
+contracts, and the Jars browser suite at 320/390/840/1280/1440 pixels pass.
+`just checks` and the shared-source checksum manifest pass. The first generic
+iOS simulator build requested an unavailable x86_64 Rust library; the native
+ARM64 simulator build/test passes. The first Android UI run was before the test
+emulator unlocked; software rendering and an unlocked rerun pass. No physical
+wallet, production service, live pairing grant or payment was changed.

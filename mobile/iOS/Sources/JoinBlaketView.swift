@@ -132,12 +132,18 @@ private struct JarsSendView: View {
     private var authorization: JoinBlaketAuthorization? {
         didSet { authorizationRevision &+= 1 }
     }
+    @Published var pairingStage: String?
+    @Published var pairingStartingTor = false
     @Published var paired = false
     @Published var canSend = true
     func pair(_ text: String, save: Bool = true) async throws {
         let pairing = try JoinBlaketPairing(text: text)
         var resolved = pairing.connection
+        pairingStage = "Verifying Jars connection…"; pairingStartingTor = resolved.useTor
+        defer { pairingStage = nil; pairingStartingTor = false }
         if resolved.useTor { resolved.torProxy = try await EmbeddedTor.shared.proxy(for: resolved.torProxy) }
+        pairingStartingTor = false
+        pairingStage = "Checking Jars wallet…"
         let candidate = try JoinBlaketClient(connection: resolved, pairing: pairing)
         let auth = try pairing.authorization()
         let current = try await candidate.status(auth)
@@ -286,6 +292,7 @@ struct JoinBlaketView: View {
     @State private var openSendActivity = false
 
     @StateObject private var model = JoinBlaketModel()
+    @ObservedObject private var pairingTor = EmbeddedTor.shared
     @State private var password = ""
     @State private var passphrase = ""
     @State private var selectedJar: UInt8 = 0
@@ -321,7 +328,10 @@ struct JoinBlaketView: View {
                 } else {
                     connectedContent
                 }
-                if model.busy { ProgressView().frame(maxWidth: .infinity) }
+                if model.busy {
+                    ProgressView(model.pairingStartingTor ? pairingTor.status : (model.pairingStage ?? "Working…"))
+                        .frame(maxWidth: .infinity).accessibilityIdentifier("jars-connection-progress")
+                }
                 if let message = model.message { Text(message).font(.subheadline).textSelection(.enabled) }
             }.walletPageContent()
         }.walletPageBackground().navigationTitle("Jars").navigationBarTitleDisplayMode(.inline)
@@ -572,6 +582,7 @@ struct JoinBlaketView: View {
             if let review = pairingReview {
                 Text("Server").font(.caption).foregroundStyle(PaperclipTheme.muted)
                 Text(review.endpoint).font(.subheadline).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+                WalletReviewDetail(title: "Connection", value: review.connection.useTor ? "Built-in Tor" : "HTTPS")
                 WalletReviewDetail(title: "Jars wallet", value: review.wallet)
                 Text(review.canSend ? "Allows managing and sending funds from this Jars wallet for up to 30 days. Review each payment on this phone. Key export and your main wallet are not included." : "Allows balances, receive addresses, maker controls and payment status for up to 30 days. Sending, key export and your main wallet are not included.").font(.subheadline).foregroundStyle(PaperclipTheme.muted)
                 Button("Verify and save connection") {
@@ -580,7 +591,7 @@ struct JoinBlaketView: View {
                 }.buttonStyle(WalletPrimaryButtonStyle())
                 Button("Cancel") { pairingText = ""; pairingReview = nil }.frame(maxWidth: .infinity)
             } else {
-                Text("On your host, open Jars → Pair a phone. Scan its private code here.").font(.subheadline).foregroundStyle(PaperclipTheme.muted)
+                Text("On your host, open Jars → Pair a phone → Tor. Scan the private code to connect from anywhere. Tor starts automatically.").font(.subheadline).foregroundStyle(PaperclipTheme.muted)
                 Button("Scan pairing code") { scanningPairing = true }.buttonStyle(WalletPrimaryButtonStyle())
                 SecureField("Paste pairing code", text: $pairingText).textInputAutocapitalization(.never).autocorrectionDisabled()
                 Button("Review connection") {

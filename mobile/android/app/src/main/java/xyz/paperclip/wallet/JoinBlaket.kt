@@ -36,6 +36,7 @@ internal class JoinBlaketPairing private constructor(val endpoint: String, val w
 				pair.token.matches(Regex("pj1_[0-9a-f]{64}")) && pair.wallet.isNotEmpty() && pair.wallet.toByteArray().size <= 256 &&
 				'/' !in pair.wallet && '\\' !in pair.wallet && pair.wallet !in setOf(".", "..")) { "Pairing is invalid or expired. Create a new code on your host." }
 			pair.connection.validate()
+			if (pair.connection.proxy == "builtin") require(URI(pair.endpoint).host.lowercase().matches(Regex("[a-z2-7]{56}\\.onion"))) { "Use a full v3 onion address for Tor pairing" }
 			return pair
 		}
 	}

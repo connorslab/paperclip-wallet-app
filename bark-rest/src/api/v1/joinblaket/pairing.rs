@@ -34,7 +34,7 @@ struct Create { label: String, wallet: String, token: String, #[serde(default)] 
 struct Revoke { id: String }
 
 pub(super) fn owner_router() -> Router<Arc<ServerState>> {
-	Router::new().route("/pairings", get(list).post(create)).route("/pairings/revoke", post(revoke))
+	Router::new().route("/pairings", get(list).post(create)).route("/pairings/revoke", post(revoke)).route("/pairings/connection", get(connection))
 }
 pub fn paired_router() -> Router<Arc<ServerState>> {
 	Router::new().route("/request", post(request)).layer(DefaultBodyLimit::max(64 * 1024))
@@ -105,6 +105,24 @@ fn public(record: &Record) -> Value {
 	json!({"id":record.id,"label":record.label,"wallet":record.wallet,"expires":record.expires,
 		"scope":record.scope})
 }
+// Only trusted host configuration supplies this hint, never Host/Forwarded headers.
+// This creates no listener, grant or outbound request.
+fn onion_endpoint(value: &str) -> Option<String> {
+	let value = value.trim();
+	if value.is_empty() { return None; }
+	let address = if value.contains("://") { value.to_owned() } else { format!("http://{value}") };
+	let url = reqwest::Url::parse(&address).ok()?;
+	let host = url.host_str()?.strip_suffix(".onion")?;
+	if !["http", "https"].contains(&url.scheme()) || host.len() != 56 ||
+		!host.bytes().all(|b| b.is_ascii_lowercase() || (b'2'..=b'7').contains(&b)) ||
+		!url.username().is_empty() || url.password().is_some() || url.query().is_some() || url.fragment().is_some() ||
+		url.path() != "/" { return None; }
+	Some(url.to_string())
+}
+async fn connection() -> (StatusCode, HeaderMap, Json<Value>) {
+	let endpoint = std::env::var("BARKD_JARS_PAIRING_ONION").ok().and_then(|value| onion_endpoint(&value));
+	response(StatusCode::BAD_REQUEST, Ok(json!({"onion_endpoint":endpoint})))
+}
 async fn list(State(state): State<Arc<ServerState>>) -> (StatusCode, HeaderMap, Json<Value>) {
 	let _guard = state.jam_pairings.lock().await;
 	response(StatusCode::BAD_REQUEST, (|| Ok(json!({"pairings":load(&root(&state)?)?.iter().map(public).collect::<Vec<_>>()})))())
@@ -162,6 +180,17 @@ mod tests {
 	fn record() -> Record { Record { scope:Scope::Manage, id:digest(&format!("pj1_{}", "a".repeat(64))),label:"Test phone".into(),wallet:"fixture.jmdat".into(),
 		identity:format!("xbt-regtest:{}", "b".repeat(64)),upstream:"fixture-upstream".into(),token:"synthetic-jam-secret".into(),expires:100 } }
 	fn input(operation: &str) -> Request { serde_json::from_value(json!({"operation":operation,"wallet":"fixture.jmdat"})).unwrap() }
+	#[test]
+	fn pairing_onion_hint_rejects_lan_credentials_and_ambiguous_addresses() {
+		let host = format!("{}.onion", "a".repeat(56));
+		assert_eq!(onion_endpoint(&host), Some(format!("http://{host}/")));
+		assert_eq!(onion_endpoint(&format!("https://{host}:8443")), Some(format!("https://{host}:8443/")));
+		for address in ["http://start.local".to_owned(), "http://short.onion".to_owned(), format!("http://user@{host}"),
+			format!("http://{host}/other"), format!("http://{host}/?token=private"), format!("http://{host}/#fragment"), format!("ftp://{host}")] {
+			assert!(onion_endpoint(&address).is_none());
+		}
+	}
+
 	#[test]
 	fn pairing_is_bound_expiring_and_defaults_to_deny() {
 		let record = record(); let records = vec![record.clone()];

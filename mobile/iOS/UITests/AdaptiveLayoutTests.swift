@@ -89,18 +89,22 @@ final class AdaptiveLayoutTests: XCTestCase {
 	func testPaymentPairingReviewExplainsSpendingAndCancelReturnsToSetup() throws {
 		try checkPairingReview(scope: "jars_pay_v1", permission: "Allows managing and sending funds")
 	}
-	private func checkPairingReview(scope: String, permission: String) throws {
+	func testTorPairingReviewShowsBuiltInTorAndCancelDoesNotConnect() throws {
+		try checkPairingReview(scope: "jars_manage_v1", permission: "Sending, key export and your main wallet are not included.", endpoint: "http://" + String(repeating: "a", count: 56) + ".onion")
+	}
+	private func checkPairingReview(scope: String, permission: String, endpoint: String = "https://host.example.invalid") throws {
 		let app = XCUIApplication()
 		app.launchArguments = ["-build61-preview", "-joinblaket-setup-preview", "-appearance", "dark"]
 		app.launch()
 		let field = app.secureTextFields["Paste pairing code"]
 		XCTAssertTrue(field.waitForExistence(timeout: 15))
-		let payload: [String: Any] = ["kind":"paperclip-jars-v1","scope":scope,"endpoint":"https://host.example.invalid", "wallet":"fixture.jmdat",
+		let payload: [String: Any] = ["kind":"paperclip-jars-v1","scope":scope,"endpoint":endpoint, "wallet":"fixture.jmdat",
 			"token":"pj1_" + String(repeating:"a",count:64),"expires":4_000_000_000,"certificate_sha256":""]
 		let code = "paperclip-jars:" + (try JSONSerialization.data(withJSONObject: payload)).base64EncodedString().replacingOccurrences(of:"+",with:"-").replacingOccurrences(of:"/",with:"_").replacingOccurrences(of:"=",with:"")
 		field.tap(); field.typeText(code)
 		app.buttons["Review connection"].tap()
-		XCTAssertTrue(app.staticTexts["https://host.example.invalid"].exists)
+		XCTAssertTrue(app.staticTexts[endpoint].exists)
+		XCTAssertTrue(app.staticTexts[endpoint.contains(".onion") ? "Built-in Tor" : "HTTPS"].exists)
 		XCTAssertTrue(app.staticTexts["fixture.jmdat"].exists)
 		XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", permission)).firstMatch.exists)
 		let verify = app.buttons["Verify and save connection"]

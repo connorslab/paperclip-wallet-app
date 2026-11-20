@@ -77,6 +77,8 @@ internal fun JoinBlaketPage(state: JoinBlaketUiState) {
 	var selected by state.selected
 	var address by state.address
 	var busy by remember { mutableStateOf(false) }
+	var pairingStage by remember { mutableStateOf<String?>(null) }
+	val pairingTorStatus by EmbeddedTor.status.collectAsState()
 	var message by remember { mutableStateOf<String?>(null) }
 	var minimum by state.minimum
 	var makerFee by state.makerFee
@@ -133,18 +135,23 @@ internal fun JoinBlaketPage(state: JoinBlaketUiState) {
 	}
 	suspend fun pair(text: String, save: Boolean = true) {
 		val value = JoinBlaketPairing.parse(text)
-		val c = JoinBlaketClient.open(context, value.connection, value); val auth = value.authorization()
-		val current = c.status(auth)
-		val rows = WalletEngine.shared(context).joinBlaketJars(c.coins(auth)).getJSONArray("jars")
-		if (save) SecureStore(context).write("jars-pairing", text.toByteArray())
-		client = c; authorization = auth; wallet = value.wallet; session = current
-		jars = (0 until rows.length()).map { rows.getJSONObject(it) }; paired = true; needsRefresh = false
-		address = null; bondAddress = null; bondMonth = ""; pairingText = ""; pairingReview = null
+		pairingStage = if (value.connection.proxy == "builtin") "tor" else "verify"
+		try {
+			val c = JoinBlaketClient.open(context, value.connection, value); val auth = value.authorization()
+			pairingStage = "verify"
+			val current = c.status(auth)
+			val rows = WalletEngine.shared(context).joinBlaketJars(c.coins(auth)).getJSONArray("jars")
+			if (save) SecureStore(context).write("jars-pairing", text.toByteArray())
+			client = c; authorization = auth; wallet = value.wallet; session = current
+			jars = (0 until rows.length()).map { rows.getJSONObject(it) }; paired = true; needsRefresh = false
+			address = null; bondAddress = null; bondMonth = ""; pairingText = ""; pairingReview = null
+		} finally { pairingStage = null }
 	}
 	if (scanningPairing) QrScanner(onClose = { scanningPairing = false }) { value ->
 		try { pairingReview = JoinBlaketPairing.parse(value); pairingText = value; true }
 		catch (_: Exception) { message = "Scan a current Paperclip Jars pairing code."; false }
 	}
+	if (pairingStage != null) Text(if (pairingStage == "tor") pairingTorStatus else "Checking Jars wallet…", modifier = Modifier.testTag("jars-connection-progress"), style = MaterialTheme.typography.bodyMedium)
 	if (session == null) {
 		Text("JoinBlaket", style = MaterialTheme.typography.headlineMedium)
 		Text("Pair with Paperclip on your server to manage five jars and earn as a maker.", color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -153,12 +160,13 @@ internal fun JoinBlaketPage(state: JoinBlaketUiState) {
 			if (review != null) {
 				Text("Server", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
 				SelectionContainer { Text(review.endpoint, style = MaterialTheme.typography.bodyMedium) }
+				ReviewDetailRow("Connection", if (review.connection.proxy == "builtin") "Built-in Tor" else "HTTPS")
 				ReviewDetailRow("Jars wallet", review.wallet)
 				Text(if (review.canSend) "Allows managing and sending funds from this Jars wallet for up to 30 days. Review each payment on this phone. Key export and your main wallet are not included." else "Allows balances, receive addresses, maker controls and payment status for up to 30 days. Sending, key export and your main wallet are not included.", style = MaterialTheme.typography.bodySmall)
 				WalletPrimaryButton(enabled = !busy, modifier = Modifier.fillMaxWidth(), onClick = { run { pair(pairingText) } }) { Text("Verify and save connection") }
 				TextButton(enabled = !busy, modifier = Modifier.fillMaxWidth(), onClick = { pairingReview = null; pairingText = "" }) { Text("Cancel") }
 			} else {
-				Text("On your host, open Jars → Pair a phone. Scan its private code here.", style = MaterialTheme.typography.bodyMedium)
+				Text("On your host, open Jars → Pair a phone → Tor. Scan the private code to connect from anywhere. Tor starts automatically.", style = MaterialTheme.typography.bodyMedium)
 				WalletPrimaryButton(enabled = !busy, modifier = Modifier.fillMaxWidth(), onClick = { scanningPairing = true }) { Text("Scan pairing code") }
 				OutlinedTextField(pairingText, { pairingText = it }, label = { Text("Paste pairing code") }, visualTransformation = PasswordVisualTransformation(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, autoCorrectEnabled = false), enabled = !busy, modifier = Modifier.fillMaxWidth())
 				TextButton(enabled = !busy && pairingText.isNotBlank(), onClick = {

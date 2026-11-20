@@ -411,3 +411,15 @@ button,a,summary {touch-action:manipulation}
 .ark-lightning-screen>p{margin:8px 0}.ark-lightning-screen .task-switch{margin-top:10px;padding-top:0}
 .ark-lightning-screen [data-ark-task]>h3{font-size:18px;color:var(--text,#eef2f8);margin-bottom:8px}
 .ark-lightning-screen form>button{width:100%}
+
+/* Pairing stays alongside its QR on wide screens and stacks on phones. */
+.jam-pairing-layout { display: grid; gap: 24px; align-items: start; margin: 16px 0; }
+.jam-pairing-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; min-width: 0; }
+.jam-pairing-fields label, .jam-pairing-fields p { margin: 0; }
+.jam-pairing-wide { grid-column: 1 / -1; }
+#jam-pairing-code { min-width: 0; padding: 20px; border: 1px solid var(--stroke); border-radius: 20px; background: var(--surface); }
+#jam-pairing-code .receive-qr { width: 100%; max-width: 280px; height: auto; margin: 12px auto; display: block; }
+.jam-pairing-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+#jam-pairing-list { display: grid; gap: 12px; margin-top: 12px; }
+@media (min-width: 1000px) { .jam-pairing-layout:has(#jam-pairing-code:not([hidden])) { grid-template-columns: minmax(0, 1fr) 320px; } }
+@media (max-width: 480px) { .jam-pairing-fields { grid-template-columns: minmax(0, 1fr); } }

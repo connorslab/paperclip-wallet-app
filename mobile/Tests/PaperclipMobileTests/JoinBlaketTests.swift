@@ -207,6 +207,30 @@ final class JoinBlaketTests: XCTestCase {
         value.merge(changes) { _, new in new }
         return "paperclip-jars:" + (try JSONSerialization.data(withJSONObject: value)).base64EncodedString().replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "=", with: "")
     }
+    func testOnionPairingRequiresTorAndRetainsTLSPin() throws {
+        let host = String(repeating: "a", count: 56) + ".onion"
+        let pair = try JoinBlaketPairing(text: pairingText(["endpoint":"http://" + host]))
+        XCTAssertTrue(pair.connection.useTor)
+        XCTAssertEqual(pair.connection.torProxy, "builtin")
+        let pin = String(repeating: "b", count: 64)
+        let secure = try JoinBlaketPairing(text: pairingText(["endpoint":"https://" + host, "certificate_sha256":pin]))
+        XCTAssertTrue(secure.connection.useTor)
+        XCTAssertEqual(secure.connection.certificateSHA256, pin)
+        var resolved = secure.connection; resolved.torProxy = "socks5h://127.0.0.1:19050"
+        let configuration = URLSessionConfiguration.ephemeral
+        _ = try JoinBlaketClient(connection: resolved, configuration: configuration, pairing: secure)
+        XCTAssertEqual(configuration.timeoutIntervalForRequest, 90)
+        XCTAssertEqual(configuration.proxyConfigurations.count, 1)
+        XCTAssertFalse(try XCTUnwrap(configuration.proxyConfigurations.first).allowFailover)
+
+        for changes: [String: Any] in [["endpoint":"http://short.onion"], ["endpoint":"https://short.onion"], ["endpoint":"http://" + host, "certificate_sha256":pin], ["endpoint":"http://" + host + "/?token=x"]] {
+            XCTAssertThrowsError(try JoinBlaketPairing(text: pairingText(changes)))
+        }
+        var direct = secure.connection; direct.useTor = false
+        XCTAssertThrowsError(try JoinBlaketClient(connection: direct, pairing: secure))
+        var wrongPin = secure.connection; wrongPin.certificateSHA256 = ""
+        XCTAssertThrowsError(try JoinBlaketClient(connection: wrongPin, pairing: secure))
+    }
     func testPairingRejectsUnsafeEndpointsScopeAndExpiry() throws {
         for changes: [String: Any] in [["endpoint":"http://host.local"], ["endpoint":"https://user:secret@host.local"], ["scope":"all"], ["expires":1], ["wallet":"../other"], ["token":"main-wallet-token"], ["certificate_sha256":"invalid"]] {
             XCTAssertThrowsError(try JoinBlaketPairing(text: pairingText(changes)))

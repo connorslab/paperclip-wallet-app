@@ -37,6 +37,7 @@ def add_bundled_jam(directory, image, app):
     # The wallet owns the namespace: a failed/stopped Jam must not take the
     # wallet UI down or prevent users reaching recovery and connection settings.
     wallet['volumes'].append('${APP_DATA_DIR}/jam-public:/run/paperclip-jam-public:ro')
+    wallet['environment']['BARKD_JARS_PAIRING_ONION'] = '${APP_HIDDEN_SERVICE:-}'
     wallet['environment'].update(BARKD_JOINBLAKET_URL='https://localhost:28183',
         BARKD_JOINBLAKET_CA_FILE='/run/paperclip-jam-public/cert.pem')
     (directory / 'docker-compose.yml').write_text(json.dumps(compose, indent=2) + '\n')

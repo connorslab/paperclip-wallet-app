@@ -114,3 +114,12 @@ based on `feature/android-wallet` at `e17f2508fb2faf0448129e945ae82d41c5152b78`.
 The Android candidate is version `0.2.0-parity.70` (4). It is a test APK, not a Play
 Store release. iOS build 70 is distributed separately through TestFlight and was
 submitted for App Store review.
+
+## Tor Jars QR pairing — 2026-11-19
+
+Android matches iOS: reviewed onion pairing automatically selects embedded Tor,
+shows its startup status, validates v3 onion host syntax, preserves certificate
+pins for HTTPS, and saves a scoped grant only after verifying the wallet. An
+actual local SOCKS exchange confirms that the onion hostname reaches the proxy
+without local DNS, with the grant only in Authorization. Both native UI review
+and cancellation tests pass; live installed-host Tor acceptance is separate.

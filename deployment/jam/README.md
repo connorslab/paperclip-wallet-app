@@ -276,3 +276,28 @@ wiring, shell supervision/configuration, pairing, installed backup/restore,
 Windows support and signed installers remain release gates. An external Python
 environment is used only for development validation, not proposed as the release
 installation experience.
+
+## Tor phone pairing
+
+Open Jars → Pair a phone and choose **Tor · connect from anywhere**. The QR code
+contains a scoped, expiring Jars grant and the Paperclip host's onion address, not
+the raw Jam API endpoint or main-wallet password. iOS and Android recognize the
+onion address and start embedded Tor after the user reviews the connection.
+Management-only grants cannot send; revocation and wallet binding are unchanged.
+
+The authenticated `joinblaket/pairings/connection` endpoint advertises only a
+validated v3 onion URL from `BARKD_JARS_PAIRING_ONION`. StartOS supplies an existing
+published UI onion address; Umbrel passes its `APP_HIDDEN_SERVICE`. The hint does
+not enable a host's Tor service or open any port. If the host has no published
+onion address, the UI leaves the address empty instead of putting a loopback or
+LAN-only HTTP URL into a phone code. An administrator-managed host may supply the
+same variable or enter its published Paperclip onion URL in the pairing form.
+Native desktop shells share the form but do not automatically publish a new
+onion service; their owned Tor process currently provides outbound connections.
+
+HTTPS pairing retains normal certificate validation or an explicitly supplied
+verified leaf fingerprint, including HTTPS over Tor. HTTP is permitted only for
+onion addresses through Tor. Pairing never falls back to a direct connection,
+redirects credentials or retries an uncertain operation automatically. The host
+must remain online and its Jars wallet unlocked. Installed-host/public-Tor
+round-trip acceptance remains separate from local SOCKS and UI tests.

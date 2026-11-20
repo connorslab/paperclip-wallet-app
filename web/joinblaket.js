@@ -244,18 +244,51 @@
       card.append(label,detail,revoke); root.append(card);
     }
   }
-  $('jam-pairing-endpoint').value = location.origin;
+  const onionHost = host => /^[a-z2-7]{56}\.onion$/.test(host);
+  let hostOnion = onionHost(location.hostname) ? location.origin : '';
+  let pairingEdit = 0;
+  function pairingRoute() {
+    const tor = $('jam-pairing-transport').value === 'tor';
+    $('jam-pairing-route-hint').textContent = tor
+      ? 'Use this Paperclip host’s onion address. Your phone starts Tor automatically; no VPN or port forwarding is needed.'
+      : 'Use an HTTPS address reachable by your phone. A local address works only on your home network.';
+    $('jam-pairing-endpoint').placeholder = tor ? 'http://…onion' : 'https://your-host';
+  }
+  $('jam-pairing-endpoint').value = hostOnion;
+  pairingRoute();
+  $('jam-pairing-transport').onchange = () => {
+    pairingEdit++; clearPairingCode();
+    $('jam-pairing-endpoint').value = $('jam-pairing-transport').value === 'tor' ? hostOnion : (location.protocol === 'https:' && !onionHost(location.hostname) ? location.origin : '');
+    $('jam-pairing-pin').value = ''; pairingRoute();
+  };
+  for (const id of ['jam-pairing-endpoint','jam-pairing-pin','jam-pairing-label']) $(id).addEventListener('input', () => { pairingEdit++; clearPairingCode(); });
+  async function discoverPairingAddress() {
+    const edit = pairingEdit;
+    try {
+      const value = await pairingCall('joinblaket/pairings/connection');
+      if (!value.onion_endpoint) return;
+      const url = new URL(value.onion_endpoint);
+      if (!onionHost(url.hostname) || !['http:','https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash || url.pathname !== '/') return;
+      hostOnion = url.href;
+      if (edit === pairingEdit && $('jam-pairing-transport').value === 'tor' && !$('jam-pairing-endpoint').value) $('jam-pairing-endpoint').value = hostOnion;
+    } catch { /* Older hosts allow entering their published onion address. */ }
+  }
   $('jam-pairing-create').onclick = () => work(async () => {
     clearPairingCode();
     const scope = $('jam-pairing-scope').value;
     if (!['jars_manage_v1','jars_pay_v1'].includes(scope)) throw new Error('Choose phone permissions.');
+    if (!$('jam-pairing-endpoint').value.trim()) throw new Error($('jam-pairing-transport').value === 'tor' ? 'Enter your Paperclip host’s onion address, or choose HTTPS for a direct connection.' : 'Enter your Paperclip host’s HTTPS address.');
     const endpoint = new URL($('jam-pairing-endpoint').value.trim()), pin = $('jam-pairing-pin').value.trim().toLowerCase(), label = $('jam-pairing-label').value.trim();
+    const tor = $('jam-pairing-transport').value === 'tor', edit = pairingEdit;
+    if (tor ? !onionHost(endpoint.hostname) : endpoint.protocol !== 'https:' || endpoint.hostname.endsWith('.onion')) throw new Error(tor ? 'Use a full v3 onion address for Tor pairing.' : 'Use HTTPS, or select Tor for an onion address.');
     if (!label || [...label].length > 48 || /[\x00-\x1f\x7f]/.test(label)) throw new Error('Name this device using 1 to 48 characters.');
     if (!(endpoint.protocol === 'https:' || (endpoint.protocol === 'http:' && endpoint.hostname.endsWith('.onion'))) || endpoint.username || endpoint.password || endpoint.search || endpoint.hash || (pin && (!/^[0-9a-f]{64}$/.test(pin) || endpoint.protocol !== 'https:'))) throw new Error('Use the Paperclip HTTPS address or its onion address, with a verified certificate fingerprint if needed.');
     if (!await window.PaperclipReview.ask('Pair a phone with '+authorization.wallet+' through '+endpoint.href+'? '+(scope === 'jars_pay_v1' ? 'This phone can manage and send funds from this Jars wallet for up to 30 days.' : 'This phone can manage Jars receiving, maker controls and status for up to 30 days. Sending is not allowed.')+' Keep the code private.')) return;
+    if (edit !== pairingEdit) throw new Error('Connection changed. Review the new connection before pairing.');
     const wallet = authorization.wallet;
     const value = await pairingCall('joinblaket/pairings', {label,wallet,token:authorization.token,scope});
     if (value.wallet !== wallet || value.scope !== scope || typeof value.token !== 'string' || !/^pj1_[0-9a-f]{64}$/.test(value.token) || !Number.isSafeInteger(value.expires) || value.expires*1000 <= Date.now()) throw new Error('Invalid pairing response. Check paired devices before creating another.');
+    if (edit !== pairingEdit) { await loadPairings(); throw new Error('Connection changed while creating access. Revoke the new device entry before creating another code.'); }
     const payload = JSON.stringify({kind:'paperclip-jars-v1',scope:value.scope,endpoint:endpoint.href,wallet,token:value.token,expires:value.expires,certificate_sha256:pin});
     pairingCode = 'paperclip-jars:'+btoa(String.fromCharCode(...new TextEncoder().encode(payload))).replaceAll('+','-').replaceAll('/','_').replace(/=+$/,'');
     pairingQR = URL.createObjectURL(new Blob([PaperclipReceive.encode(pairingCode)], {type:'image/svg+xml'}));
@@ -264,9 +297,9 @@
   });
   $('jam-pairing-copy').onclick = () => work(async () => { if (pairingCode) { await PaperclipReceive.copy(pairingCode); $('jam-status').textContent = 'Private pairing code copied.'; } });
   $('jam-pairing-hide').onclick = clearPairingCode;
-  $('jam-pairing-scope').onchange = clearPairingCode;
+  $('jam-pairing-scope').onchange = () => { pairingEdit++; clearPairingCode(); };
   $('jam-pairing-load').onclick = () => work(loadPairings);
-  $('jam-pairing-panel').addEventListener('toggle', () => { if (!$('jam-pairing-panel').open) clearPairingCode(); });
+  $('jam-pairing-panel').addEventListener('toggle', () => { if (!$('jam-pairing-panel').open) { pairingEdit++; clearPairingCode(); } else discoverPairingAddress(); });
   document.addEventListener('visibilitychange', () => { if (document.hidden) clearPairingCode(); });
   new MutationObserver(() => { if (panel.hidden) clearPairingCode(); }).observe(panel, {attributes:true, attributeFilter:['hidden']});
   let payments = null;

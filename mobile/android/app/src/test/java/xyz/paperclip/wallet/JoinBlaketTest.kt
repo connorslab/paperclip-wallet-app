@@ -155,6 +155,66 @@ class JoinBlaketTest {
 		changes.forEach { (key, value_) -> value.put(key, value_) }
 		return "paperclip-jars:" + java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(value.toString().toByteArray())
 	}
+	@Test fun onionPairingSendsScopedRequestThroughSocksWithoutLocalDNS() = runBlocking {
+		val host = "a".repeat(56) + ".onion"
+		val pair = JoinBlaketPairing.parse(pairingText(mapOf("endpoint" to "http://$host")))
+		val executor = java.util.concurrent.Executors.newSingleThreadExecutor()
+		java.net.ServerSocket(0, 1, java.net.InetAddress.getLoopbackAddress()).use { proxy ->
+			proxy.soTimeout = 5000
+			val observed = executor.submit<Boolean> {
+				proxy.accept().use { socket ->
+					socket.soTimeout = 5000
+					val input = java.io.DataInputStream(socket.getInputStream()); val output = socket.getOutputStream()
+					assertEquals(5, input.readUnsignedByte())
+					val methods = ByteArray(input.readUnsignedByte()); input.readFully(methods)
+					assertTrue(methods.contains(0.toByte()))
+					output.write(byteArrayOf(5, 0)); output.flush()
+					assertEquals(5, input.readUnsignedByte()); assertEquals(1, input.readUnsignedByte()); assertEquals(0, input.readUnsignedByte())
+					assertEquals(3, input.readUnsignedByte()) // domain name, never a locally resolved IP
+					val address = ByteArray(input.readUnsignedByte()); input.readFully(address)
+					assertEquals(host, String(address)); assertEquals(80, input.readUnsignedShort())
+					output.write(byteArrayOf(5, 0, 0, 1, 127, 0, 0, 1, 0, 80)); output.flush()
+					val reader = socket.getInputStream().bufferedReader()
+					assertEquals("POST /api/v1/paired-jars/request HTTP/1.1", reader.readLine())
+					val headers = mutableMapOf<String,String>()
+					while (true) {
+						val line = reader.readLine() ?: error("Missing headers")
+						if (line.isEmpty()) break
+						headers[line.substringBefore(':').lowercase()] = line.substringAfter(':').trim()
+					}
+					assertEquals("Bearer " + pair.authorization().token, headers["authorization"])
+					val body = CharArray(headers.getValue("content-length").toInt()); var offset = 0
+					while (offset < body.size) { val read = reader.read(body, offset, body.size - offset); check(read > 0); offset += read }
+					val fields = JSONObject(String(body))
+					assertEquals("status",fields.getString("operation")); assertEquals(pair.wallet, fields.getString("wallet"))
+					assertFalse(fields.has("token")); assertFalse(fields.has("password"))
+					val response = """{"session":true,"wallet_name":"fixture.jmdat","maker_running":false,"coinjoin_in_process":false,"rescanning":false}"""
+					output.write(("HTTP/1.1 200 OK\r\nContent-Length: ${response.toByteArray().size}\r\nConnection: close\r\n\r\n" + response).toByteArray()); output.flush()
+					true
+				}
+			}
+			try {
+				val transport = NodeHTTPTransport.create(pair.endpoint, "", "socks5h://127.0.0.1:${proxy.localPort}")
+				assertFalse(transport.followRedirects); assertFalse(transport.retryOnConnectionFailure)
+				val client = JoinBlaketClient(pair.connection, transport, pair)
+				assertTrue(client.status(pair.authorization()).getBoolean("session"))
+				assertTrue(observed.get(5, java.util.concurrent.TimeUnit.SECONDS))
+			} finally { executor.shutdownNow() }
+		}
+	}
+	@Test fun onionPairingRequiresTorAndRetainsTLSPin() {
+		val host = "a".repeat(56) + ".onion"
+		val pair = JoinBlaketPairing.parse(pairingText(mapOf("endpoint" to "http://$host")))
+		assertEquals("builtin", pair.connection.proxy)
+		val pin = "b".repeat(64)
+		val secure = JoinBlaketPairing.parse(pairingText(mapOf("endpoint" to "https://$host", "certificate_sha256" to pin)))
+		assertEquals("builtin", secure.connection.proxy)
+		assertEquals(pin, secure.connection.pin)
+		for (change in listOf(mapOf("endpoint" to "http://short.onion"), mapOf("endpoint" to "https://short.onion"), mapOf("endpoint" to "http://$host", "certificate_sha256" to pin), mapOf("endpoint" to "http://$host/?token=x"))) {
+			assertThrows(IllegalArgumentException::class.java) { JoinBlaketPairing.parse(pairingText(change)) }
+		}
+		assertThrows(IllegalArgumentException::class.java) { secure.connection.copy(proxy = "").validate() }
+	}
 	@Test fun pairingRejectsUnsafeEndpointsScopeAndExpiry() {
 		for (change in listOf(mapOf("endpoint" to "http://host.local"), mapOf("endpoint" to "https://user:secret@host.local"), mapOf("scope" to "all"),
 			mapOf("expires" to 1), mapOf("wallet" to "../other"), mapOf("token" to "main-wallet-token"), mapOf("certificate_sha256" to "invalid"))) {

@@ -63,6 +63,7 @@ class PackageTest(unittest.TestCase):
             self.assertNotIn('jam', wallet.get('depends_on', []))
             self.assertEqual(companion['network_mode'], 'service:wallet')
             self.assertEqual(companion['depends_on'], ['wallet', 'jam-rpc'])
+            self.assertEqual(wallet['environment']['BARKD_JARS_PAIRING_ONION'], '${APP_HIDDEN_SERVICE:-}')
             self.assertEqual(wallet['environment']['BARKD_JOINBLAKET_URL'], 'https://localhost:28183')
             self.assertIn('${APP_DATA_DIR}/jam-public:/run/paperclip-jam-public:ro', wallet['volumes'])
             self.assertFalse(any('/jam:' in volume or '/jam-rpc:' in volume for volume in wallet['volumes']))
