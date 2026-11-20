@@ -147,6 +147,11 @@ for(const item of bookCases) {
    assert.equal(await page.locator('#jam-fee').inputValue(),'0.00005');
    await page.getByText('At 1,000,000 sats, your fee is 50 sats.',{exact:true}).waitFor();
    await openTool('market');
+   await page.waitForSelector('#jam-book-offers tbody tr');
+   await page.locator('#jam-book-search').fill('Synthetic11');
+   assert.equal(await page.locator('#jam-book-offers tbody tr').count(),1);
+   await page.locator('#jam-book-search').fill('');
+   await page.locator('#jam-book-comparison summary').click();
    for(const status of ['fresh','stale','empty','unavailable']) {
     marketStatus=status;await page.locator('#jam-market-refresh').click();
     await page.waitForFunction(status=>document.querySelector('#jam-market-summary').textContent.includes({fresh:'Median maker fee: 75.5 sats',stale:'stale',empty:'No verified bonded offers',unavailable:'unavailable'}[status]),status);
@@ -162,10 +167,10 @@ for(const item of bookCases) {
    assert.equal(await page.locator('.jam-book-offer').count(),6);
    assert.equal(await page.locator('#jam-book-page').textContent(),'1 / 1');
    await page.locator('#jam-book-sort').selectOption('size');
-   assert.equal(await page.locator('.jam-book-offer h3').first().textContent(),'J5Synthetic10');
+   assert.equal(await page.locator('.jam-book-offer td:first-child').first().textContent(),'J5Synthetic10');
    await page.locator('#jam-book-eligible').uncheck();
    await page.locator('#jam-book-sort').selectOption('fee');
-   assert.equal(await page.locator('.jam-book-offer h3').first().textContent(),'J5Synthetic0');
+   assert.equal(await page.locator('.jam-book-offer td:first-child').first().textContent(),'J5Synthetic0');
    await page.locator('#jam-tools-dialog').evaluate(el=>el.scrollTop=0);
    if(process.env.SCREENSHOT_DIR) await page.screenshot({path:path.join(process.env.SCREENSHOT_DIR,`jam-market-${width}.png`),animations:'disabled'});
    await page.locator('#jam-market-amount').fill('200000');

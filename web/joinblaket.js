@@ -12,6 +12,7 @@
       toolsDialog.dataset.tool = key;
       toolsDialog.querySelectorAll('[data-jam-tool]').forEach(section => { section.hidden = section.dataset.jamTool !== key; });
       toolsDialog.showModal();
+      if (key === 'market') $('jam-market-refresh').click();
       toolsDialog.scrollTop = 0;
       $('jam-tool-close').focus();
     };
@@ -451,34 +452,55 @@
     $('jam-book-pagination').hidden = true;
     $('jam-book-excluded').textContent = '';
     const count = $('jam-book-count'); count.textContent = '';
-    if (!market) return;
-    if (!['fresh','empty'].includes(market.status) || !Number.isInteger(market.book_updated_at) || Date.now()/1000-market.book_updated_at > 120) { count.textContent = 'Refresh to browse current offers.'; return; }
+    const stats = $('jam-book-stats'); stats.replaceChildren();
+    if (!market) { count.textContent = 'Loading order book…'; return; }
+    if (!['fresh','empty'].includes(market.status) || !Number.isInteger(market.book_updated_at) || Date.now()/1000-market.book_updated_at > 120) { count.textContent = market.status === 'unavailable' ? 'Order book unavailable. Refresh to try again.' : 'Snapshot is stale. Refresh to see current offers.'; return; }
     if (!market.offers) { count.textContent = 'Update your Paperclip host to browse individual offers.'; return; }
-    const rows = PaperclipOrderBook.rows(market, $('jam-book-eligible').checked, $('jam-book-sort').value === 'size');
+    const liquidity = new Map(), bonded = new Set(), rates = [];
+    let min = Infinity, max = 0;
+    for (const offer of market.offers) {
+      liquidity.set(offer.maker, Math.max(liquidity.get(offer.maker) || 0, offer.max_sat));
+      if (offer.bond_verified) bonded.add(offer.maker);
+      if (offer.relative) rates.push(Number(offer.fee) * 100);
+      min = Math.min(min,offer.min_sat); max = Math.max(max,offer.max_sat);
+    }
+    rates.sort((a,b)=>a-b);
+    const middle = Math.floor(rates.length / 2);
+    const median = rates.length ? ((rates[middle] + rates[Math.floor((rates.length-1)/2)]) / 2).toFixed(4)+'%' : '—';
+    const total = [...liquidity.values()].reduce((sum,n)=>sum+BigInt(n),0n);
+    for (const [label,value] of [['Median relative fee',median],['Advertised liquidity',total.toLocaleString()+' sats'],['Offer size range',liquidity.size ? min.toLocaleString()+' – '+amount(max) : '—'],['Counterparties',bonded.size+' bonded · '+(liquidity.size-bonded.size)+' unverified']]) {
+      const tile=document.createElement('div'), term=document.createElement('dt'), detail=document.createElement('dd');
+      term.textContent=label; detail.textContent=value; tile.append(term,detail); stats.append(tile);
+    }
+    const search = $('jam-book-search').value.trim().toLowerCase();
+    const rows = PaperclipOrderBook.rows(market, $('jam-book-eligible').checked, $('jam-book-sort').value === 'size').filter(row=>row.maker.toLowerCase().includes(search));
+    if ($('jam-book-sort').value === 'maker') rows.sort((a,b)=>a.maker.localeCompare(b.maker));
     marketPage = Math.min(marketPage, Math.max(0, Math.ceil(rows.length/10)-1));
     count.textContent = rows.length+' offers · '+new Set(rows.map(row=>row.maker)).size+' makers'+(rows.length?'':'. No offers match this filter.');
-    for (const row of rows.slice(marketPage*10,marketPage*10+10)) {
-      const card = document.createElement('article'); card.className = 'jam-book-offer';
-      const maker = document.createElement('h3'); maker.textContent = row.maker; maker.className = 'mono'; card.append(maker);
-      const data = document.createElement('dl');
-      const fee = row.relative ? PaperclipMakerReadiness.percentages[PaperclipMakerReadiness.rates.indexOf(row.fee)]+'%' : row.fee+' sats';
-      for (const [label, value] of [['Maker fee',fee],['Amount range',amount(row.min_sat)+' – '+amount(row.max_sat)],['At your amount',row.min_sat<=market.amount_sat && market.amount_sat<=row.max_sat ? amount(row.fee_sat) : 'Outside range'],['Mining contribution',amount(row.mining_contribution_sat)],['Fidelity bond',row.bond_verified?'Verified':'Not verified']]) {
-        const group=document.createElement('div'),dt=document.createElement('dt'),dd=document.createElement('dd');dt.textContent=label;dd.textContent=value;group.append(dt,dd);data.append(group);
-      }
-      card.append(data);root.append(card);
+    const table=document.createElement('table'), header=table.createTHead().insertRow();
+    table.setAttribute('aria-label','JoinBlaket offers');
+    for (const title of ['Counterparty','Order ID','Type','Fee','Min. sats','Max. sats','Bond value']) {
+      const th=document.createElement('th'); th.scope='col'; th.textContent=title; header.append(th);
     }
+    const body=table.createTBody();
+    for (const row of rows.slice(marketPage*10,marketPage*10+10)) {
+      const tr=body.insertRow(); tr.className='jam-book-offer';
+      for (const value of [row.maker,Number.isSafeInteger(row.order_id)?row.order_id:'—',row.relative?'Relative':'Fixed',row.relative?(Number(row.fee)*100).toFixed(4)+'%':amount(row.fee),row.min_sat.toLocaleString(),row.max_sat.toLocaleString(),row.bond_verified && typeof row.bond_value==='string' && /^[0-9]{1,78}$/.test(row.bond_value)?BigInt(row.bond_value).toLocaleString():row.bond_verified?'Verified':'—']) tr.insertCell().textContent=value;
+    }
+    root.append(table);
     $('jam-book-pagination').hidden = rows.length === 0;
     $('jam-book-page').textContent = (marketPage+1)+' / '+Math.max(1,Math.ceil(rows.length/10));
     $('jam-book-prev').disabled = busy || marketPage === 0; $('jam-book-next').disabled = busy || (marketPage+1)*10 >= rows.length;
     $('jam-book-excluded').textContent = market.excluded_offer_count ? market.excluded_offer_count+' unsupported or malformed offers excluded.' : '';
   }
   for (const id of ['jam-book-eligible','jam-book-sort']) $(id).onchange = () => { marketPage=0; renderOrderBook(); };
+  $('jam-book-search').oninput = () => { marketPage=0; renderOrderBook(); };
   $('jam-book-prev').onclick = () => { marketPage=Math.max(0,marketPage-1); renderOrderBook(); $('jam-book-count').scrollIntoView({block:'center'}); };
   $('jam-book-next').onclick = () => { marketPage++; renderOrderBook(); $('jam-book-count').scrollIntoView({block:'center'}); };
   setInterval(renderMarket,15000);
   $('jam-market-refresh').onclick = () => work(async () => {
-    const comparison = Number($('jam-market-amount').value);
-    if (!/^[0-9]+$/.test($('jam-market-amount').value) || !Number.isSafeInteger(comparison) || comparison < 27300 || comparison > 2100000000000000) throw new Error('Choose a valid comparison amount.');
+    let comparison = Number($('jam-market-amount').value);
+    if (!/^[0-9]+$/.test($('jam-market-amount').value) || !Number.isSafeInteger(comparison) || comparison < 27300 || comparison > 2100000000000000) { comparison = 100000; $('jam-market-amount').value = String(comparison); }
     market = null; marketPage = 0; renderMarket();
     try {
       const value = await call('market', {comparison_sat:comparison}), now = Math.floor(Date.now()/1000);

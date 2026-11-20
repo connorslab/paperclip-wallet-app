@@ -87,7 +87,9 @@ def summarize(book, amount, now=None):
                                  'relative': offer['ordertype'] == 'sw0reloffer',
                                  'min_sat': offer['minsize'], 'max_sat': offer['maxsize'],
                                  'fee_sat': sats, 'mining_contribution_sat': contribution,
-                                 'bond_verified': verified})
+                                 'bond_verified': verified,
+                                 'order_id': offer['oid'] if integer(offer.get('oid'), 0, 0xffffffff) else None,
+                                 'bond_value': str(offer['fidelity_bond_value']) if verified and integer(offer.get('fidelity_bond_value'), 0, 2**256-1) else None})
         if verified and offer['minsize'] <= amount <= offer['maxsize']:
             prices[maker] = min(sats, prices.get(maker, sats))
     fees = sorted(prices.values())

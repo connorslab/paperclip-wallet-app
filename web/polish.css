@@ -437,3 +437,15 @@ button,a,summary {touch-action:manipulation}
 
 .jam-tools-sheet[data-tool="market"]{width:min(960px,calc(100vw - 32px));max-width:960px}
 @media(min-width:900px){.jam-book-offer dl{grid-template-columns:.8fr 1.5fr 1fr 1fr 1fr}}
+
+#jam-tools-dialog[data-tool="market"]{width:min(96vw,72rem);max-width:96vw}
+.book-heading,.book-toolbar{display:flex;align-items:center;justify-content:space-between;gap:1rem}
+.book-toolbar>label{flex:1;min-width:0}
+.book-stats{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1rem;margin:1rem 0}
+.book-stats dt{font-size:.84rem;color:var(--muted)}
+.book-stats dd{margin:.25rem 0;font-weight:600}
+.jam-book-offers{display:block;overflow-x:auto}
+.jam-book-offers table{width:100%;border-collapse:collapse;text-align:left;font-variant-numeric:tabular-nums}
+.jam-book-offers th,.jam-book-offers td{padding:.65rem;white-space:nowrap;border-bottom:1px solid var(--stroke)}
+.jam-book-offers th{font-size:.8rem;color:var(--muted)}
+@media(min-width:800px){.book-stats{grid-template-columns:repeat(4,minmax(0,1fr))}}
