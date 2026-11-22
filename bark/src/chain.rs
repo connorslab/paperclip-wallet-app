@@ -119,7 +119,7 @@ const MIN_BITCOIND_VERSION: usize = 290000;
 #[derive(Clone, Debug)]
 pub enum ChainSourceSpec {
 	#[cfg(feature = "electrum")]
-	Electrum { url: String, certificate_sha256: Option<String> },
+	Electrum { url: String, certificate_sha256: Option<String>, use_host_tor: bool },
 	Bitcoind {
 		/// RPC URL of the Bitcoin Core node (e.g. <http://127.0.0.1:8332>).
 		url: String,
@@ -136,6 +136,17 @@ pub enum ChainSourceSpec {
 }
 
 impl ChainSourceSpec {
+	/// Select the same network route during wallet creation and subsequent opens.
+	#[cfg(feature = "socks5-proxy")]
+	pub fn proxy_for_connection(&self, configured: &Option<String>) -> anyhow::Result<Option<String>> {
+		match self {
+			ChainSourceSpec::Bitcoind { .. } => Ok(configured.clone()),
+			#[cfg(feature = "electrum")]
+			ChainSourceSpec::Electrum { .. } => Ok(configured.clone()),
+			ChainSourceSpec::Esplora { .. } => crate::proxy::proxy_for_url(configured, self.url()),
+		}
+	}
+
 	pub(crate) fn url(&self) -> &String {
 		match self {
 			#[cfg(feature = "electrum")]
@@ -378,11 +389,14 @@ impl ChainSource {
 
 		let (inner, zmq_endpoint) = match spec {
 			#[cfg(feature = "electrum")]
-			ChainSourceSpec::Electrum { url, certificate_sha256 } => {
+			ChainSourceSpec::Electrum { url, certificate_sha256, use_host_tor } => {
 				#[cfg(feature = "socks5-proxy")]
 				let proxy = proxy.map(str::to_owned);
 				#[cfg(not(feature = "socks5-proxy"))]
 				let proxy = None;
+				let proxy = if use_host_tor {
+					Some(std::env::var("BARKD_LIGHTNING_TOR_PROXY").context("Host Tor proxy is unavailable")?)
+				} else { proxy };
 				(ChainSourceClient::Electrum(crate::electrum::Electrum::connect(url, proxy, certificate_sha256, network).await?), None)
 			},
 			#[cfg(feature = "bitcoind-rpc")]

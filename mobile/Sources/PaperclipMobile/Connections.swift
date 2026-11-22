@@ -3,7 +3,7 @@ import Foundation
 public enum ChainBackend: String, Codable, CaseIterable, Sendable {
     case esplora, electrum, rpc
     public var title: String {
-        switch self { case .esplora: return "Public / Esplora"; case .electrum: return "Electrum"; case .rpc: return "XBT Knots RPC" }
+        switch self { case .esplora: return "Public / Esplora"; case .electrum: return "Electrum / Fulcrum"; case .rpc: return "XBT Knots RPC" }
     }
 }
 

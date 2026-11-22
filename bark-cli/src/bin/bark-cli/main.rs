@@ -132,15 +132,23 @@ struct CreateOpts {
 	#[arg(long)]
 	ark: Option<String>,
 
+	/// XBT Electrum or Fulcrum endpoint (ssl:// or tcp:// with port).
+	#[arg(long, conflicts_with_all = ["esplora", "bitcoind"])]
+	electrum: Option<String>,
+
+	/// SHA256 of the Electrum server's TLS leaf certificate.
+	#[arg(long, requires = "electrum")]
+	electrum_certificate_sha256: Option<String>,
+
+	/// Connect to Electrum through the host's managed Tor proxy.
+	#[arg(long, requires = "electrum")]
+	electrum_tor: bool,
+
 	/// The address of the Esplora HTTP server to use.
-	///
-	/// Either this or the `bitcoind_address` field has to be provided.
 	#[arg(long)]
 	esplora: Option<String>,
 
 	/// The address of the bitcoind RPC server to use.
-	///
-	/// Either this or the `esplora_address` field has to be provided.
 	#[arg(long)]
 	bitcoind: Option<String>,
 
@@ -451,9 +459,12 @@ fn create_opts_to_request(opts: CreateOpts) -> anyhow::Result<models::CreateWall
 		_ => bail!("Specify exactly one of --mainnet, --signet, --regtest or --mutinynet"),
 	};
 
-	let chain_source = match (opts.esplora, opts.bitcoind) {
-		(Some(url), None) => Some(models::ChainSourceConfig::Esplora { url }),
-		(None, Some(bitcoind)) => {
+	let chain_source = match (opts.electrum, opts.esplora, opts.bitcoind) {
+		(Some(url), None, None) => Some(models::ChainSourceConfig::Electrum {
+			url, certificate_sha256: opts.electrum_certificate_sha256, use_tor: opts.electrum_tor,
+		}),
+		(None, Some(url), None) => Some(models::ChainSourceConfig::Esplora { url }),
+		(None, None, Some(bitcoind)) => {
 			let auth = match (opts.bitcoind_cookie, opts.bitcoind_user, opts.bitcoind_pass) {
 				(Some(cookie), None, None) => models::BitcoindAuth::Cookie { cookie },
 				(None, Some(user), Some(pass)) => models::BitcoindAuth::UserPass { user, pass },
@@ -462,8 +473,8 @@ fn create_opts_to_request(opts: CreateOpts) -> anyhow::Result<models::CreateWall
 			};
 			Some(models::ChainSourceConfig::Bitcoind { bitcoind, bitcoind_auth: auth })
 		},
-		(None, None) => None,
-		(Some(_), Some(_)) => bail!("provide either --esplora or --bitcoind, not both"),
+		(None, None, None) => None,
+		_ => bail!("Select one chain backend"),
 	};
 
 	#[allow(deprecated)]

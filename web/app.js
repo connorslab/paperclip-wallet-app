@@ -157,10 +157,32 @@ function endpoint(id, protocols) {
   }
   return value;
 }
+function setupChainSource() {
+  const backend = $('setup-backend').value;
+  if (backend === 'installed') return 'platform';
+  if (backend === 'electrum') {
+    const url = new URL($('setup-electrum').value.trim());
+    if (!['ssl:', 'tcp:'].includes(url.protocol) || !url.hostname || !Number(url.port) ||
+        url.username || url.password || url.search || url.hash || !['', '/'].includes(url.pathname))
+      throw new Error('Enter an Electrum server address such as ssl://host:50002 or tcp://host:50001.');
+    const pin = $('setup-electrum-pin').value.trim();
+    if (pin && (url.protocol !== 'ssl:' || !/^[a-f0-9]{64}$/i.test(pin)))
+      throw new Error('A certificate fingerprint requires TLS and 64 hexadecimal digits.');
+    const onion = url.hostname.toLowerCase().replace(/\.$/, '').endsWith('.onion');
+    return {electrum: {url: url.href, certificate_sha256: pin || null, use_tor: onion || $('setup-electrum-tor').checked}};
+  }
+  if (backend !== 'manual') throw new Error('Choose a chain connection.');
+  const user = $('setup-user').value, pass = $('setup-password').value;
+  if (!user || !pass) throw new Error('RPC credentials are required.');
+  return {bitcoind: {bitcoind: endpoint('setup-rpc', ['http:', 'https:']), bitcoind_auth: {'user-pass': {user, pass}}}};
+}
 function setupBackend() {
   const manual = $('setup-backend').value === 'manual';
-  $('setup-network').disabled = !manual;
-  if (!manual) $('setup-network').value = 'mainnet';
+  const electrum = $('setup-backend').value === 'electrum';
+  $('setup-electrum-fields').hidden = !electrum;
+  $('setup-electrum-fields').disabled = !electrum;
+  $('setup-network').disabled = !manual && !electrum;
+  if ($('setup-network').disabled) $('setup-network').value = 'mainnet';
   $('show-rpc-password').hidden = !manual;
   for (const id of ['setup-rpc', 'setup-user', 'setup-password']) {
     $(id).disabled = !manual;
@@ -218,12 +240,8 @@ $('create-wallet').onsubmit = event => { event.preventDefault(); run(event.submi
   if (!['mainnet', 'regtest'].includes(selected) || !$('setup-ack').checked) throw new Error('Choose the network and confirm the backup requirement.');
   const body = {
     network: selected, ark_server: endpoint('setup-asp', ['http:', 'https:']),
-    chain_source: $('setup-backend').value === 'installed' ? 'platform' : {bitcoind: {
-      bitcoind: endpoint('setup-rpc', ['http:', 'https:']),
-      bitcoind_auth: {'user-pass': {user: $('setup-user').value, pass: $('setup-password').value}}
-    }}, force: false, seed_generation: setupGeneration()
+    chain_source: setupChainSource(), force: false, seed_generation: setupGeneration()
   };
-  if (body.chain_source !== 'platform' && (!body.chain_source.bitcoind.bitcoind_auth['user-pass'].user || !body.chain_source.bitcoind.bitcoind_auth['user-pass'].pass)) throw new Error('RPC credentials are required.');
   const options = await api('wallet/creation-options');
   if (options?.version !== 1 || options.dice_derivation !== 'paperclip-dice-v1' ||
       !Array.isArray(options.methods) || !Array.isArray(options.words) ||

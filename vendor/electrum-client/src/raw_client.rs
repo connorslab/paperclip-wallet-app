@@ -182,6 +182,30 @@ fn decode_xbt_headers(deserialized: &mut GetHeadersRes) -> Result<(), Error> {
     Ok(())
 }
 
+// Some XBT Fulcrum servers return one serialized header per array entry.
+fn parse_block_headers(result: serde_json::Value, requested: usize) -> Result<GetHeadersRes, Error> {
+    let count = result["count"].as_u64()
+        .filter(|&n| n <= requested as u64)
+        .ok_or_else(|| Error::Message("invalid block header count".into()))? as usize;
+    if let Some(entries) = result.get("headers") {
+        let entries = entries.as_array().filter(|items| items.len() == count)
+            .ok_or_else(|| Error::Message("invalid block header array".into()))?;
+        let max = result["max"].as_u64().and_then(|v| usize::try_from(v).ok())
+            .ok_or_else(|| Error::Message("invalid block header maximum".into()))?;
+        let mut headers = Vec::with_capacity(count);
+        for entry in entries {
+            let hex = entry.as_str().filter(|value| matches!(value.len(), 160 | 328))
+                .ok_or_else(|| Error::Message("invalid block header length".into()))?;
+            headers.push(bitcoin::consensus::deserialize(&Vec::<u8>::from_hex(hex)?)?);
+        }
+        return Ok(GetHeadersRes { count, max, raw_headers: Vec::new(), headers });
+    }
+    let mut response: GetHeadersRes = serde_json::from_value(result)?;
+    decode_xbt_headers(&mut response)?;
+    response.raw_headers.clear();
+    Ok(response)
+}
+
 /// Transport type used to establish a plaintext TCP connection with the server
 pub type ElectrumPlaintextStream = TcpStream;
 impl RawClient<ElectrumPlaintextStream> {
@@ -890,11 +914,7 @@ impl<T: Read + Write> ElectrumApi for RawClient<T> {
         );
         let result = self.call(req)?;
 
-        let mut deserialized: GetHeadersRes = serde_json::from_value(result)?;
-        decode_xbt_headers(&mut deserialized)?;
-        deserialized.raw_headers.clear();
-
-        Ok(deserialized)
+        parse_block_headers(result, count)
     }
 
     fn estimate_fee(&self, number: usize) -> Result<f64, Error> {
@@ -1689,6 +1709,22 @@ mod test {
 mod xbt_header_tests {
     use super::*;
     use bitcoin::consensus::serialize;
+
+    #[test]
+    fn fulcrum_array_and_concatenated_headers_decode_identically() {
+        let header = bitcoin::constants::genesis_block(bitcoin::Network::Bitcoin).header;
+        let hex = bitcoin::consensus::encode::serialize_hex(&header);
+        let array = serde_json::json!({"count": 2, "max": 2016, "headers": [hex, hex]});
+        let batch = serde_json::json!({"count": 2, "max": 2016, "hex": hex.repeat(2)});
+        assert_eq!(parse_block_headers(array.clone(), 2).unwrap().headers,
+                   parse_block_headers(batch, 2).unwrap().headers);
+        assert!(parse_block_headers(array.clone(), 1).is_err());
+        let mut invalid = array;
+        invalid["count"] = serde_json::json!(1);
+        assert!(parse_block_headers(invalid, 2).is_err());
+        let trailing = serde_json::json!({"count": 1, "max": 2016, "headers": [hex + &"00".repeat(84)]});
+        assert!(parse_block_headers(trailing, 1).is_err());
+    }
 
     #[test]
     fn decodes_mixed_header_lengths_and_rejects_truncation() {

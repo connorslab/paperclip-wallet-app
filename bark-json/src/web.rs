@@ -367,6 +367,13 @@ pub enum ChainSourceConfig {
 		bitcoind: String,
 		bitcoind_auth: BitcoindAuth,
 	},
+	/// Use an XBT Electrum protocol server, including Fulcrum.
+	Electrum {
+		url: String,
+		certificate_sha256: Option<String>,
+		#[serde(default)]
+		use_tor: bool,
+	},
 	/// Use an Esplora HTTP server
 	Esplora {
 		url: String,

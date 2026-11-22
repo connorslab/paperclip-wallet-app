@@ -136,7 +136,7 @@ the service binding so a later connection attempt can start again. Concurrent
 callers share startup; cancelling one waiter does not cancel another consumer.
 Control replies have a deadline within the overall bootstrap timeout.
 
-The XBT Electrum transport explicitly negotiates protocol 1.8 and validates the
+The XBT Electrum transport explicitly negotiates protocols 1.4 through 1.8 and validates the
 network genesis and 164-byte BLAKE2b headers. A reachable socket alone does not
 count as a healthy connection. The opt-in test below uses a fresh, unfunded mainnet
 wallet and makes no payments:

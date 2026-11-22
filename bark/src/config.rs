@@ -123,6 +123,9 @@ pub struct Config {
 	#[cfg(feature = "electrum")]
 	#[serde(default)]
 	pub electrum_certificate_sha256: Option<String>,
+	#[cfg(feature = "electrum")]
+	#[serde(default)]
+	pub electrum_use_host_tor: bool,
 
 	/// The address of the bitcoind RPC server to use.
 	///
@@ -267,6 +270,8 @@ impl Config {
 			electrum_address: None,
 			#[cfg(feature = "electrum")]
 			electrum_certificate_sha256: None,
+			#[cfg(feature = "electrum")]
+			electrum_use_host_tor: false,
 			bitcoind_address: None,
 			bitcoind_cookiefile: None,
 			bitcoind_user: None,
@@ -331,7 +336,7 @@ impl Config {
 	pub fn chain_source(&self) -> anyhow::Result<ChainSourceSpec> {
 		#[cfg(feature = "electrum")]
 		if let Some(ref url) = self.electrum_address {
-			return Ok(ChainSourceSpec::Electrum { url: url.clone(), certificate_sha256: self.electrum_certificate_sha256.clone() });
+			return Ok(ChainSourceSpec::Electrum { url: url.clone(), certificate_sha256: self.electrum_certificate_sha256.clone(), use_host_tor: self.electrum_use_host_tor });
 		}
 		if let Some(ref url) = self.esplora_address {
 			Ok(ChainSourceSpec::Esplora {

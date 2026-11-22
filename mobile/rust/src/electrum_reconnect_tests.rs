@@ -28,8 +28,8 @@ fn electrum_recovers_closed_socket_without_replaying_operation() {
 				}
 				let result = match method {
 					"server.version" => {
-						assert_eq!(request["params"][1], json!(["1.8", "1.8"]));
-						json!(["test", "1.8"])
+						assert_eq!(request["params"][1], json!(["1.4", "1.8"]));
+						json!(["test", "1.6"])
 					},
 					"blockchain.block.header" => json!(bitcoin::consensus::encode::serialize_hex(&bitcoin::constants::genesis_block(bitcoin::Network::Bitcoin).header)),
 					"blockchain.headers.subscribe" => json!({"height": 975000, "hex": "00".repeat(164)}),
@@ -53,17 +53,54 @@ fn electrum_recovers_closed_socket_without_replaying_operation() {
 	assert_eq!(broadcasts.load(Ordering::SeqCst), 1);
 }
 
+// A legacy handshake still has to prove the selected network and XBT tip format.
+#[test]
+fn electrum_rejects_wrong_genesis_and_sha256_headers_on_protocol_1_6() {
+	for wrong_genesis in [true, false] {
+		let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+		let endpoint = format!("tcp://{}", listener.local_addr().unwrap());
+		let server = std::thread::spawn(move || {
+			let (mut stream, _) = listener.accept().unwrap();
+			stream.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+			let reader = BufReader::new(stream.try_clone().unwrap());
+			for line in reader.lines() {
+				let request: Value = serde_json::from_str(&line.unwrap()).unwrap();
+				let result = match request["method"].as_str().unwrap() {
+					"server.version" => json!(["fixture", "1.6"]),
+					"blockchain.block.header" => {
+						let network = if wrong_genesis { bitcoin::Network::Regtest } else { bitcoin::Network::Bitcoin };
+						json!(bitcoin::consensus::encode::serialize_hex(&bitcoin::constants::genesis_block(network).header))
+					},
+					"blockchain.headers.subscribe" => json!({"height": 975000, "hex": "00".repeat(80)}),
+					other => panic!("Unexpected method {other}"),
+				};
+				writeln!(stream, "{}", json!({"id":request["id"], "result":result})).unwrap();
+			}
+		});
+		let result = tokio::runtime::Runtime::new().unwrap().block_on(
+			bark::electrum::Electrum::connect(endpoint, None, None, bitcoin::Network::Bitcoin));
+		let error = result.err().expect("incompatible chain must be rejected").to_string();
+		assert!(error.contains(if wrong_genesis { "network mismatch" } else { "BLAKE2b XBT headers" }));
+		server.join().unwrap();
+	}
+}
+
 // Opt-in read-only smoke check against a real XBT server. No wallet or keys used.
 #[test]
 #[ignore = "requires PAPERCLIP_TEST_ELECTRUM and network access"]
 fn electrum_live_headers_and_history() {
 	let endpoint = std::env::var("PAPERCLIP_TEST_ELECTRUM").unwrap();
 	tokio::runtime::Runtime::new().unwrap().block_on(async {
-		let client = bark::electrum::Electrum::connect(endpoint, None, None, bitcoin::Network::Bitcoin).await.unwrap();
+		let client = bark::electrum::Electrum::connect(endpoint, std::env::var("PAPERCLIP_TEST_ELECTRUM_PROXY").ok(), None, bitcoin::Network::Bitcoin).await.unwrap();
 		let height = client.tip().await.unwrap();
 		assert!(height > 961640);
 		client.block_ref(height).await.unwrap();
-		client.run(|c| {
+		client.run(move |c| {
+			let start = height - 2;
+			let batch = c.inner.block_headers(start as usize, 2)?;
+			assert_eq!(batch.headers.len(), 2);
+			assert_eq!(batch.headers[1].prev_blockhash, batch.headers[0].block_hash());
+			assert_eq!(batch.headers[0], c.inner.block_header(start as usize)?);
 			// Public OP_RETURN scripts cannot receive spendable coins.
 			let scripts: Vec<_> = (0..20).map(|n| bitcoin::ScriptBuf::from_bytes(vec![0x6a, 1, n])).collect();
 			let history = c.inner.batch_script_get_history(scripts.iter().map(|s| s.as_script()))?;

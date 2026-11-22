@@ -127,6 +127,7 @@ async fn wallet_config_response(wallet: &Wallet, web: &WebConfig) -> Response {
 	};
 
 	let chain_source = match config.chain_source() {
+		Ok(ChainSourceSpec::Electrum { url, .. }) => serde_json::Value::String(url),
 		Ok(ChainSourceSpec::Esplora { url }) => serde_json::Value::String(url),
 		Ok(ChainSourceSpec::Bitcoind { url, auth: Auth::CookieFile(cookie), .. }) => {
 			serde_json::json!({

@@ -370,6 +370,9 @@ fn wallet_create_request_to_create_opts(req: CreateWalletRequest) -> anyhow::Res
 	let mut config = ConfigOpts {
 		ark: req.ark_server,
 		access_token: req.ark_server_access_token,
+		electrum: None,
+		electrum_certificate_sha256: None,
+		electrum_tor: false,
 		esplora: None,
 		bitcoind: None,
 		bitcoind_cookie: None,
@@ -392,6 +395,11 @@ fn wallet_create_request_to_create_opts(req: CreateWalletRequest) -> anyhow::Res
 		};
 		match chain_source {
 			ChainSourceConfig::Platform => anyhow::bail!("Invalid recursive installed node connection"),
+			ChainSourceConfig::Electrum { url, certificate_sha256, use_tor } => {
+				config.electrum = Some(url);
+				config.electrum_certificate_sha256 = certificate_sha256;
+				config.electrum_tor = use_tor;
+			},
 			ChainSourceConfig::Esplora { url } => {
 				config.esplora = Some(url);
 			},

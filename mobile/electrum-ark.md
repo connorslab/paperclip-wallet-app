@@ -14,7 +14,20 @@ TLS or its configured Tor SOCKS transport.
 - `server.features` with `broadcast_package: true` only when package submission
   is actually enabled and supported by the backing XBT node.
 
-The client negotiates protocols 1.4 through 1.6. Servers lacking Ark capabilities
+In the StartOS, Umbrel and desktop wallet setup, choose **Electrum / Fulcrum**.
+Use the server’s Electrum TCP or TLS port. For an onion service, enter its
+published address and port. The host routes onion connections through Tor.
+Select **Use Tor** to proxy an ordinary hostname too. For a self-signed TLS
+certificate, enter the SHA256 fingerprint from your server. On iOS and Android
+choose Electrum under wallet connections and enable Tor for onion services.
+
+Existing host wallets can use the same server by setting `electrum_address` in
+their wallet’s `config.toml`. Set `electrum_use_host_tor = true` for the
+packaged host’s Tor route. Remove the prior chain source settings when switching.
+The settings take effect the next time the wallet opens.
+
+The client negotiates Electrum protocols 1.4 through 1.8 and checks the network genesis and
+activated BLAKE2b headers. Servers lacking Ark capabilities
 remain usable for ordinary on-chain operations. New funded Ark operations are
 blocked if capability or policy information is missing; recovery does not require
 the current fee-policy admission check.

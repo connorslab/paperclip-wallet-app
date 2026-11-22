@@ -26,6 +26,17 @@ const fs=require('node:fs'),path=require('node:path'),assert=require('node:asser
    await page.locator('#setup-backend').selectOption('manual');
    assert.equal(await page.locator('#setup-asp').inputValue(),'https://custom.example');
    assert(await page.locator('#setup-rpc').isVisible());
+   await page.locator('#setup-backend').selectOption('electrum');
+   assert(await page.locator('#setup-rpc').isDisabled());
+   assert(await page.locator('#setup-electrum').isVisible());
+   await page.locator('#setup-electrum').fill('tcp://example.onion:50001');
+   assert.deepEqual(await page.evaluate(()=>setupChainSource()),{electrum:{url:'tcp://example.onion:50001',certificate_sha256:null,use_tor:true}});
+   await page.locator('#setup-electrum').fill('ssl://example.test:50002');
+   assert.equal(await page.evaluate(()=>setupChainSource().electrum.use_tor),false);
+   await page.locator('#setup-electrum-tor').check();
+   assert.equal(await page.evaluate(()=>setupChainSource().electrum.use_tor),true);
+   await page.locator('#setup-backend').selectOption('manual');
+   assert(await page.locator('#setup-electrum').isDisabled());
    const checkbox=await page.locator('#setup-ack').boundingBox();
    assert(checkbox.width<=24 && checkbox.height<=24,'Checkbox must remain compact');
    const ack=await page.locator('.setup-ack').filter({has:page.locator('#setup-ack')}).boundingBox(),buttons=await page.locator('.setup-actions').boundingBox();

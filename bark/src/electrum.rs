@@ -70,6 +70,34 @@ impl ServerCertVerifier for CertificatePin {
 	}
 }
 
+// Electrum versions use dotted integers and some servers advertise a patch level.
+fn supported_protocol(version: &str) -> bool {
+	let mut parts = version.split('.');
+	if parts.next() != Some("1") { return false; }
+	let Some(minor @ 4..=8) = parts.next().and_then(|v| v.parse::<u16>().ok()) else { return false; };
+	let patch = match parts.next() {
+		None => 0,
+		Some(value) => match value.parse::<u16>() { Ok(patch) => patch, Err(_) => return false },
+	};
+	parts.next().is_none() && (minor, patch) <= (8, 0)
+}
+
+pub fn validate_endpoint(url: &str, pin: Option<&str>, using_proxy: bool) -> anyhow::Result<url::Url> {
+	let endpoint: url::Url = url.parse()?;
+	let host = endpoint.host_str().context("Electrum host required")?;
+	ensure!(matches!(endpoint.scheme(), "ssl" | "tcp") && endpoint.port().is_some_and(|p| p > 0)
+		&& endpoint.username().is_empty() && endpoint.password().is_none()
+		&& matches!(endpoint.path(), "" | "/") && endpoint.query().is_none() && endpoint.fragment().is_none()
+		&& !host.contains('%') && !url.chars().any(char::is_control),
+		"Use ssl://host:port or tcp://host:port for Electrum");
+	ensure!(using_proxy || !host.trim_end_matches('.').to_ascii_lowercase().ends_with(".onion"), "onion endpoint requires Tor");
+	if let Some(pin) = pin.filter(|p| !p.is_empty()) {
+		ensure!(endpoint.scheme() == "ssl" && pin.len() == 64 && pin.bytes().all(|c| c.is_ascii_hexdigit()),
+			"A certificate pin requires TLS and a 64-digit SHA256 fingerprint");
+	}
+	Ok(endpoint)
+}
+
 impl Electrum {
 	pub async fn connect(url: String, proxy: Option<String>, pin: Option<String>, network: Network) -> anyhow::Result<Self> {
 		tokio::task::spawn_blocking(move || {
@@ -84,11 +112,9 @@ impl Electrum {
 
 	fn connect_blocking(url: String, proxy: Option<String>, pin: Option<String>, network: Network, generation: &Arc<AtomicU64>, socket: &Arc<std::sync::Mutex<Option<TcpStream>>>) -> anyhow::Result<Client> {
 		let epoch = generation.load(Ordering::SeqCst);
-		let endpoint: url::Url = url.parse()?;
-		let host = endpoint.host_str().context("Electrum host required")?;
+		let endpoint = validate_endpoint(&url, pin.as_deref(), proxy.is_some())?;
+		let host = endpoint.host_str().context("Electrum host required")?.trim_matches(['[', ']']);
 		let port = endpoint.port().context("Electrum port required")?;
-		ensure!(["ssl", "tcp"].contains(&endpoint.scheme()) && endpoint.username().is_empty() && endpoint.password().is_none(), "invalid Electrum endpoint");
-		ensure!(!host.ends_with(".onion") || proxy.is_some(), "onion endpoint requires Tor");
 		let timeout = Duration::from_secs(20);
 		let stream = if let Some(proxy) = proxy {
 			let proxy: url::Url = proxy.parse()?;
@@ -117,7 +143,6 @@ impl Electrum {
 			let builder = rustls::ClientConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
 				.with_safe_default_protocol_versions()?;
 			let config = if let Some(pin) = pin.filter(|p| !p.is_empty()) {
-				ensure!(pin.len() == 64 && pin.bytes().all(|c| c.is_ascii_hexdigit()), "invalid certificate SHA256");
 				builder.dangerous().with_custom_certificate_verifier(Arc::new(CertificatePin(pin.to_lowercase()))).with_no_client_auth()
 			} else {
 				let roots = rustls::RootCertStore::from_iter(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
@@ -128,8 +153,8 @@ impl Electrum {
 		} else { Box::new(stream) };
 		let transport: Box<dyn Transport> = Box::new(InterruptibleTransport { inner: transport, generation: generation.clone(), epoch });
 		let raw = RawClient::from(transport);
-		let version = raw.raw_call("server.version", [Param::String("paperclip-mobile".into()), Param::Array(vec![Param::String("1.8".into()), Param::String("1.8".into())])])?;
-		ensure!(version.get(1).and_then(|v| v.as_str()) == Some("1.8"), "Electrum must negotiate XBT protocol 1.8");
+		let version = raw.raw_call("server.version", [Param::String("Paperclip".into()), Param::Array(vec![Param::String("1.4".into()), Param::String("1.8".into())])])?;
+		ensure!(version.get(1).and_then(|v| v.as_str()).is_some_and(supported_protocol), "Unsupported Electrum protocol version");
 		ensure!(raw.block_header(0)?.block_hash() == bitcoin::constants::genesis_block(network).block_hash(), "Electrum network mismatch");
 		let tip = raw.block_headers_subscribe_raw()?;
 		ensure!(tip.header.len() == 164, "Electrum must serve activated BLAKE2b XBT headers");

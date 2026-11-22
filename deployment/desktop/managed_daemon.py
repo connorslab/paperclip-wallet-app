@@ -194,6 +194,7 @@ class ManagedDaemon:
             # Inherited auth, bind, node, TLS, loader and proxy overrides must not
             # alter the packaged daemon. Persisted wallet settings remain intact.
             env = {key: os.environ[key] for key in ('PATH', 'HOME', 'TMPDIR', 'LANG') if key in os.environ}
+            env['PAPERCLIP_XBT_MAINNET'] = '1'
             if os.name == 'nt':
                 env.update({key: os.environ[key] for key in ('SystemRoot', 'TEMP', 'TMP') if key in os.environ})
             if self.jam_runtime is not None:

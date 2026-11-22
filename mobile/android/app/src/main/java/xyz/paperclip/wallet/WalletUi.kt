@@ -1344,7 +1344,7 @@ private fun Connections(s: WalletState, model: WalletModel, draft: MutableState<
 			else "Enter your regtest endpoints. The engine verifies the network before use.",
 		)
 		Choices(listOf("electrum", "esplora", "rpc"), c.backend) { c = c.copy(backend = it) }
-		Field("Chain endpoint", c.endpoint) { c = c.copy(endpoint = it) }
+		Field(if (c.backend == "electrum") "Electrum / Fulcrum address" else "Chain endpoint", c.endpoint) { c = c.copy(endpoint = it) }
 		Field("Ark server", c.server) { c = c.copy(server = it) }
 		if (c.backend == "rpc") {
 			Field("RPC username", c.username) { c = c.copy(username = it) }

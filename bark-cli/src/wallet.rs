@@ -99,15 +99,23 @@ pub struct ConfigOpts {
 	#[arg(long, hide = true)]
 	pub access_token: Option<String>,
 
+	/// XBT Electrum or Fulcrum endpoint (ssl:// or tcp:// with port).
+	#[arg(long, conflicts_with_all = ["esplora", "bitcoind"])]
+	pub electrum: Option<String>,
+
+	/// SHA256 of the Electrum server's TLS leaf certificate.
+	#[arg(long, requires = "electrum")]
+	pub electrum_certificate_sha256: Option<String>,
+
+	/// Connect to Electrum through the host's managed Tor proxy.
+	#[arg(long, requires = "electrum")]
+	pub electrum_tor: bool,
+
 	/// The address of the Esplora HTTP server to use.
-	///
-	/// Either this or the `bitcoind_address` field has to be provided.
 	#[arg(long)]
 	pub esplora: Option<String>,
 
 	/// The address of the bitcoind RPC server to use.
-	///
-	/// Either this or the `esplora_address` field has to be provided.
 	#[arg(long)]
 	pub bitcoind: Option<String>,
 
@@ -145,8 +153,8 @@ impl ConfigOpts {
 	pub fn fill_network_defaults(&mut self, net: BarkNetwork) {
 		// Fallback to our default mainnet
 		if net == BarkNetwork::Mainnet {
-			// Only do it when the user did *not* specify either --esplora or --bitcoind.
-			if self.esplora.is_none() && self.bitcoind.is_none() {
+			// Preserve an explicitly selected chain source.
+			if self.esplora.is_none() && self.bitcoind.is_none() && self.electrum.is_none() {
 				self.esplora = Some("https://mempool.second.tech/api".to_owned());
 			}
 
@@ -157,8 +165,8 @@ impl ConfigOpts {
 
 		// Fallback to our default signet
 		if net == BarkNetwork::Signet {
-			// Only do it when the user did *not* specify either --esplora or --bitcoind.
-			if self.esplora.is_none() && self.bitcoind.is_none() {
+			// Preserve an explicitly selected chain source.
+			if self.esplora.is_none() && self.bitcoind.is_none() && self.electrum.is_none() {
 				self.esplora = Some("https://esplora.signet.2nd.dev/".to_owned());
 			}
 
@@ -168,18 +176,23 @@ impl ConfigOpts {
 		}
 
 		// Fallback to Mutinynet community Esplora
-		// Only do it when the user did *not* specify either --esplora or --bitcoind.
-		if net == BarkNetwork::Mutinynet && self.esplora.is_none() && self.bitcoind.is_none() {
+		// Preserve an explicitly selected chain source.
+		if net == BarkNetwork::Mutinynet && self.esplora.is_none() && self.bitcoind.is_none() && self.electrum.is_none() {
 			self.esplora = Some("https://mutinynet.com/api".to_owned());
 		}
 	}
 
 	/// Validate the config options are sane
 	fn validate(&self) -> anyhow::Result<()> {
-		if self.esplora.is_none() && self.bitcoind.is_none() {
-			bail!("You need to provide a chain source using either --esplora or --bitcoind");
+		if self.esplora.is_none() && self.bitcoind.is_none() && self.electrum.is_none() {
+			bail!("You need to provide a chain source using --electrum, --esplora or --bitcoind");
 		}
 
+		if let Some(url) = &self.electrum {
+			anyhow::ensure!(self.esplora.is_none() && self.bitcoind.is_none(), "Select one chain backend");
+			bark::electrum::validate_endpoint(url, self.electrum_certificate_sha256.as_deref(),
+				self.electrum_tor || self.socks5_proxy.is_some())?;
+		}
 		match (
 			self.bitcoind.is_some(),
 			self.bitcoind_cookie.is_some(),
@@ -225,6 +238,13 @@ impl ConfigOpts {
 
 		if let Some(ref v) = self.access_token {
 			writeln!(conf, "server_access_token = \"{}\"", v).unwrap();
+		}
+		if let Some(url) = &self.electrum {
+			writeln!(conf, "electrum_address = {}", toml::Value::String(url.clone()))?;
+			writeln!(conf, "electrum_use_host_tor = {}", self.electrum_tor)?;
+			if let Some(pin) = &self.electrum_certificate_sha256 {
+				writeln!(conf, "electrum_certificate_sha256 = {}", toml::Value::String(pin.clone()))?;
+			}
 		}
 		if let Some(ref v) = self.esplora {
 			let url = util::default_scheme("https", v).context("invalid esplora URL")?;
@@ -468,7 +488,8 @@ async fn try_create_wallet(
 	// chain source client
 	let chain_spec = config.chain_source()
 		.context("failed to create a chain source client with the config")?;
-	let chain = ChainSource::new(chain_spec, net.as_bitcoin(), None, None).await
+	let proxy = chain_spec.proxy_for_connection(&config.socks5_proxy)?;
+	let chain = ChainSource::new(chain_spec, net.as_bitcoin(), None, proxy.as_deref()).await
 		.context("failed to create a chain source client with the config")?;
 	chain.require_version().await.context("chain source version check failed")?;
 
@@ -626,6 +647,28 @@ mod test {
 			birthday_height: None,
 			config: ConfigOpts::default(),
 		}
+	}
+
+	#[test]
+	fn electrum_host_setup_preserves_endpoint_pin_and_tor_route() {
+		let dir = tmp_dir();
+		let mut opts = ConfigOpts {
+			electrum: Some("ssl://example.onion:50002".into()),
+			electrum_certificate_sha256: Some("ab".repeat(32)),
+			electrum_tor: true, ..Default::default()
+		};
+		opts.fill_network_defaults(BarkNetwork::Mainnet);
+		assert!(opts.esplora.is_none());
+		opts.validate().unwrap();
+		let config = opts.write_to_file(Network::Bitcoin, dir.join(CONFIG_FILE)).unwrap();
+		assert_eq!(config.electrum_address, opts.electrum);
+		assert_eq!(config.electrum_certificate_sha256, opts.electrum_certificate_sha256);
+		assert!(config.electrum_use_host_tor);
+		opts.electrum_tor = false;
+		assert!(opts.validate().is_err());
+		opts.electrum = Some("tcp://localhost:50001".into());
+		assert!(opts.validate().is_err());
+		fs::remove_dir_all(dir).unwrap();
 	}
 
 	#[test]
