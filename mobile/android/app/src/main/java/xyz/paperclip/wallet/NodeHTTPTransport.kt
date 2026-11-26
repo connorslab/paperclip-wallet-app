@@ -11,6 +11,8 @@ import javax.net.ssl.SSLContext
 import javax.net.ssl.X509TrustManager
 import okhttp3.OkHttpClient
 
+internal class NodePinMismatch : CertificateException("The node TLS certificate does not match any saved SHA256 fingerprint")
+
 /** Used only after validating the endpoint, exact leaf pin and explicit Tor route. */
 internal object NodeHTTPTransport {
 	fun create(endpoint: String, pin: String, route: String): OkHttpClient {
@@ -52,10 +54,8 @@ internal object NodeHTTPTransport {
 							chain: Array<X509Certificate>,
 							authType: String,
 						) {
-							if (chain.isEmpty() || !matches(chain[0]))
-								throw CertificateException(
-									"The node TLS certificate does not match any saved SHA256 fingerprint",
-								)
+							if (chain.isEmpty()) throw CertificateException("The host did not provide a certificate")
+							if (!matches(chain[0])) throw NodePinMismatch()
 						}
 					}
 				val tls = SSLContext.getInstance("TLS").apply { init(null, arrayOf(trust), null) }

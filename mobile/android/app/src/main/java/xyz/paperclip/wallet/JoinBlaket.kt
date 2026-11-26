@@ -253,17 +253,20 @@ internal class JoinBlaketClient internal constructor(
 			continuation.invokeOnCancellation { call.cancel() }
 			call.enqueue(object : Callback {
 				override fun onFailure(call: Call, e: IOException) {
-					val failure = if (pairing != null && (e is javax.net.ssl.SSLHandshakeException || e is javax.net.ssl.SSLPeerUnverifiedException)) {
-						IOException(if (connection.pin.isEmpty())
-							"This pairing code is missing a trusted host certificate. On your Paperclip host, open Jars → Pair a phone and create a new code with automatic certificate setup, or choose Tor pairing."
-						else "The host certificate does not match this pairing code. Verify your host, then create a new code in Jars → Pair a phone.", e)
-					} else e
+					val failure = when {
+						pairing == null -> e
+						generateSequence<Throwable>(e) { it.cause }.any { it is NodePinMismatch } ->
+							IOException("The host presented a different certificate. On StartOS, update Paperclip Wallet to 0.10.0:14 or later, reload Jars, and select Pair a phone to scan a fresh code.", e)
+						connection.pin.isEmpty() && e is javax.net.ssl.SSLHandshakeException ->
+							IOException("This pairing code is missing a trusted host certificate. On your Paperclip host, open Jars → Pair a phone and create a new code with automatic certificate setup, or choose Tor pairing.", e)
+						else -> e
+					}
 					continuation.resumeWithException(failure)
 				}
 				override fun onResponse(call: Call, response: Response) {
 					try {
 						val result = response.use {
-							require(pairing == null || it.isSuccessful) { "Check Jars on your Paperclip host. If Jam locked or restarted, unlock it there and create a new pairing. Check status before retrying an action." }
+							require(pairing == null || it.code != 401) { "Check Jars on your Paperclip host. If Jam locked or restarted, unlock it there and create a new pairing. Check status before retrying an action." }
 							require(it.code != 401) { "Unlock your JoinBlaket wallet again to continue" }
 							require(it.isSuccessful) { "JoinBlaket request failed (HTTP ${it.code}). Check its current status before retrying an action." }
 							val source = it.body?.source() ?: error("Empty JoinBlaket response")

@@ -229,17 +229,29 @@ final class JoinBlaketTests: XCTestCase {
         }
         // No real grant is used. Reaching the host's authorization rejection
         // proves the production client completed TLS and sent its status request.
-        for (fingerprints, valid) in [(pins, true), (String(repeating: "0", count: 64), false)] {
+        func reachesHost(_ fingerprints: String) async throws -> Bool {
             let pair = try JoinBlaketPairing(text: pairingText(["endpoint":origin, "certificate_sha256":fingerprints]))
             let client = try JoinBlaketClient(connection: pair.connection, pairing: pair)
             do {
                 _ = try await client.status(pair.authorization())
                 XCTFail("Host accepted a synthetic grant")
+                return false
             } catch JoinBlaketError.pairingUnavailable {
-                XCTAssertTrue(valid, "An unrelated pin reached HTTP")
+                return true // Only the host's HTTP 401 maps to this error.
             } catch JoinBlaketError.pairingCertificateChanged {
-                XCTAssertFalse(valid, "Verified pins failed TLS")
+                return false
             }
+        }
+        let matchesSet = try await reachesHost(pins)
+        XCTAssertTrue(matchesSet)
+        let acceptsUnrelated = try await reachesHost(String(repeating: "0", count: 64))
+        XCTAssertFalse(acceptsUnrelated)
+        if pins.contains(",") {
+            var matches = 0
+            for pin in pins.components(separatedBy: ",") {
+                if try await reachesHost(pin) { matches += 1 }
+            }
+            XCTAssertEqual(matches, 1, "A single-leaf code must match this client's negotiated leaf")
         }
     }
 

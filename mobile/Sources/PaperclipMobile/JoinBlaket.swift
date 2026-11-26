@@ -101,7 +101,7 @@ public enum JoinBlaketError: LocalizedError {
         switch self {
         case .sessionExpired: return "Unlock your JoinBlaket wallet again to continue."
         case .pairingCertificateRequired: return "This pairing code is missing a trusted host certificate. On your Paperclip host, open Jars → Pair a phone and create a new code with automatic certificate setup, or choose Tor pairing."
-        case .pairingCertificateChanged: return "The host certificate does not match this pairing code. Verify your host, then create a new code in Jars → Pair a phone."
+        case .pairingCertificateChanged: return "The host presented a different certificate. On StartOS, update Paperclip Wallet to 0.10.0:14 or later, reload Jars, and select Pair a phone to scan a fresh code."
         case .pairingUnavailable: return "Check Jars on your Paperclip host. If Jam locked or restarted, unlock it there and create a new pairing. Check status before retrying an action."
         case .coinJoinUnavailable: return "Update your Jam server to use reviewed CoinJoin sends. No direct payment was requested."
         case .invalidResponse: return "JoinBlaket returned an unreadable response. Refresh before continuing."
@@ -345,7 +345,6 @@ public struct JoinBlaketAuthorization: Sendable, CustomStringConvertible {
 public actor JoinBlaketClient {
     private let connection: JoinBlaketConnection
     private let session: URLSession
-    private let delegate: NodeSessionDelegate
     private let pairing: JoinBlaketPairing?
     public var canDiscardReviews: Bool { pairing == nil || pairing?.canSend == true }
     var isPaired: Bool { pairing != nil }
@@ -374,8 +373,7 @@ public actor JoinBlaketClient {
                 configuration.proxyConfigurations = [settings]
             } else { throw ConnectionError.unsupportedTor }
         }
-        delegate = NodeSessionDelegate(pin: connection.certificateSHA256, diagnostics: nil)
-        session = URLSession(configuration: configuration, delegate: delegate, delegateQueue: nil)
+        session = URLSession(configuration: configuration)
     }
     deinit { session.invalidateAndCancel() }
 
@@ -410,10 +408,11 @@ public actor JoinBlaketClient {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             request.httpBody = jsonBody
         }
+        let delegate = NodeSessionDelegate(pin: connection.certificateSHA256, diagnostics: nil)
         do {
-            let (bytes, response) = try await session.bytes(for: request)
+            let (bytes, response) = try await session.bytes(for: request, delegate: delegate)
             guard let http = response as? HTTPURLResponse else { throw JoinBlaketError.invalidResponse }
-            if pairing != nil && !(200..<300).contains(http.statusCode) { throw JoinBlaketError.pairingUnavailable }
+            if pairing != nil && http.statusCode == 401 { throw JoinBlaketError.pairingUnavailable }
             guard http.statusCode != 401 else { throw JoinBlaketError.sessionExpired }
             guard (200..<300).contains(http.statusCode) else { throw JoinBlaketError.requestFailed(http.statusCode) }
             var data = Data()
@@ -424,12 +423,12 @@ public actor JoinBlaketClient {
             return data
         } catch {
             if let failure = delegate.failure {
-                if pairing != nil { throw JoinBlaketError.pairingCertificateChanged }
+                if pairing != nil && failure == .pinMismatch { throw JoinBlaketError.pairingCertificateChanged }
                 throw failure
             }
-            if pairing != nil, let failure = error as? URLError,
-               [.serverCertificateUntrusted, .serverCertificateHasUnknownRoot, .serverCertificateHasBadDate, .serverCertificateNotYetValid].contains(failure.code) {
-                throw connection.certificateSHA256.isEmpty ? JoinBlaketError.pairingCertificateRequired : JoinBlaketError.pairingCertificateChanged
+            if pairing != nil, connection.certificateSHA256.isEmpty, let failure = error as? URLError,
+               [.serverCertificateUntrusted, .serverCertificateHasUnknownRoot].contains(failure.code) {
+                throw JoinBlaketError.pairingCertificateRequired
             }
             throw error
         }
