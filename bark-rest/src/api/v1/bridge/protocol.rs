@@ -39,7 +39,7 @@ impl Invoice {
 	}
 	pub fn target(&self, direction: Direction, now: u64) -> anyhow::Result<()> {
 		ensure!(self.xbt == (direction == Direction::ReceiveXbt), "Invoice belongs to the wrong receiving network");
-		ensure!(self.expires > now.saturating_add(300), "Use a new invoice with at least five minutes remaining");
+		ensure!(self.expires > now, "This invoice has expired. Scan a fresh invoice.");
 		Ok(())
 	}
 }

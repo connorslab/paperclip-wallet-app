@@ -175,7 +175,7 @@ public actor LightningBridge {
         case "price_pause", "price_stale", "stale_price": return "The bridge is paused while pricing stabilizes. Try again shortly."
         case "limit", "daily_cap", "cap", "reserve", "insufficient_liquidity", "limits_unavailable": return "The bridge is at its liquidity or request limit. Try again later."
         case "too_small", "too_large": return "The invoice amount is outside the bridge’s current limits."
-        case "expires_soon": return "Ask for an invoice with at least five minutes remaining."
+        case "expires_soon": return "The invoice expires too soon for this swap. Scan a fresh invoice."
         case "no_amount": return "Use a fixed-amount invoice for the receiving network."
         case "wrong_network", "is_xbt", "invalid_invoice", "checksum": return "Use a valid mainnet Lightning invoice for the receiving network."
         case "pow_missing", "pow_expired", "pow_used", "pow_invalid": return "Bridge verification expired. Request a new quote."

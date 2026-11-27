@@ -111,8 +111,8 @@ public struct BridgeInvoice: Equatable, Codable, Sendable {
         guard isXBT == direction.targetIsXBT else {
             throw BridgeError.unavailable(direction == .receiveXBT ? "Receive requires an XBT mainnet invoice from your Lightning node." : "Pay requires a Spamcoin (BTC) mainnet invoice.")
         }
-        guard Double(expiresAt) > now.timeIntervalSince1970 + 300 else {
-            throw BridgeError.unavailable("Use a new invoice with at least five minutes remaining.")
+        guard Double(expiresAt) > now.timeIntervalSince1970 else {
+            throw BridgeError.unavailable("This invoice has expired. Scan a fresh invoice.")
         }
     }
     public static func verifies(preimage: String, hash: String) -> Bool {

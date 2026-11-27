@@ -12,6 +12,7 @@ class BridgeInvoiceTest {
 		xbt: Boolean = false,
 		amount: String = "10000n",
 		hashByte: Int = 1,
+		expiry: Long = 3600,
 	): String {
 		val alphabet = "qpzry9x8gf2tvdw0s3jn54khce6mua7l"
 		val hrp = "lnbc$amount"
@@ -31,7 +32,7 @@ class BridgeInvoiceTest {
 		}
 		if (bits > 0) hash += (acc shl (5 - bits)) and 31
 		data += listOf(1, 1, 20) + hash
-		data += listOf(6, 0, 7) + words(3600, 7)
+		data += listOf(6, 0, 7) + words(expiry, 7)
 		if (xbt) data += listOf(5, 3, 7) + listOf(8) + List(102) { 0 }
 		data += List(104) { 0 }
 		val generators = intArrayOf(0x3b6a57b2, 0x26508e6d, 0x1ea119fa, 0x3d4233dd, 0x2a1462b3)
@@ -44,6 +45,12 @@ class BridgeInvoiceTest {
 		}
 		data += words((checksum xor 1).toLong(), 6)
 		return hrp + "1" + data.map { alphabet[it] }.joinToString("")
+	}
+
+	@Test fun fiveMinuteMerchantInvoiceCanBeReviewedUntilExpiry() {
+		val merchant = BridgeInvoice(invoice(amount = "16490n", expiry = 300))
+		merchant.validateTarget(false, now + 3)
+		assertThrows(IllegalArgumentException::class.java) { merchant.validateTarget(false, now + 300) }
 	}
 
 	private fun quote(hold: String, hash: String) =

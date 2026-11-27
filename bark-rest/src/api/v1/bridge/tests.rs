@@ -57,7 +57,10 @@ fn mainnet_fixed_amount_and_lifetime_are_required() {
 	assert!(Invoice::parse(&invoice(true,0,&[3;32],Currency::Bitcoin,3600)).is_err());
 	assert!(Invoice::parse(&invoice(true,9_007_199_254_740_992,&[3;32],Currency::Bitcoin,3600)).is_err());
 	let target = Invoice::parse(&fixture(Direction::ReceiveXbt).target).unwrap();
-	assert!(target.target(Direction::ReceiveXbt,1_003_300).is_err());
+	assert!(target.target(Direction::ReceiveXbt,1_003_600).is_err());
+	let merchant = Invoice::parse(&invoice(false,1_649_000,&[4;32],Currency::Bitcoin,300)).unwrap();
+	assert!(merchant.target(Direction::PayBtc,1_000_003).is_ok());
+	assert!(merchant.target(Direction::PayBtc,1_000_300).is_err());
 	assert!(Invoice::parse(&format!("{} ",target.text)).is_err());
 	let mut invalid = target.text.into_bytes(); invalid[10] = if invalid[10] == b'q' { b'p' } else { b'q' };
 	assert!(Invoice::parse(&String::from_utf8(invalid).unwrap()).is_err());

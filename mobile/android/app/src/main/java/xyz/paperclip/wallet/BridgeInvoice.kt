@@ -112,6 +112,6 @@ internal class BridgeInvoice(input: String) {
 
 	fun validateTarget(receiveXbt: Boolean, now: Long = System.currentTimeMillis() / 1000) {
 		require(xbt == receiveXbt) { "Invoice belongs to the wrong receiving network" }
-		require(expires > now + 300) { "Use an invoice with at least five minutes remaining" }
+		require(expires > now) { "This invoice has expired. Scan a fresh invoice." }
 	}
 }

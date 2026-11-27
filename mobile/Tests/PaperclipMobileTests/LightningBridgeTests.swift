@@ -77,7 +77,9 @@ final class LightningBridgeTests: XCTestCase {
         XCTAssertThrowsError(try quote(invoice(), hash: target.hash).validate(target: target, now: now))
         XCTAssertThrowsError(try quote(hold, hash: target.hash, expiry: 1_800_000_004).validate(target: target, now: now))
         XCTAssertThrowsError(try quote(hold, hash: target.hash, expiry: 1_800_004_000).validate(target: target, now: now))
-        XCTAssertThrowsError(try BridgeInvoice(invoice(expiry: 299)).validateTarget(now: now))
+        let merchant = try BridgeInvoice(invoice(amount: "16490n", expiry: 300))
+        try merchant.validateTarget(now: now.addingTimeInterval(3))
+        XCTAssertThrowsError(try merchant.validateTarget(now: now.addingTimeInterval(300)))
     }
     func testPreimageProof() {
         let data = Data(repeating: 7, count: 32), preimage = String(repeating: "07", count: 32)
