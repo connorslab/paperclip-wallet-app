@@ -8,8 +8,7 @@ This branch builds a **private mainnet candidate**, not a public Android release
 Normal authenticated setup creates an XBT mainnet wallet. Existing regtest wallets
 keep their network, and full backups retain the network recorded in the archive.
 The default servers are Paperclip's mainnet Electrs and Ark endpoints, through
-built-in Tor. The coordinated release will ship through Google Play and a signed APK download
-from the same source revision; see `deployment/COORDINATED-RELEASE.md`.
+built-in Tor. The coordinated release will ship Android as a direct signed APK download; see `deployment/COORDINATED-RELEASE.md`.
 Public-release signing and physical-device acceptance are separate release gates; an APK signed with a development certificate is for private testing.
 
 ## Architecture
@@ -61,10 +60,8 @@ cd mobile/android
 library. The default is the release profile. `-Pabis=x86_64` or
 `-Pabis=arm64-v8a` restricts Gradle to the ABI already built. The APK has a separate
 preview application ID and debug signing key; do not publish it as a signed release.
-`./gradlew assembleRelease bundleRelease` produces a non-debuggable, unsigned
-release APK and App Bundle. These are candidate artifacts, not distributable
-signed releases. Sign
-the final APK using the maintained Android application signing identity before
+`./gradlew assembleRelease` produces a non-debuggable, unsigned
+release APK. Sign the final APK using the maintained Android application signing identity before
 public distribution. Keep the same identity for updates; GPG does not replace
 Android APK signing.
 Keep keys, SDK installs and native build artifacts outside version control.

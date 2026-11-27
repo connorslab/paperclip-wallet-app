@@ -65,7 +65,7 @@ replacing the token. Do not downgrade a wallet with state newer binaries created
 
 ## Coordinated release
 
-The next major release targets iOS, Android (Google Play and signed APK), Umbrel,
+The next major release targets iOS, Android (direct signed APK), Umbrel,
 StartOS, and signed Linux, macOS and Windows desktop packages together. The
 desktop packages use the same frontend and wallet backend as the host packages,
 including bundled Jam and mobile pairing. Native installation, signing,

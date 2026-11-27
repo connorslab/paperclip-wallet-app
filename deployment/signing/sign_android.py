@@ -25,7 +25,7 @@ def certificate_der(data):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--apk', required=True, type=Path)
-    parser.add_argument('--aab', required=True, type=Path)
+    parser.add_argument('--aab', type=Path, help='Optional upload bundle for a future Play release')
     parser.add_argument('--output', required=True, type=Path)
     parser.add_argument('--signing-home', type=Path, default=Path.home() / 'Library/Application Support/Paperclip Release Signing')
     parser.add_argument('--sdk', required=True, type=Path)
@@ -38,14 +38,17 @@ def main():
     source = Path(__file__).resolve().parent
     tools = args.sdk / 'build-tools/36.0.0'
     # Check identity before producing any signed file. Private keys remain local.
-    for account in ('android-app', 'android-upload'):
+    artifacts = [('apk', 'android-app', 'paperclip-app', args.apk)]
+    if args.aab is not None:
+        artifacts.append(('aab', 'android-upload', 'paperclip-upload', args.aab))
+    for _, account, _, _ in artifacts:
         if certificate_der((args.signing_home / (account + '.pem')).read_bytes()) != certificate_der((source / (account + '.pem')).read_bytes()):
             raise RuntimeError('Signing certificate differs from the reviewed release identity.')
     args.output.mkdir(parents=True, mode=0o700)
     results = {}
     with tempfile.TemporaryDirectory(prefix='.sign-', dir=args.signing_home) as temporary:
         temp = Path(temporary)
-        for kind, account, alias, input_file in [('apk', 'android-app', 'paperclip-app', args.apk), ('aab', 'android-upload', 'paperclip-upload', args.aab)]:
+        for kind, account, alias, input_file in artifacts:
             secret = run([args.signing_home / 'keychain-helper', 'read', account])
             password_file = temp / (account + '.password')
             password_file.write_bytes(secret)
@@ -82,7 +85,7 @@ def main():
         with tempfile.TemporaryDirectory(prefix='pc-verify-', dir='/tmp') as verify:
             run(['gpg', '--homedir', verify, '--batch', '--no-autostart', '--import', source / 'linux-release-public.asc'])
             run(['gpg', '--homedir', verify, '--batch', '--no-autostart', '--verify', args.output / 'SHA256SUMS.asc', args.output / 'SHA256SUMS'])
-    print('APK, upload bundle and release manifest signatures verified. Candidates are not published.')
+    print('Candidate and release manifest signatures verified. Candidates are not published.')
 
 
 if __name__ == '__main__':

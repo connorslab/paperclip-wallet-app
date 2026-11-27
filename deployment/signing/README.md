@@ -16,7 +16,7 @@ The app signing certificate is `android-app.pem` (RSA 4096):
 The separate Play upload certificate is `android-upload.pem` (RSA 4096):
 `AB16A0F072F6777B2A5534A19342225FD222F6E69607D923204061C78E362BC1`.
 
-During first Play App Signing enrollment, import the **app** key using Google's
+If Google Play is added later, during first Play App Signing enrollment, import the **app** key using Google's
 PEPK procedure, and register the separate upload certificate. Direct APKs and
 Play-delivered APKs must use the same app signing certificate to permit updates
 between channels. The AAB upload signature uses the separate upload key.
@@ -24,19 +24,18 @@ Never substitute the development certificate or regenerate an identity for an
 update. See [Android app signing](https://developer.android.com/studio/publish/app-signing).
 
 Build native libraries with the release profile for both ABIs, then run Gradle
-`assembleRelease bundleRelease`. Sign the unsigned outputs locally:
+`assembleRelease`. Sign the initial release APK locally:
 
 ```
 python3 deployment/signing/sign_android.py \
   --apk /absolute/path/app-release-unsigned.apk \
-  --aab /absolute/path/app-release.aab \
   --output /absolute/path/new-candidate-directory \
   --sdk /absolute/path/android-sdk --java-home /absolute/path/jdk
 ```
 
 The script obtains passwords through the local no-prompt Keychain helper, uses
 private temporary password files, checks the public identities, signs, verifies
-APK/JAR signatures and APK alignment, and signs the checksum manifest. It never
+the APK signature and alignment, and signs the checksum manifest. It never
 publishes. Keep the exact native/source hashes with each candidate. The script
 does not turn a development native library into a release library or certify
 payment, restore or upgrade acceptance.
@@ -84,9 +83,7 @@ Developer ID Application certificate and notarization are still required.
 The existing iOS distribution certificate does not replace Developer ID.
 See [Apple Developer ID](https://developer.apple.com/help/account/certificates/create-developer-id-certificates/).
 
-Google Play Console and Windows public signing are not enrolled yet. The owner
-must complete [Google organization enrollment and verification](https://support.google.com/googleplay/android-developer/answer/13628312)
-and arrange [Microsoft Artifact Signing](https://learn.microsoft.com/en-us/azure/artifact-signing/quickstart)
+For Windows public signing, the owner must arrange [Microsoft Artifact Signing](https://learn.microsoft.com/en-us/azure/artifact-signing/quickstart)
 or another trusted Windows signing provider. Artifact Signing manages its key;
 a locally generated self-signed certificate does not satisfy public trust.
 No enrollment fee or subscription has been purchased.

@@ -1,8 +1,7 @@
 # Coordinated Paperclip release
 
 The next major release includes iOS, Android, Umbrel, StartOS and signed Linux,
-macOS and Windows desktop packages from one reviewed source revision. Android distribution includes **Google Play and a signed APK
-download**. Windows distribution is an **MSI or EXE in GitHub Releases only**;
+macOS and Windows desktop packages from one reviewed source revision. The initial Android release is a **direct signed APK download**. Windows distribution is an **MSI or EXE in GitHub Releases only**;
 Microsoft Store distribution is excluded. Prepare candidates independently, then publish in one coordinated
 release window after every platform meets the acceptance criteria below. Store
 review and propagation can finish at different times; do not promise simultaneous
@@ -23,7 +22,7 @@ checks and their limits.
 | Area | Verified in the current test pass | Still required |
 | --- | --- | --- |
 | iOS | 129 shared Swift tests; six isolated native Keychain recovery cases and two native backup/profile cases; 17 safe UI cases on both regular-phone and open-Duo simulators | Physical signer, camera, accessibility and interrupted/folded payment acceptance; final signed candidate and upgrade |
-| Android | 112 JVM tests (four live cases excluded); 52 instrumentation cases across 19 classes on both API 35/36 CI at `2a299374`, including cross-platform backup/profile installation; authenticated CLN/LND reads and pin rejection | Final release identity, Play/APK upgrade compatibility and physical/foldable acceptance |
+| Android | 112 JVM tests (four live cases excluded); 52 instrumentation cases across 19 classes on both API 35/36 CI at `2a299374`, including cross-platform backup/profile installation; authenticated CLN/LND reads and pin rejection | Final release identity, signed APK upgrade compatibility and physical/foldable acceptance |
 | Shared desktop UI | All 17 existing browser-flow suites plus entropy, transport and QR checks; phone, foldable and desktop widths where each suite defines them | Installed-host and native desktop acceptance; accept multiple-hot-wallet profiles and hardware-funded Ark workflows |
 | StartOS/Umbrel | Shared REST checks, authenticated CLN/LND reads; both StartOS candidate architectures built and source/checksums checked | Complete backup/restore, candidate installation, bundled Jam pairing/revocation/Tor and upgrades; matching frozen wrappers |
 | Linux/macOS/Windows | Isolated Apple Silicon and Linux daemon authentication, duplicate-instance rejection and crash/restart; macOS bundled Tor/Jars/helper runtime passes 15 relocated isolation cases; Linux bundled Tor/Jars passes TLS/proxy, relocation, frozen-window and Chromium checks; Windows native storage/ownership and bundled Tor/Jars/wallet/window lifecycle pass at `47f2cb77`, including saved-node setup/replacement controller checks | Installed browser/accessibility and bundled-Tor/Jars acceptance; supported OS matrix, signed installers, notarization and clean install/upgrade tests |
@@ -98,7 +97,7 @@ coordinated scope is iOS, Android, StartOS, Umbrel, Linux, macOS and Windows.
    final candidate regression and security review of spending, RBF, PSBT/change
    validation, permissions, TLS, storage failure and recovery. Process-crash tests
    do not establish storage power-loss or actual-payment shutdown acceptance.
-8. **Finish signed distribution and upgrades.** Verify Android's Play/APK release
+8. **Finish signed distribution and upgrades.** Verify Android's direct APK release
    identity and upgrade compatibility; produce the final signed iOS candidate.
    Obtain/verify macOS Developer ID and notarization, Windows publisher signing
    and timestamps, and Linux release-key signatures. Define and test supported
@@ -110,7 +109,7 @@ coordinated scope is iOS, Android, StartOS, Umbrel, Linux, macOS and Windows.
 9. **Freeze and coordinate the release.** Select one reviewed revision and version,
    regenerate matching StartOS/Umbrel wrappers and build every final artifact
    from that revision with matching daemon/helper provenance. Re-run acceptance
-   on those exact artifacts, complete Apple/Google store eligibility and review,
+   on those exact artifacts, complete Apple App Store eligibility and review,
    and coordinate publication only after every gate above passes.
 
 Jars Direct/CoinJoin controls and server-wallet bond funding/withdrawal client
@@ -425,7 +424,7 @@ Before a coordinated release, complete and accept:
 - Live CLN/LND, BOLT12, Ark and both Bridge directions, including failed/unknown
   outcome reconciliation. Read-only node probes do not establish settlement.
 - One frozen source revision and matching wrappers, final security/regression
-  checks, Android Play/APK signing identities, Apple eligibility and signed
+  checks, Android APK signing identity, Apple eligibility and signed
   candidates, clean installs and in-place upgrades. Passing builds are insufficient.
 
 Build 73 is a locally installed iPhone test candidate. The StartOS test package
@@ -488,29 +487,18 @@ round trips and cold-bond registration/certificate delegation remain release gat
   dependency lockfiles, native toolchain versions and CI runs for every artifact.
 - Build the Apple archive with the native Apple toolchain and existing signing
   identity. Preserve the production bundle ID, Keychain groups and wallet data.
-- Build the Android App Bundle for Play and APK download from the same commit,
-  version name, version code, resources and native libraries. Verify ARM64 and
-  x86-64 packaging, release-only behavior and supported page sizes.
-- Confirm the Android application ID and signing certificate against the installed
-  app and Play Console before selecting the release identity. The current preview
-  uses `xyz.paperclip.wallet.android.preview` and development signing. An app signed
-  with a different certificate cannot update it in place. Do not uninstall a
-  funded preview to work around a signing mismatch; validate full backup/restore
-  and an explicit migration first.
-- The Play upload key and installed-app signing key may differ. Sign a direct APK
-  with the installed-app key, not merely the AAB upload key. If Google holds the
-  app signing key, obtain the distributable signed APK from Play Console. Verify
-  the certificate on both channels before claiming cross-channel updates work.
+- Build the release APK with both ARM64 and x86-64 native libraries. Verify its
+  page alignment, production application ID and signing certificate. Publish
+  its SHA-256 checksum with the signed release manifest.
+- On an unfunded device, verify a clean install and an in-place upgrade from a
+  lower version code signed with the same production app key. Confirm wallet
+  data survives. The development preview uses a separate application ID and
+  signing identity. Verify backup and restore for users migrating from preview.
 - Build and test Linux AMD64 and ARM64 images. Both platform wrappers must pin the
   same reviewed multi-architecture image digest. Record wrapper commits separately.
   StartOS 0.4 uses `paperclip-wallet-startos`, not the legacy 0.3.5 generator here.
 - Publish checksums, immutable image digests and the existing Paperclip release
   signature described in `RELEASE-SIGNING.md`. Native signatures remain required.
-
-Google documents the distinction between upload and app-signing keys in
-[Sign your app](https://developer.android.com/studio/publish/app-signing) and the
-Play-signed download option in its
-[App Bundle FAQ](https://developer.android.com/guide/app-bundle/faq).
 
 ## Latest verification: 2026-11-16
 
@@ -911,19 +899,13 @@ required service interruption must respect the existing no-restart constraint.
 2. Build immutable candidates from the source freeze; validate signatures,
    checksums, wallet preservation and restore procedures. Do not downgrade a wallet
    database that a newer build has migrated.
-3. Submit Apple for review with manual release. Stage Google Play testing/review
-   and managed publishing where available. A first Play publication needs its own
-   supported release path; managed publishing does not cover first publication.
-4. Prepare the signed APK release and both wrapper updates with matching notes,
-   support information and artifact provenance. Keep candidates unpublished until
-   the four platforms are ready.
+3. Submit Apple for review with manual release.
+4. Stage the signed APK, both server wrapper updates and the desktop installers
+   with matching release notes, checksums and provenance. Publish after all
+   seven platforms pass acceptance.
 5. Release the approved versions within the coordinated window. Verify each store
    listing/download, package digest and post-upgrade health. If a platform fails,
    report that clearly instead of declaring full parity or a completed release.
-
-Apple's [manual release controls](https://developer.apple.com/help/app-store-connect/manage-your-apps-availability/select-an-app-store-version-release-option)
-and Google's [managed publishing rules](https://support.google.com/googleplay/android-developer/answer/9859654)
-govern the store portion of this sequence.
 
 ## Bridge service status and build evidence: 2026-11-15
 
@@ -4332,10 +4314,8 @@ not close disaster recovery.
 
 Android release builds now use `xyz.paperclip.wallet.android`, version 0.2.0 (5).
 Debug builds retain the preview application ID and label. Release signing is a
-separate step and cannot fall back to the debug key. Google Play must import the
-app signing identity and use the separate upload identity so Play and direct APK
-updates remain compatible. Play account verification and delivered-APK acceptance
-remain open. The local macOS Developer ID request is prepared, but Apple issuance
+separate step and cannot fall back to the debug key. Initial distribution uses the APK signed with the app key.
+Verify installation and upgrade of the final downloadable APK. The local macOS Developer ID request is prepared, but Apple issuance
 and notarization require account access. No trusted Windows certificate has been
 issued, no enrollment has been purchased and no candidate has been published.
 
