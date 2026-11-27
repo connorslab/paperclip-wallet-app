@@ -308,11 +308,13 @@ struct LightningBridgeView: View {
                 // Pin the selected wallet across suspension points and the native send.
                 let held = try await store.engine.holdMaintenanceWallet()
                 guard held?.id == record.walletID else { await store.engine.releaseMaintenanceWallet(); throw BridgeError.invalidQuote }
-                do { try reviewSession.check(ticket) }
+                do {
+                    try reviewSession.check(ticket)
+                    try model.beginSubmission(record)
+                }
                 catch { await store.engine.releaseMaintenanceWallet(); throw error }
                 store.busy = true
                 do {
-                    try model.beginSubmission(record)
                     fundingTicket = nil
                     reviewedTotal = nil
                     let result = try await store.engine.send(destination: record.quote.hold_invoice, amount: record.quote.pay_sat, total: total)
@@ -331,7 +333,6 @@ struct LightningBridgeView: View {
                 let decoded = try LightningPaymentReview.decode(await node.decode(record.quote.hold_invoice), implementation: connection.implementation)
                 try reviewSession.check(ticket)
                 guard decoded == review else { throw BridgeError.invalidQuote }
-                _ = try record.quote.validate(target: BridgeInvoice(record.target))
                 // Journal the attempt before either the node request or a possible timeout.
                 try model.beginSubmission(record, connection: connection)
                 fundingTicket = nil

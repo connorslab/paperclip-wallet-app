@@ -8,6 +8,15 @@ internal data class BridgeObservation(val record: JSONObject, val message: Strin
 
 /** Bridge settlement, node receipt and funding status are independent observations. */
 internal object BridgeSettlement {
+	// Older journals kept submitted=true even when native Ark rejected before sending.
+	// A receive request also starts with funding=not_sent and must stay observable.
+	fun applyDefinitiveArkRejection(record: JSONObject) {
+		if (record.optString("source") == "ark" && !record.optBoolean("receive") &&
+			record.optString("funding") == "not_sent" && !record.optBoolean("verified")) {
+			record.put("submitted", false)
+		}
+	}
+
 	suspend fun observe(
 		record: JSONObject,
 		bridge: suspend () -> JSONObject,

@@ -9,6 +9,19 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class BridgeSettlementTest {
+	@Test fun onlyDefinitiveArkRejectionReleasesSubmission() {
+		fun submitted(state: String, receive: Boolean = false, source: String = "ark"): Boolean {
+			val saved = JSONObject().put("source", source).put("receive", receive)
+				.put("submitted", true).put("funding", state)
+			BridgeSettlement.applyDefinitiveArkRejection(saved)
+			return saved.getBoolean("submitted")
+		}
+		assertFalse(submitted("not_sent"))
+		assertTrue(submitted("not_sent", receive = true))
+		assertTrue(submitted("not_sent", source = "node"))
+		for (state in listOf("unknown", "pending", "paid")) assertTrue(submitted(state))
+	}
+
 	private fun record(receive: Boolean) = JSONObject().put("receive", receive).put("hash", "01".repeat(32)).put("bridge", "quoted").put("verified", false)
 
 	@Test fun bridgeOutageCannotHideAPaidNodeInvoice() = runBlocking {

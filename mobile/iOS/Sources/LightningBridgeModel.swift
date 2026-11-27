@@ -65,6 +65,7 @@ struct BridgePaymentRecord: Codable, Identifiable {
     func beginSubmission(_ record: BridgePaymentRecord, connection: LightningConnection? = nil) throws {
         guard let latest = current, latest.id == record.id, latest.quote == record.quote,
               !latest.submitted else { throw WalletFailure(message: "This quote changed or already has a payment attempt. Check its status.") }
+        _ = try latest.quote.validate(target: BridgeInvoice(latest.target))
         try update(record.id) {
             $0.submitted = true; $0.fundingState = "pending"
             $0.nodeEndpoint = connection?.endpoint

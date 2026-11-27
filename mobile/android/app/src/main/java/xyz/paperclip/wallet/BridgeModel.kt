@@ -114,6 +114,7 @@ internal class BridgeModel(app: Application) : AndroidViewModel(app) {
 	private suspend fun loadJournal() {
 		if (!loaded) {
 			journal = read("bridge-records")?.let(::JSONArray) ?: JSONArray()
+			for (i in 0 until journal.length()) BridgeSettlement.applyDefinitiveArkRejection(journal.getJSONObject(i))
 			loaded = true
 			change {
 				it.copy(
@@ -282,7 +283,8 @@ internal class BridgeModel(app: Application) : AndroidViewModel(app) {
 			"This quote already has a payment attempt"
 		}
 		val target = BridgeInvoice(old.getString("target"))
-		val hold = BridgeQuote(old.getJSONObject("quote")).validate(target, false)
+		val quote = BridgeQuote(old.getJSONObject("quote"))
+		val hold = quote.validate(target, false)
 		val source = old.getString("source")
 		val native = mutable.value.nativeQuote
 		val review = mutable.value.nodeReview
@@ -319,6 +321,7 @@ internal class BridgeModel(app: Application) : AndroidViewModel(app) {
 			}
 		}
 		reviewSession.check(ticket)
+		quote.validate(target, false)
 		val intent = JSONObject(old.toString()).put("submitted", true).put("funding", "unknown")
 		save(intent) // Durable before either funding call; never replayed automatically.
 		// Past this durable boundary, finish and reconcile even if the UI locks.
@@ -359,7 +362,10 @@ internal class BridgeModel(app: Application) : AndroidViewModel(app) {
 					}
 					state ?: "unknown"
 				}
-			save(JSONObject(intent.toString()).put("funding", funding))
+			val updated = JSONObject(intent.toString()).put("funding", funding)
+			BridgeSettlement.applyDefinitiveArkRejection(updated)
+			save(updated)
+			if (!updated.getBoolean("submitted")) change { it.copy(message = "Not sent. Review the funding fees again.") }
 		} finally {
 			startPolling()
 		}
