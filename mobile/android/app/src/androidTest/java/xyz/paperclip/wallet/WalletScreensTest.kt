@@ -245,8 +245,9 @@ class WalletScreensTest {
 			click("Connections")
 			waitFor("Save and connect")
 			capture("08-connections")
+			click("electrum")
 			compose
-				.onNodeWithText("Chain endpoint")
+				.onNodeWithText("Electrum / Fulcrum address")
 				.performTextReplacement("ssl://example.invalid:50002")
 			compose.onNodeWithText("Unsaved changes").assertExists()
 			compose.onNodeWithTag("tab-Wallet").performClick()
